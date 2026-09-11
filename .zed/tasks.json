@@ -1,0 +1,11 @@
+[
+  {
+    "label": "Mework: UI dev (explicit launch)",
+    "command": "./scripts/tauri-dev.sh",
+    "cwd": "$ZED_WORKTREE_ROOT",
+    "use_new_terminal": true,
+    "allow_concurrent_runs": false,
+    "reveal": "always",
+    "show_command": true
+  }
+]

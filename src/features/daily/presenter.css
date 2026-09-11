@@ -1,0 +1,403 @@
+/* Daily presenter is isolated from the application shell and stays light. */
+.daily-presenter-view {
+  position: relative;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  width: 100vw;
+  height: 100vh;
+  min-width: 960px;
+  min-height: 540px;
+  overflow: hidden;
+  color: #252525;
+  background: #f7f6f2;
+  box-shadow: 0 18px 50px rgb(28 47 66 / 12%), 0 2px 8px rgb(28 47 66 / 8%);
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Helvetica Neue", sans-serif;
+}
+
+.daily-presenter-header {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  gap: 24px;
+  min-height: 62px;
+  padding: 0 32px;
+  border-bottom: 1px solid rgb(0 0 0 / 8%);
+  background: rgb(255 255 255 / 82%);
+  box-shadow: 0 1px 12px rgb(0 0 0 / 4%);
+  user-select: none;
+}
+
+.daily-presenter-brand,
+.daily-presenter-project,
+.daily-presenter-date {
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: .01em;
+}
+
+.daily-presenter-brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: #1d1d1f;
+  font-size: 17px;
+}
+
+.daily-presenter-live-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 999px;
+  background: #ff3b30;
+  box-shadow: 0 0 0 5px rgb(255 59 48 / 14%);
+}
+
+.daily-presenter-project {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  color: #3a3a3c;
+  text-align: center;
+}
+
+.daily-presenter-header-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+  min-width: 0;
+}
+
+.daily-presenter-date {
+  color: #6e6e73;
+  text-align: right;
+}
+
+.daily-presenter-content {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+  padding: 20px 32px 22px;
+}
+
+.daily-presenter-member-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  min-height: 0;
+  margin-bottom: 22px;
+}
+
+.daily-presenter-member-identity {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 16px;
+}
+
+.daily-presenter-member-navigation {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+}
+
+.daily-presenter-member-nav-button {
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  color: #6e6e73;
+}
+
+.daily-presenter-member-nav-button:hover {
+  color: #1d1d1f;
+  background: rgb(0 0 0 / 5%);
+}
+
+.daily-presenter-member-copy {
+  min-width: 0;
+}
+
+.daily-presenter-member-heading h1 {
+  margin: 0 0 8px;
+  color: #1d1d1f;
+  font-size: clamp(28px, 3.2vw, 40px);
+  font-weight: 700;
+  letter-spacing: -.045em;
+  line-height: .98;
+}
+
+.daily-presenter-eyebrow {
+  margin: 0;
+  color: #6e6e73;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+}
+
+.daily-presenter-avatar {
+  display: inline-flex;
+  width: 52px;
+  height: 52px;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  border: 2px solid rgb(0 122 255 / 18%);
+  border-radius: 999px;
+  object-fit: cover;
+  box-shadow: 0 6px 18px rgb(0 0 0 / 10%);
+}
+
+.daily-presenter-avatar-large {
+  width: 72px;
+  height: 72px;
+  border-width: 2px;
+  border-color: rgb(0 122 255 / 24%);
+}
+
+.daily-presenter-avatar-fallback {
+  color: #ffffff;
+  background: linear-gradient(135deg, #007aff, #5ac8fa);
+  font-size: 21px;
+  font-weight: 800;
+}
+
+.daily-presenter-progress {
+  width: min(380px, 45vw);
+}
+
+.daily-presenter-progress-label {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  color: #86868b;
+  font-size: 12px;
+}
+
+.daily-presenter-progress-label strong {
+  color: #3a3a3c;
+  font-weight: 650;
+}
+
+.daily-presenter-progress-track {
+  height: 7px;
+  margin-top: 7px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: #e5e5ea;
+}
+
+.daily-presenter-progress-track span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: #ff3b30;
+  transition: width 240ms ease;
+}
+
+.daily-presenter-task-grid {
+  display: grid;
+  flex: 1;
+  min-height: 0;
+  gap: 12px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-auto-rows: minmax(0, 1fr);
+  align-content: stretch;
+}
+
+.daily-presenter-task-grid-1,
+.daily-presenter-task-grid-2,
+.daily-presenter-task-grid-3,
+.daily-presenter-task-grid-4 {
+  flex: 0 0 auto;
+  grid-auto-rows: minmax(160px, 220px);
+  align-content: start;
+}
+
+@media (max-width: 1100px) {
+  .daily-presenter-task-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 700px) {
+  .daily-presenter-task-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.daily-presenter-task-card {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  justify-content: space-between;
+  min-height: 0;
+  overflow: hidden;
+  padding: 14px 16px;
+  border: 1px solid #dbe2ea;
+  border-radius: 16px;
+  background: #ffffff;
+  box-shadow: 0 12px 30px rgb(28 47 66 / 8%), 0 2px 6px rgb(28 47 66 / 4%);
+}
+
+.daily-presenter-task-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 22px;
+}
+
+.daily-presenter-ticket-id {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  color: #71839a;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: .02em;
+}
+
+.daily-presenter-status,
+.daily-presenter-points {
+  display: inline-flex;
+  align-items: center;
+  width: fit-content;
+  max-width: 100%;
+  padding: 5px 9px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: .04em;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.daily-presenter-status {
+  flex: 0 0 auto;
+}
+
+.daily-presenter-task-footer {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: auto;
+}
+
+.daily-presenter-points {
+  flex: 0 0 auto;
+  color: #6e6e73;
+  background: #f2f2f7;
+  border-color: #e5e5ea;
+}
+
+.daily-presenter-status-backlog {
+  color: #6e6e73;
+  background: #f2f2f7;
+  border-color: #d1d1d6;
+}
+
+.daily-presenter-status-progress {
+  color: #0066cc;
+  background: #eaf3ff;
+  border-color: #b9d9ff;
+}
+
+.daily-presenter-status-done {
+  color: #248a3d;
+  background: #e9f9ed;
+  border-color: #b7e4c0;
+}
+
+.daily-presenter-status-blocked {
+  color: #b3261e;
+  background: #fff0ef;
+  border-color: #f1b8b5;
+}
+
+.daily-presenter-status-review {
+  color: #6941c6;
+  background: #f4efff;
+  border-color: #d8c7ff;
+}
+
+.daily-presenter-status-default {
+  color: #515154;
+  background: #f5f5f7;
+  border-color: #d1d1d6;
+}
+
+.daily-presenter-task-card h2 {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  overflow-wrap: anywhere;
+  overflow: hidden;
+  margin: 10px 0 8px;
+  color: #252525;
+  font-size: clamp(15px, 1.4vw, 21px);
+  font-weight: 650;
+  letter-spacing: -.025em;
+  line-height: 1.15;
+}
+
+.daily-presenter-empty-state {
+  display: grid;
+  flex: 1;
+  place-content: center;
+  justify-items: center;
+  align-content: center;
+  text-align: center;
+}
+
+.daily-presenter-empty-mark {
+  display: grid;
+  width: 64px;
+  height: 64px;
+  place-items: center;
+  margin-bottom: 18px;
+  border: 1px solid #b7e4c0;
+  border-radius: 22px;
+  color: #248a3d;
+  background: #e9f9ed;
+  font-size: 30px;
+}
+
+.daily-presenter-empty-state h1,
+.daily-presenter-empty-state h2 {
+  margin: 0;
+  color: #1d1d1f;
+  font-size: 30px;
+}
+
+.daily-presenter-empty-state p {
+  margin: 10px 0 0;
+  color: #6e6e73;
+}
+
+.daily-presenter-refresh,
+.daily-presenter-close {
+  color: #6e6e73;
+  font-size: 12px;
+}
+
+.daily-presenter-refresh:hover,
+.daily-presenter-close:hover {
+  color: #1d1d1f;
+  background: rgb(0 0 0 / 5%);
+}
+
+@media (max-width: 1050px) {
+  .daily-presenter-header {
+    padding: 0 28px;
+  }
+
+  .daily-presenter-content {
+    padding-right: 28px;
+    padding-left: 28px;
+  }
+}

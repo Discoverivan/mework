@@ -1,0 +1,1 @@
+No recorded Hermes HTTP/SSE fixtures exist yet. The installed Hermes v0.21.0 exposes ACP and a JSON-RPC/WebSocket `serve` backend, but not the planned `/v1/runs` API. See `docs/contracts/hermes-api.md` before adding fixtures.

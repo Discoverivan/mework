@@ -1,0 +1,3 @@
+{
+  "projects": [{"id": "10001", "key": "DEMO", "issuetypes": [{"id": "10000", "name": "Sub-task", "subtask": true, "fields": {"summary": {"required": true}}}]}]
+}

@@ -1,0 +1,140 @@
+name: Publish Mework
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Optional explicit SemVer; leave empty for the next patch version"
+        required: false
+        type: string
+  push:
+    branches:
+      - master
+
+concurrency:
+  group: publish-mework
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  publish-tauri:
+    name: Build ${{ matrix.name }}
+    runs-on: ${{ matrix.platform }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: macOS Apple Silicon
+            platform: macos-latest
+            args: --target aarch64-apple-darwin
+          - name: macOS Intel
+            platform: macos-latest
+            args: --target x86_64-apple-darwin
+          - name: Windows x64
+            platform: windows-latest
+            args: ''
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+          cache: npm
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.platform == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: ./src-tauri -> target
+
+      - name: Set release version and updater endpoint
+        id: release_version
+        shell: bash
+        env:
+          REQUESTED_VERSION: ${{ inputs.version }}
+        run: |
+          git fetch --tags --force
+          BASE_VERSION=$(node -p "require('./package.json').version")
+          if [ -n "$REQUESTED_VERSION" ]; then
+            VERSION="$REQUESTED_VERSION"
+          else
+            VERSION=$(python - "$BASE_VERSION" <<'PY'
+          import re
+          import subprocess
+          import sys
+
+          base = sys.argv[1]
+          versions = []
+          for tag in subprocess.check_output(["git", "tag", "--list", "mework-v*"], text=True).splitlines():
+              match = re.fullmatch(r"mework-v(\d+)\.(\d+)\.(\d+)", tag)
+              if match:
+                  versions.append(tuple(map(int, match.groups())))
+          if not versions:
+              print(base)
+          else:
+              major, minor, patch = max(versions)
+              print(f"{major}.{minor}.{patch + 1}")
+          PY
+            )
+          fi
+          python - "$VERSION" <<'PY'
+          import re
+          import sys
+          if not re.fullmatch(r"\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?", sys.argv[1]):
+              raise SystemExit("Release version must be valid SemVer")
+          PY
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "MEWORK_VERSION=$VERSION" >> "$GITHUB_ENV"
+          npm version --no-git-tag-version --ignore-scripts "$VERSION"
+          python - <<'PY'
+          import json
+          import os
+          import re
+          from pathlib import Path
+
+          version = os.environ["MEWORK_VERSION"]
+          config_path = Path("src-tauri/tauri.conf.json")
+          config = json.loads(config_path.read_text())
+          config["version"] = version
+          config["plugins"]["updater"]["endpoints"] = [
+              f"https://github.com/{os.environ['GITHUB_REPOSITORY']}/releases/latest/download/latest.json"
+          ]
+          config_path.write_text(json.dumps(config, indent=2) + "\n")
+
+          cargo_path = Path("src-tauri/Cargo.toml")
+          cargo = cargo_path.read_text()
+          cargo_path.write_text(re.sub(r'(?m)^version = "[^"]+"$', f'version = "{version}"', cargo, count=1))
+          PY
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Publish bundles and release
+        uses: tauri-apps/tauri-action@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          projectPath: .
+          tagName: mework-v__VERSION__
+          releaseName: Mework v__VERSION__
+          releaseBody: |
+            Download the installer for your platform from the assets below.
+
+            The release also contains signed updater artifacts for in-app updates.
+          releaseDraft: false
+          prerelease: false
+          args: ${{ matrix.args }}

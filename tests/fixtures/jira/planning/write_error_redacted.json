@@ -1,0 +1,6 @@
+{
+  "errorMessages": ["secret provider detail must not be copied"],
+  "errors": {
+    "field-from-metadata": "secret validation detail"
+  }
+}

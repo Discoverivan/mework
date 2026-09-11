@@ -1,0 +1,6 @@
+{
+  "values": [{"id": "20001", "name": "Example board", "type": "scrum", "location": {"projectId": 10001, "projectKey": "DEMO", "projectName": "Example Project One"}}],
+  "startAt": 0,
+  "maxResults": 50,
+  "total": 1
+}

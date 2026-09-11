@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/png" href="/mework-icon.png" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Mework</title>
+  </head>
+
+  <body>
+    <style>
+      html, body, #root { min-height: 100%; margin: 0; }
+      body { background: #f7f8fb; }
+      .boot-loader {
+        box-sizing: border-box;
+        min-height: 100vh;
+        display: grid;
+        place-items: center;
+        padding: 24px;
+        background: radial-gradient(circle at 50% 35%, rgba(70, 95, 199, 0.10), transparent 42%), #f7f8fb;
+        color: #1b2430;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      }
+      .boot-loader-panel {
+        box-sizing: border-box;
+        width: min(100%, 460px);
+        display: grid;
+        justify-items: center;
+        gap: 22px;
+        padding: 30px 34px 32px;
+        border: 1px solid #d9e0ea;
+        border-radius: 24px;
+        background: rgba(255, 255, 255, 0.92);
+        box-shadow: 0 24px 70px rgba(27, 36, 48, 0.12);
+      }
+      .boot-loader img { display: block; width: min(100%, 360px); height: auto; border-radius: 12px; }
+      .boot-loader-copy { display: grid; justify-items: center; gap: 6px; text-align: center; }
+      .boot-loader-copy strong { font-size: 18px; letter-spacing: -0.01em; }
+      .boot-loader-copy span { color: #566275; font-size: 14px; }
+      .boot-loader-track {
+        position: relative;
+        width: min(100%, 320px);
+        height: 8px;
+        overflow: hidden;
+        border-radius: 999px;
+        background: #e1e5ef;
+      }
+      .boot-loader-bar {
+        width: 42%;
+        height: 100%;
+        border-radius: inherit;
+        background: #465fc7;
+        animation: boot-loader-progress 1.45s ease-in-out infinite;
+      }
+      @keyframes boot-loader-progress {
+        0% { transform: translateX(-115%); }
+        50% { transform: translateX(135%); }
+        100% { transform: translateX(265%); }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        .boot-loader-bar { width: 64%; animation: none; transform: translateX(28%); }
+      }
+    </style>
+    <div id="root">
+      <div class="boot-loader" role="status" aria-label="Loading Mework" aria-busy="true">
+        <div class="boot-loader-panel">
+          <img src="/splash.png" alt="Mework" />
+          <div class="boot-loader-copy">
+            <strong>Loading Mework</strong>
+            <span>Preparing your workspace…</span>
+          </div>
+          <div class="boot-loader-track" role="progressbar" aria-label="Application loading" aria-valuetext="Loading application">
+            <div class="boot-loader-bar"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

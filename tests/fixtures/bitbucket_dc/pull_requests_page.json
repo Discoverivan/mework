@@ -1,0 +1,25 @@
+{
+  "size": 1,
+  "limit": 50,
+  "isLastPage": true,
+  "values": [
+    {
+      "id": 7,
+      "version": 3,
+      "title": "Example pull request",
+      "description": "Adds a safe polling boundary.",
+      "state": "OPEN",
+      "open": true,
+      "closed": false,
+      "createdDate": 1760000000000,
+      "updatedDate": 1760001000000,
+      "fromRef": {"id": "refs/heads/feature/provider", "displayId": "feature/provider", "latestCommit": "abc123"},
+      "toRef": {"id": "refs/heads/main", "displayId": "main", "latestCommit": "def456"},
+      "author": {"name": "test-author-a", "displayName": "Test Author A", "active": true},
+      "reviewers": [],
+      "participants": [],
+      "properties": {},
+      "links": {"self": [{"href": "https://bitbucket.example/projects/DEMO/repos/sample-repository/pull-requests/7"}]}
+    }
+  ]
+}

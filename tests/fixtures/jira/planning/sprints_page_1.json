@@ -1,0 +1,9 @@
+{
+  "values": [
+    {"id": 30001, "name": "Example sprint", "state": "FUTURE", "boardId": 20001},
+    {"id": 30002, "name": "Example future sprint", "state": "ACTIVE", "startDate": "2026-09-01T00:00:00.000Z", "endDate": "2026-09-14T00:00:00.000Z", "originBoardId": 20001}
+  ],
+  "startAt": 0,
+  "maxResults": 50,
+  "total": 2
+}

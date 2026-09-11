@@ -1,0 +1,36 @@
+{
+  "size": 2,
+  "limit": 2,
+  "isLastPage": false,
+  "values": [
+    {
+      "slug": "sample-repository",
+      "id": 101,
+      "name": "Sample Repository",
+      "scmId": "git",
+      "state": "AVAILABLE",
+      "statusMessage": "Available",
+      "public": false,
+      "project": {
+        "key": "DEMO",
+        "id": 1,
+        "name": "Example Project",
+        "public": false,
+        "type": "NORMAL"
+      },
+      "links": {"self": [{"href": "https://bitbucket.example/projects/DEMO/repos/sample-repository/browse"}]}
+    },
+    {
+      "slug": "sample-library",
+      "id": 102,
+      "name": "Sample Library",
+      "scmId": "git",
+      "state": "AVAILABLE",
+      "public": true,
+      "project": {"key": "DEMO", "id": 1, "name": "Example Project"},
+      "links": {"self": [{"href": "https://bitbucket.example/projects/DEMO/repos/sample-library/browse"}]}
+    }
+  ],
+  "start": 0,
+  "nextPageStart": 2
+}

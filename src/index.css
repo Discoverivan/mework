@@ -1,0 +1,110 @@
+@import "tailwindcss";
+
+/* Keep shadcn's dark variant aligned with the app's existing data-theme API. */
+@custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.4);
+  --radius-2xl: calc(var(--radius) * 1.8);
+  --radius-3xl: calc(var(--radius) * 2.2);
+  --radius-4xl: calc(var(--radius) * 2.6);
+}
+
+/* Semantic tokens preserve the current white/dark palette for new primitives. */
+:root {
+  --radius: 0.5rem;
+  --background: #f7f8fb;
+  --foreground: #1b2430;
+  --card: #ffffff;
+  --card-foreground: #1b2430;
+  --popover: #ffffff;
+  --popover-foreground: #1b2430;
+  --primary: #465fc7;
+  --primary-foreground: #ffffff;
+  --secondary: #edf1f7;
+  --secondary-foreground: #1b2430;
+  --muted: #edf1f7;
+  --muted-foreground: #566275;
+  --accent: #edf1f7;
+  --accent-foreground: #1b2430;
+  --destructive: #b42318;
+  --destructive-foreground: #ffffff;
+  --success: #2f9e8f;
+  --warning: #d97706;
+  --border: #d9e0ea;
+  --input: #b8c4d4;
+  --ring: #465fc7;
+  --chart-1: #465fc7;
+  --chart-2: #2f9e8f;
+  --chart-3: #d97706;
+  --chart-4: #b42318;
+  --chart-5: #7c3aed;
+}
+
+:root[data-theme="dark"] {
+  --background: #11151c;
+  --foreground: #e9edf5;
+  --card: #171c25;
+  --card-foreground: #e9edf5;
+  --popover: #202938;
+  --popover-foreground: #e9edf5;
+  --primary: #8eb8ff;
+  --primary-foreground: #11151c;
+  --secondary: #202938;
+  --secondary-foreground: #e9edf5;
+  --muted: #202938;
+  --muted-foreground: #aeb9ca;
+  --accent: #202938;
+  --accent-foreground: #e9edf5;
+  --destructive: #f87171;
+  --destructive-foreground: #11151c;
+  --success: #66d9c8;
+  --warning: #fbbf24;
+  --border: #2a3240;
+  --input: #354258;
+  --ring: #8eb8ff;
+  --chart-1: #8eb8ff;
+  --chart-2: #66d9c8;
+  --chart-3: #fbbf24;
+  --chart-4: #f87171;
+  --chart-5: #a78bfa;
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+
+  body {
+    @apply bg-background text-foreground;
+  }
+}

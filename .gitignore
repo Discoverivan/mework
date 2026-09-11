@@ -1,0 +1,47 @@
+# JavaScript dependencies and build output
+node_modules/
+dist/
+.vite/
+coverage/
+
+# Rust/Tauri build output
+src-tauri/target/
+
+# Environment and local secrets
+/.env.dev
+.env*
+*.key
+*.pem
+
+# Local SQLite databases and sidecars
+*.db
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
+
+# Logs and package-manager debug output
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Editor directories and files
+.vscode/*
+!.vscode/extensions.json
+.idea
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# OS metadata
+.DS_Store
+Thumbs.db
+
+# Hermes task metadata is kept outside the source repository
+.hermes/

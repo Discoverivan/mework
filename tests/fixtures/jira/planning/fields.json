@@ -1,0 +1,4 @@
+[
+  {"id": "summary", "name": "Summary", "schema": {"type": "string", "system": "summary"}, "custom": false},
+  {"id": "description", "name": "Description", "schema": {"type": "any", "system": "description"}, "custom": false}
+]

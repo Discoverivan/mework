@@ -1,0 +1,1 @@
+[{"id":501,"user":{"login":"test-reviewer","id":21,"html_url":"https://github.example/test-reviewer"},"body":"Looks good","state":"approved","commit_id":"abc123","submitted_at":"2026-09-05T10:00:00Z","html_url":"https://github.example/example-org/sample-repository/pull/7#review-501"}]

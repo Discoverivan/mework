@@ -1,0 +1,452 @@
+.create-task-page {
+  min-width: 0;
+  max-width: 1440px;
+  margin: 0 auto;
+  padding: clamp(1.25rem, 2vw, 2.5rem);
+}
+
+.create-task-hero {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 2rem;
+  padding: 0.5rem 0 2rem;
+}
+
+.create-task-kicker {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  margin-bottom: 0.75rem;
+  color: var(--primary);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.create-task-kicker-dot {
+  width: 0.45rem;
+  height: 0.45rem;
+  border-radius: 999px;
+  background: var(--success);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--success) 14%, transparent);
+}
+
+.create-task-title {
+  margin: 0;
+  color: var(--foreground);
+  font-size: clamp(2rem, 3.6vw, 3.4rem);
+  font-weight: 700;
+  letter-spacing: -0.05em;
+  line-height: 1.05;
+}
+
+.create-task-subtitle {
+  max-width: 42rem;
+  margin: 0.9rem 0 0;
+  color: var(--muted-foreground);
+  font-size: 1rem;
+  line-height: 1.6;
+}
+
+.create-task-new-button {
+  flex: 0 0 auto;
+  min-width: 9.4rem;
+  box-shadow: 0 10px 24px color-mix(in srgb, var(--primary) 20%, transparent);
+}
+
+.create-task-overview {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr)) minmax(18rem, 1.5fr);
+  gap: 1px;
+  overflow: hidden;
+  margin-bottom: 2.4rem;
+  border: 1px solid var(--border);
+  border-radius: 0.9rem;
+  background: var(--border);
+  box-shadow: 0 8px 24px color-mix(in srgb, var(--foreground) 5%, transparent);
+}
+
+.create-task-overview-item,
+.create-task-overview-copy {
+  display: flex;
+  align-items: center;
+  gap: 0.8rem;
+  min-width: 0;
+  padding: 1rem 1.2rem;
+  background: var(--card);
+}
+
+.create-task-overview-item > span:last-child,
+.create-task-overview-copy > span {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 0.1rem;
+}
+
+.create-task-overview-item strong,
+.create-task-overview-copy strong {
+  color: var(--foreground);
+  font-size: 1.15rem;
+}
+
+.create-task-overview-item small,
+.create-task-overview-copy small {
+  overflow: hidden;
+  color: var(--muted-foreground);
+  font-size: 0.75rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.create-task-overview-copy {
+  color: var(--primary);
+}
+
+.create-task-overview-copy > svg {
+  width: 1.1rem;
+  flex: 0 0 auto;
+}
+
+.create-task-overview-icon {
+  display: grid;
+  width: 2.2rem;
+  height: 2.2rem;
+  flex: 0 0 auto;
+  place-items: center;
+  border-radius: 0.65rem;
+  color: var(--primary);
+  background: color-mix(in srgb, var(--primary) 10%, var(--card));
+}
+
+.create-task-overview-icon--ready {
+  color: var(--success);
+  background: color-mix(in srgb, var(--success) 10%, var(--card));
+}
+
+.create-task-section-heading {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.create-task-section-heading h2 {
+  margin: 0.2rem 0 0;
+  color: var(--foreground);
+  font-size: 1.35rem;
+  font-weight: 650;
+  letter-spacing: -0.025em;
+}
+
+.create-task-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: stretch;
+  gap: 1rem;
+}
+
+.create-task-card {
+  height: 100%;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 0.9rem;
+  background: var(--card);
+  box-shadow: 0 7px 20px color-mix(in srgb, var(--foreground) 5%, transparent);
+  transition: border-color 180ms ease, box-shadow 180ms ease, transform 180ms ease;
+}
+
+.create-task-card:hover {
+  border-color: color-mix(in srgb, var(--primary) 38%, var(--border));
+  box-shadow: 0 12px 28px color-mix(in srgb, var(--foreground) 8%, transparent);
+  transform: translateY(-1px);
+}
+
+.create-task-card--processing {
+  border-color: color-mix(in srgb, var(--primary) 34%, var(--border));
+  background: linear-gradient(135deg, color-mix(in srgb, var(--primary) 5%, var(--card)), var(--card) 55%);
+}
+
+.create-task-card--saving {
+  border-color: color-mix(in srgb, var(--warning) 34%, var(--border));
+}
+
+.create-task-card--completed {
+  border-color: color-mix(in srgb, var(--success) 28%, var(--border));
+}
+
+.create-task-card-header {
+  padding: 1.25rem 1.25rem 0.8rem;
+}
+
+.create-task-card-icon {
+  display: grid;
+  width: 2.25rem;
+  height: 2.25rem;
+  flex: 0 0 auto;
+  place-items: center;
+  border: 1px solid color-mix(in srgb, var(--primary) 20%, var(--border));
+  border-radius: 0.65rem;
+  color: var(--primary);
+  background: color-mix(in srgb, var(--primary) 8%, var(--card));
+}
+
+.create-task-card--completed .create-task-card-icon {
+  border-color: color-mix(in srgb, var(--success) 25%, var(--border));
+  color: var(--success);
+  background: color-mix(in srgb, var(--success) 10%, var(--card));
+}
+
+.create-task-card-title {
+  overflow: hidden;
+  margin: 0;
+  color: var(--foreground);
+  font-size: 1rem;
+  font-weight: 650;
+  letter-spacing: -0.015em;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+}
+
+.create-task-card-detail {
+  margin: 0.9rem 0 0;
+  color: var(--muted-foreground);
+  font-size: 0.8rem;
+  line-height: 1.45;
+}
+
+.create-task-status {
+  gap: 0.35rem;
+  border: 1px solid transparent;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.create-task-status--processing {
+  border-color: color-mix(in srgb, var(--primary) 20%, transparent);
+  color: var(--primary);
+  background: color-mix(in srgb, var(--primary) 10%, transparent);
+}
+
+.create-task-status--draft {
+  border-color: color-mix(in srgb, var(--warning) 24%, transparent);
+  color: var(--warning);
+  background: color-mix(in srgb, var(--warning) 11%, transparent);
+}
+
+.create-task-status--saving {
+  border-color: color-mix(in srgb, var(--warning) 24%, transparent);
+  color: var(--warning);
+  background: color-mix(in srgb, var(--warning) 11%, transparent);
+}
+
+.create-task-status--completed {
+  border-color: color-mix(in srgb, var(--success) 24%, transparent);
+  color: var(--success);
+  background: color-mix(in srgb, var(--success) 11%, transparent);
+}
+
+.create-task-card-content {
+  display: flex;
+  min-height: 18rem;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 1.25rem;
+  padding: 0.7rem 1.25rem 1.25rem;
+}
+
+.create-task-fields,
+.create-task-form {
+  display: grid;
+  gap: 0.9rem;
+}
+
+.create-task-field {
+  display: grid;
+  gap: 0.4rem;
+}
+
+.create-task-field > label {
+  color: var(--muted-foreground);
+  font-size: 0.72rem;
+  font-weight: 650;
+}
+
+.create-task-textarea,
+.create-task-select {
+  width: 100%;
+  border: 1px solid var(--input);
+  border-radius: 0.4rem;
+  background: var(--background);
+  color: var(--foreground);
+  font: inherit;
+  font-size: 0.82rem;
+  outline: none;
+  transition: border-color 150ms ease, box-shadow 150ms ease;
+}
+
+.create-task-textarea {
+  min-height: 5rem;
+  resize: vertical;
+  padding: 0.6rem 0.75rem;
+  line-height: 1.45;
+}
+
+.create-task-textarea--dialog {
+  min-height: 7rem;
+}
+
+.create-task-select {
+  height: 2.5rem;
+  padding: 0 0.7rem;
+}
+
+.create-task-textarea:focus,
+.create-task-select:focus {
+  border-color: var(--ring);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--ring) 16%, transparent);
+}
+
+.create-task-textarea:disabled,
+.create-task-select:disabled {
+  cursor: not-allowed;
+  opacity: 0.62;
+}
+
+.create-task-card-footer {
+  display: flex;
+  min-height: 2.25rem;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.55rem;
+  border-top: 1px solid var(--border);
+  padding-top: 1rem;
+}
+
+.create-task-card-note {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  margin-right: auto;
+  color: var(--muted-foreground);
+  font-size: 0.75rem;
+}
+
+.create-task-empty {
+  border-style: dashed;
+  text-align: center;
+}
+
+.create-task-empty > div {
+  display: grid;
+  place-items: center;
+  gap: 0.7rem;
+  padding: 3.5rem 1.5rem;
+}
+
+.create-task-empty-icon,
+.create-task-dialog-icon {
+  display: grid;
+  place-items: center;
+  border-radius: 0.75rem;
+  color: var(--primary);
+  background: color-mix(in srgb, var(--primary) 10%, var(--card));
+}
+
+.create-task-empty-icon {
+  width: 2.8rem;
+  height: 2.8rem;
+}
+
+.create-task-empty h2 {
+  margin: 0;
+  font-size: 1.1rem;
+}
+
+.create-task-empty p {
+  max-width: 25rem;
+  margin: 0 0 0.6rem;
+  color: var(--muted-foreground);
+  font-size: 0.85rem;
+}
+
+.create-task-dialog {
+  max-width: 34rem;
+}
+
+.create-task-dialog-icon {
+  width: 2.5rem;
+  height: 2.5rem;
+  margin-bottom: 0.35rem;
+}
+
+.create-task-dialog-footer {
+  margin-top: 0.4rem;
+  border-top: 1px solid var(--border);
+  padding-top: 1rem;
+}
+
+.create-task-dialog-note {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  margin: 0.1rem 0 0;
+  color: var(--muted-foreground);
+  font-size: 0.75rem;
+}
+
+.create-task-dialog-note svg {
+  width: 0.9rem;
+  flex: 0 0 auto;
+}
+
+@media (max-width: 900px) {
+  .create-task-overview {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .create-task-overview-copy {
+    grid-column: 1 / -1;
+  }
+}
+
+@media (max-width: 720px) {
+  .create-task-page {
+    padding: 1rem;
+  }
+
+  .create-task-hero {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 1.25rem;
+  }
+
+  .create-task-new-button {
+    width: 100%;
+  }
+
+  .create-task-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 480px) {
+  .create-task-overview {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .create-task-overview-copy {
+    grid-column: auto;
+  }
+
+  .create-task-section-heading {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 0.25rem;
+  }
+}

@@ -1,0 +1,7 @@
+{
+  "issues": [{
+    "id": "40001", "key": "DEMO-1", "self": "https://jira.example/rest/api/3/issue/40001",
+    "fields": {"summary": "Example issue plan", "issuetype": {"id": "10000", "subtask": false}, "subtasks": []}
+  }],
+  "startAt": 0, "maxResults": 50, "total": 1
+}

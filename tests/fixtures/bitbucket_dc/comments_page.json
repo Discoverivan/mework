@@ -1,0 +1,19 @@
+{
+  "size": 1,
+  "limit": 50,
+  "isLastPage": true,
+  "values": [
+    {
+      "id": 12,
+      "version": 1,
+      "text": "Please add a test for pagination.",
+      "author": {"name": "test-reviewer", "displayName": "Reviewer", "active": true},
+      "createdDate": 1760002000000,
+      "updatedDate": 1760002000000,
+      "deleted": false,
+      "permitted": true,
+      "anchor": {"diffType": "EFFECTIVE", "path": "src/lib.rs", "line": 42, "lineType": "ADDED"},
+      "links": {"self": [{"href": "https://bitbucket.example/projects/DEMO/repos/sample-repository/pull-requests/7/comments/12"}]}
+    }
+  ]
+}

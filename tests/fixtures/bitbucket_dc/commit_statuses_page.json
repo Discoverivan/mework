@@ -1,0 +1,15 @@
+{
+  "size": 1,
+  "limit": 50,
+  "isLastPage": true,
+  "values": [
+    {
+      "key": "build-123",
+      "state": "SUCCESSFUL",
+      "name": "CI",
+      "url": "https://ci.example/builds/123",
+      "description": "All checks passed",
+      "dateAdded": 1760003000000
+    }
+  ]
+}

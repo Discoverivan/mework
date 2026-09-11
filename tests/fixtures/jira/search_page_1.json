@@ -1,0 +1,9 @@
+{
+  "startAt": 0,
+  "maxResults": 2,
+  "total": 3,
+  "issues": [
+    {"id": "10001", "key": "DEMO-1", "fields": {"summary": "First issue"}},
+    {"id": "10002", "key": "DEMO-2", "fields": {"summary": "Second issue"}}
+  ]
+}

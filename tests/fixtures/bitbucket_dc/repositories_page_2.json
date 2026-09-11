@@ -1,0 +1,18 @@
+{
+  "size": 1,
+  "limit": 2,
+  "isLastPage": true,
+  "values": [
+    {
+      "slug": "sample-tools",
+      "id": 103,
+      "name": "Sample Tools",
+      "scmId": "git",
+      "state": "AVAILABLE",
+      "public": false,
+      "project": {"key": "SAMPLE", "id": 2, "name": "Sample Project"},
+      "links": {"self": [{"href": "https://bitbucket.example/projects/SAMPLE/repos/sample-tools/browse"}]}
+    }
+  ],
+  "start": 2
+}
