@@ -28,35 +28,22 @@ concurrency:
   cancel-in-progress: false
 
 permissions:
-  contents: write
+  contents: read
 
 env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  publish-tauri:
-    name: Build ${{ matrix.name }}
-    runs-on: ${{ matrix.platform }}
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - name: macOS Apple Silicon
-            platform: macos-latest
-            target: aarch64-apple-darwin
-            args: --target aarch64-apple-darwin
-          - name: macOS Intel
-            platform: macos-latest
-            target: x86_64-apple-darwin
-            args: --target x86_64-apple-darwin
-          - name: Windows x64
-            platform: windows-latest
-            target: ''
-            args: ''
-
+  prepare_release:
+    name: Prepare release
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.release_version.outputs.version }}
     steps:
       - name: Checkout
         uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
 
       - name: Setup Node.js
         uses: actions/setup-node@v5
@@ -64,24 +51,7 @@ jobs:
           node-version: lts/*
           cache: npm
 
-      - name: Install Rust stable
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: ${{ matrix.target }}
-
-      - name: Install requested Rust target
-        if: matrix.target != ''
-        shell: bash
-        run: |
-          rustup target add "${{ matrix.target }}"
-          rustup target list --installed
-
-      - name: Rust cache
-        uses: swatinem/rust-cache@v2
-        with:
-          workspaces: ./src-tauri -> target
-
-      - name: Set release version and updater endpoint
+      - name: Calculate SemVer
         id: release_version
         shell: bash
         env:
@@ -118,11 +88,96 @@ jobs:
               raise SystemExit("Release version must be valid SemVer")
           PY
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-          echo "MEWORK_VERSION=$VERSION" >> "$GITHUB_ENV"
-          if [ "$BASE_VERSION" != "$VERSION" ]; then
-            npm version --no-git-tag-version --ignore-scripts "$VERSION"
+
+      - name: Verify release signing secrets
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        shell: bash
+        run: |
+          missing=0
+          for name in \
+            TAURI_SIGNING_PRIVATE_KEY \
+            APPLE_CERTIFICATE \
+            APPLE_CERTIFICATE_PASSWORD \
+            APPLE_SIGNING_IDENTITY \
+            APPLE_ID \
+            APPLE_PASSWORD \
+            APPLE_TEAM_ID; do
+            if [ -z "${!name}" ]; then
+              echo "::error::Missing required release secret: $name"
+              missing=1
+            fi
+          done
+          test "$missing" -eq 0
+
+  build:
+    name: Build ${{ matrix.name }}
+    needs: prepare_release
+    permissions:
+      contents: write
+    runs-on: ${{ matrix.platform }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: macOS Apple Silicon
+            platform: macos-latest
+            target: aarch64-apple-darwin
+            args: --target aarch64-apple-darwin
+          - name: macOS Intel
+            platform: macos-latest
+            target: x86_64-apple-darwin
+            args: --target x86_64-apple-darwin
+          - name: Windows x64
+            platform: windows-latest
+            target: ''
+            args: ''
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: lts/*
+          cache: npm
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Install requested Rust target
+        if: matrix.target != ''
+        shell: bash
+        run: |
+          rustup target add "${{ matrix.target }}"
+          rustup target list --installed
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: ./src-tauri -> target
+
+      - name: Set release version and updater endpoint
+        shell: bash
+        env:
+          MEWORK_VERSION: ${{ needs.prepare_release.outputs.version }}
+        run: |
+          BASE_VERSION=$(node -p "require('./package.json').version")
+          if [ "$BASE_VERSION" != "$MEWORK_VERSION" ]; then
+            npm version --no-git-tag-version --ignore-scripts "$MEWORK_VERSION"
           fi
-          python - "$VERSION" <<'PY'
+          python - "$MEWORK_VERSION" <<'PY'
           import json
           import os
           import re
@@ -146,33 +201,7 @@ jobs:
       - name: Install frontend dependencies
         run: npm ci
 
-      - name: Verify macOS signing and notarization secrets
-        if: startsWith(matrix.platform, 'macos')
-        env:
-          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
-          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-        shell: bash
-        run: |
-          missing=0
-          for name in \
-            APPLE_CERTIFICATE \
-            APPLE_CERTIFICATE_PASSWORD \
-            APPLE_SIGNING_IDENTITY \
-            APPLE_ID \
-            APPLE_PASSWORD \
-            APPLE_TEAM_ID; do
-            if [ -z "${!name}" ]; then
-              echo "::error::Missing required macOS distribution secret: $name"
-              missing=1
-            fi
-          done
-          test "$missing" -eq 0
-
-      - name: Publish bundles and release
+      - name: Build and upload draft release assets
         uses: tauri-apps/tauri-action@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -192,6 +221,46 @@ jobs:
             Download the installer for your platform from the assets below.
 
             The release also contains signed updater artifacts for in-app updates.
-          releaseDraft: false
+          releaseDraft: true
           prerelease: false
           args: ${{ matrix.args }}
+
+  publish_release:
+    name: Publish release
+    needs:
+      - prepare_release
+      - build
+    if: ${{ needs.build.result == 'success' }}
+    permissions:
+      contents: write
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      RELEASE_TAG: mework-v${{ needs.prepare_release.outputs.version }}
+    steps:
+      - name: Publish complete draft release
+        shell: bash
+        run: |
+          gh api --method PATCH "repos/$GITHUB_REPOSITORY/releases/tags/$RELEASE_TAG" \
+            -F draft=false \
+            -F prerelease=false \
+            --silent
+
+  cleanup_failed_release:
+    name: Cleanup failed release
+    needs:
+      - prepare_release
+      - build
+      - publish_release
+    if: ${{ always() && needs.prepare_release.result == 'success' && (needs.build.result != 'success' || needs.publish_release.result != 'success') }}
+    permissions:
+      contents: write
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      RELEASE_TAG: mework-v${{ needs.prepare_release.outputs.version }}
+    steps:
+      - name: Delete incomplete draft release and tag
+        shell: bash
+        run: |
+          gh release delete "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --yes --cleanup-tag || true
