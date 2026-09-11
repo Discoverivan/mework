@@ -8,7 +8,7 @@
 - macOS Intel (`.dmg` and signed updater archive);
 - Windows x64 (`.exe` NSIS installer and signed updater artifacts).
 
-The workflow derives a unique SemVer patch from the base `package.json` version and the GitHub Actions run number. It configures the updater endpoint from `GITHUB_REPOSITORY`, then creates a release containing the bundles and the generated `latest.json`.
+The workflow uses SemVer tags for release numbering. The first release uses the base version from `package.json`; each later automatic release increments the patch component of the highest existing `mework-vX.Y.Z` tag. A manual run may provide an explicit SemVer through the `version` input. The workflow configures the updater endpoint from `GITHUB_REPOSITORY`, then creates a release containing the bundles and the generated `latest.json`. Release jobs are serialized to avoid concurrent tag/version collisions.
 
 Before enabling the workflow, configure these repository Actions secrets:
 
@@ -29,7 +29,7 @@ For production distribution, add Apple notarization/signing and Windows Authenti
 
 Tauri's updater checks the GitHub Releases `latest.json` in the background after the startup bootstrap completes. The check has a ten-second timeout and never blocks routes or the splash screen. When an update is available, Mework shows an update banner; installation starts only after the user clicks **Install update**. This avoids restarting the app or changing binaries unexpectedly. Windows uses Tauri's passive installer mode; macOS relaunches after installation.
 
-The source config contains a repository placeholder because this checkout has no Git remote yet. The release workflow replaces it in the build copy with:
+The source config intentionally contains a repository placeholder. The release workflow replaces it in the build copy with:
 
 ```text
 https://github.com/<owner>/<repository>/releases/latest/download/latest.json
@@ -39,4 +39,4 @@ If a local signed build is needed, replace the endpoint in `src-tauri/tauri.conf
 
 ## Version policy
 
-A push to `master` is treated as a release input. The source base version remains unchanged; the workflow creates a unique build version (`major.minor.GITHUB_RUN_NUMBER`) in its ephemeral checkout. For a stricter product version policy, switch the workflow trigger to `v*` tags and use a manually bumped `package.json`, `Cargo.toml`, and `tauri.conf.json` version.
+A push to `master` is treated as a release input. The source base version remains unchanged. The workflow creates the first release from that base version and then increments only the patch component from the latest `mework-vX.Y.Z` tag. Each release is represented by a matching `mework-vX.Y.Z` tag and `Mework vX.Y.Z` GitHub Release. For a minor or major release, start the workflow manually with an explicit SemVer `version` input; the next automatic patch release continues from that tag.
