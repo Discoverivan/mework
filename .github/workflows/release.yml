@@ -97,7 +97,9 @@ jobs:
           PY
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "MEWORK_VERSION=$VERSION" >> "$GITHUB_ENV"
-          npm version --no-git-tag-version --ignore-scripts "$VERSION"
+          if [ "$BASE_VERSION" != "$VERSION" ]; then
+            npm version --no-git-tag-version --ignore-scripts "$VERSION"
+          fi
           python - <<'PY'
           import json
           import os
