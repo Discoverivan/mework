@@ -222,10 +222,10 @@ pub fn run() {
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
-        .run(|app, event| {
+        .run(|_app, _event| {
             #[cfg(target_os = "macos")]
-            if let tauri::RunEvent::Reopen { .. } = event {
-                crate::os::tray::show_and_focus_main_window(app);
+            if let tauri::RunEvent::Reopen { .. } = _event {
+                crate::os::tray::show_and_focus_main_window(_app);
             }
         });
 }
