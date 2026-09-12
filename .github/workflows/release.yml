@@ -89,34 +89,13 @@ jobs:
           PY
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
-      - name: Verify release signing secrets
+      - name: Verify updater signing secret
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
-          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         shell: bash
-        run: |
-          missing=0
-          for name in \
-            TAURI_SIGNING_PRIVATE_KEY \
-            APPLE_CERTIFICATE \
-            APPLE_CERTIFICATE_PASSWORD \
-            APPLE_SIGNING_IDENTITY \
-            APPLE_ID \
-            APPLE_PASSWORD \
-            APPLE_TEAM_ID; do
-            if [ -z "${!name}" ]; then
-              echo "::error::Missing required release secret: $name"
-              missing=1
-            fi
-          done
-          test "$missing" -eq 0
+        run: test -n "$TAURI_SIGNING_PRIVATE_KEY"
 
-  build:
+  publish_tauri:
     name: Build ${{ matrix.name }}
     needs: prepare_release
     permissions:
@@ -129,11 +108,11 @@ jobs:
           - name: macOS Apple Silicon
             platform: macos-latest
             target: aarch64-apple-darwin
-            args: --target aarch64-apple-darwin
+            args: --target aarch64-apple-darwin --bundles app
           - name: macOS Intel
             platform: macos-latest
             target: x86_64-apple-darwin
-            args: --target x86_64-apple-darwin
+            args: --target x86_64-apple-darwin --bundles app
           - name: Windows x64
             platform: windows-latest
             target: ''
@@ -201,67 +180,62 @@ jobs:
       - name: Install frontend dependencies
         run: npm ci
 
-      - name: Build and upload draft release assets
+      - name: Build and publish release
         uses: tauri-apps/tauri-action@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
-          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_SIGNING_IDENTITY: "-"
         with:
           projectPath: .
           tagName: mework-v__VERSION__
           releaseName: Mework v__VERSION__
           releaseBody: |
-            Download the installer for your platform from the assets below.
+            Release build for macOS and Windows.
 
-            The release also contains signed updater artifacts for in-app updates.
-          releaseDraft: true
+            macOS is ad-hoc signed and not notarized. On first launch, macOS may require:
+            System Settings → Privacy & Security → Open Anyway.
+
+            macOS assets are app archives without a DMG.
+          releaseDraft: false
           prerelease: false
           args: ${{ matrix.args }}
 
-  publish_release:
-    name: Publish release
-    needs:
-      - prepare_release
-      - build
-    if: ${{ needs.build.result == 'success' }}
-    permissions:
-      contents: write
-    runs-on: ubuntu-latest
-    env:
-      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      RELEASE_TAG: mework-v${{ needs.prepare_release.outputs.version }}
-    steps:
-      - name: Publish complete draft release
+      - name: Add macOS app archive
+        if: startsWith(matrix.platform, 'macos')
         shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          MEWORK_VERSION: ${{ needs.prepare_release.outputs.version }}
         run: |
-          release_id=$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$RELEASE_TAG" --jq .id)
-          gh api --method PATCH "repos/$GITHUB_REPOSITORY/releases/$release_id" \
-            -F draft=false \
-            -F prerelease=false \
-            --silent
+          archive="Mework_${MEWORK_VERSION}_$( [ '${{ matrix.target }}' = 'aarch64-apple-darwin' ] && printf 'aarch64' || printf 'x64' ).app.zip"
+          ditto -c -k --sequesterRsrc --keepParent \
+            "src-tauri/target/${{ matrix.target }}/release/bundle/macos/Mework.app" \
+            "$archive"
+          gh release upload "mework-v${MEWORK_VERSION}" "$archive" \
+            --repo "$GITHUB_REPOSITORY" \
+            --clobber
 
   cleanup_failed_release:
     name: Cleanup failed release
     needs:
       - prepare_release
-      - build
-      - publish_release
-    if: ${{ always() && needs.prepare_release.result == 'success' && (needs.build.result != 'success' || needs.publish_release.result != 'success') }}
+      - publish_tauri
+    if: ${{ always() && needs.prepare_release.result == 'success' && needs.publish_tauri.result != 'success' }}
     permissions:
       contents: write
     runs-on: ubuntu-latest
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      GITHUB_REPOSITORY: ${{ github.repository }}
       RELEASE_TAG: mework-v${{ needs.prepare_release.outputs.version }}
     steps:
-      - name: Delete incomplete draft release and tag
+      - name: Delete incomplete release and tag
         shell: bash
         run: |
-          gh release delete "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --yes --cleanup-tag || true
+          gh release delete "$RELEASE_TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --yes \
+            --cleanup-tag || true
