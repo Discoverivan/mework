@@ -132,7 +132,9 @@ jobs:
           GITHUB_REPOSITORY: ${{ github.repository }}
           MEWORK_VERSION: ${{ inputs.version }}
         run: |
-          release_id=$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/mework-v${MEWORK_VERSION}" --jq .id)
+          release_id=$(gh api "repos/$GITHUB_REPOSITORY/releases?per_page=100" \
+            --jq ".[] | select(.tag_name == \"mework-v${MEWORK_VERSION}\") | .id")
+          test -n "$release_id"
           gh api --method PATCH "repos/$GITHUB_REPOSITORY/releases/$release_id" \
             -F draft=false \
             -F prerelease=false \
