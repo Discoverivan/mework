@@ -108,11 +108,11 @@ jobs:
           - name: macOS Apple Silicon
             platform: macos-latest
             target: aarch64-apple-darwin
-            args: --target aarch64-apple-darwin --bundles app
+            args: --target aarch64-apple-darwin --bundles dmg
           - name: macOS Intel
             platform: macos-latest
             target: x86_64-apple-darwin
-            args: --target x86_64-apple-darwin --bundles app
+            args: --target x86_64-apple-darwin --bundles dmg
           - name: Windows x64
             platform: windows-latest
             target: ''
@@ -194,29 +194,13 @@ jobs:
           releaseBody: |
             Release build for macOS and Windows.
 
-            macOS is ad-hoc signed and not notarized. On first launch, macOS may require:
+            macOS application inside the DMG is ad-hoc signed and not notarized. On first launch, macOS may require:
             System Settings → Privacy & Security → Open Anyway.
 
-            macOS assets are app archives without a DMG.
+            macOS DMG assets are provided for convenient installation.
           releaseDraft: false
           prerelease: false
           args: ${{ matrix.args }}
-
-      - name: Add macOS app archive
-        if: startsWith(matrix.platform, 'macos')
-        shell: bash
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GITHUB_REPOSITORY: ${{ github.repository }}
-          MEWORK_VERSION: ${{ needs.prepare_release.outputs.version }}
-        run: |
-          archive="Mework_${MEWORK_VERSION}_$( [ '${{ matrix.target }}' = 'aarch64-apple-darwin' ] && printf 'aarch64' || printf 'x64' ).app.zip"
-          ditto -c -k --sequesterRsrc --keepParent \
-            "src-tauri/target/${{ matrix.target }}/release/bundle/macos/Mework.app" \
-            "$archive"
-          gh release upload "mework-v${MEWORK_VERSION}" "$archive" \
-            --repo "$GITHUB_REPOSITORY" \
-            --clobber
 
   cleanup_failed_release:
     name: Cleanup failed release
