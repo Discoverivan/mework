@@ -132,7 +132,8 @@ jobs:
           GITHUB_REPOSITORY: ${{ github.repository }}
           MEWORK_VERSION: ${{ inputs.version }}
         run: |
-          gh api --method PATCH "repos/$GITHUB_REPOSITORY/releases/tags/mework-v${MEWORK_VERSION}" \
+          release_id=$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/mework-v${MEWORK_VERSION}" --jq .id)
+          gh api --method PATCH "repos/$GITHUB_REPOSITORY/releases/$release_id" \
             -F draft=false \
             -F prerelease=false \
             --silent
