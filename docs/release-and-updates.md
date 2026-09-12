@@ -53,3 +53,9 @@ If a local signed build is needed, replace the endpoint in `src-tauri/tauri.conf
 ## Version policy
 
 Application changes merged into `master` are release inputs. The source base version remains unchanged. The workflow creates the first release from that base version and then increments only the patch component from the latest `mework-vX.Y.Z` tag. Each release is represented by a matching `mework-vX.Y.Z` tag and `Mework vX.Y.Z` GitHub Release. For a minor or major release, start the workflow manually with an explicit SemVer `version` input; the next automatic patch release continues from that tag.
+
+## Temporary macOS beta without an Apple certificate
+
+`.github/workflows/macos-beta.yml` provides a manual Apple Silicon beta build for internal testing. It uses the Tauri ad-hoc identity (`-`), produces no DMG, and uploads a Finder-friendly `Mework_<version>_aarch64.app.zip` asset. The release is not notarized: the first launch may require **System Settings → Privacy & Security → Open Anyway**. Updates installed through the in-app updater normally do not require downloading and approving a new DMG; installing a freshly downloaded copy may trigger Gatekeeper again.
+
+This beta workflow is intentionally separate from the production workflow. It still signs updater archives with `TAURI_SIGNING_PRIVATE_KEY`, but ad-hoc macOS signing is not a replacement for Developer ID signing and notarization.
