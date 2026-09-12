@@ -241,7 +241,8 @@ jobs:
       - name: Publish complete draft release
         shell: bash
         run: |
-          gh api --method PATCH "repos/$GITHUB_REPOSITORY/releases/tags/$RELEASE_TAG" \
+          release_id=$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$RELEASE_TAG" --jq .id)
+          gh api --method PATCH "repos/$GITHUB_REPOSITORY/releases/$release_id" \
             -F draft=false \
             -F prerelease=false \
             --silent
