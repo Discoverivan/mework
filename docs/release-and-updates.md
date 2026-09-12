@@ -4,8 +4,8 @@
 
 `.github/workflows/release.yml` publishes a GitHub Release for application changes merged into `master` and can also be started manually. Documentation-only, security-only, and workflow-only changes do not create a new application version. It builds:
 
-- macOS Apple Silicon (ad-hoc signed `.app` archive and signed updater archive);
-- macOS Intel (ad-hoc signed `.app` archive and signed updater archive);
+- macOS Apple Silicon (ad-hoc signed `.dmg` and signed updater archive);
+- macOS Intel (ad-hoc signed `.dmg` and signed updater archive);
 - Windows x64 (`.exe` NSIS installer and signed updater artifacts).
 
 The workflow uses SemVer tags for release numbering. The first release uses the base version from `package.json`; each later automatic release increments the patch component of the highest existing `mework-vX.Y.Z` tag. A manual run may provide an explicit SemVer through the `version` input. The workflow configures the updater endpoint from `GITHUB_REPOSITORY`, then creates a release containing the bundles and the generated `latest.json`. Release jobs are serialized to avoid concurrent tag/version collisions.
@@ -56,6 +56,6 @@ Application changes merged into `master` are release inputs. The source base ver
 
 ## macOS release without an Apple certificate
 
-The main `release.yml` workflow uses the Tauri ad-hoc identity (`-`) for macOS, produces no DMG, and uploads Finder-friendly `Mework_<version>_<architecture>.app.zip` assets. The release is not notarized: the first launch may require **System Settings → Privacy & Security → Open Anyway**. Updates installed through the in-app updater normally do not require downloading and approving a new DMG; installing a freshly downloaded copy may trigger Gatekeeper again.
+The main `release.yml` workflow uses the Tauri ad-hoc identity (`-`) for macOS and uploads `Mework_<version>_<architecture>.dmg` assets. The application inside the DMG is not notarized: after copying it to Applications, the first launch may require **System Settings → Privacy & Security → Open Anyway**. Updates installed through the in-app updater normally do not require downloading and approving a new DMG; installing a freshly downloaded copy may trigger Gatekeeper again.
 
 The workflow still signs updater archives with `TAURI_SIGNING_PRIVATE_KEY`, but ad-hoc macOS signing is not a replacement for Developer ID signing and notarization.
