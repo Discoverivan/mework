@@ -1,4 +1,6 @@
 pub mod ai;
+pub mod command_board;
+pub mod create_task;
 pub mod daily;
 pub mod developer;
 pub mod general;

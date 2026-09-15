@@ -2,15 +2,16 @@
   min-width: 0;
   max-width: 1440px;
   margin: 0 auto;
-  padding: clamp(1.25rem, 2vw, 2.5rem);
+  padding: 0;
+}
+
+.page-header.page-header--create-task {
+  align-items: flex-start;
 }
 
 .create-task-hero {
-  display: flex;
-  align-items: flex-end;
-  justify-content: space-between;
-  gap: 2rem;
-  padding: 0.5rem 0 2rem;
+  gap: 1.5rem;
+  padding: 0;
 }
 
 .create-task-kicker {
@@ -417,7 +418,7 @@
 
 @media (max-width: 720px) {
   .create-task-page {
-    padding: 1rem;
+    padding: 0;
   }
 
   .create-task-hero {

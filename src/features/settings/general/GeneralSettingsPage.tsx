@@ -1,7 +1,11 @@
+import type { Update } from "@tauri-apps/plugin-updater";
+
 import { AlertTriangle, CheckCircle2, RefreshCw } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
+import { checkForAvailableUpdate } from "@/components/shared/update-check";
+import { installAvailableUpdate } from "@/components/shared/update-install";
 import { Card, CardDescription, CardHeader } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import {
@@ -22,6 +26,12 @@ export function GeneralSettingsPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);
+  const [checkingUpdates, setCheckingUpdates] = useState(false);
+  const [updateStatus, setUpdateStatus] = useState<"idle" | "current" | "available" | "error">("idle");
+  const [availableUpdate, setAvailableUpdate] = useState<Update | null>(null);
+  const [availableUpdateVersion, setAvailableUpdateVersion] = useState<string>();
+  const [installingUpdate, setInstallingUpdate] = useState(false);
+  const [updateInstallError, setUpdateInstallError] = useState<string | null>(null);
   const [openingSettings, setOpeningSettings] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [testResult, setTestResult] = useState<string | null>(null);
@@ -85,6 +95,41 @@ export function GeneralSettingsPage() {
     }
   }
 
+  async function handleCheckForUpdates() {
+    setCheckingUpdates(true);
+    setUpdateStatus("idle");
+    setAvailableUpdate(null);
+    setAvailableUpdateVersion(undefined);
+    setUpdateInstallError(null);
+    try {
+      const update = await checkForAvailableUpdate();
+      if (update) {
+        setAvailableUpdate(update);
+        setAvailableUpdateVersion(update.version);
+        setUpdateStatus("available");
+      } else {
+        setUpdateStatus("current");
+      }
+    } catch {
+      setUpdateStatus("error");
+    } finally {
+      setCheckingUpdates(false);
+    }
+  }
+
+  async function handleInstallUpdate() {
+    if (!availableUpdate) return;
+    setInstallingUpdate(true);
+    setUpdateInstallError(null);
+    try {
+      await installAvailableUpdate(availableUpdate);
+    } catch {
+      setUpdateInstallError("Unable to install the update. Try again later.");
+    } finally {
+      setInstallingUpdate(false);
+    }
+  }
+
   const permissionBlocked =
     settings !== null &&
     settings.notificationsEnabled &&
@@ -118,7 +163,7 @@ export function GeneralSettingsPage() {
           <AlertTriangle className="size-4" aria-hidden="true" />
           <AlertTitle>Notifications are not allowed</AlertTitle>
           <AlertDescription>
-            Notifications are enabled in Mework, but macOS has not granted permission. Open Notification Settings and allow Mework to send notifications.
+            Notifications are enabled in mework, but macOS has not granted permission. Open Notification Settings and allow mework to send notifications.
             <div className="mt-3 flex flex-wrap gap-2">
               <Button type="button" size="sm" onClick={() => void handleOpenNotificationSettings()} disabled={openingSettings}>
                 {openingSettings ? "Opening…" : "Open Notification Settings"}
@@ -163,6 +208,34 @@ export function GeneralSettingsPage() {
                 {testResult}
               </span>
             ) : null}
+          </div>
+        </CardHeader>
+      </Card>
+
+      <Card>
+        <CardHeader className="gap-4 p-5">
+          <div>
+            <h3 className="text-lg font-semibold">Application updates</h3>
+            <CardDescription className="mt-1">
+              Check whether a newer mework version is available.
+            </CardDescription>
+          </div>
+          <div className="flex flex-wrap items-center gap-3">
+            <Button type="button" variant="outline" onClick={() => void handleCheckForUpdates()} disabled={checkingUpdates}>
+              <RefreshCw className={`mr-2 size-4 ${checkingUpdates ? "animate-spin" : ""}`} aria-hidden="true" />
+              {checkingUpdates ? "Checking…" : "Check for updates"}
+            </Button>
+            {updateStatus === "current" ? <span role="status" className="text-sm text-muted-foreground">You&apos;re up to date.</span> : null}
+            {updateStatus === "available" ? (
+              <>
+                <span role="status" className="text-sm text-primary">mework {availableUpdateVersion} is available.</span>
+                <Button type="button" size="sm" onClick={() => void handleInstallUpdate()} disabled={installingUpdate}>
+                  {installingUpdate ? "Updating…" : "Update now"}
+                </Button>
+              </>
+            ) : null}
+            {updateInstallError ? <span role="alert" className="text-sm text-destructive">{updateInstallError}</span> : null}
+            {updateStatus === "error" ? <span role="status" className="text-sm text-destructive">Unable to check for updates.</span> : null}
           </div>
         </CardHeader>
       </Card>

@@ -44,6 +44,7 @@ export interface PullRequestReviewSettings {
   repositoryWhitelist: string[];
   creatorWhitelist: string[];
   autoReviewEnabled: boolean;
+  authoredAutoReviewEnabled: boolean;
 }
 
 export type MyPullRequestDecision = "approved" | "needs_work" | "not_reviewed";
@@ -81,6 +82,12 @@ export interface PullRequestReviewChangedEvent {
   review: PullRequestReviewState;
 }
 
+export interface PullRequestReviewSummary {
+  approved: number;
+  needsWork: number;
+  comments: number;
+}
+
 export interface MyPullRequest {
   integrationId: string;
   pullRequestId: string;
@@ -98,6 +105,8 @@ export interface MyPullRequest {
   url?: string;
   myDecision: MyPullRequestDecision;
   activity: "new" | "updated" | "read";
+  reviewSummary?: PullRequestReviewSummary;
+  needsAction?: boolean;
   review?: PullRequestReviewState;
 }
 

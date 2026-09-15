@@ -1,6 +1,8 @@
 import { invoke } from "@tauri-apps/api/core";
 import type {
   ApplyAndLockCommand,
+  EpicLinkJqlIssue,
+  EpicLinkJqlPreviewRequest,
   ManagedProject,
   PlanningDraft,
   PlanningBoard,
@@ -19,6 +21,9 @@ import type {
 /** Renderer boundary: only redacted DTOs cross into the React application. */
 export const listManagedProjects = () =>
   invoke<ManagedProject[]>("planning_managed_projects");
+
+export const previewEpicLinkJql = (request: EpicLinkJqlPreviewRequest) =>
+  invoke<EpicLinkJqlIssue[]>("planning_epic_link_jql_preview", { request });
 
 export const listTargetSprints = (managedProjectId: string) =>
   invoke<PlanningSprint[]>("planning_target_sprints", { managedProjectId });

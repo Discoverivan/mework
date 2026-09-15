@@ -4,6 +4,7 @@ import type {
   BitbucketUser,
   MyPullRequest,
   MyPullRequestPage,
+  PullRequestReviewComment,
   PullRequestReviewSettings,
   PullRequestReviewState,
 } from "@/shared/contracts/developer";
@@ -17,6 +18,29 @@ export const refreshMyPullRequests = (start = 0, limit = 100) =>
   invoke<MyPullRequestPage>("bitbucket_my_pull_requests_refresh", {
     request: { start, limit },
   });
+
+export const listAuthoredPullRequests = (start = 0, limit = 100) =>
+  invoke<MyPullRequestPage>("bitbucket_authored_pull_requests", {
+    request: { start, limit },
+  });
+
+export const refreshAuthoredPullRequests = (start = 0, limit = 100) =>
+  invoke<MyPullRequestPage>("bitbucket_authored_pull_requests_refresh", {
+    request: { start, limit },
+  });
+
+export const markAuthoredPullRequestRead = (
+  integrationId: string,
+  key: string,
+  latestCommit?: string,
+) =>
+  invoke<boolean>("authored_pull_request_mark_read", {
+    integrationId,
+    key,
+    latestCommit,
+  });
+export const markAllAuthoredPullRequestsRead = () =>
+  invoke<{ markedCount: number }>("authored_pull_requests_mark_all_read");
 
 export const startPullRequestReview = (pullRequest: MyPullRequest) =>
   invoke<PullRequestReviewState>("pull_request_review_start", {
@@ -68,6 +92,41 @@ export const markPullRequestRead = (
 
 export const markAllPullRequestsRead = () =>
   invoke<{ markedCount: number }>("pull_request_review_mark_all_read");
+
+export const publishPullRequestComment = (
+  pullRequest: MyPullRequest,
+  comment: PullRequestReviewComment,
+) =>
+  invoke<{ commentId: number }>("pull_request_review_publish_comment", {
+    request: {
+      integrationId: pullRequest.integrationId,
+      projectKey: pullRequest.projectKey,
+      repositorySlug: pullRequest.repositorySlug,
+      pullRequestId: pullRequest.pullRequestId,
+      latestCommit: pullRequest.latestCommit,
+      file: comment.file,
+      line: comment.line,
+      comment: comment.comment,
+    },
+  });
+
+export const setPullRequestDecision = (
+  pullRequest: MyPullRequest,
+  action: "approve" | "needs_work",
+) =>
+  invoke<{ integrationId: string; pullRequestId: string; myDecision: "approved" | "needs_work" }>(
+    "pull_request_review_set_decision",
+    {
+      request: {
+        integrationId: pullRequest.integrationId,
+        projectKey: pullRequest.projectKey,
+        repositorySlug: pullRequest.repositorySlug,
+        pullRequestId: pullRequest.pullRequestId,
+        latestCommit: pullRequest.latestCommit,
+        action,
+      },
+    },
+  );
 
 export const searchBitbucketUsers = (query: string) =>
   invoke<BitbucketUser[]>("bitbucket_search_users", { query });

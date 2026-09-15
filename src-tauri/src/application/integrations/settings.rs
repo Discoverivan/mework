@@ -345,6 +345,29 @@ where
     })
 }
 
+async fn check_with_one_retry<C>(
+    checker: &C,
+    kind: IntegrationKind,
+    base_url: &str,
+    account_key: &str,
+    allow_insecure_tls: bool,
+    secret: Option<&str>,
+) -> HealthCheckResult
+where
+    C: IntegrationHealthChecker + ?Sized,
+{
+    let first = checker
+        .check(kind, base_url, account_key, allow_insecure_tls, secret)
+        .await;
+    if first.status == IntegrationHealthStatus::Unavailable {
+        checker
+            .check(kind, base_url, account_key, allow_insecure_tls, secret)
+            .await
+    } else {
+        first
+    }
+}
+
 pub async fn refresh_integration_health<S, C>(
     pool: &SqlitePool,
     store: &S,
@@ -363,15 +386,15 @@ where
                 _ => IntegrationError::Database,
             })?;
     let secret = store.load(&integration.credential_ref).ok();
-    let health = checker
-        .check(
-            integration.kind,
-            &integration.base_url,
-            &integration.account_key,
-            integration.allow_insecure_tls,
-            secret.as_deref(),
-        )
-        .await;
+    let health = check_with_one_retry(
+        checker,
+        integration.kind,
+        &integration.base_url,
+        &integration.account_key,
+        integration.allow_insecure_tls,
+        secret.as_deref(),
+    )
+    .await;
     repositories::update_integration_health(
         pool,
         id,
@@ -515,4 +538,69 @@ fn default_enabled() -> bool {
 
 fn default_capabilities() -> Value {
     Value::Object(Default::default())
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    use super::check_with_one_retry;
+    use crate::application::integrations::health::{
+        HealthCheckFuture, HealthCheckResult, IntegrationHealthChecker,
+    };
+    use crate::domain::models::{IntegrationHealthStatus, IntegrationKind};
+
+    struct RetryOnceChecker {
+        calls: AtomicUsize,
+    }
+
+    impl IntegrationHealthChecker for RetryOnceChecker {
+        fn check<'a>(
+            &'a self,
+            _kind: IntegrationKind,
+            _base_url: &'a str,
+            _account_key: &'a str,
+            _allow_insecure_tls: bool,
+            _secret: Option<&'a str>,
+        ) -> HealthCheckFuture<'a> {
+            let attempt = self.calls.fetch_add(1, Ordering::SeqCst);
+            Box::pin(async move {
+                if attempt == 0 {
+                    HealthCheckResult {
+                        status: IntegrationHealthStatus::Unavailable,
+                        message: Some("temporary failure".to_owned()),
+                        details: None,
+                        account_display_name: None,
+                    }
+                } else {
+                    HealthCheckResult {
+                        status: IntegrationHealthStatus::Working,
+                        message: None,
+                        details: None,
+                        account_display_name: Some("Synthetic Account".to_owned()),
+                    }
+                }
+            })
+        }
+    }
+
+    #[tokio::test]
+    async fn retries_unavailable_health_once_and_uses_the_final_result() {
+        let checker = RetryOnceChecker {
+            calls: AtomicUsize::new(0),
+        };
+
+        let result = check_with_one_retry(
+            &checker,
+            IntegrationKind::Bitbucket,
+            "https://bitbucket.example",
+            "",
+            false,
+            None,
+        )
+        .await;
+
+        assert_eq!(result.status, IntegrationHealthStatus::Working);
+        assert_eq!(checker.calls.load(Ordering::SeqCst), 2);
+    }
 }

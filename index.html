@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <link rel="icon" type="image/png" href="/mework-icon.png" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Mework</title>
+    <title>mework</title>
   </head>
 
   <body>
@@ -23,17 +23,13 @@
       }
       .boot-loader-panel {
         box-sizing: border-box;
-        width: min(100%, 460px);
+        width: min(100%, 360px);
         display: grid;
         justify-items: center;
-        gap: 22px;
-        padding: 30px 34px 32px;
-        border: 1px solid #d9e0ea;
-        border-radius: 24px;
-        background: rgba(255, 255, 255, 0.92);
-        box-shadow: 0 24px 70px rgba(27, 36, 48, 0.12);
+        gap: 16px;
+        padding: 28px;
       }
-      .boot-loader img { display: block; width: min(100%, 360px); height: auto; border-radius: 12px; }
+      .boot-loader img { display: block; width: 72px; height: 72px; object-fit: cover; border-radius: 18px; }
       .boot-loader-copy { display: grid; justify-items: center; gap: 6px; text-align: center; }
       .boot-loader-copy strong { font-size: 18px; letter-spacing: -0.01em; }
       .boot-loader-copy span { color: #566275; font-size: 14px; }
@@ -62,11 +58,11 @@
       }
     </style>
     <div id="root">
-      <div class="boot-loader" role="status" aria-label="Loading Mework" aria-busy="true">
+      <div class="boot-loader" role="status" aria-label="Loading mework" aria-busy="true">
         <div class="boot-loader-panel">
-          <img src="/splash.png" alt="Mework" />
+          <img src="/mework-icon.png" alt="mework" />
           <div class="boot-loader-copy">
-            <strong>Loading Mework</strong>
+            <strong>Loading mework</strong>
             <span>Preparing your workspace…</span>
           </div>
           <div class="boot-loader-track" role="progressbar" aria-label="Application loading" aria-valuetext="Loading application">

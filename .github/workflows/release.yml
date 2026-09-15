@@ -1,4 +1,4 @@
-name: Publish Mework
+name: Publish mework
 
 on:
   workflow_dispatch:
@@ -190,7 +190,7 @@ jobs:
         with:
           projectPath: .
           tagName: mework-v__VERSION__
-          releaseName: Mework v__VERSION__
+          releaseName: mework v__VERSION__
           releaseBody: |
             Release build for macOS and Windows.
 

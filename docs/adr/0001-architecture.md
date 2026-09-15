@@ -5,7 +5,7 @@
 
 ## Context
 
-Mework must run as a single-user desktop application on macOS and Windows, remain useful offline, persist polling and workflow state locally, integrate with native OS capabilities, and keep credentials and external writes outside the renderer. The first vertical slice is a Jira watcher and actionable inbox. Incoming webhooks, cloud services, remote databases, microservices, and a global Hermes conversation are out of scope.
+mework must run as a single-user desktop application on macOS and Windows, remain useful offline, persist polling and workflow state locally, integrate with native OS capabilities, and keep credentials and external writes outside the renderer. The first vertical slice is a Jira watcher and actionable inbox. Incoming webhooks, cloud services, remote databases, microservices, and a global Hermes conversation are out of scope.
 
 ## Decision
 

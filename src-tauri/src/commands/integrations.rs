@@ -35,6 +35,16 @@ async fn credential_store(state: &SqlitePool) -> Result<Box<dyn CredentialStore>
     }
 }
 
+pub(crate) async fn refresh_all_integration_health_background(
+    state: &SqlitePool,
+) -> Result<Vec<IntegrationDto>, String> {
+    let store = credential_store(state).await?;
+    let checker = ReqwestHealthChecker::new();
+    settings::refresh_all_integration_health(state, store.as_ref(), &checker)
+        .await
+        .map_err(|error| error.to_string())
+}
+
 #[tauri::command]
 pub async fn integration_list(state: State<'_, SqlitePool>) -> Result<Vec<IntegrationDto>, String> {
     settings::list_integrations(&state)

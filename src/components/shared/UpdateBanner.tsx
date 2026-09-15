@@ -1,13 +1,13 @@
 import { useEffect, useState } from "react";
 
+import type { Update } from "@tauri-apps/plugin-updater";
+
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
+import { checkForAvailableUpdate } from "./update-check";
+import { installAvailableUpdate } from "./update-install";
 
-type AvailableUpdate = {
-  version: string;
-  body?: string;
-  downloadAndInstall: () => Promise<void>;
-};
+type AvailableUpdate = Update;
 
 interface UpdateBannerProps {
   enabled: boolean;
@@ -22,8 +22,7 @@ export function UpdateBanner({ enabled }: UpdateBannerProps) {
   useEffect(() => {
     if (!enabled) return;
     let active = true;
-    void import("@tauri-apps/plugin-updater")
-      .then(({ check }) => check({ timeout: 10_000 }))
+    void checkForAvailableUpdate()
       .then((available) => {
         if (!active || !available) return;
         setUpdate(available);
@@ -44,9 +43,7 @@ export function UpdateBanner({ enabled }: UpdateBannerProps) {
     setInstalling(true);
     setError(undefined);
     try {
-      await currentUpdate.downloadAndInstall();
-      const { relaunch } = await import("@tauri-apps/plugin-process");
-      await relaunch();
+      await installAvailableUpdate(currentUpdate);
     } catch {
       setError("The update could not be installed. Try again later.");
       setInstalling(false);
@@ -56,15 +53,15 @@ export function UpdateBanner({ enabled }: UpdateBannerProps) {
   return (
     <div className="fixed inset-x-4 bottom-4 z-50 mx-auto max-w-2xl">
       <Alert role="status" className="border-primary/40 bg-background shadow-lg">
-        <AlertTitle>Mework {update.version} is available</AlertTitle>
+        <AlertTitle>mework {update.version} is available</AlertTitle>
         <AlertDescription className="flex flex-wrap items-center justify-between gap-3">
-          <span>{error ?? update.body ?? "Install the latest version to get new features and fixes."}</span>
+          <span>{error ?? "A new version is ready to install."}</span>
           <span className="flex shrink-0 gap-2">
             <Button type="button" variant="ghost" size="sm" onClick={() => setDismissed(true)} disabled={installing}>
               Later
             </Button>
             <Button type="button" size="sm" onClick={() => void installUpdate()} disabled={installing}>
-              {installing ? "Installing…" : "Install update"}
+              {installing ? "Updating…" : "Update now"}
             </Button>
           </span>
         </AlertDescription>

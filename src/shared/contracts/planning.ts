@@ -22,9 +22,23 @@ export interface ManagedProject {
   name: string;
   boardId: string;
   boardName: string;
+  storyPointsFieldId?: string;
   sourceSprintId?: string;
   sourceSprintName?: string;
+  defaultTaskSprintId?: string;
+  defaultTaskSprintName?: string;
+  epicLinkJql?: string;
   availability?: PlanningAvailability;
+}
+
+export interface EpicLinkJqlPreviewRequest {
+  managedProjectId: string;
+  jql: string;
+}
+
+export interface EpicLinkJqlIssue {
+  key: string;
+  summary: string;
 }
 
 export interface PlanningBoard {

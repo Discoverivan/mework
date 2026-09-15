@@ -83,7 +83,7 @@ pub fn send_test_notification<R: Runtime>(app: &AppHandle<R>) -> Result<(), Stri
 
     let adapter = notifications::NativeNotificationAdapter::new(app.clone());
     adapter.notify(
-        "Mework notification test",
+        "mework notification test",
         "Notifications are enabled and working.",
         "general-test",
     )

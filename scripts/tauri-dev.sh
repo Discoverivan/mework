@@ -1,6 +1,11 @@
 #!/bin/zsh
 set -euo pipefail
 
+script_dir="${0:A:h}"
+repo_root="${script_dir:h}"
+cd "$repo_root"
+env_file="${MEWORK_DEV_ENV_FILE:-$repo_root/.env.dev}"
+
 export NVM_DIR="${NVM_DIR:-$HOME/.nvm}"
 node_version="$(tr -d '[:space:]' < .nvmrc 2>/dev/null || true)"
 nvm_node_bin="$NVM_DIR/versions/node/v${node_version}/bin"
@@ -20,17 +25,23 @@ if ! node -e 'const [major, minor] = process.versions.node.split(".").map(Number
   exit 1
 fi
 
-if [[ ! -f .env.dev ]]; then
-  print -u2 ".env.dev is missing"
+if [[ ! -f "$env_file" ]]; then
+  print -u2 "development environment file is missing: $env_file"
   exit 1
 fi
 
 set -a
-source .env.dev
+source "$env_file"
 set +a
 
-: "${MEWORK_DEV_JIRA_PAT:?MEWORK_DEV_JIRA_PAT is missing in .env.dev}"
-: "${MEWORK_DEV_BITBUCKET_PAT:?MEWORK_DEV_BITBUCKET_PAT is missing in .env.dev}"
+if [[ -z "${MEWORK_DEV_JIRA_PAT:-}" ]]; then
+  print -u2 "MEWORK_DEV_JIRA_PAT is missing or empty in $env_file"
+  exit 1
+fi
+if [[ -z "${MEWORK_DEV_BITBUCKET_PAT:-}" ]]; then
+  print -u2 "MEWORK_DEV_BITBUCKET_PAT is missing or empty in $env_file"
+  exit 1
+fi
 
 if [[ "${MEWORK_DEV_PREFLIGHT_ONLY:-false}" == "true" ]]; then
   print "development environment loaded with Node $(node --version)"

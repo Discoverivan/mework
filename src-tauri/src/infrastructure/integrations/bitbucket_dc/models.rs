@@ -145,6 +145,8 @@ pub struct BitbucketComment {
     #[serde(rename = "updatedDate")]
     pub updated_date: Option<i64>,
     pub deleted: Option<bool>,
+    #[serde(default)]
+    pub comments: Vec<BitbucketComment>,
     pub permitted: Option<bool>,
     pub anchor: Option<BitbucketCommentAnchor>,
     pub links: Option<BitbucketLinks>,

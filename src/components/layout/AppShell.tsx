@@ -1,7 +1,18 @@
 import type { ReactNode } from "react";
+import {
+  CalendarDays,
+  Command,
+  GitPullRequest,
+  PlugZap,
+  Settings2,
+  SquarePen,
+  UsersRound,
+  type LucideIcon,
+} from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
+import { cn } from "@/lib/utils";
 import {
   Select,
   SelectContent,
@@ -12,96 +23,121 @@ import {
 
 export type Theme = "light" | "dark";
 
-export type AppSection = "inbox" | "product-create-task" | "product-planning" | "product-daily" | "developer-pull-requests" | "settings-general" | "settings-integrations" | "settings-projects";
+export type AppSection =
+  | "product-create-task"
+  | "product-daily"
+  | "developer-pull-requests"
+  | "developer-my-pull-requests"
+  | "developer-command-board"
+  | "settings-general"
+  | "settings-integrations"
+  | "settings-projects";
+
+type NavigationItem = {
+  section: AppSection;
+  label: string;
+  href: string;
+  icon: LucideIcon;
+};
 
 interface AppShellProps {
   children: ReactNode;
   theme: Theme;
   onThemeChange: (theme: Theme) => void;
   onNavigate?: (section: AppSection) => void;
+  activeSection?: AppSection;
+  unreadPullRequestCount?: number;
+  unreadAuthoredPullRequestCount?: number;
 }
 
-const navigation = [
-  { section: "inbox", label: "Inbox", href: "#inbox" },
-] as const;
+const productNavigation: NavigationItem[] = [
+  { section: "product-create-task", label: "Create task", href: "#product/create-task", icon: SquarePen },
+  { section: "product-daily", label: "Daily", href: "#product/daily", icon: CalendarDays },
+];
 
-const productNavigation = [
-  { section: "product-create-task", label: "Create task", href: "#product/create-task" },
-  { section: "product-daily", label: "Daily", href: "#product/daily" },
-  { section: "product-planning", label: "Planning", href: "#product/planning" },
-] as const;
+const developerNavigation: NavigationItem[] = [
+  { section: "developer-pull-requests", label: "Pull Request Review", href: "#developer/pull-requests", icon: GitPullRequest },
+  { section: "developer-my-pull-requests", label: "My Pull Requests", href: "#developer/my-pull-requests", icon: GitPullRequest },
+  { section: "developer-command-board", label: "Command Board", href: "#developer/command-board", icon: Command },
+];
 
-const developerNavigation = [
-  { section: "developer-pull-requests", label: "Pull Request Review", href: "#developer/pull-requests" },
-] as const;
+const settingsNavigation: NavigationItem[] = [
+  { section: "settings-general", label: "General", href: "#settings/general", icon: Settings2 },
+  { section: "settings-integrations", label: "Integrations", href: "#settings/integrations", icon: PlugZap },
+  { section: "settings-projects", label: "Team settings", href: "#settings/projects", icon: UsersRound },
+];
 
-const settingsNavigation = [
-  { section: "settings-general", label: "General", href: "#settings/general" },
-  { section: "settings-integrations", label: "Integrations", href: "#settings/integrations" },
-  { section: "settings-projects", label: "Team settings", href: "#settings/projects" },
-] as const;
+export function AppShell({
+  children,
+  theme,
+  onThemeChange,
+  onNavigate,
+  activeSection,
+  unreadPullRequestCount = 0,
+  unreadAuthoredPullRequestCount = 0,
+}: AppShellProps) {
+  function renderNavigationItem(item: NavigationItem) {
+    const Icon = item.icon;
+    const active = activeSection === item.section;
+    const itemUnreadCount = item.section === "developer-pull-requests"
+      ? unreadPullRequestCount
+      : item.section === "developer-my-pull-requests"
+        ? unreadAuthoredPullRequestCount
+        : 0;
+    const displayUnreadCount = itemUnreadCount > 99 ? "99+" : itemUnreadCount;
+    const pullRequestLabel = itemUnreadCount > 0
+      ? `${item.label}, ${itemUnreadCount} unread`
+      : item.label;
 
-export function AppShell({ children, theme, onThemeChange, onNavigate }: AppShellProps) {
+    return (
+      <Button
+        key={item.label}
+        asChild
+        variant="ghost"
+        className={cn("justify-start gap-2 px-3", active && "bg-accent text-accent-foreground")}
+      >
+        <a
+          href={item.href}
+          aria-label={pullRequestLabel}
+          aria-current={active ? "page" : undefined}
+          onClick={() => onNavigate?.(item.section)}
+        >
+          <Icon className="size-4 shrink-0" aria-hidden="true" />
+          <span className="min-w-0 flex-1 truncate">{item.label}</span>
+          {itemUnreadCount > 0 ? (
+            <span className="sidebar-unread-badge" aria-label={`${itemUnreadCount} unread pull requests`}>
+              {displayUnreadCount}
+            </span>
+          ) : null}
+        </a>
+      </Button>
+    );
+  }
+
   return (
     <div className="app-shell">
       <aside aria-label="Primary navigation">
-        <strong>Mework</strong>
+        <div className="app-brand">
+          <img src="/mework-icon.png" alt="" aria-hidden="true" />
+          <strong>mework</strong>
+        </div>
         <nav>
-          {navigation.map((item) => (
-            <Button key={item.label} asChild variant="ghost" className="justify-start">
-              <a
-                href={item.href}
-                onClick={() => {
-                  if (item.section) onNavigate?.(item.section);
-                }}
-              >
-                {item.label}
-              </a>
-            </Button>
-          ))}
           <div className="settings-nav-group" aria-labelledby="developer-nav-title">
             <span id="developer-nav-title" className="settings-nav-heading">Developer</span>
             <div className="settings-nav-children">
-              {developerNavigation.map((item) => (
-                <Button key={item.label} asChild variant="ghost" className="justify-start">
-                  <a
-                    href={item.href}
-                    onClick={() => onNavigate?.(item.section)}
-                  >
-                    {item.label}
-                  </a>
-                </Button>
-              ))}
+              {developerNavigation.map(renderNavigationItem)}
             </div>
           </div>
           <div className="settings-nav-group" aria-labelledby="product-nav-title">
             <span id="product-nav-title" className="settings-nav-heading">Product</span>
             <div className="settings-nav-children">
-              {productNavigation.map((item) => (
-                <Button key={item.label} asChild variant="ghost" className="justify-start">
-                  <a
-                    href={item.href}
-                    onClick={() => onNavigate?.(item.section)}
-                  >
-                    {item.label}
-                  </a>
-                </Button>
-              ))}
+              {productNavigation.map(renderNavigationItem)}
             </div>
           </div>
           <div className="settings-nav-group" aria-labelledby="settings-nav-title">
             <span id="settings-nav-title" className="settings-nav-heading">Settings</span>
             <div className="settings-nav-children">
-              {settingsNavigation.map((item) => (
-                <Button key={item.label} asChild variant="ghost" className="justify-start">
-                  <a
-                    href={item.href}
-                    onClick={() => onNavigate?.(item.section)}
-                  >
-                    {item.label}
-                  </a>
-                </Button>
-              ))}
+              {settingsNavigation.map(renderNavigationItem)}
             </div>
           </div>
         </nav>
@@ -118,7 +154,7 @@ export function AppShell({ children, theme, onThemeChange, onNavigate }: AppShel
           </Select>
         </div>
       </aside>
-      <main aria-label="Mework" className="app-content">
+      <main aria-label="mework" className="app-content">
         {children}
       </main>
     </div>

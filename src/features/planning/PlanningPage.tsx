@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
+import { PageHeader } from "../../components/shared/PageHeader";
 import { Alert, AlertDescription } from "../../components/ui/alert";
-import { Card, CardContent, CardHeader, CardTitle } from "../../components/ui/card";
+import { Card, CardContent } from "../../components/ui/card";
 import { Label } from "../../components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../../components/ui/select";
 import type { ManagedProject, PlanningSprint, PlanningWorkspace as Workspace, TeamMember, TeamPreset } from "../../shared/contracts/planning";
@@ -93,45 +94,48 @@ export function PlanningPage() {
   return (
     <section aria-labelledby="planning-entry-title" className="space-y-4">
       {!workspace ? (
-        <Card>
-          <CardHeader>
-            <p className="text-sm text-muted-foreground">Jira sprint planning</p>
-            <CardTitle id="planning-entry-title" className="text-2xl">What do you want to plan?</CardTitle>
-          </CardHeader>
-          <CardContent className="grid max-w-2xl gap-4 sm:grid-cols-2">
-            {loadingProjects ? <p role="status" className="sm:col-span-2">Loading managed projects…</p> : null}
-            {error === "projects" ? <Alert variant="destructive" role="alert" className="sm:col-span-2"><AlertDescription>Unable to load managed projects. Check Jira permissions in Settings.</AlertDescription></Alert> : null}
-            {!loadingProjects && !error && projects.length === 0 ? <p className="sm:col-span-2">No managed Jira projects are configured.</p> : null}
-            {!loadingProjects && projects.length > 0 ? (
-              <div className="space-y-2">
-                <Label htmlFor="managed-project">Managed project</Label>
-                <Select value={projectId} onValueChange={selectProject}>
-                  <SelectTrigger id="managed-project" aria-label="Managed project"><SelectValue placeholder="Choose a managed project" /></SelectTrigger>
-                  <SelectContent>
-                    {projects.map((project) => <SelectItem key={project.id} value={project.id}>{project.name} ({project.jiraProjectId})</SelectItem>)}
-                  </SelectContent>
-                </Select>
-              </div>
-            ) : null}
-            {projectId ? (
-              <div className="space-y-2">
-                <Label htmlFor="target-sprint">Target sprint</Label>
-                {loadingSprints ? <p role="status">Loading target sprints…</p> : (
-                  <Select value={sprintId} onValueChange={selectSprint}>
-                    <SelectTrigger id="target-sprint" aria-label="Target sprint"><SelectValue placeholder="Choose an open sprint" /></SelectTrigger>
+        <>
+          <PageHeader
+            title="What do you want to plan?"
+            titleId="planning-entry-title"
+            description="Jira sprint planning"
+          />
+          <Card>
+            <CardContent className="grid max-w-2xl gap-4 pt-6 sm:grid-cols-2">
+              {loadingProjects ? <p role="status" className="sm:col-span-2">Loading managed projects…</p> : null}
+              {error === "projects" ? <Alert variant="destructive" role="alert" className="sm:col-span-2"><AlertDescription>Unable to load managed projects. Check Jira permissions in Settings.</AlertDescription></Alert> : null}
+              {!loadingProjects && !error && projects.length === 0 ? <p className="sm:col-span-2">No managed Jira projects are configured.</p> : null}
+              {!loadingProjects && projects.length > 0 ? (
+                <div className="space-y-2">
+                  <Label htmlFor="managed-project">Managed project</Label>
+                  <Select value={projectId} onValueChange={selectProject}>
+                    <SelectTrigger id="managed-project" aria-label="Managed project"><SelectValue placeholder="Choose a managed project" /></SelectTrigger>
                     <SelectContent>
-                      {sprints.filter((sprint) => sprint.usable && sprint.state === "future").map((sprint) => <SelectItem key={sprint.id} value={sprint.id}>{sprint.name}</SelectItem>)}
+                      {projects.map((project) => <SelectItem key={project.id} value={project.id}>{project.name} ({project.jiraProjectId})</SelectItem>)}
                     </SelectContent>
                   </Select>
-                )}
-                {sprints.length > 0 && sprints.every((sprint) => !sprint.usable || sprint.state !== "future") ? <p className="text-sm text-muted-foreground">No future target sprints.</p> : null}
-              </div>
-            ) : null}
-            {error === "sprints" ? <Alert variant="destructive" role="alert" className="sm:col-span-2"><AlertDescription>Unable to load target sprints. {sprintError || "Check Jira board permissions."}</AlertDescription></Alert> : null}
-            {error === "workspace" ? <Alert variant="destructive" role="alert" className="sm:col-span-2"><AlertDescription>Unable to load the planning workspace. {workspaceError || "Refresh Jira data and try again."}</AlertDescription></Alert> : null}
-            {loadingWorkspace ? <p role="status" className="sm:col-span-2">Loading planning workspace…</p> : null}
-          </CardContent>
-        </Card>
+                </div>
+              ) : null}
+              {projectId ? (
+                <div className="space-y-2">
+                  <Label htmlFor="target-sprint">Target sprint</Label>
+                  {loadingSprints ? <p role="status">Loading target sprints…</p> : (
+                    <Select value={sprintId} onValueChange={selectSprint}>
+                      <SelectTrigger id="target-sprint" aria-label="Target sprint"><SelectValue placeholder="Choose an open sprint" /></SelectTrigger>
+                      <SelectContent>
+                        {sprints.filter((sprint) => sprint.usable && sprint.state === "future").map((sprint) => <SelectItem key={sprint.id} value={sprint.id}>{sprint.name}</SelectItem>)}
+                      </SelectContent>
+                    </Select>
+                  )}
+                  {sprints.length > 0 && sprints.every((sprint) => !sprint.usable || sprint.state !== "future") ? <p className="text-sm text-muted-foreground">No future target sprints.</p> : null}
+                </div>
+              ) : null}
+              {error === "sprints" ? <Alert variant="destructive" role="alert" className="sm:col-span-2"><AlertDescription>Unable to load target sprints. {sprintError || "Check Jira board permissions."}</AlertDescription></Alert> : null}
+              {error === "workspace" ? <Alert variant="destructive" role="alert" className="sm:col-span-2"><AlertDescription>Unable to load the planning workspace. {workspaceError || "Refresh Jira data and try again."}</AlertDescription></Alert> : null}
+              {loadingWorkspace ? <p role="status" className="sm:col-span-2">Loading planning workspace…</p> : null}
+            </CardContent>
+          </Card>
+        </>
       ) : <PlanningWorkspace workspace={workspace} members={teamMembers} presets={teamPresets} />}
     </section>
   );

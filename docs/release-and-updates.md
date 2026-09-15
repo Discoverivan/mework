@@ -1,4 +1,4 @@
-# Mework releases and updates
+# mework releases and updates
 
 ## GitHub Actions release
 
@@ -40,7 +40,7 @@ For fully trusted production distribution, add Apple notarization/signing and Wi
 
 ## In-app updater
 
-Tauri's updater checks the GitHub Releases `latest.json` in the background after the startup bootstrap completes. The check has a ten-second timeout and never blocks routes or the splash screen. When an update is available, Mework shows an update banner; installation starts only after the user clicks **Install update**. This avoids restarting the app or changing binaries unexpectedly. Windows uses Tauri's passive installer mode; macOS relaunches after installation.
+Tauri's updater checks the GitHub Releases `latest.json` in the background after the startup bootstrap completes. The check has a ten-second timeout and never blocks routes or the splash screen. When an update is available, mework shows an update banner with the available version and a short install prompt, without release notes; installation starts only after the user clicks **Update now**. This avoids restarting the app or changing binaries unexpectedly. Windows uses Tauri's passive installer mode; macOS relaunches after installation.
 
 The source config intentionally contains a repository placeholder. The release workflow replaces it in the build copy with:
 
@@ -52,10 +52,10 @@ If a local signed build is needed, replace the endpoint in `src-tauri/tauri.conf
 
 ## Version policy
 
-Application changes merged into `master` are release inputs. The source base version remains unchanged. The workflow creates the first release from that base version and then increments only the patch component from the latest `mework-vX.Y.Z` tag. Each release is represented by a matching `mework-vX.Y.Z` tag and `Mework vX.Y.Z` GitHub Release. For a minor or major release, start the workflow manually with an explicit SemVer `version` input; the next automatic patch release continues from that tag.
+Application changes merged into `master` are release inputs. The source base version remains unchanged. The workflow creates the first release from that base version and then increments only the patch component from the latest `mework-vX.Y.Z` tag. Each release is represented by a matching `mework-vX.Y.Z` tag and `mework vX.Y.Z` GitHub Release. For a minor or major release, start the workflow manually with an explicit SemVer `version` input; the next automatic patch release continues from that tag.
 
 ## macOS release without an Apple certificate
 
-The main `release.yml` workflow uses the Tauri ad-hoc identity (`-`) for macOS and uploads `Mework_<version>_<architecture>.dmg` assets. The application inside the DMG is not notarized: after copying it to Applications, the first launch may require **System Settings → Privacy & Security → Open Anyway**. Updates installed through the in-app updater normally do not require downloading and approving a new DMG; installing a freshly downloaded copy may trigger Gatekeeper again.
+The main `release.yml` workflow uses the Tauri ad-hoc identity (`-`) for macOS and uploads `mework_<version>_<architecture>.dmg` assets. The application inside the DMG is not notarized: after copying it to Applications, the first launch may require **System Settings → Privacy & Security → Open Anyway**. Updates installed through the in-app updater normally do not require downloading and approving a new DMG; installing a freshly downloaded copy may trigger Gatekeeper again.
 
 The workflow still signs updater archives with `TAURI_SIGNING_PRIVATE_KEY`, but ad-hoc macOS signing is not a replacement for Developer ID signing and notarization.

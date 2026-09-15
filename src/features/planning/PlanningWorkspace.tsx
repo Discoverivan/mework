@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import type { CompetencySubtask, PlanningDraft, PlanningIssue, PlanningWorkspace as Workspace, TeamMember, TeamPreset, TeamPresetInput } from "../../shared/contracts/planning";
+import { PageHeader } from "../../components/shared/PageHeader";
 import { Alert, AlertDescription } from "../../components/ui/alert";
 import { Badge } from "../../components/ui/badge";
 import { Button } from "../../components/ui/button";
@@ -163,17 +164,21 @@ export function PlanningWorkspace({
 
   return (
     <section aria-labelledby="planning-workspace-title" className="space-y-4">
-      <header className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <p className="text-sm text-muted-foreground">{workspace.managedProject.name} · {workspace.managedProject.boardName}</p>
-          <h2 id="planning-workspace-title" className="text-2xl font-semibold">{workspace.managedProject.name} planning</h2>
-          <p className="text-sm text-muted-foreground">Planning source: <strong>{workspace.sourceSprint.name}</strong> → Target sprint: <strong>{workspace.targetSprint.name}</strong></p>
-        </div>
-        <div className="flex gap-2">
-          {!locked ? <Button type="button" variant="outline" onClick={() => void saveDrafts()} disabled={saveState === "saving"}>{saveState === "saving" ? "Saving…" : "Save draft"}</Button> : null}
-          {!locked ? <Button type="button" onClick={() => setApplyState("confirm")} disabled={applyState === "applying"}>Apply and lock</Button> : <Badge variant="secondary">Locked</Badge>}
-        </div>
-      </header>
+      <PageHeader
+        title={`${workspace.managedProject.name} planning`}
+        titleId="planning-workspace-title"
+        description={(
+          <>
+            {workspace.managedProject.name} · {workspace.managedProject.boardName} · Planning source: <strong>{workspace.sourceSprint.name}</strong> → Target sprint: <strong>{workspace.targetSprint.name}</strong>
+          </>
+        )}
+        actions={(
+          <>
+            {!locked ? <Button type="button" variant="outline" onClick={() => void saveDrafts()} disabled={saveState === "saving"}>{saveState === "saving" ? "Saving…" : "Save draft"}</Button> : null}
+            {!locked ? <Button type="button" onClick={() => setApplyState("confirm")} disabled={applyState === "applying"}>Apply and lock</Button> : <Badge variant="secondary">Locked</Badge>}
+          </>
+        )}
+      />
       {saveState === "saved" ? <p role="status">Draft saved locally. Jira was not changed.</p> : null}
       {saveState === "error" ? <Alert variant="destructive"><AlertDescription>{draftError || "Unable to save the local planning draft."}</AlertDescription></Alert> : null}
       {applyState === "error" ? <Alert variant="destructive"><AlertDescription>Apply failed; the plan remains unlocked. Review the operation errors and retry.</AlertDescription></Alert> : null}
