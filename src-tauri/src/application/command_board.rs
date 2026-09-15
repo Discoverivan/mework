@@ -367,7 +367,7 @@ fn interpreter_for_name(name: &str) -> Option<&'static str> {
             "powershell" | "pwsh" | "ps1" => Some("powershell.exe"),
             "bat" | "cmd" => Some("cmd.exe"),
             _ => None,
-        };
+        }
     }
 
     #[cfg(not(target_os = "windows"))]
