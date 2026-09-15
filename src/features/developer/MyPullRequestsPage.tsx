@@ -1,9 +1,8 @@
 import { listen } from "@tauri-apps/api/event";
 import { useCallback, useEffect, useState } from "react";
-import { ExternalLink, Filter, Loader2, Sparkles } from "lucide-react";
+import { CheckCheck, Filter, RefreshCw, Sparkles } from "lucide-react";
 
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -22,13 +21,17 @@ import type {
   BitbucketRepository,
   BitbucketUser,
   MyPullRequest,
-  MyPullRequestDecision,
   MyPullRequestPage,
   PullRequestReviewChangedEvent,
-  PullRequestReviewSeverity,
+  PullRequestReviewComment,
   PullRequestReviewSettings,
   PullRequestReviewState,
 } from "@/shared/contracts/developer";
+
+import { PullRequestListItem } from "./components/PullRequestListItem";
+import { PullRequestReviewDialog } from "./components/PullRequestReviewDialog";
+import { PullRequestSyncStatus } from "./components/PullRequestSyncStatus";
+import { PageHeader } from "@/components/shared/PageHeader";
 
 import { getAiSettings } from "../settings/api";
 import {
@@ -37,22 +40,19 @@ import {
   listMyPullRequests,
   markAllPullRequestsRead,
   markPullRequestRead,
+  publishPullRequestComment,
   refreshMyPullRequests,
   savePullRequestReviewSettings,
+  setPullRequestDecision,
   searchBitbucketRepositories,
   searchBitbucketUsers,
   startPullRequestReview,
 } from "./api";
 
-const POLL_INTERVAL_MS = 300_000;
-
-const decisionLabels: Record<MyPullRequestDecision, string> = {
-  approved: "Approved",
-  needs_work: "Needs work",
-  not_reviewed: "Review pending",
-};
+const PULL_REQUEST_REVIEW_ACTIVITY_CHANGED_EVENT = "pull_request_review_activity_changed";
 
 type FilterTab = "blacklist" | "whitelist";
+type QuickFilter = "all" | "pending";
 type FilterKind = "repository" | "creator";
 type FilterField =
   | "repositoryBlacklist"
@@ -65,17 +65,6 @@ function filterField(tab: FilterTab, kind: FilterKind): FilterField {
   return kind === "repository" ? "repositoryWhitelist" : "creatorWhitelist";
 }
 
-const reviewSeveritySections: Array<{
-  key: PullRequestReviewSeverity;
-  label: string;
-  defaultOpen: boolean;
-}> = [
-  { key: "blocker", label: "Blocker", defaultOpen: true },
-  { key: "high", label: "High", defaultOpen: true },
-  { key: "medium", label: "Medium", defaultOpen: false },
-  { key: "low", label: "Low", defaultOpen: false },
-];
-
 
 const emptySettings: PullRequestReviewSettings = {
   repositoryBlacklist: [],
@@ -83,6 +72,7 @@ const emptySettings: PullRequestReviewSettings = {
   repositoryWhitelist: [],
   creatorWhitelist: [],
   autoReviewEnabled: false,
+  authoredAutoReviewEnabled: false,
 };
 
 function repositoryKey(pullRequest: MyPullRequest): string {
@@ -142,12 +132,6 @@ function pullRequestKey(
   return `${pullRequest.integrationId}:${pullRequest.projectKey}:${pullRequest.repositorySlug}:${pullRequest.pullRequestId}`;
 }
 
-function activityLabel(activity: MyPullRequest["activity"]): string | undefined {
-  if (activity === "new") return "NEW";
-  if (activity === "updated") return "UPDATED";
-  return undefined;
-}
-
 function activityRank(activity: MyPullRequest["activity"]): number {
   if (activity === "new") return 0;
   if (activity === "updated") return 1;
@@ -162,56 +146,6 @@ function sortPullRequests(values: MyPullRequest[]): MyPullRequest[] {
     const rightUpdated = right.updatedDate ?? Number.NEGATIVE_INFINITY;
     return rightUpdated - leftUpdated || left.pullRequestId.localeCompare(right.pullRequestId);
   });
-}
-
-function formatRelativeDate(timestamp?: number): string {
-  if (timestamp == null || !Number.isFinite(timestamp)) return "Unknown update";
-  const seconds = Math.max(0, Math.floor((Date.now() - timestamp) / 1000));
-  if (seconds < 60) return "just now";
-  if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`;
-  if (seconds < 86_400) return `${Math.floor(seconds / 3600)}h ago`;
-  if (seconds < 2_592_000) return `${Math.floor(seconds / 86_400)}d ago`;
-  if (seconds < 31_536_000) return `${Math.floor(seconds / 2_592_000)}mo ago`;
-  return `${Math.floor(seconds / 31_536_000)}y ago`;
-}
-
-function formatSyncTimestamp(timestamp: number): string {
-  return new Intl.DateTimeFormat(undefined, {
-    dateStyle: "short",
-    timeStyle: "short",
-  }).format(new Date(timestamp));
-}
-
-function nextSyncLabel(lastSyncAt: number | undefined, now = Date.now()): string {
-  if (lastSyncAt == null) return "after the first successful sync";
-  const remaining = Math.max(0, lastSyncAt + POLL_INTERVAL_MS - now);
-  if (remaining === 0) return "now";
-  return `in ${Math.ceil(remaining / 60_000)} min`;
-}
-
-function creatorInitials(displayName: string): string {
-  const parts = displayName.trim().split(/\s+/).filter(Boolean);
-  if (parts.length === 0) return "?";
-  return `${parts[0]?.[0] ?? ""}${parts.length > 1 ? parts[parts.length - 1]?.[0] ?? "" : ""}`.toUpperCase();
-}
-
-function CreatorAvatar({ pullRequest }: { pullRequest: MyPullRequest }) {
-  const [failed, setFailed] = useState(false);
-  if (pullRequest.authorAvatarUrl && !failed) {
-    return (
-      <img
-        src={pullRequest.authorAvatarUrl}
-        alt=""
-        className="h-7 w-7 shrink-0 rounded-full object-cover"
-        onError={() => setFailed(true)}
-      />
-    );
-  }
-  return (
-    <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-muted text-xs font-medium" aria-hidden="true">
-      {creatorInitials(pullRequest.authorDisplayName)}
-    </span>
-  );
 }
 
 export function MyPullRequestsPage() {
@@ -229,6 +163,7 @@ export function MyPullRequestsPage() {
   const [creatorSearchError, setCreatorSearchError] = useState<string>();
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [filterTab, setFilterTab] = useState<FilterTab>("whitelist");
+  const [quickFilter, setQuickFilter] = useState<QuickFilter>("all");
   const [saving, setSaving] = useState(false);
   const [autoReviewSaving, setAutoReviewSaving] = useState(false);
   const [settingsError, setSettingsError] = useState<string>();
@@ -316,6 +251,7 @@ export function MyPullRequestsPage() {
     try {
       const page = await refreshMyPullRequests(0, 100);
       applyPage(page);
+      window.dispatchEvent(new Event(PULL_REQUEST_REVIEW_ACTIVITY_CHANGED_EVENT));
     } catch (reason) {
       setError(commandError(reason));
     } finally {
@@ -483,6 +419,9 @@ export function MyPullRequestsPage() {
     Boolean(user.displayName && equalsIgnoreCase(user.displayName, creatorInput)),
   );
   const filteredPullRequests = pullRequests.filter((pullRequest) => matchesSettings(pullRequest, settings));
+  const visiblePullRequests = filteredPullRequests.filter((pullRequest) =>
+    quickFilter === "all" || pullRequest.myDecision === "not_reviewed",
+  );
   const reviewDialogPullRequest = reviewDialogKey
     ? pullRequests.find((pullRequest) => pullRequestKey(pullRequest) === reviewDialogKey)
     : undefined;
@@ -495,6 +434,7 @@ export function MyPullRequestsPage() {
       repositoryWhitelist: [...settings.repositoryWhitelist],
       creatorWhitelist: [...settings.creatorWhitelist],
       autoReviewEnabled: settings.autoReviewEnabled,
+      authoredAutoReviewEnabled: settings.authoredAutoReviewEnabled,
     });
     setFilterTab("whitelist");
     setRepositoryInput("");
@@ -572,6 +512,7 @@ export function MyPullRequestsPage() {
         pullRequest.latestCommit,
       );
       setPullRequests((current) => sortPullRequests(current.map((item) => pullRequestKey(item) === key ? { ...item, activity: readState.activity } : item)));
+      window.dispatchEvent(new Event(PULL_REQUEST_REVIEW_ACTIVITY_CHANGED_EVENT));
     } catch (reason) {
       setError(commandError(reason));
     }
@@ -583,6 +524,7 @@ export function MyPullRequestsPage() {
     try {
       await markAllPullRequestsRead();
       setPullRequests((current) => sortPullRequests(current.map((item) => ({ ...item, activity: "read" }))));
+      window.dispatchEvent(new Event(PULL_REQUEST_REVIEW_ACTIVITY_CHANGED_EVENT));
     } catch (reason) {
       setError(commandError(reason));
     } finally {
@@ -619,58 +561,111 @@ export function MyPullRequestsPage() {
     }
   }
 
+  async function publishReviewComment(pullRequest: MyPullRequest, comment: PullRequestReviewComment) {
+    try {
+      await publishPullRequestComment(pullRequest, comment);
+    } catch (reason) {
+      throw new Error(commandError(reason));
+    }
+  }
+
+  async function updateReviewDecision(pullRequest: MyPullRequest, action: "approve" | "needs_work") {
+    try {
+      const status = await setPullRequestDecision(pullRequest, action);
+      const key = pullRequestKey(pullRequest);
+      setPullRequests((current) => sortPullRequests(current.map((item) =>
+        pullRequestKey(item) === key ? { ...item, myDecision: status.myDecision } : item,
+      )));
+    } catch (reason) {
+      throw new Error(commandError(reason));
+    }
+  }
+
   const activeRepositoryField = filterField(filterTab, "repository");
   const activeCreatorField = filterField(filterTab, "creator");
   const activeTabLabel = filterTab === "blacklist" ? "Blacklist" : "Whitelist";
 
   return (
     <section aria-labelledby="pull-request-review-title" className="space-y-4">
-      <header className="page-header">
-        <div>
-          <p className="eyebrow">Developer</p>
-          <h1 id="pull-request-review-title">Pull Request Review</h1>
-          {!loading && !error ? (
-            <p className="text-sm text-muted-foreground">
-              {total ?? pullRequests.length} review requests · {settings.repositoryBlacklist.length + settings.creatorBlacklist.length + settings.repositoryWhitelist.length + settings.creatorWhitelist.length} permanent filters · sorted by PR update date
-              {polling ? " · Checking for updates…" : ""}
-            </p>
-          ) : null}
-          {lastSyncAt != null ? (
-            <p className="text-xs text-muted-foreground">
-              <time
-                dateTime={new Date(lastSyncAt).toISOString()}
-                title={`Next update: ${nextSyncLabel(lastSyncAt, now)}`}
-                aria-label={`Last updated ${formatSyncTimestamp(lastSyncAt)}. Next update: ${nextSyncLabel(lastSyncAt, now)}`}
-              >
-                Last updated: {formatRelativeDate(lastSyncAt)} · Next update: {nextSyncLabel(lastSyncAt, now)}
-              </time>
-            </p>
-          ) : null}
-        </div>
-        <div className="flex flex-wrap items-center justify-end gap-2">
-          <label className="flex cursor-pointer items-center gap-2 rounded-md border px-3 py-2 text-sm">
-            <input
-              type="checkbox"
-              aria-label="AI auto-review"
-              checked={settings.autoReviewEnabled}
-              onChange={(event) => void toggleAutoReview(event.target.checked)}
-              disabled={loading || autoReviewSaving}
-            />
-            <Sparkles aria-hidden="true" className="size-4" />
-            AI auto-review
-          </label>
-          <Button type="button" variant="outline" onClick={() => void syncPullRequests()} disabled={loading || polling}>
-            {polling ? "Updating…" : "Update now"}
-          </Button>
-          <Button type="button" variant="outline" onClick={openSettings} disabled={loading}>
+      <PageHeader
+        title="Pull Request Review"
+        titleId="pull-request-review-title"
+        description={!loading && !error ? (
+          <>
+            {total ?? pullRequests.length} review requests · {settings.repositoryBlacklist.length + settings.creatorBlacklist.length + settings.repositoryWhitelist.length + settings.creatorWhitelist.length} permanent filters · sorted by PR update date
+            {polling ? " · Checking for updates…" : ""}
+          </>
+        ) : undefined}
+        meta={<PullRequestSyncStatus lastSyncAt={lastSyncAt} now={now} />}
+        actions={(
+          <>
+            <label className="flex cursor-pointer items-center gap-2 rounded-md border px-3 py-2 text-sm">
+              <input
+                type="checkbox"
+                aria-label="AI auto-review"
+                checked={settings.autoReviewEnabled}
+                onChange={(event) => void toggleAutoReview(event.target.checked)}
+                disabled={loading || autoReviewSaving}
+              />
+              <Sparkles aria-hidden="true" className="size-4" />
+              AI auto-review
+            </label>
+            <Button type="button" variant="outline" size="sm" onClick={() => void syncPullRequests()} disabled={loading || polling}>
+              <RefreshCw className={polling ? "animate-spin" : undefined} aria-hidden="true" />
+              {polling ? "Updating…" : "Update now"}
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              size="icon"
+              className="h-9 w-9"
+              aria-label="Read all"
+              title="Read all"
+              onClick={() => void markAllRead()}
+              disabled={loading || readAllPending || pullRequests.every((item) => item.activity === "read")}
+            >
+              {readAllPending ? <RefreshCw className="animate-spin" aria-hidden="true" /> : <CheckCheck aria-hidden="true" />}
+            </Button>
+          </>
+        )}
+      />
+
+      <div role="tablist" aria-label="Pull request quick filters" className="flex flex-wrap items-center gap-2">
+        <Button
+          type="button"
+          role="tab"
+          size="sm"
+          variant={quickFilter === "all" ? "default" : "outline"}
+          aria-selected={quickFilter === "all"}
+          onClick={() => setQuickFilter("all")}
+        >
+          All
+        </Button>
+        <Button
+          type="button"
+          role="tab"
+          size="sm"
+          variant={quickFilter === "pending" ? "default" : "outline"}
+          aria-selected={quickFilter === "pending"}
+          onClick={() => setQuickFilter("pending")}
+        >
+          Pending your review
+        </Button>
+        <div className="ml-auto">
+          <Button
+            type="button"
+            variant="outline"
+            size="icon"
+            className="h-9 w-9"
+            aria-label="Permanent filters"
+            title="Permanent filters"
+            onClick={openSettings}
+            disabled={loading}
+          >
             <Filter aria-hidden="true" />
-            Permanent filters
-          </Button>
-          <Button type="button" variant="outline" onClick={() => void markAllRead()} disabled={loading || readAllPending || pullRequests.every((item) => item.activity === "read")}>
-            {readAllPending ? "Saving…" : "Read all"}
           </Button>
         </div>
-      </header>
+      </div>
 
       {loading ? <div role="status" aria-label="Loading pull request review">Loading pull requests…</div> : null}
       {error ? (
@@ -682,176 +677,45 @@ export function MyPullRequestsPage() {
       {!loading && !error && pullRequests.length === 0 ? (
         <Card><CardContent className="pt-6"><p>No open pull requests have you as a reviewer.</p></CardContent></Card>
       ) : null}
-      {!loading && !error && pullRequests.length > 0 && filteredPullRequests.length === 0 ? (
-        <Card><CardContent className="pt-6"><p>No pull requests match the permanent filters.</p></CardContent></Card>
+      {!loading && !error && pullRequests.length > 0 && visiblePullRequests.length === 0 ? (
+        <Card><CardContent className="pt-6"><p>No pull requests match the selected filters.</p></CardContent></Card>
       ) : null}
 
       <div className="inbox-list" aria-live="polite">
-        {filteredPullRequests.map((pullRequest) => {
-          const activity = activityLabel(pullRequest.activity);
+        {visiblePullRequests.map((pullRequest) => {
           const itemKey = pullRequestKey(pullRequest);
-          const review = pullRequest.review;
-          const reviewRunning = reviewStartingKeys.has(itemKey) || review?.status === "running";
-          const reviewCompleted = review?.status === "completed" && review.result != null;
           return (
-            <Card
+            <PullRequestListItem
               key={itemKey}
-              className={pullRequest.activity === "new" ? "border-l-4 border-l-primary" : pullRequest.activity === "updated" ? "border-l-4 border-l-amber-500" : undefined}
-            >
-              <CardContent className="space-y-2.5 p-3">
-                <div className="flex items-center justify-between gap-2">
-                  <div className="flex min-w-0 items-center gap-2 text-sm">
-                    <span className="truncate font-semibold">{pullRequest.projectKey}/{pullRequest.repositoryName}</span>
-                    <span className="shrink-0 text-muted-foreground">#{pullRequest.pullRequestId}</span>
-                  </div>
-                  <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
-                    {activity ? <Badge variant={pullRequest.activity === "new" ? "default" : "secondary"}>{activity}</Badge> : null}
-                    <Badge variant="outline">{decisionLabels[pullRequest.myDecision]}</Badge>
-                  </div>
-                </div>
-
-                <div className="flex items-start justify-between gap-2">
-                  <h2 className="min-w-0 flex-1 break-words text-base font-semibold leading-5">
-                    {pullRequest.url ? (
-                      <a
-                        href={pullRequest.url}
-                        target="_blank"
-                        rel="noreferrer"
-                        onClick={() => void markRead(pullRequest)}
-                        className="hover:underline"
-                      >
-                        {pullRequest.title}
-                      </a>
-                    ) : pullRequest.title}
-                  </h2>
-                  <div className="flex shrink-0 items-center gap-2">
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      onClick={() => reviewCompleted ? setReviewDialogKey(itemKey) : void startReview(pullRequest)}
-                      disabled={reviewRunning || (!reviewCompleted && !aiReviewReady)}
-                      title={reviewCompleted ? undefined : !aiReviewReady ? "Select a connected AI provider in Settings → Integrations" : review?.status === "failed" ? review.error ?? undefined : undefined}
-                    >
-                      {reviewRunning ? <><Loader2 aria-hidden="true" className="animate-spin" /> Reviewing</> : reviewCompleted ? "Review Results" : <><Sparkles aria-hidden="true" /> PR Review</>}
-                    </Button>
-                  </div>
-                </div>
-
-                <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
-                  <span className="text-muted-foreground">{pullRequest.sourceBranch} <span aria-hidden="true">→</span> {pullRequest.targetBranch}</span>
-                </div>
-
-                <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                  <CreatorAvatar pullRequest={pullRequest} />
-                  <span className="font-medium text-foreground">{pullRequest.authorDisplayName}</span>
-                  <span aria-hidden="true">•</span>
-                  <time dateTime={pullRequest.updatedDate != null ? new Date(pullRequest.updatedDate).toISOString() : undefined}>
-                    {formatRelativeDate(pullRequest.updatedDate)}
-                  </time>
-                </div>
-              </CardContent>
-            </Card>
+              pullRequest={pullRequest}
+              mode="reviewer"
+              aiReviewReady={aiReviewReady}
+              reviewStarting={reviewStartingKeys.has(itemKey)}
+              onOpenPullRequest={(item) => void markRead(item)}
+              onMarkViewed={(item) => void markRead(item)}
+              onStartReview={(item) => void startReview(item)}
+              onOpenResults={(item) => {
+                if (item.activity !== "read") void markRead(item);
+                setReviewDialogKey(pullRequestKey(item));
+              }}
+            />
           );
         })}
       </div>
 
-      <Dialog
+      <PullRequestReviewDialog
         open={Boolean(reviewDialogKey && reviewDialogReview?.status === "completed" && reviewDialogReview.result)}
+        pullRequest={reviewDialogPullRequest}
+        review={reviewDialogReview}
+        reviewerActions
         onOpenChange={(open) => {
           if (!open) setReviewDialogKey(undefined);
         }}
-      >
-        <DialogContent className="max-w-2xl">
-          <DialogHeader>
-            <DialogTitle>Review results</DialogTitle>
-            <DialogDescription className="break-words">
-              {reviewDialogPullRequest?.projectKey}/{reviewDialogPullRequest?.repositoryName} #{reviewDialogPullRequest?.pullRequestId} · {reviewDialogPullRequest?.title}
-            </DialogDescription>
-          </DialogHeader>
-          <DialogBody className="max-h-[70vh] space-y-4 overflow-y-auto">
-            {reviewDialogReview?.result ? (
-              <>
-                <div className="rounded-md border p-4">
-                  <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Overall result</p>
-                  <p className={reviewDialogReview.result.verdict === "ok" ? "mt-1 text-2xl font-bold text-emerald-600" : "mt-1 text-2xl font-bold text-destructive"}>
-                    {reviewDialogReview.result.verdict === "ok" ? "OK" : "Needs changes"}
-                  </p>
-                </div>
-                <div className="space-y-1">
-                  <h3 className="text-sm font-semibold">PR description</h3>
-                  <p className="whitespace-pre-wrap break-words text-sm">{reviewDialogReview.result.description}</p>
-                </div>
-                <div className="space-y-2">
-                  <h3 className="text-sm font-semibold">Review summary</h3>
-                  <p className="whitespace-pre-wrap break-words text-sm">{reviewDialogReview.result.summary}</p>
-                </div>
-                <div className="space-y-2">
-                  {reviewSeveritySections.map((section) => {
-                    const comments = reviewDialogReview.result?.comments.filter((comment) => comment.severity === section.key) ?? [];
-                    return (
-                      <details key={section.key} open={section.defaultOpen} className="rounded-md border">
-                        <summary className="cursor-pointer list-inside px-3 py-2 text-sm font-semibold">
-                          {section.label} ({comments.length})
-                        </summary>
-                        <div className="border-t px-3 py-2">
-                          {comments.length === 0 ? (
-                            <p className="text-sm text-muted-foreground">No comments.</p>
-                          ) : (
-                            <ul className="space-y-2">
-                              {comments.map((comment, index) => (
-                                <li key={`${comment.file}:${comment.line ?? "na"}:${index}`} className="space-y-1 rounded-md border p-3">
-                                  <p className="break-words text-xs font-medium text-muted-foreground">
-                                    {comment.file}{comment.line != null ? `:${comment.line}` : ""}
-                                  </p>
-                                  <p className="whitespace-pre-wrap break-words text-sm">{comment.comment}</p>
-                                </li>
-                              ))}
-                            </ul>
-                          )}
-                        </div>
-                      </details>
-                    );
-                  })}
-                </div>
-              </>
-            ) : null}
-          </DialogBody>
-          <DialogFooter className="justify-between gap-2 sm:justify-between">
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              className="text-xs text-muted-foreground hover:text-foreground"
-              onClick={() => {
-                if (reviewDialogPullRequest) {
-                  setReviewDialogKey(undefined);
-                  void startReview(reviewDialogPullRequest);
-                }
-              }}
-              disabled={!reviewDialogPullRequest}
-            >
-              Restart review
-            </Button>
-            <div className="flex items-center gap-2">
-              {reviewDialogPullRequest?.url ? (
-                <Button asChild type="button" variant="outline" size="sm">
-                  <a
-                    href={reviewDialogPullRequest.url}
-                    target="_blank"
-                    rel="noreferrer"
-                    onClick={() => void markRead(reviewDialogPullRequest)}
-                  >
-                    <ExternalLink aria-hidden="true" className="size-4" />
-                    Open PR
-                  </a>
-                </Button>
-              ) : null}
-              <Button type="button" variant="outline" onClick={() => setReviewDialogKey(undefined)}>Close</Button>
-            </div>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+        onOpenPullRequest={(item) => void markRead(item)}
+        onRerunReview={(item) => void startReview(item)}
+        onPublishComment={publishReviewComment}
+        onSetDecision={updateReviewDecision}
+      />
 
       <Dialog open={settingsOpen} onOpenChange={setSettingsOpen}>
         <DialogContent className="max-w-2xl">

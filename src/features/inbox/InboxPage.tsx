@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import type { InboxFilter, InboxItem } from "../../shared/contracts/inbox";
 
+import { PageHeader } from "@/components/shared/PageHeader";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -76,13 +77,11 @@ export function InboxPage({ onReady }: { onReady?: () => void }) {
 
   return (
     <section aria-labelledby="inbox-title">
-      <header className="page-header">
-        <div>
-          <p className="eyebrow">Work queue</p>
-          <h1 id="inbox-title">Inbox</h1>
-        </div>
-        <InboxFilters value={filter} onChange={changeFilter} />
-      </header>
+      <PageHeader
+        title="Inbox"
+        titleId="inbox-title"
+        actions={<InboxFilters value={filter} onChange={changeFilter} />}
+      />
 
       <div className="inbox-toolbar">
         <Label htmlFor="inbox-search">Search inbox</Label>

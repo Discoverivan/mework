@@ -6,11 +6,11 @@ export function SplashScreen({ visible }: SplashScreenProps) {
   if (!visible) return null;
 
   return (
-    <div className="splash-screen" role="status" aria-label="Loading Mework" aria-busy="true">
+    <div className="splash-screen" role="status" aria-label="Loading mework" aria-busy="true">
       <div className="splash-panel">
-        <img className="splash-logo" src="/splash.png" alt="Mework" />
+        <img className="splash-logo" src="/mework-icon.png" alt="mework" />
         <div className="splash-copy">
-          <strong>Loading Mework</strong>
+          <strong>Loading mework</strong>
           <span>Checking integrations and AI providers…</span>
         </div>
         <div

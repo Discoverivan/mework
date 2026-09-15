@@ -40,6 +40,7 @@ pub fn run() {
     }
 
     builder
+        .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
@@ -60,6 +61,18 @@ pub fn run() {
             tauri::async_runtime::spawn(async move {
                 let notifier = crate::os::notifications::NativeNotificationAdapter::new(background_app.clone());
                 loop {
+                    match crate::commands::integrations::refresh_all_integration_health_background(&background_pool).await {
+                        Ok(integrations) => {
+                            let _ = background_app.emit("integrations_health_refreshed", integrations);
+                        }
+                        Err(_) => {
+                            eprintln!("Integration health background refresh failed");
+                        }
+                    }
+                    let (auto_review_enabled, authored_auto_review_enabled) = crate::application::developer::get_pull_request_review_settings(&background_pool)
+                        .await
+                        .map(|settings| (settings.auto_review_enabled, settings.authored_auto_review_enabled))
+                        .unwrap_or((false, false));
                     match crate::application::developer::sync_my_pull_requests_with_notifications(
                         &background_pool,
                         0,
@@ -69,10 +82,6 @@ pub fn run() {
                     {
                         Ok((page, notifications)) => {
                             let _ = background_app.emit("pull_request_review_updated", page.clone());
-                            let auto_review_enabled = crate::application::developer::get_pull_request_review_settings(&background_pool)
-                                .await
-                                .map(|settings| settings.auto_review_enabled)
-                                .unwrap_or(false);
                             let notifications = if auto_review_enabled {
                                 let mut review_tasks = Vec::new();
                                 for notification in notifications {
@@ -156,6 +165,125 @@ pub fn run() {
                             eprintln!("Pull request background sync failed: {}", error.code);
                         }
                     }
+                    match crate::application::authored_pull_requests::sync_authored_pull_requests_with_notifications(
+                        &background_pool,
+                        0,
+                        100,
+                    )
+                    .await
+                    {
+                        Ok((page, notifications)) => {
+                            let _ = background_app.emit("my_pull_requests_updated", page.clone());
+                            let ready_notifications = if authored_auto_review_enabled {
+                                let mut review_tasks = Vec::new();
+                                let mut ready = Vec::new();
+                                for notification in notifications {
+                                    if !notification.auto_review {
+                                        ready.push((notification, None));
+                                        continue;
+                                    }
+                                    let Some(pull_request) = page.values.iter().find(|pull_request| {
+                                        pull_request.integration_id == notification.integration_id
+                                            && pull_request.project_key == notification.project_key
+                                            && pull_request.repository_slug == notification.repository_slug
+                                            && pull_request.pull_request_id == notification.pull_request_id
+                                    }).cloned() else {
+                                        continue;
+                                    };
+                                    let Some(latest_commit) = notification.latest_commit.clone() else {
+                                        continue;
+                                    };
+                                    let review_pool = background_pool.clone();
+                                    let review_app = background_app.clone();
+                                    review_tasks.push(tauri::async_runtime::spawn(async move {
+                                        let request = crate::application::developer_review::request_from_pull_request(&pull_request);
+                                        let reviewed = crate::application::developer_review::run_review_before_notification(
+                                            &review_pool,
+                                            &review_app,
+                                            request,
+                                        )
+                                        .await;
+                                        (notification, latest_commit, reviewed)
+                                    }));
+                                }
+                                for task in review_tasks {
+                                    if let Ok((notification, latest_commit, Ok(review))) = task.await {
+                                        let marked = crate::application::authored_pull_requests::mark_authored_auto_review_completed(
+                                            &background_pool,
+                                            &notification.integration_id,
+                                            &notification.key,
+                                            &latest_commit,
+                                        )
+                                        .await;
+                                        if marked.unwrap_or(false) {
+                                            ready.push((notification, Some(review)));
+                                        }
+                                    }
+                                }
+                                ready
+                            } else {
+                                notifications
+                                    .into_iter()
+                                    .map(|notification| (notification, None))
+                                    .collect()
+                            };
+                            if crate::application::general::notifications_enabled(&background_pool)
+                                .await
+                                .unwrap_or(true)
+                            {
+                                for (notification, review) in ready_notifications {
+                                    let ai_verdict = review
+                                        .as_ref()
+                                        .and_then(|value| value.result.as_ref())
+                                        .map(|result| match result.verdict {
+                                            crate::application::developer_review::PullRequestReviewVerdict::Ok => "Approved",
+                                            crate::application::developer_review::PullRequestReviewVerdict::NeedsChanges => "Needs work",
+                                        });
+                                    let title = if let Some(verdict) = ai_verdict {
+                                        format!("AI review completed — {verdict}")
+                                    } else if notification.needs_action {
+                                        "Changes requested on your pull request".to_owned()
+                                    } else {
+                                        match notification.activity {
+                                            crate::application::developer::PullRequestActivity::New => {
+                                                "New activity on your pull request".to_owned()
+                                            }
+                                            crate::application::developer::PullRequestActivity::Updated => {
+                                                "Pull request review updated".to_owned()
+                                            }
+                                            crate::application::developer::PullRequestActivity::Read => continue,
+                                        }
+                                    };
+                                    let body = if let Some(verdict) = ai_verdict {
+                                        format!(
+                                            "{}/{} #{} — {} · AI verdict: {verdict}",
+                                            notification.project_key,
+                                            notification.repository_slug,
+                                            notification.pull_request_id,
+                                            notification.title,
+                                        )
+                                    } else {
+                                        format!(
+                                            "{}/{} #{} — {}",
+                                            notification.project_key,
+                                            notification.repository_slug,
+                                            notification.pull_request_id,
+                                            notification.title,
+                                        )
+                                    };
+                                    let _ = crate::os::notifications::NotificationAdapter::notify(
+                                        &notifier,
+                                        &title,
+                                        &body,
+                                        &notification.key,
+                                    );
+                                }
+                            }
+                        }
+                        Err(error) => {
+                            eprintln!("Authored pull request background sync failed: {}", error.code);
+                        }
+                    }
                     tokio::time::sleep(Duration::from_secs(300)).await;
                 }
             });
@@ -175,10 +303,16 @@ pub fn run() {
             greet,
             commands::developer::bitbucket_my_pull_requests,
             commands::developer::bitbucket_my_pull_requests_refresh,
+            commands::developer::bitbucket_authored_pull_requests,
+            commands::developer::bitbucket_authored_pull_requests_refresh,
+            commands::developer::authored_pull_request_mark_read,
+            commands::developer::authored_pull_requests_mark_all_read,
             commands::developer::pull_request_review_start,
             commands::developer::pull_request_review_state,
             commands::developer::pull_request_review_mark_read,
             commands::developer::pull_request_review_mark_all_read,
+            commands::developer::pull_request_review_publish_comment,
+            commands::developer::pull_request_review_set_decision,
             commands::developer::bitbucket_search_users,
             commands::developer::bitbucket_search_repositories,
             commands::developer::pull_request_review_settings,
@@ -187,6 +321,13 @@ pub fn run() {
             commands::general::general_settings_save,
             commands::general::notification_test,
             commands::general::notification_open_settings,
+            commands::create_task::ai_task_draft,
+            commands::create_task::jira_task_team_members,
+            commands::create_task::jira_task_create,
+            commands::command_board::command_board_list,
+            commands::command_board::command_board_save,
+            commands::command_board::command_board_delete,
+            commands::command_board::command_board_run,
             commands::ai::ai_settings,
             commands::ai::ai_settings_save,
             commands::inbox::inbox_list,
@@ -206,6 +347,7 @@ pub fn run() {
             commands::planning::planning_project_validate,
             commands::planning::planning_project_boards,
             commands::planning::planning_target_sprints,
+            commands::planning::planning_epic_link_jql_preview,
             commands::planning::planning_workspace,
             commands::planning::planning_draft_save,
             commands::planning::planning_draft_remove,

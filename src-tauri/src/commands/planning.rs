@@ -2,12 +2,13 @@ use sqlx::SqlitePool;
 use tauri::State;
 
 use crate::application::planning::{
-    self, ApplyAndLockRequest, JiraBoardDto, JiraProjectBoardsRequest, JiraProjectValidationDto,
-    JiraProjectValidationRequest, ManagedProjectDto, ManagedProjectRequest,
-    PlanningCapabilitiesDto, PlanningCommandError, PlanningDraftDto, PlanningDraftRequest,
-    PlanningManagedProjectDto, PlanningSprintDto, PlanningSprintRequest, PlanningWorkspaceDto,
-    PlanningWorkspaceRecordDto, TeamMemberAddRequest, TeamMemberDto, TeamMemberReorderRequest,
-    TeamMemberSearchRequest, TeamPresetDto, TeamPresetInput,
+    self, ApplyAndLockRequest, EpicLinkJqlIssueDto, EpicLinkJqlPreviewRequest, JiraBoardDto,
+    JiraProjectBoardsRequest, JiraProjectValidationDto, JiraProjectValidationRequest,
+    ManagedProjectDto, ManagedProjectRequest, PlanningCapabilitiesDto, PlanningCommandError,
+    PlanningDraftDto, PlanningDraftRequest, PlanningManagedProjectDto, PlanningSprintDto,
+    PlanningSprintRequest, PlanningWorkspaceDto, PlanningWorkspaceRecordDto, TeamMemberAddRequest,
+    TeamMemberDto, TeamMemberReorderRequest, TeamMemberSearchRequest, TeamPresetDto,
+    TeamPresetInput,
 };
 use crate::infrastructure::integrations::jira::models::JiraDeployment;
 
@@ -16,6 +17,7 @@ pub const PLANNING_COMMAND_NAMES: &[&str] = &[
     "planning_project_validate",
     "planning_project_boards",
     "planning_target_sprints",
+    "planning_epic_link_jql_preview",
     "planning_workspace",
     "planning_draft_save",
     "planning_draft_remove",
@@ -104,6 +106,14 @@ pub async fn planning_target_sprints(
     managed_project_id: String,
 ) -> Result<Vec<PlanningSprintDto>, PlanningCommandError> {
     planning::list_target_sprints(&state, &managed_project_id).await
+}
+
+#[tauri::command]
+pub async fn planning_epic_link_jql_preview(
+    state: State<'_, SqlitePool>,
+    request: EpicLinkJqlPreviewRequest,
+) -> Result<Vec<EpicLinkJqlIssueDto>, PlanningCommandError> {
+    planning::preview_epic_link_jql(&state, request).await
 }
 
 #[tauri::command]

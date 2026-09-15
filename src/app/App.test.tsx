@@ -7,16 +7,28 @@ vi.mock("../features/settings/SettingsPage", () => ({
   SettingsPage: ({ section }: { section?: string }) => <h1>{section === "projects" ? "Team settings" : "Integrations"}</h1>,
 }));
 
-vi.mock("../features/planning/PlanningPage", () => ({
-  PlanningPage: () => <h1>Planning</h1>,
+vi.mock("../features/developer/MyPullRequestsPage", () => ({
+  MyPullRequestsPage: () => <h1>Pull Request Review</h1>,
 }));
 
-const { getAiSettingsMock, refreshAllIntegrationsHealthMock } = vi.hoisted(() => ({
+vi.mock("../features/developer/AuthoredPullRequestsPage", () => ({
+  AuthoredPullRequestsPage: () => <h1>My Pull Requests</h1>,
+}));
+const { getAiSettingsMock, listAuthoredPullRequestsMock, listMyPullRequestsMock, refreshMyPullRequestsMock, refreshAllIntegrationsHealthMock } = vi.hoisted(() => ({
   getAiSettingsMock: vi.fn().mockResolvedValue({
-    settings: { provider: null, model: "", reasoning: "medium", fastMode: false },
-    providers: [],
+    settings: { provider: "codex-cli", model: "gpt-5.5", reasoning: "medium", fastMode: false },
+    providers: [{ id: "codex-cli", name: "Codex CLI", status: "connected", available: true, models: ["gpt-5.5"] }],
   }),
+  listMyPullRequestsMock: vi.fn().mockResolvedValue({ values: [], total: 0, hasMore: false }),
+  listAuthoredPullRequestsMock: vi.fn().mockResolvedValue({ values: [], total: 0, hasMore: false }),
+  refreshMyPullRequestsMock: vi.fn().mockResolvedValue({ values: [], total: 0, hasMore: false }),
   refreshAllIntegrationsHealthMock: vi.fn().mockResolvedValue([]),
+}));
+
+vi.mock("../features/developer/api", () => ({
+  listAuthoredPullRequests: listAuthoredPullRequestsMock,
+  listMyPullRequests: listMyPullRequestsMock,
+  refreshMyPullRequests: refreshMyPullRequestsMock,
 }));
 
 vi.mock("../features/settings/api", () => ({
@@ -31,19 +43,34 @@ vi.mock("../features/settings/api", () => ({
       healthStatus: "working",
       capabilities: [],
     },
+    {
+      id: "bitbucket-1",
+      kind: "bitbucket",
+      baseUrl: "https://bitbucket.example.com",
+      accountKey: "account",
+      enabled: true,
+      healthStatus: "working",
+      capabilities: [],
+    },
   ]),
   refreshAllIntegrationsHealth: refreshAllIntegrationsHealthMock,
 }));
 
-describe("Mework application shell", () => {
+describe("mework application shell", () => {
   beforeEach(() => {
     window.location.hash = "";
     vi.stubGlobal("matchMedia", () => ({ matches: true }));
     getAiSettingsMock.mockClear();
     getAiSettingsMock.mockResolvedValue({
-      settings: { provider: null, model: "", reasoning: "medium", fastMode: false },
-      providers: [],
+      settings: { provider: "codex-cli", model: "gpt-5.5", reasoning: "medium", fastMode: false },
+      providers: [{ id: "codex-cli", name: "Codex CLI", status: "connected", available: true, models: ["gpt-5.5"] }],
     });
+    listMyPullRequestsMock.mockClear();
+    listMyPullRequestsMock.mockResolvedValue({ values: [], total: 0, hasMore: false });
+    listAuthoredPullRequestsMock.mockClear();
+    listAuthoredPullRequestsMock.mockResolvedValue({ values: [], total: 0, hasMore: false });
+    refreshMyPullRequestsMock.mockClear();
+    refreshMyPullRequestsMock.mockResolvedValue({ values: [], total: 0, hasMore: false });
     refreshAllIntegrationsHealthMock.mockClear();
   });
 
@@ -58,26 +85,88 @@ describe("Mework application shell", () => {
     );
 
     render(<App />);
-    expect(screen.getByRole("status", { name: "Loading Mework" })).toBeInTheDocument();
+    expect(screen.getByRole("status", { name: "Loading mework" })).toBeInTheDocument();
 
     resolveHealth([]);
     await Promise.resolve();
-    expect(screen.getByRole("status", { name: "Loading Mework" })).toBeInTheDocument();
+    expect(screen.getByRole("status", { name: "Loading mework" })).toBeInTheDocument();
 
     resolveAi({
       settings: { provider: null, model: "", reasoning: "medium", fastMode: false },
       providers: [],
     });
-    await waitFor(() => expect(screen.queryByRole("status", { name: "Loading Mework" })).not.toBeInTheDocument());
+    await waitFor(() => expect(screen.queryByRole("status", { name: "Loading mework" })).not.toBeInTheDocument());
+  });
+
+  it("waits for the initial Bitbucket refresh before showing the main UI", async () => {
+    let resolveHealth!: (value: IntegrationRedacted[]) => void;
+    let resolveRefresh!: (value: { values: never[]; total: number; hasMore: boolean }) => void;
+    refreshAllIntegrationsHealthMock.mockImplementationOnce(
+      () => new Promise<IntegrationRedacted[]>((resolve) => { resolveHealth = resolve; }),
+    );
+    refreshMyPullRequestsMock.mockImplementationOnce(
+      () => new Promise((resolve) => { resolveRefresh = resolve; }),
+    );
+
+    render(<App />);
+    expect(screen.getByRole("status", { name: "Loading mework" })).toBeInTheDocument();
+    expect(refreshMyPullRequestsMock).not.toHaveBeenCalled();
+    expect(screen.queryByRole("main", { name: "mework" })).not.toBeInTheDocument();
+
+    resolveHealth([{
+      id: "bitbucket-1",
+      kind: "bitbucket",
+      baseUrl: "https://bitbucket.example.com",
+      enabled: true,
+      healthStatus: "working",
+      capabilities: [],
+    }]);
+    await waitFor(() => expect(refreshMyPullRequestsMock).toHaveBeenCalledWith(0, 100));
+    expect(screen.queryByRole("main", { name: "mework" })).not.toBeInTheDocument();
+
+    resolveRefresh({ values: [], total: 0, hasMore: false });
+    expect(await screen.findByRole("main", { name: "mework" })).toBeInTheDocument();
+  });
+
+  it("opens Pull Request Review by default", async () => {
+    render(<App />);
+
+    expect(await screen.findByRole("heading", { name: "Pull Request Review" })).toBeInTheDocument();
+  });
+
+  it("opens My Pull Requests from its dedicated hash route", async () => {
+    render(<App />);
+    await screen.findByRole("main", { name: "mework" });
+
+    window.location.hash = "#developer/my-pull-requests";
+    window.dispatchEvent(new HashChangeEvent("hashchange"));
+
+    expect(await screen.findByRole("heading", { name: "My Pull Requests" })).toBeInTheDocument();
+  });
+
+  it("shows unread authored pull requests on the My Pull Requests navigation item", async () => {
+    listAuthoredPullRequestsMock.mockResolvedValueOnce({
+      values: [{ activity: "updated" }],
+      total: 1,
+      hasMore: false,
+    });
+
+    render(<App />);
+
+    await screen.findByRole("main", { name: "mework" });
+    expect(await screen.findByRole("link", { name: "My Pull Requests, 1 unread" })).toHaveAttribute(
+      "href",
+      "#developer/my-pull-requests",
+    );
+    expect(refreshMyPullRequestsMock).not.toHaveBeenCalled();
   });
 
   it("runs integration health checks when the app starts", async () => {
     render(<App />);
 
-    await screen.findByRole("main", { name: "Mework" });
+    await screen.findByRole("main", { name: "mework" });
     expect(refreshAllIntegrationsHealthMock).toHaveBeenCalledOnce();
-    expect(getAiSettingsMock).toHaveBeenCalledOnce();
-    expect(screen.queryByRole("status", { name: "Loading Mework" })).not.toBeInTheDocument();
+    expect(getAiSettingsMock).toHaveBeenCalledTimes(2);
+    expect(screen.queryByRole("status", { name: "Loading mework" })).not.toBeInTheDocument();
   });
-
 });

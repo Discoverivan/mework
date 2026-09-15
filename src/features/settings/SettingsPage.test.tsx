@@ -78,7 +78,7 @@ describe("SettingsPage integrations smoke tests", () => {
   it("opens a provider form with URL and write-only personal access token", async () => {
     render(<SettingsPage />);
     await screen.findByRole("heading", { name: "Integrations" });
-    expect(screen.getByText("Settings")).toBeInTheDocument();
+    expect(screen.queryByText("Settings", { exact: true })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Jira" }));
 
     expect(screen.getByRole("textbox", { name: "Base URL" })).toBeInTheDocument();
@@ -89,7 +89,7 @@ describe("SettingsPage integrations smoke tests", () => {
   it("saves a new integration without returning the secret to the UI", async () => {
     render(<SettingsPage />);
     await screen.findByRole("heading", { name: "Integrations" });
-    expect(screen.getByText("Settings")).toBeInTheDocument();
+    expect(screen.queryByText("Settings", { exact: true })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Jira" }));
     fireEvent.change(screen.getByLabelText("Base URL"), {
       target: { value: "https://jira.example.invalid" },

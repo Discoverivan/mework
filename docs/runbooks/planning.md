@@ -25,7 +25,7 @@ Do not enable a managed project until each applicable prerequisite has an owner 
 
 - **Jira deployment:** confirm whether the first adapter targets Jira Cloud, Data Center, or both. REST paths, authentication, Agile behavior, response shapes and permissions must be fixture-tested per deployment.
 - **Authentication:** confirm the approved authentication method, base URL format, account identity and credential rotation/expiry procedure. Keep the actual secret only in the OS keyring.
-- **Project and board:** identify the Jira project ID/key and board ID that Mework will manage. The Planning screen must not expose every accessible project by default.
+- **Project and board:** identify the Jira project ID/key and board ID that mework will manage. The Planning screen must not expose every accessible project by default.
 - **Planning source:** decide whether `Sprint Planning` is a fixed sprint per project/board, a user-selected sprint role, or a naming convention with manual override. Store the stable sprint ID once selected; never use the name alone.
 - **Target sprint eligibility:** confirm which sprint states are usable targets and which Jira permissions are required to read and move issues.
 - **Field mapping:** identify the story-points field ID, competency field ID/type (select, label or another configured field), subtask issue type ID, and any required parent/assignee fields for every managed project. A field name or ID must not be invented.
@@ -37,7 +37,7 @@ Until these questions are answered, the supported state is read-only discovery o
 
 ## 3. Managed project setup
 
-A managed project is an explicit Mework configuration, not an alias for every project visible to the Jira account.
+A managed project is an explicit mework configuration, not an alias for every project visible to the Jira account.
 
 ### Setup sequence
 

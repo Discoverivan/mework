@@ -1,6 +1,6 @@
-# Mework UI layouts and AI implementation contract
+# mework UI layouts and AI implementation contract
 
-> Канонический текстовый макет интерфейса Mework для разработчиков и AI-агентов.
+> Канонический текстовый макет интерфейса mework для разработчиков и AI-агентов.
 >
 > Перед изменением UI агент обязан прочитать этот файл, проверить соответствующий route и компонент, а затем сохранить описанную структуру, порядок элементов и поведение. ASCII-макет здесь является wireframe, а не попыткой заменить production CSS.
 
@@ -27,9 +27,9 @@ ASCII фиксирует только пространственную стру�
 
 ```text
 ┌──────────────────────────────┬──────────────────────────────────────────────┐
-│ Mework                       │                                              │
-│                              │  <eyebrow>                                   │
-│ Inbox                        │  <h1>                                        │
+│ mework                       │                                              │
+│                              │  <h1>                                        │
+│ Inbox                        │                                              │
 │                              │  <content>                                   │
 │ Developer                   │                                              │
 │   Pull Request Review       │                                              │
@@ -84,7 +84,20 @@ interaction → saving/refreshing → ready | error
 - одну проверяемую positive smoke-сцену;
 - визуальную проверку: порядок блоков, размеры, переносы, отсутствие clipping/ellipsis.
 
-## 2. Mework design tokens
+### 1.3. Общая компактная шапка страниц
+
+Все top-level разделы используют `src/components/shared/PageHeader.tsx`:
+
+- один `h1` с названием текущего раздела;
+- короткий optional description под title;
+- optional sync/status meta под description;
+- actions справа, без отдельной строки и без визуального eyebrow/kicker;
+- section labels вроде `Developer`, `Product`, `Settings` не дублируются в шапке — они остаются только в sidebar navigation;
+- новые разделы не создают собственную header-разметку, а используют `PageHeader`.
+
+Канонический размер title — 24px; общий нижний отступ — 16px. Это правило применяется также к legacy/future routes.
+
+## 2. mework design tokens
 
 Это baseline для новых экранов, если feature-specific token не указан в его макете.
 
@@ -126,7 +139,7 @@ Route-independent shell: `src/components/layout/AppShell.tsx`.
 
 ```text
 ┌──────────────────────────────┬──────────────────────────────────────────────┐
-│ Mework                       │  <active screen>                              │
+│ mework                       │  <active screen>                              │
 │                              │                                              │
 │ Inbox                        │  page content                                │
 │                              │                                              │
@@ -161,7 +174,6 @@ Source: `src/features/inbox/InboxPage.tsx`, route `#inbox`.
 
 ```text
 ┌──────────────────────────────────────────────────────────────────────────────┐
-│ <eyebrow> Inbox                                                             │
 │ Inbox                                                        [filters/actions]│
 │ <short explanatory text>                                                     │
 ├──────────────────────────────────────────────────────────────────────────────┤
@@ -187,8 +199,8 @@ Source: `src/features/developer/MyPullRequestsPage.tsx`, route `#developer/pull-
 
 ```text
 ┌──────────────────────────────────────────────────────────────────────────────┐
-│ Developer                                                                    │
-│ Pull Request Review                                      [Review settings]   │
+│                                                                              │
+│ Pull Request Review                      [AI auto-review] [Update now] [✓✓] │
 │ <dynamic loading/error/description>                                          │
 ├──────────────────────────────────────────────────────────────────────────────┤
 │ ┌──────────────────────────────────────────────────────────────────────────┐ │
@@ -196,10 +208,15 @@ Source: `src/features/developer/MyPullRequestsPage.tsx`, route `#developer/pull-
 │ │ <author> · <source branch> → <target branch>                           │ │
 │ │ <updated date>                                           [open/review]  │ │
 │ └──────────────────────────────────────────────────────────────────────────┘ │
-│                                      [Load more review requests]              │
+│ [All] [Pending your review]                                               [⚲] │
 └──────────────────────────────────────────────────────────────────────────────┘
 
-Review settings dialog:
+Карточка PR состоит из decision rail, content и AI action. В author-owned `My Pull Requests` третья строка показывает `<updated>`, `Approved: <count>`, `Needs work: <count>`, `Comments: <count>`; значения приходят из native Bitbucket DTO, а не вычисляются в renderer. Слева от AI action находится кнопка `Eye`: для unread PR она называется `Mark as viewed`, после успешного native mark-read скрывается.
+
+`Pull Request Review` и `My Pull Requests` имеют независимые переключатели `AI auto-review`: `autoReviewEnabled` запускает auto-review для reviewer PR, а `authoredAutoReviewEnabled` — только для author PR. В author PR новый commit запускает AI review, а native notification отправляется только после completed AI verdict.
+
+`Review Results` открывает generated AI summary/comments. `Publish` отправляет general PR comment через native Bitbucket `POST`; location file/line сохраняется в опубликованном тексте. `Approve` и `Needs Work` отправляют native participant `PUT` со статусом `APPROVED`/`NEEDS_WORK`; после успешного ответа decision icon и quick-filter state обновляются в карточке.
+
 ┌──────────────────────────────────────────────┐
 │ Pull Request Review settings                 │
 │ Repository whitelist                         │
@@ -214,40 +231,76 @@ Review settings dialog:
 
 Source: `src/features/product/CreateTaskPage.tsx`, route `#product/create-task`.
 
-Current intentionally empty state:
+Create task states:
 
 ```text
 ┌──────────────────────────────────────────────────────────────────────────────┐
-│ Product                                                                      │
-│ Create task                                                     [Create task]│
 │                                                                              │
-│                         <empty workspace>                                   │
+│ Create task                                      [Team ▼] [Create task]       │
+│                                                                              │
+│ ┌──────────────────────────────────────────────────────────────────────────┐ │
+│ │ ✦ AI is thinking…                                                        │ │
+│ │   Building summary and description                                       │ │
+│ │   <summary skeleton>                                                     │ │
+│ │   <description skeleton>                                                 │ │
+│ └──────────────────────────────────────────────────────────────────────────┘ │
+│                                                                              │
+│ ┌──────────────────────────────────────────────────────────────────────────┐ │
+│ │ AI draft                                            <editable fields>     │ │
+│ │ Summary              [<editable summary>]                                │ │
+│ │ Description          [<editable description>]                            │ │
+│ │ Epic link            [No epics available ▼]                              │ │
+│ │ Sprint               [<team sprint> ▼]                                    │ │
+│ │ Assignee             [<Jira team member> ▼]                              │ │
+│ │ [Delete]                                                     [Create]     │ │
+│ └──────────────────────────────────────────────────────────────────────────┘ │
 └──────────────────────────────────────────────────────────────────────────────┘
-```
-
-Create dialog:
-
-```text
-┌──────────────────────────────────────────────┐
-│ ✦  Describe your task                        │
-│    Turn a rough idea into a well-structured   │
-│    Jira task with AI.                        │
-│                                              │
-│    ┌──────────────────────────────────────┐  │
-│    │ Describe your task                   │  │
-│    │                                      │  │
-│    │                                      │  │
-│    └──────────────────────────────────────┘  │
-│                              [Cancel] [Create with AI] │
-└──────────────────────────────────────────────┘
 ```
 
 Rules:
 
 - Do not seed demo/example cards in the initial state.
-- The dialog contains one large textarea, not separate Summary/Assignee/Epic fields at this stage.
-- The action remains local/mock until a real AI/Jira command is specified.
-- Later processing states may be added only with an explicit state contract.
+- The modal contains one large textarea and `Create with AI` starts the native AI draft command.
+- While the command is pending, show a visible skeleton card; after success show editable `summary`, `description`, `epic link`, `sprint`, and `assignee` fields.
+- Saved team Epic link JQL supplies the Epic link options; the selector remains empty when no JQL is configured or no issues match.
+- The header team selector matches Daily and reloads that team's configured members, sprints, and Epic candidates; inactive members are omitted.
+- The draft Assignee selector always contains `Unassigned` first by default and renders available avatar/name data.
+- Sprint options come from the selected team's usable Jira sprints; the configured default sprint is selected for new cards.
+- Cards, edited fields, statuses, and the selected team are persisted locally and restored when returning to this route. Pending AI generation resumes; an interrupted Jira create is returned to editable review without an automatic retry.
+- `Delete` clears the draft locally. `Create` sends the edited draft through the native Jira mutation and shows the returned issue key/link.
+- AI generation uses only the task `summary` and actionable `description` rules from `alfa-coreapi-jira-task`; it does not invent assignee, epic link, estimates, or priority.
+
+## Developer / Command Board
+
+Source: `src/features/developer/CommandBoardPage.tsx`, route `#developer/command-board`.
+
+```text
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ Command Board                                                  [Add command] │
+│ Быстрый запуск локальных скриптов и команд                                  │
+│ ┌─────────────────────────┐  ┌─────────────────────────┐                    │
+│ │ ◉                 [...] │  │ ◉                 [...] │                    │
+│ │ Restart gateway         │  │ Start stubs              │                    │
+│ │ /path/script.command    │  │ /path/script.command    │                    │
+│ │ /usr/bin/open ...       │  │ /usr/bin/open ...       │                    │
+│ └─────────────────────────┘  └─────────────────────────┘                    │
+└──────────────────────────────────────────────────────────────────────────────┘
+```
+
+Rules:
+
+- The complete card is clickable and starts the configured direct process; keyboard Enter/Space has the same behavior.
+- Overflow menu contains the `Card color` dropdown (`Default`, `Blue`, `Green`, `Yellow`, `Orange`, `Red`, `Purple`, `Pink`), plus `Edit` and `Delete`; color changes save immediately and delete requires confirmation.
+- Card color uses the UI palette tokens and is persisted with command metadata; legacy cards without a color use `Default`.
+- Add/edit captures name, a read-only selected script file, extra arguments, and optional working directory.
+- New commands open the selected script in the platform terminal through a native OS-specific launcher; `.sh`, `.bash`, `.py`, `.ps1`, `.bat`, `.cmd`, and shebang-based scripts use their matching interpreter when available.
+- Command metadata is persisted locally; script contents and credentials are never copied into the database.
+
+### Native application lifecycle
+
+- Closing the main window hides it instead of terminating the process.
+- Tray icon uses the bundled application icon and exposes `Open mework` and `Quit mework`.
+- Background health/PR loops remain alive while the window is hidden; `Quit mework` is the explicit full shutdown action.
 
 ## 7. Product / Daily
 
@@ -255,7 +308,7 @@ Source: `src/features/daily/DailyPage.tsx`, route `#product/daily`.
 
 ```text
 ┌──────────────────────────────────────────────────────────────────────────────┐
-│ Product                                                                      │
+│                                                                              │
 │ Daily                                      [Team ▼] [Refresh statuses]       │
 │ <short description>                          [Presenter view]                │
 ├──────────────────────────────────────────────────────────────────────────────┤
@@ -366,7 +419,6 @@ Source: `src/features/settings/SettingsPage.tsx`, route `#settings/integrations`
 
 ```text
 ┌──────────────────────────────────────────────────────────────────────────────┐
-│ Settings                                                                     │
 │ Integrations                                                                 │
 │                                                                              │
 │ Connected integrations                                                       │
@@ -403,7 +455,6 @@ Source: `src/features/settings/planning-projects/ManagedProjectsSettings.tsx`, r
 
 ```text
 ┌──────────────────────────────────────────────────────────────────────────────┐
-│ Settings                                                                     │
 │ Team settings                                                                │
 │                                                                              │
 │ Managed Jira projects                                             [Add team]│
@@ -413,7 +464,11 @@ Source: `src/features/settings/planning-projects/ManagedProjectsSettings.tsx`, r
 │ │ <project key> · <Jira integration>                                      │ │
 │ ├──────────────────────────────────────────────────────────────────────────┤ │
 │ │ ▼ <team/project name>                                                     │ │
-│ │   Add team member [search...]                                             │ │
+│ │   Task creation settings                                                   │ │
+│ │   Default sprint for task creation [<sprint> ▼]                            │ │
+│ │   Epic link JQL [.................................] [Check]                │ │
+│ │                                      [Save task creation settings]          │ │
+│ │   Team members                                      [Add team member]       │ │
 │ │   ┌────────────────────────────────────────────────────────────────────┐  │ │
 │ │   │ ⠿  ◉  <Alias>   <full Jira name>   Role: <role>       [Delete]     │  │ │
 │ │   └────────────────────────────────────────────────────────────────────┘  │ │
@@ -448,6 +503,9 @@ Member interaction contract:
 - Search starts at 3 characters.
 - Avatar uses native Jira proxy; first/last initials are fallback.
 - The only member removal label is `Delete`.
+- Task creation settings are per team: the default sprint initializes new Create task cards.
+- Epic link JQL is read-only checked through `planning_epic_link_jql_preview`; the popup lists Jira issue KEY and summary.
+- Saved Epic link JQL populates the Create task Epic link choices; selected sprint, epic and assignee are sent with the selected managed project.
 
 ## 12. Agent implementation checklist
 

@@ -50,6 +50,10 @@ pub struct ManagedProjectRequest {
     pub competency_field_id: Option<String>,
     pub subtask_issue_type_id: Option<String>,
     pub default_team_preset_id: Option<String>,
+    pub default_task_sprint_id: Option<String>,
+    pub default_task_sprint_name: Option<String>,
+    #[serde(default)]
+    pub epic_link_jql: String,
     #[serde(default = "default_enabled")]
     pub enabled: bool,
 }
@@ -77,6 +81,20 @@ pub struct JiraProjectValidationRequest {
     pub project_key: String,
 }
 
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EpicLinkJqlPreviewRequest {
+    pub managed_project_id: String,
+    pub jql: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct EpicLinkJqlIssueDto {
+    pub key: String,
+    pub summary: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct JiraProjectValidationDto {
@@ -100,6 +118,9 @@ pub struct ManagedProjectDto {
     pub competency_field_id: Option<String>,
     pub subtask_issue_type_id: Option<String>,
     pub default_team_preset_id: Option<String>,
+    pub default_task_sprint_id: Option<String>,
+    pub default_task_sprint_name: Option<String>,
+    pub epic_link_jql: String,
     pub enabled: bool,
     pub last_metadata_refresh_at: Option<String>,
     pub created_at: String,
@@ -145,6 +166,10 @@ pub struct PlanningManagedProjectDto {
     pub board_name: String,
     pub source_sprint_id: Option<String>,
     pub source_sprint_name: Option<String>,
+    pub story_points_field_id: Option<String>,
+    pub default_task_sprint_id: Option<String>,
+    pub default_task_sprint_name: Option<String>,
+    pub epic_link_jql: String,
     #[serde(default)]
     pub availability: PlanningAvailability,
 }
@@ -527,6 +552,9 @@ pub async fn save_managed_project(
         competency_field_id: request.competency_field_id,
         subtask_issue_type_id: request.subtask_issue_type_id,
         default_team_preset_id: request.default_team_preset_id,
+        default_task_sprint_id: request.default_task_sprint_id,
+        default_task_sprint_name: request.default_task_sprint_name,
+        epic_link_jql: request.epic_link_jql.trim().to_owned(),
         enabled: request.enabled,
         last_metadata_refresh_at: existing
             .as_ref()
@@ -541,8 +569,8 @@ pub async fn save_managed_project(
             .unwrap_or_default(),
     };
     if existing.is_some() {
-        sqlx::query("UPDATE managed_projects SET integration_id=?,jira_project_id=?,jira_project_key=?,jira_project_name=?,board_id=?,source_sprint_id=?,source_sprint_name=?,story_points_field_id=?,competency_field_id=?,subtask_issue_type_id=?,default_team_preset_id=?,enabled=?,updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=?")
-            .bind(&value.integration_id).bind(&value.jira_project_id).bind(&value.jira_project_key).bind(&value.jira_project_name).bind(&value.board_id).bind(&value.source_sprint_id).bind(&value.source_sprint_name).bind(&value.story_points_field_id).bind(&value.competency_field_id).bind(&value.subtask_issue_type_id).bind(&value.default_team_preset_id).bind(value.enabled).bind(&value.id).execute(pool).await.map_err(|_| PlanningError::Database)?;
+        sqlx::query("UPDATE managed_projects SET integration_id=?,jira_project_id=?,jira_project_key=?,jira_project_name=?,board_id=?,source_sprint_id=?,source_sprint_name=?,story_points_field_id=?,competency_field_id=?,subtask_issue_type_id=?,default_team_preset_id=?,default_task_sprint_id=?,default_task_sprint_name=?,epic_link_jql=?,enabled=?,updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=?")
+            .bind(&value.integration_id).bind(&value.jira_project_id).bind(&value.jira_project_key).bind(&value.jira_project_name).bind(&value.board_id).bind(&value.source_sprint_id).bind(&value.source_sprint_name).bind(&value.story_points_field_id).bind(&value.competency_field_id).bind(&value.subtask_issue_type_id).bind(&value.default_team_preset_id).bind(&value.default_task_sprint_id).bind(&value.default_task_sprint_name).bind(&value.epic_link_jql).bind(value.enabled).bind(&value.id).execute(pool).await.map_err(|_| PlanningError::Database)?;
     } else {
         planning_repositories::insert_managed_project_with_database_timestamps(pool, &value)
             .await
@@ -636,6 +664,55 @@ pub async fn list_target_sprints(
         Arc::new(ReqwestPlanningTransport::new(http)),
     )
     .await
+}
+
+pub async fn preview_epic_link_jql(
+    pool: &SqlitePool,
+    request: EpicLinkJqlPreviewRequest,
+) -> Result<Vec<EpicLinkJqlIssueDto>, PlanningCommandError> {
+    let managed_project_id = request.managed_project_id.trim();
+    let jql = request.jql.trim();
+    if managed_project_id.is_empty() || jql.is_empty() {
+        return Err(command_error(
+            "invalid_input",
+            "managed project id and Epic link JQL are required",
+            false,
+        ));
+    }
+    let keyring = planning_credential_store(pool).await?;
+    let http = reqwest::Client::builder()
+        .timeout(Duration::from_secs(30))
+        .build()
+        .map_err(|_| {
+            command_error(
+                "transport_unavailable",
+                "Jira transport is unavailable",
+                true,
+            )
+        })?;
+    let project = planning_repositories::get_managed_project(pool, managed_project_id)
+        .await
+        .map_err(|_| command_error("not_found", "managed project was not found", false))?;
+    let (client, _) = planning_read_client(
+        pool,
+        &project,
+        keyring.as_ref(),
+        Arc::new(ReqwestPlanningTransport::new(http)),
+    )
+    .await?;
+    client
+        .search_issue_summaries(jql, 50)
+        .await
+        .map(|issues| {
+            issues
+                .into_iter()
+                .map(|issue| EpicLinkJqlIssueDto {
+                    key: issue.key,
+                    summary: issue.summary,
+                })
+                .collect()
+        })
+        .map_err(map_read_error)
 }
 
 pub(crate) async fn list_target_sprints_with_dependencies<S: CredentialStore + ?Sized>(
@@ -2924,6 +3001,10 @@ fn planning_project_dto(value: ManagedProject) -> PlanningManagedProjectDto {
         board_name: "Unavailable".into(),
         source_sprint_id: value.source_sprint_id,
         source_sprint_name: value.source_sprint_name,
+        story_points_field_id: value.story_points_field_id,
+        default_task_sprint_id: value.default_task_sprint_id,
+        default_task_sprint_name: value.default_task_sprint_name,
+        epic_link_jql: value.epic_link_jql,
         availability: PlanningAvailability::Unavailable,
     }
 }
@@ -2941,6 +3022,9 @@ pub fn managed_project_dto(value: ManagedProject) -> Result<ManagedProjectDto, P
         competency_field_id: value.competency_field_id,
         subtask_issue_type_id: value.subtask_issue_type_id,
         default_team_preset_id: value.default_team_preset_id,
+        default_task_sprint_id: value.default_task_sprint_id,
+        default_task_sprint_name: value.default_task_sprint_name,
+        epic_link_jql: value.epic_link_jql,
         enabled: value.enabled,
         last_metadata_refresh_at: value.last_metadata_refresh_at,
         created_at: value.created_at,

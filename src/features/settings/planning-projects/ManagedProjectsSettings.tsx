@@ -14,7 +14,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import type { PlanningBoard } from "@/shared/contracts/planning";
+import type { EpicLinkJqlIssue, PlanningBoard, PlanningSprint } from "@/shared/contracts/planning";
 import type { TeamMember } from "@/shared/contracts/planning";
 import type {
   IntegrationRedacted,
@@ -24,7 +24,9 @@ import {
   addPlanningTeamMember,
   listPlanningConfiguredTeamMembers,
   listPlanningProjectBoards,
+  listTargetSprints,
   loadJiraAvatarData,
+  previewEpicLinkJql,
   reorderPlanningTeamMembers,
   removePlanningTeamMember,
   searchPlanningTeamMembers,
@@ -99,6 +101,9 @@ interface ManagedProjectForm {
   jiraProjectKey: string;
   jiraProjectName: string;
   boardId: string;
+  defaultTaskSprintId: string;
+  defaultTaskSprintName: string;
+  epicLinkJql: string;
   enabled: boolean;
 }
 
@@ -109,6 +114,9 @@ function emptyForm(integrationId?: string): ManagedProjectForm {
     jiraProjectKey: "",
     jiraProjectName: "",
     boardId: "",
+    defaultTaskSprintId: "",
+    defaultTaskSprintName: "",
+    epicLinkJql: "",
     enabled: true,
   };
 }
@@ -121,6 +129,9 @@ function formForProject(project: ManagedProjectSettings): ManagedProjectForm {
     jiraProjectKey: project.projectKey,
     jiraProjectName: project.projectName,
     boardId: project.boardId ?? "",
+    defaultTaskSprintId: project.defaultTaskSprintId ?? "",
+    defaultTaskSprintName: project.defaultTaskSprintName ?? "",
+    epicLinkJql: project.epicLinkJql ?? "",
     enabled: project.enabled,
   };
 }
@@ -202,6 +213,15 @@ export function ManagedProjectsSettings({
   const [memberLoadError, setMemberLoadError] = useState<string | null>(null);
   const [teamSaving, setTeamSaving] = useState(false);
   const [teamSaveError, setTeamSaveError] = useState<string | null>(null);
+  const [taskSprints, setTaskSprints] = useState<PlanningSprint[]>([]);
+  const [taskSprintsLoading, setTaskSprintsLoading] = useState(false);
+  const [taskSprintsError, setTaskSprintsError] = useState<string | null>(null);
+  const [defaultTaskSprintId, setDefaultTaskSprintId] = useState("");
+  const [defaultTaskSprintName, setDefaultTaskSprintName] = useState("");
+  const [epicLinkJql, setEpicLinkJql] = useState("");
+  const [epicPreviewIssues, setEpicPreviewIssues] = useState<EpicLinkJqlIssue[]>([]);
+  const [epicPreviewOpen, setEpicPreviewOpen] = useState(false);
+  const [epicPreviewLoading, setEpicPreviewLoading] = useState(false);
   const draggedMemberAccountId = useRef<string | null>(null);
   const dropInsertionIndex = useRef<number | null>(null);
   const [draggingMemberAccountId, setDraggingMemberAccountId] = useState<string | null>(null);
@@ -263,6 +283,12 @@ export function ManagedProjectsSettings({
     setSelectedSearchMember(null);
     setMemberRole("");
     setMemberAlias("");
+    setDefaultTaskSprintId(detailProject.defaultTaskSprintId ?? "");
+    setDefaultTaskSprintName(detailProject.defaultTaskSprintName ?? "");
+    setEpicLinkJql(detailProject.epicLinkJql ?? "");
+    setTaskSprints([]);
+    setTaskSprintsError(null);
+    setTaskSprintsLoading(true);
 
     listPlanningConfiguredTeamMembers(detailProject.id)
       .then((members) => {
@@ -273,6 +299,17 @@ export function ManagedProjectsSettings({
       })
       .catch((error) => {
         if (active) setMemberLoadError(commandError(error));
+      });
+
+    listTargetSprints(detailProject.id)
+      .then((sprints) => {
+        if (active) setTaskSprints(Array.isArray(sprints) ? sprints.filter((sprint) => sprint.usable) : []);
+      })
+      .catch((error) => {
+        if (active) setTaskSprintsError(commandError(error));
+      })
+      .finally(() => {
+        if (active) setTaskSprintsLoading(false);
       });
 
     return () => {
@@ -437,8 +474,11 @@ export function ManagedProjectsSettings({
         integrationId: value(form.integrationId),
         jiraProjectId: value(validation.projectId),
         jiraProjectKey: value(validation.projectKey),
-        jiraProjectName: value(form.jiraProjectName),
+        jiraProjectName: value(validation.projectName ?? form.jiraProjectName),
         boardId: value(form.boardId),
+        defaultTaskSprintId: value(form.defaultTaskSprintId) || undefined,
+        defaultTaskSprintName: value(form.defaultTaskSprintName) || undefined,
+        epicLinkJql: form.epicLinkJql.trim(),
         enabled: form.enabled,
       };
       const saved = await saveManagedProject(request);
@@ -452,6 +492,59 @@ export function ManagedProjectsSettings({
         : "Unable to save managed project. Try again.");
     } finally {
       setAction(null);
+    }
+  }
+
+  async function handleSaveTaskCreationSettings() {
+    if (!detailProject || teamSaving) return;
+    setTeamSaving(true);
+    setTeamSaveError(null);
+    try {
+      const selectedSprint = taskSprints.find((sprint) => sprint.id === defaultTaskSprintId);
+      const saved = await saveManagedProject({
+        id: detailProject.id,
+        integrationId: detailProject.integrationId,
+        jiraProjectId: detailProject.projectId,
+        jiraProjectKey: detailProject.projectKey,
+        jiraProjectName: detailProject.projectName,
+        boardId: detailProject.boardId,
+        sourceSprintId: detailProject.sourceSprintId,
+        sourceSprintName: detailProject.sourceSprintName,
+        storyPointsFieldId: detailProject.storyPointsFieldId,
+        competencyFieldId: detailProject.competencyFieldId,
+        subtaskIssueTypeId: detailProject.subtaskIssueTypeId,
+        defaultTeamPresetId: detailProject.defaultTeamPresetId,
+        defaultTaskSprintId: defaultTaskSprintId || undefined,
+        defaultTaskSprintName: selectedSprint?.name ?? (defaultTaskSprintId ? defaultTaskSprintName : undefined),
+        epicLinkJql: epicLinkJql.trim(),
+        enabled: detailProject.enabled,
+      });
+      setProjects((current) => replaceProject(current, saved));
+      setDetailProject(saved);
+    } catch (error) {
+      setTeamSaveError(`Unable to save task creation settings. ${commandError(error)}`);
+    } finally {
+      setTeamSaving(false);
+    }
+  }
+
+  async function handleCheckEpicLinkJql() {
+    if (!detailProject || epicPreviewLoading) return;
+    const jql = epicLinkJql.trim();
+    if (!jql) {
+      setTeamSaveError("Epic link JQL is required before checking.");
+      return;
+    }
+    setEpicPreviewLoading(true);
+    setTeamSaveError(null);
+    try {
+      const issues = await previewEpicLinkJql({ managedProjectId: detailProject.id, jql });
+      setEpicPreviewIssues(Array.isArray(issues) ? issues : []);
+      setEpicPreviewOpen(true);
+    } catch (error) {
+      setTeamSaveError(`Unable to check Epic link JQL. ${commandError(error)}`);
+    } finally {
+      setEpicPreviewLoading(false);
     }
   }
 
@@ -759,6 +852,81 @@ export function ManagedProjectsSettings({
       {detailProject && detailHost ? createPortal(
         <div className="border-t px-4 pb-4 pt-4" aria-label="Team members">
           <CardContent className="grid gap-4">
+            <section className="grid gap-4 rounded-md border p-3" aria-label="Task creation settings">
+              <div>
+                <h3 className="font-semibold">Task creation settings</h3>
+                <p className="text-sm text-muted-foreground">These defaults are applied to new Create task cards for this team.</p>
+              </div>
+              <div className="grid gap-2 sm:max-w-xl">
+                <Label htmlFor={`default-task-sprint-${detailProject.id}`}>Default sprint for task creation</Label>
+                <select
+                  id={`default-task-sprint-${detailProject.id}`}
+                  aria-label="Default sprint for task creation"
+                  className="h-10 rounded-md border border-input bg-background px-3 py-2 text-sm"
+                  value={defaultTaskSprintId}
+                  onChange={(event) => {
+                    const nextId = event.target.value;
+                    setDefaultTaskSprintId(nextId);
+                    setDefaultTaskSprintName(taskSprints.find((sprint) => sprint.id === nextId)?.name ?? "");
+                  }}
+                  disabled={controlsDisabled || taskSprintsLoading}
+                >
+                  <option value="">{taskSprintsLoading ? "Loading sprints…" : "No default sprint"}</option>
+                  {defaultTaskSprintId && !taskSprints.some((sprint) => sprint.id === defaultTaskSprintId) ? (
+                    <option value={defaultTaskSprintId}>{defaultTaskSprintName || defaultTaskSprintId}</option>
+                  ) : null}
+                  {taskSprints.map((sprint) => <option key={sprint.id} value={sprint.id}>{sprint.name}</option>)}
+                </select>
+                {taskSprintsError ? <p className="text-xs text-destructive">Unable to load sprints. {taskSprintsError}</p> : null}
+              </div>
+              <div className="grid gap-2">
+                <Label htmlFor={`epic-link-jql-${detailProject.id}`}>Epic link JQL</Label>
+                <div className="flex flex-wrap gap-2">
+                  <Input
+                    id={`epic-link-jql-${detailProject.id}`}
+                    aria-label="Epic link JQL"
+                    value={epicLinkJql}
+                    onChange={(event) => setEpicLinkJql(event.target.value)}
+                    placeholder="project = COREAPI AND issuetype = Epic"
+                    disabled={controlsDisabled}
+                  />
+                  <Button type="button" variant="outline" onClick={() => void handleCheckEpicLinkJql()} disabled={controlsDisabled || epicPreviewLoading || !epicLinkJql.trim()}>
+                    {epicPreviewLoading ? "Checking…" : "Check"}
+                  </Button>
+                </div>
+                <p className="text-xs text-muted-foreground">The matching Jira issues will be available as Epic link choices when creating a task.</p>
+              </div>
+              {teamSaveError ? (
+                <Alert variant="destructive" role="alert">
+                  <AlertDescription>{teamSaveError}</AlertDescription>
+                </Alert>
+              ) : null}
+              <div>
+                <Button type="button" onClick={() => void handleSaveTaskCreationSettings()} disabled={controlsDisabled}>
+                  {teamSaving ? "Saving…" : "Save task creation settings"}
+                </Button>
+              </div>
+            </section>
+
+            <Dialog open={epicPreviewOpen} onOpenChange={setEpicPreviewOpen}>
+              <DialogContent>
+                <DialogHeader>
+                  <DialogTitle>Epic link candidates</DialogTitle>
+                  <DialogDescription>Issues returned by the configured Epic link JQL.</DialogDescription>
+                </DialogHeader>
+                {epicPreviewIssues.length > 0 ? (
+                  <div role="list" aria-label="Epic link candidates" className="grid max-h-96 gap-2 overflow-y-auto">
+                    {epicPreviewIssues.map((issue) => (
+                      <div key={issue.key} role="listitem" className="rounded-md border p-3">
+                        <p className="font-medium">{issue.key}</p>
+                        <p className="text-sm text-muted-foreground">{issue.summary}</p>
+                      </div>
+                    ))}
+                  </div>
+                ) : <p className="text-sm text-muted-foreground">No Jira issues matched this JQL.</p>}
+              </DialogContent>
+            </Dialog>
+
             {memberLoadError ? (
               <Alert variant="destructive" role="alert">
                 <AlertDescription>Unable to load the saved project team. {memberLoadError}</AlertDescription>

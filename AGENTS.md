@@ -1,4 +1,4 @@
-# Mework contributor instructions
+# mework contributor instructions
 
 ## Source-of-truth boundaries
 

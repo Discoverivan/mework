@@ -113,19 +113,10 @@ pub async fn save(pool: &SqlitePool, settings: AiSettings) -> Result<(), String>
 }
 
 pub async fn dto(pool: &SqlitePool) -> Result<AiSettingsPageDto, String> {
-    let mut settings = load(pool).await?;
+    let settings = load(pool).await?;
     let provider = tokio::task::spawn_blocking(inspect_codex_cli)
         .await
         .map_err(|_| "failed to inspect Codex CLI".to_owned())?;
-    if let Some(model) = provider.models.first() {
-        if !provider
-            .models
-            .iter()
-            .any(|available| available == &settings.model)
-        {
-            settings.model = model.clone();
-        }
-    }
     Ok(AiSettingsPageDto {
         settings,
         providers: vec![provider],
@@ -266,7 +257,7 @@ fn query_codex_models_with_timeout(path: &Path, timeout: Duration) -> Option<Vec
                 "params": {
                     "clientInfo": {
                         "name": "mework",
-                        "title": "Mework",
+                        "title": "mework",
                         "version": env!("CARGO_PKG_VERSION")
                     },
                     "capabilities": {"experimentalApi": true}

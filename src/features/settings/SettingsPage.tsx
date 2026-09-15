@@ -5,6 +5,7 @@ import {
   AlertDescription,
   AlertTitle,
 } from "@/components/ui/alert";
+import { PageHeader } from "@/components/shared/PageHeader";
 import { Card, CardDescription, CardHeader } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -490,14 +491,10 @@ export function SettingsPage({ section = "integrations" }: SettingsPageProps) {
 
   return (
     <main className="space-y-6" aria-labelledby="settings-title">
-      <header className="page-header">
-        <div>
-          <p className="eyebrow">Settings</p>
-          <h1 id="settings-title">
-            {section === "general" ? "General" : section === "projects" ? "Team settings" : "Integrations"}
-          </h1>
-        </div>
-      </header>
+      <PageHeader
+        title={section === "general" ? "General" : section === "projects" ? "Team settings" : "Integrations"}
+        titleId="settings-title"
+      />
 
       {section !== "general" && loading ? (
         <Alert role="status" aria-live="polite">
@@ -625,7 +622,7 @@ export function SettingsPage({ section = "integrations" }: SettingsPageProps) {
           <div>
             <h2 id="ai-providers-title">AI Providers</h2>
             <p className="text-muted-foreground">
-              Providers available to Mework AI workflows.
+              Providers available to mework AI workflows.
             </p>
           </div>
           <div aria-label="AI providers" className="flex w-full flex-col gap-3">
@@ -653,7 +650,7 @@ export function SettingsPage({ section = "integrations" }: SettingsPageProps) {
         <div>
           <h2 id="integrations-title">Data Integrations</h2>
           <p className="text-muted-foreground">
-            Connect Jira and Bitbucket to provide data for Mework workflows. Secrets are write-only and are never displayed.
+            Connect Jira and Bitbucket to provide data for mework workflows. Secrets are write-only and are never displayed.
           </p>
         </div>
 

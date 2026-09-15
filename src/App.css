@@ -18,7 +18,7 @@ body,
 
 .app-shell {
   display: grid;
-  grid-template-columns: 220px 1fr;
+  grid-template-columns: 244px 1fr;
   height: 100vh;
   min-height: 100vh;
   overflow: hidden;
@@ -31,15 +31,43 @@ body,
   height: 100%;
   overflow-x: hidden;
   overflow-y: auto;
-  padding: 24px 16px;
+  padding: 24px 12px;
   border-right: 1px solid var(--border);
   background: var(--card);
 }
 
-.app-shell aside strong {
-  display: block;
+.app-brand {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding-left: 8px;
   margin-bottom: 28px;
   color: var(--card-foreground);
+}
+
+.app-brand img {
+  width: 28px;
+  height: 28px;
+  border-radius: 7px;
+}
+
+.app-brand strong {
+  display: block;
+}
+
+.sidebar-unread-badge {
+  display: inline-flex;
+  min-width: 20px;
+  height: 20px;
+  align-items: center;
+  justify-content: center;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: #2563eb;
+  color: white;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
 }
 
 .app-shell nav {
@@ -50,11 +78,12 @@ body,
 .settings-nav-group {
   display: grid;
   gap: 6px;
+  padding-left: 4px;
   margin-top: 12px;
 }
 
 .settings-nav-heading {
-  padding: 0 16px;
+  padding: 0 8px;
   color: var(--muted-foreground);
   font-size: 12px;
   font-weight: 600;
@@ -96,13 +125,36 @@ body,
 
 .page-header {
   display: flex;
-  align-items: end;
+  align-items: flex-end;
   justify-content: space-between;
-  gap: 16px;
-  margin-bottom: 24px;
+  gap: 12px;
+  margin-bottom: 16px;
 }
 
-.eyebrow,
+.page-header-copy {
+  min-width: 0;
+}
+
+.page-header-description {
+  margin: 4px 0 0;
+  color: var(--muted-foreground);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.page-header-actions {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.eyebrow {
+  display: none;
+}
+
 .item-meta {
   color: var(--muted-foreground);
   font-size: 12px;
@@ -111,8 +163,9 @@ body,
 }
 
 .page-header h1 {
-  margin: 4px 0 0;
-  font-size: 30px;
+  margin: 0;
+  font-size: 24px;
+  line-height: 1.2;
 }
 
 .filter-group {
@@ -193,21 +246,18 @@ body,
 
 .splash-panel {
   display: grid;
-  width: min(100%, 460px);
+  width: min(100%, 360px);
   justify-items: center;
-  gap: 20px;
-  padding: 32px 36px 30px;
-  border: 1px solid var(--border);
-  border-radius: 24px;
-  background: var(--card);
-  box-shadow: 0 24px 70px color-mix(in srgb, var(--foreground) 12%, transparent);
+  gap: 16px;
+  padding: 28px;
 }
 
 .splash-logo {
   display: block;
-  width: min(100%, 360px);
-  height: auto;
-  border-radius: 12px;
+  width: 72px;
+  height: 72px;
+  object-fit: cover;
+  border-radius: 18px;
 }
 
 .splash-copy {

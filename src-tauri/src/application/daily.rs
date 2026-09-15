@@ -44,6 +44,7 @@ pub async fn load_daily_workspace(
     let project = planning_repositories::get_managed_project(pool, managed_project_id)
         .await
         .map_err(|_| daily_error("not_found", "managed project was not found", false))?;
+    ensure_daily_dependencies(pool, &project.integration_id).await?;
     let board_id = project
         .board_id
         .as_deref()
@@ -147,6 +148,7 @@ pub async fn refresh_daily_workspace(
     let project = planning_repositories::get_managed_project(pool, managed_project_id)
         .await
         .map_err(|_| daily_error("not_found", "managed project was not found", false))?;
+    ensure_daily_dependencies(pool, &project.integration_id).await?;
     let members = planning::list_configured_team_members(pool, managed_project_id).await?;
     let member_ids: HashSet<&str> = members
         .iter()
@@ -208,6 +210,30 @@ pub async fn refresh_daily_workspace(
             )
         })
         .collect())
+}
+
+async fn ensure_daily_dependencies(
+    pool: &SqlitePool,
+    integration_id: &str,
+) -> Result<(), PlanningCommandError> {
+    let integration =
+        crate::infrastructure::db::repositories::get_integration(pool, integration_id)
+            .await
+            .map_err(|_| daily_error("not_found", "Jira integration was not found", false))?;
+    if integration.kind != crate::domain::models::IntegrationKind::Jira
+        || !integration.enabled
+        || integration.health_status != crate::domain::models::IntegrationHealthStatus::Working
+    {
+        return Err(daily_error(
+            "integration_unavailable",
+            "A working Jira integration is required for Daily",
+            false,
+        ));
+    }
+    crate::application::ai::ensure_review_ready(pool)
+        .await
+        .map(|_| ())
+        .map_err(|message| daily_error("ai_unavailable", &message, false))
 }
 
 fn daily_subtask(

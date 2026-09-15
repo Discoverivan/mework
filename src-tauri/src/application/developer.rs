@@ -27,7 +27,7 @@ use sqlx::SqlitePool;
 #[cfg(not(debug_assertions))]
 const KEYRING_SERVICE: &str = "com.discoverivan.app.mework";
 const REVIEW_FILTERS_SETTING_KEY: &str = "developer.pull_request_review_filters";
-const REVIEW_FILTERS_SCHEMA_VERSION: i64 = 2;
+const REVIEW_FILTERS_SCHEMA_VERSION: i64 = 3;
 const PULL_REQUEST_ACTIVITY_SETTING_KEY: &str = "developer.pull_request_activity";
 const PULL_REQUEST_ACTIVITY_SCHEMA_VERSION: i64 = 1;
 const PULL_REQUEST_CACHE_SETTING_KEY: &str = "developer.pull_request_cache";
@@ -37,7 +37,7 @@ const MAX_PAGE_SIZE: u64 = 100;
 
 static PULL_REQUEST_STATE_LOCK: OnceLock<tokio::sync::Mutex<()>> = OnceLock::new();
 
-fn pull_request_state_lock() -> &'static tokio::sync::Mutex<()> {
+pub(crate) fn pull_request_state_lock() -> &'static tokio::sync::Mutex<()> {
     PULL_REQUEST_STATE_LOCK.get_or_init(|| tokio::sync::Mutex::new(()))
 }
 
@@ -54,6 +54,8 @@ pub struct PullRequestReviewSettings {
     pub creator_whitelist: Vec<String>,
     #[serde(default)]
     pub auto_review_enabled: bool,
+    #[serde(default)]
+    pub authored_auto_review_enabled: bool,
 }
 
 pub async fn get_pull_request_review_settings(
@@ -131,6 +133,7 @@ fn normalize_settings(
             "creator whitelist",
         )?,
         auto_review_enabled: settings.auto_review_enabled,
+        authored_auto_review_enabled: settings.authored_auto_review_enabled,
     })
 }
 
@@ -201,6 +204,15 @@ struct PullRequestActivityState {
     integrations: HashMap<String, IntegrationPullRequestActivity>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct PullRequestReviewSummaryDto {
+    pub approved: u64,
+    pub needs_work: u64,
+    #[serde(default)]
+    pub comments: u64,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct MyPullRequestDto {
@@ -219,6 +231,10 @@ pub struct MyPullRequestDto {
     pub my_decision: String,
     pub author_avatar_url: Option<String>,
     pub latest_commit: Option<String>,
+    #[serde(default)]
+    pub review_summary: PullRequestReviewSummaryDto,
+    #[serde(default)]
+    pub needs_action: bool,
     pub activity: PullRequestActivity,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub review: Option<PullRequestReviewDto>,
@@ -235,6 +251,21 @@ pub struct PullRequestReviewNotification {
     pub pull_request_id: String,
     pub title: String,
     pub latest_commit: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct AuthoredPullRequestNotification {
+    pub integration_id: String,
+    pub key: String,
+    pub activity: PullRequestActivity,
+    pub project_key: String,
+    pub repository_slug: String,
+    pub pull_request_id: String,
+    pub title: String,
+    pub latest_commit: Option<String>,
+    pub needs_action: bool,
+    pub auto_review: bool,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq)]
@@ -838,6 +869,372 @@ pub async fn get_cached_my_pull_requests_page(
     })
 }
 
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PullRequestCommentRequest {
+    pub integration_id: String,
+    pub project_key: String,
+    pub repository_slug: String,
+    pub pull_request_id: String,
+    pub latest_commit: Option<String>,
+    pub file: String,
+    pub line: Option<i64>,
+    pub comment: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PullRequestDecisionRequest {
+    pub integration_id: String,
+    pub project_key: String,
+    pub repository_slug: String,
+    pub pull_request_id: String,
+    pub latest_commit: Option<String>,
+    pub action: PullRequestDecisionAction,
+}
+
+#[derive(Debug, Clone, Copy, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PullRequestDecisionAction {
+    Approve,
+    NeedsWork,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct PullRequestCommentStatus {
+    pub comment_id: u64,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct PullRequestDecisionStatus {
+    pub integration_id: String,
+    pub pull_request_id: String,
+    pub my_decision: String,
+}
+
+struct BitbucketActionContext {
+    client: BitbucketDcClient,
+    current_user_slug: String,
+}
+
+async fn bitbucket_action_context(
+    pool: &SqlitePool,
+    integration_id: &str,
+) -> Result<BitbucketActionContext, DeveloperCommandError> {
+    let integrations = repositories::list_integrations(pool).await.map_err(|_| {
+        command_error(
+            "database",
+            "Bitbucket integration database operation failed",
+            false,
+        )
+    })?;
+    let integration = integrations
+        .iter()
+        .find(|value| {
+            value.id == integration_id
+                && value.kind == IntegrationKind::Bitbucket
+                && value.enabled
+                && value.health_status == IntegrationHealthStatus::Working
+        })
+        .ok_or_else(|| {
+            command_error(
+                "integration_unavailable",
+                "A working Bitbucket integration is required for this action",
+                false,
+            )
+        })?;
+    let current_user_slug = integration.account_key.trim().to_owned();
+    let current_user_slug = if current_user_slug.is_empty() {
+        integration
+            .account_display_name
+            .as_deref()
+            .unwrap_or_default()
+            .trim()
+            .to_owned()
+    } else {
+        current_user_slug
+    };
+    if current_user_slug.is_empty() {
+        return Err(command_error(
+            "missing_account_identity",
+            "Bitbucket account identity is required for pull request actions",
+            false,
+        ));
+    }
+
+    #[cfg(debug_assertions)]
+    let keyring = DevCredentialStore::from_integrations(std::iter::once((
+        integration.credential_ref.clone(),
+        integration.kind,
+    )));
+    #[cfg(not(debug_assertions))]
+    let keyring = OsKeyring::new(KEYRING_SERVICE);
+    let secret = keyring.load(&integration.credential_ref).map_err(|_| {
+        command_error(
+            "missing_credential",
+            "Bitbucket credential is missing",
+            false,
+        )
+    })?;
+    if secret.trim().is_empty() {
+        return Err(command_error(
+            "missing_credential",
+            "Bitbucket credential is missing",
+            false,
+        ));
+    }
+    let mut builder = Client::builder().timeout(Duration::from_secs(30));
+    if integration.allow_insecure_tls {
+        builder = builder.danger_accept_invalid_certs(true);
+    }
+    let http = builder.build().map_err(|_| {
+        command_error(
+            "transport_unavailable",
+            "Bitbucket transport is unavailable",
+            true,
+        )
+    })?;
+    let client =
+        BitbucketDcClient::with_bearer_token_and_client(&integration.base_url, secret, http)
+            .map_err(map_error)?;
+    Ok(BitbucketActionContext {
+        client,
+        current_user_slug,
+    })
+}
+
+fn validate_action_request(
+    integration_id: &str,
+    project_key: &str,
+    repository_slug: &str,
+    pull_request_id: &str,
+    latest_commit: Option<&str>,
+) -> Result<u64, DeveloperCommandError> {
+    if integration_id.trim().is_empty()
+        || project_key.trim().is_empty()
+        || repository_slug.trim().is_empty()
+        || pull_request_id.trim().is_empty()
+    {
+        return Err(command_error(
+            "invalid_input",
+            "Integration and pull request identifiers are required",
+            false,
+        ));
+    }
+    if latest_commit.is_none_or(|value| value.trim().is_empty()) {
+        return Err(command_error(
+            "invalid_input",
+            "The pull request latest commit is required for this action",
+            false,
+        ));
+    }
+    pull_request_id
+        .parse::<u64>()
+        .map_err(|_| command_error("invalid_input", "Pull request id is invalid", false))
+}
+
+async fn validate_current_pull_request(
+    client: &BitbucketDcClient,
+    project_key: &str,
+    repository_slug: &str,
+    pull_request_id: u64,
+    latest_commit: &str,
+) -> Result<(), DeveloperCommandError> {
+    let current_pull_request = client
+        .get_pull_request(project_key, repository_slug, pull_request_id)
+        .await
+        .map_err(map_error)?;
+    if !current_pull_request.open || !current_pull_request.state.eq_ignore_ascii_case("OPEN") {
+        return Err(command_error(
+            "pull_request_unavailable",
+            "Pull request is no longer open",
+            false,
+        ));
+    }
+    if current_pull_request.from_ref.latest_commit.as_deref() != Some(latest_commit) {
+        return Err(command_error(
+            "pull_request_changed",
+            "Pull request changed since it was loaded; refresh the list and try again",
+            false,
+        ));
+    }
+    Ok(())
+}
+
+fn format_published_comment(
+    file: &str,
+    line: Option<i64>,
+    comment: &str,
+) -> Result<String, DeveloperCommandError> {
+    let file = file.trim();
+    let comment = comment.trim();
+    if file.is_empty() || comment.is_empty() || file.chars().any(char::is_control) {
+        return Err(command_error(
+            "invalid_input",
+            "Comment location and text are required",
+            false,
+        ));
+    }
+    if file.chars().count() > 1_000 || comment.chars().count() > 20_000 {
+        return Err(command_error("invalid_input", "Comment is too long", false));
+    }
+    let location = line
+        .filter(|value| *value > 0)
+        .map_or_else(|| file.to_owned(), |value| format!("{file}:{value}"));
+    Ok(format!("AI review location: `{location}`\n\n{comment}"))
+}
+
+pub async fn publish_pull_request_comment(
+    pool: &SqlitePool,
+    request: PullRequestCommentRequest,
+) -> Result<PullRequestCommentStatus, DeveloperCommandError> {
+    let pull_request_id = validate_action_request(
+        &request.integration_id,
+        &request.project_key,
+        &request.repository_slug,
+        &request.pull_request_id,
+        request.latest_commit.as_deref(),
+    )?;
+    let text = format_published_comment(&request.file, request.line, &request.comment)?;
+    let context = bitbucket_action_context(pool, &request.integration_id).await?;
+    validate_current_pull_request(
+        &context.client,
+        &request.project_key,
+        &request.repository_slug,
+        pull_request_id,
+        request
+            .latest_commit
+            .as_deref()
+            .expect("validated latest commit"),
+    )
+    .await?;
+    let comment = context
+        .client
+        .publish_pull_request_comment(
+            &request.project_key,
+            &request.repository_slug,
+            pull_request_id,
+            &text,
+        )
+        .await
+        .map_err(map_error)?;
+    update_cached_comment_count(
+        pool,
+        &request.integration_id,
+        &request.project_key,
+        &request.repository_slug,
+        &request.pull_request_id,
+    )
+    .await;
+    Ok(PullRequestCommentStatus {
+        comment_id: comment.id,
+    })
+}
+
+pub async fn set_pull_request_decision(
+    pool: &SqlitePool,
+    request: PullRequestDecisionRequest,
+) -> Result<PullRequestDecisionStatus, DeveloperCommandError> {
+    let pull_request_id = validate_action_request(
+        &request.integration_id,
+        &request.project_key,
+        &request.repository_slug,
+        &request.pull_request_id,
+        request.latest_commit.as_deref(),
+    )?;
+    let (status, my_decision) = match request.action {
+        PullRequestDecisionAction::Approve => ("APPROVED", "approved"),
+        PullRequestDecisionAction::NeedsWork => ("NEEDS_WORK", "needs_work"),
+    };
+    let context = bitbucket_action_context(pool, &request.integration_id).await?;
+    validate_current_pull_request(
+        &context.client,
+        &request.project_key,
+        &request.repository_slug,
+        pull_request_id,
+        request
+            .latest_commit
+            .as_deref()
+            .expect("validated latest commit"),
+    )
+    .await?;
+    context
+        .client
+        .set_pull_request_participant_status(
+            &request.project_key,
+            &request.repository_slug,
+            pull_request_id,
+            &context.current_user_slug,
+            status,
+        )
+        .await
+        .map_err(map_error)?;
+    update_cached_decision(
+        pool,
+        &request.integration_id,
+        &request.project_key,
+        &request.repository_slug,
+        &request.pull_request_id,
+        my_decision,
+    )
+    .await;
+    Ok(PullRequestDecisionStatus {
+        integration_id: request.integration_id,
+        pull_request_id: request.pull_request_id,
+        my_decision: my_decision.to_owned(),
+    })
+}
+
+async fn update_cached_decision(
+    pool: &SqlitePool,
+    integration_id: &str,
+    project_key: &str,
+    repository_slug: &str,
+    pull_request_id: &str,
+    my_decision: &str,
+) {
+    let _state_guard = pull_request_state_lock().lock().await;
+    let Ok(mut cache) = load_pull_request_cache(pool).await else {
+        return;
+    };
+    for pull_request in &mut cache.values {
+        if pull_request.integration_id == integration_id
+            && pull_request.project_key == project_key
+            && pull_request.repository_slug == repository_slug
+            && pull_request.pull_request_id == pull_request_id
+        {
+            pull_request.my_decision = my_decision.to_owned();
+        }
+    }
+    let _ = save_pull_request_cache(pool, &cache).await;
+}
+
+async fn update_cached_comment_count(
+    pool: &SqlitePool,
+    integration_id: &str,
+    project_key: &str,
+    repository_slug: &str,
+    pull_request_id: &str,
+) {
+    let _state_guard = pull_request_state_lock().lock().await;
+    let Ok(mut cache) = load_pull_request_cache(pool).await else {
+        return;
+    };
+    for pull_request in &mut cache.values {
+        if pull_request.integration_id == integration_id
+            && pull_request.project_key == project_key
+            && pull_request.repository_slug == repository_slug
+            && pull_request.pull_request_id == pull_request_id
+        {
+            pull_request.review_summary.comments =
+                pull_request.review_summary.comments.saturating_add(1);
+        }
+    }
+    let _ = save_pull_request_cache(pool, &cache).await;
+}
+
 fn compare_pull_requests(left: &MyPullRequestDto, right: &MyPullRequestDto) -> std::cmp::Ordering {
     activity_rank(left.activity)
         .cmp(&activity_rank(right.activity))
@@ -857,7 +1254,7 @@ fn should_notify_pull_request(
                 && previous.and_then(|value| value.latest_commit.as_ref()) != latest_commit))
 }
 
-fn current_unix_millis() -> i64 {
+pub(crate) fn current_unix_millis() -> i64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
@@ -1142,7 +1539,7 @@ fn map_cache_database_error(_: sqlx::Error) -> DeveloperCommandError {
     )
 }
 
-fn pull_request_state_key(
+pub(crate) fn pull_request_state_key(
     project_key: &str,
     repository_slug: &str,
     pull_request_id: &str,
@@ -1150,7 +1547,9 @@ fn pull_request_state_key(
     format!("{project_key}/{repository_slug}/{pull_request_id}")
 }
 
-fn dashboard_repository_identity(pull_request: &BitbucketDashboardPullRequest) -> (String, String) {
+pub(crate) fn dashboard_repository_identity(
+    pull_request: &BitbucketDashboardPullRequest,
+) -> (String, String) {
     let repository = pull_request.from_ref.repository.as_ref();
     let repository_slug = repository
         .and_then(|value| value.slug.clone())
@@ -1186,7 +1585,7 @@ fn pull_request_key(pull_request: &MyPullRequestDto) -> String {
     )
 }
 
-fn deduplicate_pull_requests(
+pub(crate) fn deduplicate_pull_requests(
     values: Vec<BitbucketDashboardPullRequest>,
 ) -> Vec<BitbucketDashboardPullRequest> {
     let mut unique = HashMap::new();
@@ -1346,7 +1745,7 @@ fn safe_avatar_url(user: &BitbucketUser) -> Option<String> {
         })
 }
 
-fn pull_request_dto(
+pub(crate) fn pull_request_dto(
     integration_id: &str,
     account_key: &str,
     account_display_name: Option<&str>,
@@ -1394,11 +1793,64 @@ fn pull_request_dto(
         updated_date: pull_request.updated_date,
         url,
         my_decision: my_decision(&pull_request.reviewers, account_key, account_display_name),
+        review_summary: reviewer_summary(&pull_request.reviewers),
+        needs_action: false,
         activity: PullRequestActivity::Read,
         review: None,
     }
 }
 
+pub(crate) fn reviewer_summary(reviewers: &[BitbucketParticipant]) -> PullRequestReviewSummaryDto {
+    let mut summary = PullRequestReviewSummaryDto::default();
+    for reviewer in reviewers
+        .iter()
+        .filter(|value| value.role.eq_ignore_ascii_case("REVIEWER"))
+    {
+        if reviewer.approved == Some(true)
+            || reviewer
+                .status
+                .as_deref()
+                .is_some_and(|value| value.eq_ignore_ascii_case("APPROVED"))
+        {
+            summary.approved = summary.approved.saturating_add(1);
+        } else if participant_needs_work(reviewer) {
+            summary.needs_work = summary.needs_work.saturating_add(1);
+        }
+    }
+    summary
+}
+
+pub(crate) fn merge_reviewer_summaries(
+    primary: PullRequestReviewSummaryDto,
+    fallback: PullRequestReviewSummaryDto,
+) -> PullRequestReviewSummaryDto {
+    PullRequestReviewSummaryDto {
+        approved: primary.approved.max(fallback.approved),
+        needs_work: primary.needs_work.max(fallback.needs_work),
+        comments: primary.comments.max(fallback.comments),
+    }
+}
+
+fn participant_needs_work(participant: &BitbucketParticipant) -> bool {
+    participant.status.as_deref().is_some_and(|value| {
+        matches_ignore_case(
+            value,
+            &[
+                "NEEDS_WORK",
+                "NEEDS WORK",
+                "REQUEST_CHANGES",
+                "REQUESTED_CHANGES",
+                "CHANGES_REQUESTED",
+            ],
+        )
+    })
+}
+
+fn matches_ignore_case(value: &str, candidates: &[&str]) -> bool {
+    candidates
+        .iter()
+        .any(|candidate| value.eq_ignore_ascii_case(candidate))
+}
 fn my_decision(
     reviewers: &[BitbucketParticipant],
     account_key: &str,
@@ -1418,9 +1870,7 @@ fn my_decision(
             .is_some_and(|value| value.eq_ignore_ascii_case("APPROVED"))
     {
         "approved".into()
-    } else if reviewer.status.as_deref().is_some_and(|value| {
-        value.eq_ignore_ascii_case("NEEDS_WORK") || value.eq_ignore_ascii_case("NEEDS WORK")
-    }) {
+    } else if participant_needs_work(reviewer) {
         "needs_work".into()
     } else {
         "not_reviewed".into()
@@ -1444,7 +1894,7 @@ fn user_matches(
     })
 }
 
-fn command_error(code: &str, message: &str, retryable: bool) -> DeveloperCommandError {
+pub(crate) fn command_error(code: &str, message: &str, retryable: bool) -> DeveloperCommandError {
     DeveloperCommandError {
         code: code.into(),
         message: message.into(),
@@ -1452,7 +1902,7 @@ fn command_error(code: &str, message: &str, retryable: bool) -> DeveloperCommand
     }
 }
 
-fn map_error(error: BitbucketDcError) -> DeveloperCommandError {
+pub(crate) fn map_error(error: BitbucketDcError) -> DeveloperCommandError {
     match error {
         BitbucketDcError::InvalidBaseUrl => {
             command_error("invalid_metadata", "Bitbucket base URL is invalid", false)
@@ -1532,12 +1982,13 @@ fn map_error(error: BitbucketDcError) -> DeveloperCommandError {
 mod tests {
     use super::{
         deduplicate_pull_requests, get_pull_request_review_settings, mark_all_pull_requests_read,
-        mark_pull_request_read, matches_review_settings, my_decision, parse_pull_request_cache,
-        record_pull_request_snapshot, record_pull_request_snapshot_with_identity, safe_avatar_url,
+        mark_pull_request_read, matches_review_settings, merge_reviewer_summaries, my_decision,
+        parse_pull_request_cache, record_pull_request_snapshot,
+        record_pull_request_snapshot_with_identity, safe_avatar_url,
         save_pull_request_activity_state, save_pull_request_review_settings,
         should_notify_pull_request, BitbucketDashboardPullRequest, MyPullRequestDto,
         PullRequestActivity, PullRequestActivitySnapshot, PullRequestActivityState,
-        PullRequestReviewSettings,
+        PullRequestReviewSettings, PullRequestReviewSummaryDto,
     };
     use crate::infrastructure::db::open_database;
     use crate::infrastructure::integrations::bitbucket_dc::models::{
@@ -1708,6 +2159,25 @@ mod tests {
     }
 
     #[test]
+    fn merges_reviewer_counters_when_details_omit_statuses() {
+        let merged = merge_reviewer_summaries(
+            PullRequestReviewSummaryDto {
+                approved: 0,
+                needs_work: 0,
+                comments: 0,
+            },
+            PullRequestReviewSummaryDto {
+                approved: 2,
+                needs_work: 1,
+                comments: 0,
+            },
+        );
+
+        assert_eq!(merged.approved, 2);
+        assert_eq!(merged.needs_work, 1);
+    }
+
+    #[test]
     fn extracts_a_safe_avatar_url_from_bitbucket_user_links() {
         let user = BitbucketUser {
             name: Some("test-author-a".into()),
@@ -1753,6 +2223,7 @@ mod tests {
                 ],
                 creator_whitelist: vec!["Test Author A".into()],
                 auto_review_enabled: true,
+                authored_auto_review_enabled: true,
             },
         )
         .await
@@ -1786,6 +2257,8 @@ mod tests {
             my_decision: "not_reviewed".into(),
             author_avatar_url: None,
             latest_commit: Some("commit-7".into()),
+            review_summary: PullRequestReviewSummaryDto::default(),
+            needs_action: false,
             activity: PullRequestActivity::New,
             review: None,
         };
@@ -1830,6 +2303,7 @@ mod tests {
         assert!(settings.repository_blacklist.is_empty());
         assert!(settings.creator_blacklist.is_empty());
         assert!(!settings.auto_review_enabled);
+        assert!(!settings.authored_auto_review_enabled);
     }
 
     #[test]

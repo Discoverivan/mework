@@ -58,6 +58,34 @@ pub struct PlanningIssue {
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct JqlIssueSummary {
+    pub key: String,
+    pub summary: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct JqlSearchPage {
+    #[serde(rename = "startAt")]
+    start_at: u64,
+    total: u64,
+    issues: Vec<JqlIssueWire>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct JqlIssueWire {
+    key: String,
+    #[serde(default)]
+    fields: JqlIssueFields,
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+struct JqlIssueFields {
+    #[serde(default)]
+    summary: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct CreateMetadata {
     pub projects: Vec<CreateMetadataProject>,
 }
@@ -440,6 +468,45 @@ impl JiraPlanningClient {
             .map_err(|_| JiraError::InvalidResponse)
     }
 
+    pub async fn search_issue_summaries(
+        &self,
+        jql: &str,
+        page_size: u64,
+    ) -> Result<Vec<JqlIssueSummary>, JiraError> {
+        if jql.trim().is_empty() || page_size == 0 {
+            return Err(JiraError::InvalidResponse);
+        }
+
+        let endpoint = self.endpoint("rest/api/2/search")?;
+        let mut start_at = 0_u64;
+        let mut issues = Vec::new();
+        loop {
+            let mut request_endpoint = endpoint.clone();
+            request_endpoint
+                .query_pairs_mut()
+                .append_pair("jql", jql)
+                .append_pair("startAt", &start_at.to_string())
+                .append_pair("maxResults", &page_size.to_string())
+                .append_pair("fields", "summary");
+            let page: JqlSearchPage = self
+                .send(Method::GET, request_endpoint, None)
+                .await?
+                .json()
+                .await
+                .map_err(|_| JiraError::InvalidResponse)?;
+            let returned = page.issues.len() as u64;
+            issues.extend(page.issues.into_iter().map(|issue| JqlIssueSummary {
+                key: issue.key,
+                summary: issue.fields.summary,
+            }));
+            start_at = page.start_at.saturating_add(returned);
+            if returned == 0 || start_at >= page.total || returned < page_size {
+                break;
+            }
+        }
+        Ok(issues)
+    }
+
     pub async fn list_issue_subtasks(
         &self,
         issue_id_or_key: &str,
@@ -670,4 +737,55 @@ async fn check_response(response: reqwest::Response) -> Result<reqwest::Response
         retryable: status == 429 || status >= 500,
         retry_after_seconds,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use wiremock::matchers::{method, path, query_param};
+    use wiremock::{Mock, MockServer, ResponseTemplate};
+
+    use super::super::planning_write::ReqwestPlanningTransport;
+    use super::{JiraDeployment, JiraPlanningClient};
+
+    #[tokio::test]
+    async fn searches_issue_summaries_with_jql_and_summary_field() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/rest/api/2/search"))
+            .and(query_param("jql", "project = DEMO AND issuetype = Epic"))
+            .and(query_param("fields", "summary"))
+            .and(query_param("startAt", "0"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "startAt": 0,
+                "maxResults": 50,
+                "total": 2,
+                "issues": [
+                    { "key": "DEMO-1", "fields": { "summary": "First epic" } },
+                    { "key": "DEMO-2", "fields": { "summary": "Second epic" } }
+                ]
+            })))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        let client = JiraPlanningClient::new_with_dependencies(
+            server.uri(),
+            JiraDeployment::DataCenter,
+            Arc::new(ReqwestPlanningTransport::new(reqwest::Client::new())),
+            None,
+            Some("synthetic-secret".to_owned()),
+        )
+        .expect("valid Jira base URL");
+        let issues = client
+            .search_issue_summaries("project = DEMO AND issuetype = Epic", 50)
+            .await
+            .expect("JQL search should succeed");
+
+        assert_eq!(issues.len(), 2);
+        assert_eq!(issues[0].key, "DEMO-1");
+        assert_eq!(issues[0].summary, "First epic");
+        assert_eq!(issues[1].key, "DEMO-2");
+    }
 }

@@ -1,6 +1,6 @@
-# Mework
+# mework
 
-Mework is a local-first macOS/Windows desktop application for turning Jira and later source-control changes into a durable, actionable inbox and running isolated Hermes workflows with explicit approval for external writes.
+mework is a local-first macOS/Windows desktop application for turning Jira and later source-control changes into a durable, actionable inbox and running isolated Hermes workflows with explicit approval for external writes.
 
 ## Architecture
 
@@ -23,7 +23,7 @@ npm run build
 cargo test --manifest-path src-tauri/Cargo.toml
 ```
 
-These checks do not launch the desktop application. For an intentional UI verification only, fill the local ignored `.env.dev` file and run the Zed task `Mework: UI dev (explicit launch)`:
+These checks do not launch the desktop application. For an intentional UI verification only, fill the local ignored `.env.dev` file and run the Zed task `mework: UI dev (explicit launch)`:
 
 ```dotenv
 MEWORK_DEV_JIRA_URL=https://jira.example

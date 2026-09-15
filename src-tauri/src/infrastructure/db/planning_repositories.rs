@@ -9,16 +9,16 @@ pub async fn insert_managed_project(
     pool: &SqlitePool,
     value: &ManagedProject,
 ) -> Result<(), sqlx::Error> {
-    sqlx::query("INSERT INTO managed_projects (id,integration_id,jira_project_id,jira_project_key,jira_project_name,board_id,source_sprint_id,source_sprint_name,story_points_field_id,competency_field_id,subtask_issue_type_id,default_team_preset_id,enabled,last_metadata_refresh_at,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)")
-        .bind(&value.id).bind(&value.integration_id).bind(&value.jira_project_id).bind(&value.jira_project_key).bind(&value.jira_project_name).bind(&value.board_id).bind(&value.source_sprint_id).bind(&value.source_sprint_name).bind(&value.story_points_field_id).bind(&value.competency_field_id).bind(&value.subtask_issue_type_id).bind(&value.default_team_preset_id).bind(value.enabled).bind(&value.last_metadata_refresh_at).bind(&value.created_at).bind(&value.updated_at).execute(pool).await.map(|_| ())
+    sqlx::query("INSERT INTO managed_projects (id,integration_id,jira_project_id,jira_project_key,jira_project_name,board_id,source_sprint_id,source_sprint_name,story_points_field_id,competency_field_id,subtask_issue_type_id,default_team_preset_id,default_task_sprint_id,default_task_sprint_name,epic_link_jql,enabled,last_metadata_refresh_at,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)")
+        .bind(&value.id).bind(&value.integration_id).bind(&value.jira_project_id).bind(&value.jira_project_key).bind(&value.jira_project_name).bind(&value.board_id).bind(&value.source_sprint_id).bind(&value.source_sprint_name).bind(&value.story_points_field_id).bind(&value.competency_field_id).bind(&value.subtask_issue_type_id).bind(&value.default_team_preset_id).bind(&value.default_task_sprint_id).bind(&value.default_task_sprint_name).bind(&value.epic_link_jql).bind(value.enabled).bind(&value.last_metadata_refresh_at).bind(&value.created_at).bind(&value.updated_at).execute(pool).await.map(|_| ())
 }
 
 pub async fn insert_managed_project_with_database_timestamps(
     pool: &SqlitePool,
     value: &ManagedProject,
 ) -> Result<(), sqlx::Error> {
-    sqlx::query("INSERT INTO managed_projects (id,integration_id,jira_project_id,jira_project_key,jira_project_name,board_id,source_sprint_id,source_sprint_name,story_points_field_id,competency_field_id,subtask_issue_type_id,default_team_preset_id,enabled,last_metadata_refresh_at,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,strftime('%Y-%m-%dT%H:%M:%fZ','now'),strftime('%Y-%m-%dT%H:%M:%fZ','now'))")
-        .bind(&value.id).bind(&value.integration_id).bind(&value.jira_project_id).bind(&value.jira_project_key).bind(&value.jira_project_name).bind(&value.board_id).bind(&value.source_sprint_id).bind(&value.source_sprint_name).bind(&value.story_points_field_id).bind(&value.competency_field_id).bind(&value.subtask_issue_type_id).bind(&value.default_team_preset_id).bind(value.enabled).bind(&value.last_metadata_refresh_at).execute(pool).await.map(|_| ())
+    sqlx::query("INSERT INTO managed_projects (id,integration_id,jira_project_id,jira_project_key,jira_project_name,board_id,source_sprint_id,source_sprint_name,story_points_field_id,competency_field_id,subtask_issue_type_id,default_team_preset_id,default_task_sprint_id,default_task_sprint_name,epic_link_jql,enabled,last_metadata_refresh_at,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,strftime('%Y-%m-%dT%H:%M:%fZ','now'),strftime('%Y-%m-%dT%H:%M:%fZ','now'))")
+        .bind(&value.id).bind(&value.integration_id).bind(&value.jira_project_id).bind(&value.jira_project_key).bind(&value.jira_project_name).bind(&value.board_id).bind(&value.source_sprint_id).bind(&value.source_sprint_name).bind(&value.story_points_field_id).bind(&value.competency_field_id).bind(&value.subtask_issue_type_id).bind(&value.default_team_preset_id).bind(&value.default_task_sprint_id).bind(&value.default_task_sprint_name).bind(&value.epic_link_jql).bind(value.enabled).bind(&value.last_metadata_refresh_at).execute(pool).await.map(|_| ())
 }
 
 pub async fn list_managed_projects(
@@ -379,6 +379,9 @@ fn row_managed_project(row: sqlx::sqlite::SqliteRow) -> Result<ManagedProject, s
         competency_field_id: row.try_get("competency_field_id")?,
         subtask_issue_type_id: row.try_get("subtask_issue_type_id")?,
         default_team_preset_id: row.try_get("default_team_preset_id")?,
+        default_task_sprint_id: row.try_get("default_task_sprint_id")?,
+        default_task_sprint_name: row.try_get("default_task_sprint_name")?,
+        epic_link_jql: row.try_get("epic_link_jql")?,
         enabled: row.try_get::<i64, _>("enabled")? != 0,
         last_metadata_refresh_at: row.try_get("last_metadata_refresh_at")?,
         created_at: row.try_get("created_at")?,

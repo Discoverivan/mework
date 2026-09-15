@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { ArrowLeft, ArrowRight, MoreHorizontal, Play, RefreshCw, Square } from "lucide-react";
+import { PageHeader } from "@/components/shared/PageHeader";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -218,51 +219,52 @@ export function DailyPage() {
 
   return (
     <section aria-labelledby="daily-title" className="space-y-4">
-      <header className="page-header daily-page-header">
-        <div>
-          <p className="eyebrow">Product</p>
-          <h1 id="daily-title">Daily</h1>
-          <p className="text-sm text-muted-foreground">Review today&apos;s assigned sub-tasks by team member.</p>
-        </div>
-        <div className="flex flex-wrap items-center justify-end gap-2">
-          {!loadingProjects && projects.length > 0 ? (
-            <Select value={selectedProjectId} onValueChange={setSelectedProjectId}>
-              <SelectTrigger id="daily-team-select" aria-label="Team" className="w-48">
-                <SelectValue placeholder="Select a team" />
-              </SelectTrigger>
-              <SelectContent>
-                {projects.map((project) => (
-                  <SelectItem key={project.id} value={project.id}>{project.name}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          ) : null}
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            disabled={!selectedProjectId || loadingWorkspace || refreshingStatuses}
-            onClick={() => {
-              if (workspace) void refreshStatuses();
-              else if (selectedProjectId) void refreshWorkspace(selectedProjectId);
-            }}
-          >
-            <RefreshCw aria-hidden="true" className={loadingWorkspace || refreshingStatuses ? "animate-spin" : undefined} />
-            {refreshingStatuses ? "Refreshing…" : "Refresh"}
-          </Button>
-          <Button
-            type="button"
-            variant={presenterOpen ? "secondary" : "default"}
-            size="sm"
-            disabled={!workspace || !selectedMemberId || loadingWorkspace}
-            aria-pressed={presenterOpen}
-            onClick={() => void togglePresenter()}
-          >
-            {presenterOpen ? <Square aria-hidden="true" /> : <Play aria-hidden="true" />}
-            {presenterOpen ? "Stop presenter view" : "Presenter view"}
-          </Button>
-        </div>
-      </header>
+      <PageHeader
+        className="daily-page-header"
+        title="Daily"
+        titleId="daily-title"
+        description="Review today's assigned sub-tasks by team member."
+        actions={(
+          <>
+            {!loadingProjects && projects.length > 0 ? (
+              <Select value={selectedProjectId} onValueChange={setSelectedProjectId}>
+                <SelectTrigger id="daily-team-select" aria-label="Team" className="w-48">
+                  <SelectValue placeholder="Select a team" />
+                </SelectTrigger>
+                <SelectContent>
+                  {projects.map((project) => (
+                    <SelectItem key={project.id} value={project.id}>{project.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            ) : null}
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={!selectedProjectId || loadingWorkspace || refreshingStatuses}
+              onClick={() => {
+                if (workspace) void refreshStatuses();
+                else if (selectedProjectId) void refreshWorkspace(selectedProjectId);
+              }}
+            >
+              <RefreshCw aria-hidden="true" className={loadingWorkspace || refreshingStatuses ? "animate-spin" : undefined} />
+              {refreshingStatuses ? "Refreshing…" : "Refresh"}
+            </Button>
+            <Button
+              type="button"
+              variant={presenterOpen ? "secondary" : "default"}
+              size="sm"
+              disabled={!workspace || !selectedMemberId || loadingWorkspace}
+              aria-pressed={presenterOpen}
+              onClick={() => void togglePresenter()}
+            >
+              {presenterOpen ? <Square aria-hidden="true" /> : <Play aria-hidden="true" />}
+              {presenterOpen ? "Stop presenter view" : "Presenter view"}
+            </Button>
+          </>
+        )}
+      />
 
       {presenterError ? (
         <Alert variant="destructive" role="alert">

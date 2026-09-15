@@ -1,14 +1,21 @@
 import { useEffect, useState } from "react";
+import { listen } from "@tauri-apps/api/event";
 import { AppShell, type AppSection, type Theme } from "./components/layout/AppShell";
 import { SplashScreen } from "./components/shared/SplashScreen";
 import { UpdateBanner } from "./components/shared/UpdateBanner";
 import { AppRoutes, type AppRoute } from "./app/routes";
 import { PresenterView } from "./features/daily/PresenterView";
+import { listAuthoredPullRequests, listMyPullRequests, refreshMyPullRequests } from "./features/developer/api";
+import type { MyPullRequestPage } from "./shared/contracts/developer";
+import type { IntegrationRedacted } from "./shared/contracts/settings";
 import { getAiSettings, refreshAllIntegrationsHealth } from "./features/settings/api";
 import { INTEGRATIONS_HEALTH_REFRESHED_EVENT } from "./features/settings/health-events";
 import "./App.css";
 import "./presenter.css";
 import "./daily-status.css";
+
+const PULL_REQUEST_REVIEW_ACTIVITY_CHANGED_EVENT = "pull_request_review_activity_changed";
+const AUTHORED_PULL_REQUESTS_UPDATED_EVENT = "my_pull_requests_updated";
 
 function systemTheme(): Theme {
   if (typeof window !== "undefined" && window.matchMedia?.("(prefers-color-scheme: dark)").matches) {
@@ -19,14 +26,19 @@ function systemTheme(): Theme {
 
 function routeFromHash(hash: string): AppRoute {
   if (hash === "#product/create-task") return "product-create-task";
-  if (hash === "#product/planning") return "product-planning";
   if (hash === "#product/daily") return "product-daily";
   if (hash === "#product/daily/presenter") return "product-daily-presenter";
   if (hash === "#developer/pull-requests") return "developer-pull-requests";
+  if (hash === "#developer/my-pull-requests") return "developer-my-pull-requests";
+  if (hash === "#developer/command-board") return "developer-command-board";
   if (hash === "#settings/general") return "settings-general";
   if (hash === "#settings/projects") return "settings-projects";
   if (hash === "#settings" || hash === "#settings/integrations") return "settings-integrations";
-  return "inbox";
+  return "developer-pull-requests";
+}
+
+function unreadCount(page: MyPullRequestPage): number {
+  return page.values.filter((pullRequest) => pullRequest.activity !== "read").length;
 }
 
 function App() {
@@ -34,6 +46,8 @@ function App() {
   const [theme, setTheme] = useState<Theme>(systemTheme);
   const [route, setRoute] = useState<AppRoute>(initialRoute);
   const [ready, setReady] = useState(false);
+  const [unreadPullRequestCount, setUnreadPullRequestCount] = useState(0);
+  const [unreadAuthoredPullRequestCount, setUnreadAuthoredPullRequestCount] = useState(0);
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
@@ -41,20 +55,116 @@ function App() {
 
   useEffect(() => {
     let active = true;
-    void Promise.allSettled([
-      refreshAllIntegrationsHealth(),
-      getAiSettings(),
-    ]).then(([integrationsResult]) => {
-      if (!active) return;
-      if (integrationsResult.status === "fulfilled") {
-        window.dispatchEvent(
-          new CustomEvent(INTEGRATIONS_HEALTH_REFRESHED_EVENT, { detail: integrationsResult.value }),
-        );
-      }
-      setReady(true);
+    let unlisten: (() => void) | undefined;
+    void listen<IntegrationRedacted[]>("integrations_health_refreshed", (event) => {
+      window.dispatchEvent(
+        new CustomEvent(INTEGRATIONS_HEALTH_REFRESHED_EVENT, { detail: event.payload }),
+      );
+    }).then((cleanup) => {
+      if (active) unlisten = cleanup;
+      else cleanup();
+    }).catch(() => {
+      // The event bridge is unavailable in non-Tauri test environments.
     });
     return () => {
       active = false;
+      unlisten?.();
+    };
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+
+    const initialize = async () => {
+      let integrations: Awaited<ReturnType<typeof refreshAllIntegrationsHealth>> = [];
+      try {
+        integrations = await refreshAllIntegrationsHealth();
+        if (!active) return;
+        window.dispatchEvent(
+          new CustomEvent(INTEGRATIONS_HEALTH_REFRESHED_EVENT, { detail: integrations }),
+        );
+      } catch {
+        // The route gate will show the dependency error after the splash settles.
+      }
+
+      if (active && integrations.some((integration) =>
+        integration.kind === "bitbucket"
+          && integration.enabled
+          && integration.healthStatus === "working"
+      )) {
+        const [reviewerResult, authoredResult] = await Promise.allSettled([
+          refreshMyPullRequests(0, 100),
+          listAuthoredPullRequests(0, 100),
+        ]);
+        if (!active) return;
+        if (reviewerResult.status === "fulfilled") {
+          setUnreadPullRequestCount(unreadCount(reviewerResult.value));
+        }
+        if (authoredResult.status === "fulfilled") {
+          setUnreadAuthoredPullRequestCount(unreadCount(authoredResult.value));
+        }
+      }
+
+      try {
+        await getAiSettings();
+      } catch {
+        // AI availability is checked again by the route gate.
+      }
+      if (active) setReady(true);
+    };
+
+    void initialize();
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+    let unlistenReviewer: (() => void) | undefined;
+    let unlistenAuthored: (() => void) | undefined;
+
+    const applyReviewerPage = (page: MyPullRequestPage) => {
+      if (active) setUnreadPullRequestCount(unreadCount(page));
+    };
+    const applyAuthoredPage = (page: MyPullRequestPage) => {
+      if (active) setUnreadAuthoredPullRequestCount(unreadCount(page));
+    };
+    const refreshCachedCount = async () => {
+      const [reviewerResult, authoredResult] = await Promise.allSettled([
+        listMyPullRequests(0, 100),
+        listAuthoredPullRequests(0, 100),
+      ]);
+      if (!active) return;
+      if (reviewerResult.status === "fulfilled") applyReviewerPage(reviewerResult.value);
+      if (authoredResult.status === "fulfilled") applyAuthoredPage(authoredResult.value);
+    };
+
+    void refreshCachedCount();
+    const onActivityChanged = () => void refreshCachedCount();
+    window.addEventListener(PULL_REQUEST_REVIEW_ACTIVITY_CHANGED_EVENT, onActivityChanged);
+    void listen<MyPullRequestPage>("pull_request_review_updated", (event) => applyReviewerPage(event.payload))
+      .then((cleanup) => {
+        if (active) unlistenReviewer = cleanup;
+        else cleanup();
+      })
+      .catch(() => {
+        // The event bridge is unavailable in non-Tauri test environments.
+      });
+    void listen<MyPullRequestPage>(AUTHORED_PULL_REQUESTS_UPDATED_EVENT, (event) => applyAuthoredPage(event.payload))
+      .then((cleanup) => {
+        if (active) unlistenAuthored = cleanup;
+        else cleanup();
+      })
+      .catch(() => {
+        // The event bridge is unavailable in non-Tauri test environments.
+      });
+
+    return () => {
+      active = false;
+      window.removeEventListener(PULL_REQUEST_REVIEW_ACTIVITY_CHANGED_EVENT, onActivityChanged);
+      unlistenReviewer?.();
+      unlistenAuthored?.();
     };
   }, []);
 
@@ -74,9 +184,18 @@ function App() {
 
   return (
     <>
-      <AppShell theme={theme} onThemeChange={setTheme} onNavigate={navigate}>
-        <AppRoutes route={route} />
-      </AppShell>
+      {ready ? (
+        <AppShell
+          theme={theme}
+          onThemeChange={setTheme}
+          onNavigate={navigate}
+          activeSection={route}
+          unreadPullRequestCount={unreadPullRequestCount}
+          unreadAuthoredPullRequestCount={unreadAuthoredPullRequestCount}
+        >
+          <AppRoutes route={route} />
+        </AppShell>
+      ) : null}
       <SplashScreen visible={!ready} />
       <UpdateBanner enabled={ready} />
     </>

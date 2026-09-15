@@ -5,7 +5,7 @@
 
 ## Context
 
-The implementation plan selected an authenticated loopback HTTP/SSE Hermes adapter with `POST /v1/runs`, lifecycle SSE, cancellation, reconnect, structured output, and permission events. The installed Hermes build must be probed before Mework enables runs; fields must not be guessed.
+The implementation plan selected an authenticated loopback HTTP/SSE Hermes adapter with `POST /v1/runs`, lifecycle SSE, cancellation, reconnect, structured output, and permission events. The installed Hermes build must be probed before mework enables runs; fields must not be guessed.
 
 ## Evidence
 

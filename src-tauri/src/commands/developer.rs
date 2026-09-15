@@ -2,9 +2,12 @@ use serde::Deserialize;
 use sqlx::SqlitePool;
 use tauri::{AppHandle, State};
 
+use crate::application::authored_pull_requests;
 use crate::application::developer::{
     self, BitbucketRepositoryDto, BitbucketUserDto, DeveloperCommandError, MyPullRequestsPageDto,
-    PullRequestActivityStatus, PullRequestReadAllStatus, PullRequestReviewSettings,
+    PullRequestActivityStatus, PullRequestCommentRequest, PullRequestCommentStatus,
+    PullRequestDecisionRequest, PullRequestDecisionStatus, PullRequestReadAllStatus,
+    PullRequestReviewSettings,
 };
 use crate::application::developer_review::{
     self, PullRequestReviewDto, PullRequestReviewRequest, PullRequestReviewStateRequest,
@@ -37,6 +40,50 @@ pub async fn bitbucket_my_pull_requests_refresh(
     request: PullRequestReviewPageRequest,
 ) -> Result<MyPullRequestsPageDto, DeveloperCommandError> {
     developer::list_my_pull_requests_page(&state, request.start, request.limit).await
+}
+
+#[tauri::command]
+pub async fn bitbucket_authored_pull_requests(
+    state: State<'_, SqlitePool>,
+    request: PullRequestReviewPageRequest,
+) -> Result<MyPullRequestsPageDto, DeveloperCommandError> {
+    authored_pull_requests::get_cached_authored_pull_requests_page(
+        &state,
+        request.start,
+        request.limit,
+    )
+    .await
+}
+
+#[tauri::command]
+pub async fn bitbucket_authored_pull_requests_refresh(
+    state: State<'_, SqlitePool>,
+    request: PullRequestReviewPageRequest,
+) -> Result<MyPullRequestsPageDto, DeveloperCommandError> {
+    authored_pull_requests::list_authored_pull_requests_page(&state, request.start, request.limit)
+        .await
+}
+
+#[tauri::command]
+pub async fn authored_pull_request_mark_read(
+    state: State<'_, SqlitePool>,
+    integration_id: String,
+    key: String,
+    latest_commit: Option<String>,
+) -> Result<bool, DeveloperCommandError> {
+    authored_pull_requests::mark_authored_pull_request_read(
+        &state,
+        &integration_id,
+        &key,
+        latest_commit.as_deref(),
+    )
+    .await
+}
+#[tauri::command]
+pub async fn authored_pull_requests_mark_all_read(
+    state: State<'_, SqlitePool>,
+) -> Result<PullRequestReadAllStatus, DeveloperCommandError> {
+    authored_pull_requests::mark_all_authored_pull_requests_read(&state).await
 }
 
 #[tauri::command]
@@ -93,6 +140,22 @@ pub async fn pull_request_review_mark_all_read(
     state: State<'_, SqlitePool>,
 ) -> Result<PullRequestReadAllStatus, DeveloperCommandError> {
     developer::mark_all_pull_requests_read(&state).await
+}
+
+#[tauri::command]
+pub async fn pull_request_review_publish_comment(
+    state: State<'_, SqlitePool>,
+    request: PullRequestCommentRequest,
+) -> Result<PullRequestCommentStatus, DeveloperCommandError> {
+    developer::publish_pull_request_comment(&state, request).await
+}
+
+#[tauri::command]
+pub async fn pull_request_review_set_decision(
+    state: State<'_, SqlitePool>,
+    request: PullRequestDecisionRequest,
+) -> Result<PullRequestDecisionStatus, DeveloperCommandError> {
+    developer::set_pull_request_decision(&state, request).await
 }
 
 #[tauri::command]

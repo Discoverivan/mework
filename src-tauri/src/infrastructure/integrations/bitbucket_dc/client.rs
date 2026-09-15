@@ -1,6 +1,6 @@
 use std::future::Future;
 
-use reqwest::{header, Client, Url};
+use reqwest::{header, Client, Method, Url};
 use serde::de::DeserializeOwned;
 
 use super::error::{BitbucketDcError, BitbucketHttpErrorKind};
@@ -8,7 +8,7 @@ const MAX_PULL_REQUEST_DIFF_BYTES: usize = 2_000_000;
 
 use super::models::{
     BitbucketBuildStatus, BitbucketComment, BitbucketDashboardPullRequest, BitbucketPage,
-    BitbucketPullRequest, BitbucketRepository, BitbucketUser,
+    BitbucketParticipant, BitbucketPullRequest, BitbucketRepository, BitbucketUser,
 };
 
 enum Authentication {
@@ -129,20 +129,57 @@ impl BitbucketDcClient {
         start: u64,
         limit: u64,
     ) -> Result<BitbucketPage<BitbucketDashboardPullRequest>, BitbucketDcError> {
+        self.list_dashboard_pull_requests_page("REVIEWER", start, limit, true)
+            .await
+    }
+
+    pub async fn list_authored_pull_requests_page(
+        &self,
+        start: u64,
+        limit: u64,
+    ) -> Result<BitbucketPage<BitbucketDashboardPullRequest>, BitbucketDcError> {
+        match self
+            .list_dashboard_pull_requests_page("AUTHOR", start, limit, true)
+            .await
+        {
+            Err(BitbucketDcError::Http { status: 400, .. }) => {
+                // Some older Server/DC versions reject the optional state query
+                // for the AUTHOR dashboard role. Filter OPEN records locally.
+                self.list_dashboard_pull_requests_page("AUTHOR", start, limit, false)
+                    .await
+            }
+            result => result,
+        }
+    }
+
+    async fn list_dashboard_pull_requests_page(
+        &self,
+        role: &str,
+        start: u64,
+        limit: u64,
+        include_state: bool,
+    ) -> Result<BitbucketPage<BitbucketDashboardPullRequest>, BitbucketDcError> {
         validate_limit(limit)?;
+        let mut query = vec![
+            ("role", role.to_owned()),
+            ("order", "NEWEST".to_owned()),
+            ("limit", limit.to_string()),
+            ("start", start.to_string()),
+        ];
+        if include_state {
+            query.insert(1, ("state", "OPEN".to_owned()));
+        }
         let mut page: BitbucketPage<BitbucketDashboardPullRequest> = self
             .fetch_page(
                 &["rest", "api", "1.0", "dashboard", "pull-requests"],
-                &[
-                    ("role", "REVIEWER".to_owned()),
-                    ("state", "OPEN".to_owned()),
-                    ("order", "NEWEST".to_owned()),
-                    ("limit", limit.to_string()),
-                    ("start", start.to_string()),
-                ],
+                &query,
             )
             .await?;
-        page.values.retain(|pull_request| !pull_request.draft);
+        page.values.retain(|pull_request| {
+            pull_request.open
+                && pull_request.state.eq_ignore_ascii_case("OPEN")
+                && !pull_request.draft
+        });
         page.size = Some(page.values.len() as u64);
         Ok(page)
     }
@@ -380,6 +417,91 @@ impl BitbucketDcClient {
         .await
     }
 
+    pub async fn publish_pull_request_comment(
+        &self,
+        project_key: &str,
+        repository_slug: &str,
+        pull_request_id: u64,
+        text: &str,
+    ) -> Result<BitbucketComment, BitbucketDcError> {
+        validate_path_segment(project_key)?;
+        validate_path_segment(repository_slug)?;
+        if text.trim().is_empty() {
+            return Err(BitbucketDcError::InvalidRequest);
+        }
+        let url = self.url_with_segments(&[
+            "rest",
+            "api",
+            "1.0",
+            "projects",
+            project_key,
+            "repos",
+            repository_slug,
+            "pull-requests",
+            &pull_request_id.to_string(),
+            "comments",
+        ])?;
+        let response = self
+            .authenticated_request_with_method(Method::POST, url)
+            .json(&serde_json::json!({ "text": text }))
+            .send()
+            .await
+            .map_err(|_| BitbucketDcError::Transport)?;
+        if !response.status().is_success() {
+            return Err(Self::http_error(response).await);
+        }
+        response
+            .json::<BitbucketComment>()
+            .await
+            .map_err(|_| BitbucketDcError::InvalidResponse)
+    }
+
+    pub async fn set_pull_request_participant_status(
+        &self,
+        project_key: &str,
+        repository_slug: &str,
+        pull_request_id: u64,
+        user_slug: &str,
+        status: &str,
+    ) -> Result<BitbucketParticipant, BitbucketDcError> {
+        validate_path_segment(project_key)?;
+        validate_path_segment(repository_slug)?;
+        validate_path_segment(user_slug)?;
+        if !matches!(status, "APPROVED" | "NEEDS_WORK") {
+            return Err(BitbucketDcError::InvalidRequest);
+        }
+        let url = self.url_with_segments(&[
+            "rest",
+            "api",
+            "1.0",
+            "projects",
+            project_key,
+            "repos",
+            repository_slug,
+            "pull-requests",
+            &pull_request_id.to_string(),
+            "participants",
+            user_slug,
+        ])?;
+        let response = self
+            .authenticated_request_with_method(Method::PUT, url)
+            .json(&serde_json::json!({
+                "user": { "name": user_slug },
+                "approved": status == "APPROVED",
+                "status": status,
+            }))
+            .send()
+            .await
+            .map_err(|_| BitbucketDcError::Transport)?;
+        if !response.status().is_success() {
+            return Err(Self::http_error(response).await);
+        }
+        response
+            .json::<BitbucketParticipant>()
+            .await
+            .map_err(|_| BitbucketDcError::InvalidResponse)
+    }
+
     pub async fn list_commit_statuses_page(
         &self,
         commit_id: &str,
@@ -481,7 +603,15 @@ impl BitbucketDcClient {
     }
 
     fn authenticated_request(&self, url: Url) -> reqwest::RequestBuilder {
-        let request = self.http.get(url);
+        self.authenticated_request_with_method(Method::GET, url)
+    }
+
+    fn authenticated_request_with_method(
+        &self,
+        method: Method,
+        url: Url,
+    ) -> reqwest::RequestBuilder {
+        let request = self.http.request(method, url);
         match &self.authentication {
             Some(Authentication::Bearer(token)) => request.bearer_auth(token),
             Some(Authentication::Basic { username, password }) => {
