@@ -219,12 +219,9 @@ pub async fn create_task(
     })
 }
 
-fn jira_http_client(allow_insecure_tls: &bool) -> Result<Client, String> {
-    let mut builder = Client::builder().timeout(Duration::from_secs(30));
-    if *allow_insecure_tls {
-        builder = builder.danger_accept_invalid_certs(true);
-    }
-    builder
+fn jira_http_client(_allow_insecure_tls: &bool) -> Result<Client, String> {
+    Client::builder()
+        .timeout(Duration::from_secs(30))
         .build()
         .map_err(|_| "Jira transport is unavailable".to_owned())
 }

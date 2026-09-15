@@ -126,17 +126,16 @@ pub async fn sync_authored_pull_requests_with_notifications(
                 false,
             ));
         }
-        let mut builder = Client::builder().timeout(Duration::from_secs(30));
-        if integration.allow_insecure_tls {
-            builder = builder.danger_accept_invalid_certs(true);
-        }
-        let http = builder.build().map_err(|_| {
-            developer::command_error(
-                "transport_unavailable",
-                "Bitbucket transport is unavailable",
-                true,
-            )
-        })?;
+        let http = Client::builder()
+            .timeout(Duration::from_secs(30))
+            .build()
+            .map_err(|_| {
+                developer::command_error(
+                    "transport_unavailable",
+                    "Bitbucket transport is unavailable",
+                    true,
+                )
+            })?;
         let client =
             BitbucketDcClient::with_bearer_token_and_client(&integration.base_url, secret, http)
                 .map_err(map_error)?;
