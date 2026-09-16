@@ -23,7 +23,7 @@ npm run build
 cargo test --manifest-path src-tauri/Cargo.toml
 ```
 
-These checks do not launch the desktop application. For an intentional UI verification only, fill the local ignored `.env.dev` file and run the Zed task `mework: UI dev (explicit launch)`:
+These checks do not launch the desktop application. For an intentional UI verification only, fill the local ignored `.env.dev` file and run `npm run tauri:dev` (or the Zed task `mework: UI dev (explicit launch)`):
 
 ```dotenv
 MEWORK_DEV_JIRA_URL=https://jira.example
@@ -32,6 +32,8 @@ MEWORK_DEV_BITBUCKET_URL=https://bitbucket.example
 MEWORK_DEV_BITBUCKET_PAT=<local Bitbucket PAT>
 ```
 
-The task sources `.env.dev` and launches `npm run tauri -- dev`. The debug Rust process reads the PAT variables instead of Keychain. They are held only in process memory and are not written to SQLite or returned to the renderer. The file is ignored by Git.
+The launcher sources `.env.dev`, validates the required variables, and starts `tauri dev` with `src-tauri/tauri.dev.conf.json`. The development application is named `mework-dev` and uses bundle identifier `com.discoverivan.app.mework.dev`; Tauri therefore gives it a separate `app_data_dir` and SQLite database from the release `mework` app. The debug Rust process reads the PAT variables instead of Keychain. They are held only in process memory and are not written to SQLite or returned to the renderer. The dev app also uses a separate icon with a `DEV` badge. The file is ignored by Git.
+
+Release builds continue to use the standard `src-tauri/tauri.conf.json` and the regular `mework` identifier.
 
 See [`AGENTS.md`](AGENTS.md) for source-of-truth boundaries, safety constraints, and development conventions. Architecture decisions are recorded in [`docs/adr/`](docs/adr/).

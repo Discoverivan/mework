@@ -336,6 +336,8 @@ impl JiraPlanningClient {
                 "issuetype",
                 "assignee",
                 "parent",
+                "statuscategorychangedate",
+                "updated",
                 field_id,
             ]
             .join(",")
@@ -787,5 +789,37 @@ mod tests {
         assert_eq!(issues[0].key, "DEMO-1");
         assert_eq!(issues[0].summary, "First epic");
         assert_eq!(issues[1].key, "DEMO-2");
+    }
+
+    #[tokio::test]
+    async fn requests_status_category_change_date_for_sprint_issues() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/rest/agile/1.0/sprint/sprint-1/issue"))
+            .and(query_param("fields", "summary,status,issuetype,assignee,parent,statuscategorychangedate,updated,customfield_10016"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "startAt": 0,
+                "maxResults": 100,
+                "total": 0,
+                "issues": []
+            })))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        let client = JiraPlanningClient::new_with_dependencies(
+            server.uri(),
+            JiraDeployment::DataCenter,
+            Arc::new(ReqwestPlanningTransport::new(reqwest::Client::new())),
+            None,
+            Some("synthetic-secret".to_owned()),
+        )
+        .expect("valid Jira base URL");
+        let issues = client
+            .list_sprint_issues_with_fields("sprint-1", 100, Some("customfield_10016"))
+            .await
+            .expect("sprint issue request should succeed");
+
+        assert!(issues.values.is_empty());
     }
 }

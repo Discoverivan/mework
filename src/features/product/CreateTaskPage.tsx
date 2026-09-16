@@ -393,7 +393,7 @@ export function CreateTaskPage() {
         teamId: selectedTeamId,
         summary: "",
         description: "",
-        epicLink: "",
+        epicLink: teams.find((team) => team.id === selectedTeamId)?.defaultEpicLinkKey ?? "",
         assignee: UNASSIGNED_VALUE,
         sprint: teams.find((team) => team.id === selectedTeamId)?.defaultTaskSprintId ?? "",
         storyPoints: "",
@@ -459,7 +459,7 @@ export function CreateTaskPage() {
       {selectedTeam && selectedContext?.membersUnavailable ? <p className="text-sm text-muted-foreground">Team members are temporarily unavailable for {selectedTeam.name}.</p> : null}
 
       {cards.length > 0 ? (
-        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3" aria-label="Task drafts">
+        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-2" aria-label="Task drafts">
           {cards.map((card) => {
             const context = card.teamId ? teamContexts[card.teamId] : undefined;
             const membersLoading = context?.membersLoading ?? false;
@@ -516,6 +516,7 @@ export function CreateTaskPage() {
                   <div className="grid gap-2">
                     <Label htmlFor={`draft-description-${card.id}`}>Description</Label>
                     <textarea id={`draft-description-${card.id}`} className="min-h-32 w-full resize-y rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2" value={card.description} disabled={card.status === "creating" || card.status === "created"} onChange={(event) => updateCard(card.id, { description: event.target.value })} />
+                    <p className="text-xs text-muted-foreground">Jira wiki markup is supported: *bold*, _italic_, h3. headings, lists, and line breaks.</p>
                   </div>
                   <div className="grid gap-4">
                     <div className="grid gap-2">
@@ -523,6 +524,7 @@ export function CreateTaskPage() {
                       <Select value={card.epicLink} onValueChange={(value) => updateCard(card.id, { epicLink: value })} disabled={card.status === "created" || !card.teamId || epicsLoading || epics.length === 0}>
                         <SelectTrigger id={`draft-epic-link-${card.id}`} aria-label="Epic link"><SelectValue placeholder={epicsLoading ? "Loading epics…" : epics.length ? "Select an epic" : "No epics available"} /></SelectTrigger>
                         <SelectContent>
+                          {card.epicLink && !epics.some((epic) => epic.key === card.epicLink) ? <SelectItem value={card.epicLink}>{card.epicLink}</SelectItem> : null}
                           {epics.map((epic) => <SelectItem key={epic.key} value={epic.key}>{epic.key} — {epic.summary}</SelectItem>)}
                         </SelectContent>
                       </Select>

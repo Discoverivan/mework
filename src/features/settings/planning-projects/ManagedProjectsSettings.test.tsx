@@ -113,12 +113,17 @@ describe("ManagedProjectsSettings task creation settings", () => {
       jql: "project = COREAPI AND issuetype = Epic",
     }));
     fireEvent.click(screen.getByRole("button", { name: "Close" }));
+    fireEvent.change(screen.getByLabelText("Default Epic link for task creation"), {
+      target: { value: "COREAPI-EPIC-1" },
+    });
 
     fireEvent.click(screen.getByRole("button", { name: "Save task creation settings" }));
     await waitFor(() => expect(saveProjectMock).toHaveBeenCalledWith(expect.objectContaining({
       id: "team-1",
       defaultTaskSprintId: "sprint-1",
       defaultTaskSprintName: "Platform Sprint",
+      defaultEpicLinkKey: "COREAPI-EPIC-1",
+      defaultEpicLinkSummary: "Platform epic",
       epicLinkJql: "project = COREAPI AND issuetype = Epic",
     })));
   });

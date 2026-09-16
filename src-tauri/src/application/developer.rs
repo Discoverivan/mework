@@ -15,7 +15,9 @@ use crate::infrastructure::credentials::keyring::DevCredentialStore;
 #[cfg(not(debug_assertions))]
 use crate::infrastructure::credentials::keyring::OsKeyring;
 use crate::infrastructure::db::repositories;
-use crate::infrastructure::integrations::bitbucket_dc::client::BitbucketDcClient;
+use crate::infrastructure::integrations::bitbucket_dc::client::{
+    BitbucketDcClient, BitbucketInlineComment,
+};
 use crate::infrastructure::integrations::bitbucket_dc::error::{
     BitbucketDcError, BitbucketHttpErrorKind,
 };
@@ -1034,13 +1036,18 @@ fn validate_action_request(
         .map_err(|_| command_error("invalid_input", "Pull request id is invalid", false))
 }
 
+struct CurrentPullRequestRevision {
+    source_commit: String,
+    target_commit: Option<String>,
+}
+
 async fn validate_current_pull_request(
     client: &BitbucketDcClient,
     project_key: &str,
     repository_slug: &str,
     pull_request_id: u64,
     latest_commit: &str,
-) -> Result<(), DeveloperCommandError> {
+) -> Result<CurrentPullRequestRevision, DeveloperCommandError> {
     let current_pull_request = client
         .get_pull_request(project_key, repository_slug, pull_request_id)
         .await
@@ -1059,17 +1066,24 @@ async fn validate_current_pull_request(
             false,
         ));
     }
-    Ok(())
+    Ok(CurrentPullRequestRevision {
+        source_commit: latest_commit.to_owned(),
+        target_commit: current_pull_request.to_ref.latest_commit,
+    })
 }
 
-fn format_published_comment(
+fn validated_comment_text(
     file: &str,
     line: Option<i64>,
     comment: &str,
 ) -> Result<String, DeveloperCommandError> {
     let file = file.trim();
     let comment = comment.trim();
-    if file.is_empty() || comment.is_empty() || file.chars().any(char::is_control) {
+    if file.is_empty()
+        || comment.is_empty()
+        || file.chars().any(char::is_control)
+        || line.is_some_and(|value| value <= 0)
+    {
         return Err(command_error(
             "invalid_input",
             "Comment location and text are required",
@@ -1079,10 +1093,7 @@ fn format_published_comment(
     if file.chars().count() > 1_000 || comment.chars().count() > 20_000 {
         return Err(command_error("invalid_input", "Comment is too long", false));
     }
-    let location = line
-        .filter(|value| *value > 0)
-        .map_or_else(|| file.to_owned(), |value| format!("{file}:{value}"));
-    Ok(format!("AI review location: `{location}`\n\n{comment}"))
+    Ok(comment.to_owned())
 }
 
 pub async fn publish_pull_request_comment(
@@ -1096,9 +1107,9 @@ pub async fn publish_pull_request_comment(
         &request.pull_request_id,
         request.latest_commit.as_deref(),
     )?;
-    let text = format_published_comment(&request.file, request.line, &request.comment)?;
+    let text = validated_comment_text(&request.file, request.line, &request.comment)?;
     let context = bitbucket_action_context(pool, &request.integration_id).await?;
-    validate_current_pull_request(
+    let revision = validate_current_pull_request(
         &context.client,
         &request.project_key,
         &request.repository_slug,
@@ -1109,13 +1120,26 @@ pub async fn publish_pull_request_comment(
             .expect("validated latest commit"),
     )
     .await?;
+    let target_commit = revision.target_commit.ok_or_else(|| {
+        command_error(
+            "pull_request_unavailable",
+            "Pull request target commit is unavailable for an inline comment",
+            false,
+        )
+    })?;
     let comment = context
         .client
         .publish_pull_request_comment(
             &request.project_key,
             &request.repository_slug,
             pull_request_id,
-            &text,
+            BitbucketInlineComment {
+                text: &text,
+                from_hash: &target_commit,
+                to_hash: &revision.source_commit,
+                path: request.file.trim(),
+                line: request.line,
+            },
         )
         .await
         .map_err(map_error)?;
@@ -1985,14 +2009,23 @@ mod tests {
         parse_pull_request_cache, record_pull_request_snapshot,
         record_pull_request_snapshot_with_identity, safe_avatar_url,
         save_pull_request_activity_state, save_pull_request_review_settings,
-        should_notify_pull_request, BitbucketDashboardPullRequest, MyPullRequestDto,
-        PullRequestActivity, PullRequestActivitySnapshot, PullRequestActivityState,
-        PullRequestReviewSettings, PullRequestReviewSummaryDto,
+        should_notify_pull_request, validated_comment_text, BitbucketDashboardPullRequest,
+        MyPullRequestDto, PullRequestActivity, PullRequestActivitySnapshot,
+        PullRequestActivityState, PullRequestReviewSettings, PullRequestReviewSummaryDto,
     };
     use crate::infrastructure::db::open_database;
     use crate::infrastructure::integrations::bitbucket_dc::models::{
         BitbucketLink, BitbucketLinks, BitbucketParticipant, BitbucketRef, BitbucketUser,
     };
+
+    #[test]
+    fn validates_inline_comment_text_without_injecting_location_prefix() {
+        assert_eq!(
+            validated_comment_text("src/lib.rs", Some(42), "  Keep this guard. ").unwrap(),
+            "Keep this guard."
+        );
+        assert!(validated_comment_text("src/lib.rs", Some(0), "Keep this guard.").is_err());
+    }
 
     #[test]
     fn accepts_cache_with_legacy_embedded_review_state() {

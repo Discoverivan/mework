@@ -72,6 +72,8 @@ pub struct ManagedProject {
     pub default_team_preset_id: Option<String>,
     pub default_task_sprint_id: Option<String>,
     pub default_task_sprint_name: Option<String>,
+    pub default_epic_link_key: Option<String>,
+    pub default_epic_link_summary: Option<String>,
     pub epic_link_jql: String,
     pub enabled: bool,
     pub last_metadata_refresh_at: Option<String>,

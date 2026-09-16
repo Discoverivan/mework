@@ -1,7 +1,7 @@
 use wiremock::matchers::{body_json, header, method, path, query_param, query_param_is_missing};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
-use super::client::BitbucketDcClient;
+use super::client::{BitbucketDcClient, BitbucketInlineComment};
 use super::models::BitbucketPullRequestAuthor;
 
 #[tokio::test]
@@ -315,7 +315,7 @@ async fn searches_bitbucket_repositories_by_name_and_project_name() {
 }
 
 #[tokio::test]
-async fn publishes_general_pull_request_comment() {
+async fn publishes_inline_pull_request_comment() {
     let server = MockServer::start().await;
     Mock::given(method("POST"))
         .and(path(
@@ -323,12 +323,27 @@ async fn publishes_general_pull_request_comment() {
         ))
         .and(header("authorization", "Bearer test-token"))
         .and(body_json(serde_json::json!({
-            "text": "AI review: handle this edge case"
+            "text": "AI review: handle this edge case",
+            "anchor": {
+                "diffType": "COMMIT",
+                "fromHash": "target-commit",
+                "toHash": "source-commit",
+                "path": "src/retry.ts",
+                "srcPath": "src/retry.ts",
+                "line": 42,
+                "lineType": "ADDED",
+                "fileType": "TO"
+            }
         })))
         .respond_with(ResponseTemplate::new(201).set_body_json(serde_json::json!({
             "id": 11,
             "version": 0,
-            "text": "AI review: handle this edge case"
+            "text": "AI review: handle this edge case",
+            "anchor": {
+                "path": "src/retry.ts",
+                "line": 42,
+                "lineType": "ADDED"
+            }
         })))
         .expect(1)
         .mount(&server)
@@ -340,7 +355,13 @@ async fn publishes_general_pull_request_comment() {
             "DEMO",
             "sample-repository",
             7,
-            "AI review: handle this edge case",
+            BitbucketInlineComment {
+                text: "AI review: handle this edge case",
+                from_hash: "target-commit",
+                to_hash: "source-commit",
+                path: "src/retry.ts",
+                line: Some(42),
+            },
         )
         .await
         .unwrap();

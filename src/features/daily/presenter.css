@@ -167,7 +167,7 @@
 }
 
 .daily-presenter-progress {
-  width: min(380px, 45vw);
+  width: min(760px, 68vw);
 }
 
 .daily-presenter-progress-label {
@@ -184,20 +184,87 @@
   font-weight: 650;
 }
 
-.daily-presenter-progress-track {
-  height: 7px;
+.daily-presenter-progress-layout {
+  display: grid;
+  grid-template-columns: minmax(180px, 1fr) auto;
+  align-items: center;
+  gap: 12px;
   margin-top: 7px;
+}
+
+.daily-presenter-progress-track {
+  display: flex;
+  width: 100%;
+  height: 9px;
   overflow: hidden;
   border-radius: 999px;
   background: #e5e5ea;
 }
 
-.daily-presenter-progress-track span {
+.daily-presenter-progress-segment {
   display: block;
   height: 100%;
-  border-radius: inherit;
-  background: #ff3b30;
+  min-width: 0;
   transition: width 240ms ease;
+}
+
+.daily-presenter-progress-segment-closed {
+  background: #34c759;
+}
+
+.daily-presenter-progress-segment-progress {
+  background: #007aff;
+}
+
+.daily-presenter-progress-segment-backlog {
+  background: #8e8e93;
+}
+
+.daily-presenter-progress-badges {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.daily-presenter-progress-badge {
+  display: inline-flex;
+  min-width: 72px;
+  flex-direction: column;
+  gap: 2px;
+  padding: 5px 8px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  font-size: 9px;
+  line-height: 1.05;
+  white-space: nowrap;
+}
+
+.daily-presenter-progress-badge span {
+  font-weight: 650;
+}
+
+.daily-presenter-progress-badge strong {
+  font-size: 10px;
+  font-weight: 750;
+}
+
+.daily-presenter-progress-badge-closed {
+  color: #248a3d;
+  background: #e9f9ed;
+  border-color: #b7e4c0;
+}
+
+.daily-presenter-progress-badge-progress {
+  color: #0066cc;
+  background: #eaf3ff;
+  border-color: #b9d9ff;
+}
+
+.daily-presenter-progress-badge-backlog {
+  color: #626267;
+  background: #f2f2f7;
+  border-color: #d1d1d6;
 }
 
 .daily-presenter-task-grid {
@@ -280,6 +347,22 @@
 
 .daily-presenter-status {
   flex: 0 0 auto;
+}
+
+.daily-presenter-status-stack {
+  display: flex;
+  flex: 0 0 auto;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 3px;
+}
+
+.daily-presenter-status-date {
+  color: #8e8e93;
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 650;
+  line-height: 1;
 }
 
 .daily-presenter-task-footer {

@@ -44,3 +44,7 @@ objc2-user-notifications = "0.3.2"
 [dev-dependencies]
 tempfile = "3.27.0"
 wiremock = "0.6.5"
+
+# macOS 27 rejects stripped release proc-macro dylibs (notably sqlx_macros).
+[profile.release.build-override]
+strip = false

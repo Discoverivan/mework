@@ -6,6 +6,7 @@ export interface DailySubtask {
   summary: string;
   status: string;
   storyPoints?: number;
+  statusTransitionAt?: string;
   assigneeAccountId: string;
   parentIssueKey?: string;
 }

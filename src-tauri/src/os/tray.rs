@@ -18,12 +18,24 @@ pub fn tray_command_for_menu_id(id: &str) -> Option<TrayCommand> {
     }
 }
 
+pub fn application_name() -> &'static str {
+    if cfg!(debug_assertions) {
+        "mework-dev"
+    } else {
+        "mework"
+    }
+}
+
 pub fn setup(app: &mut tauri::App) -> tauri::Result<()> {
-    let open = MenuItem::with_id(app, "open", "Open mework", true, None::<&str>)?;
-    let quit = MenuItem::with_id(app, "quit", "Quit mework", true, None::<&str>)?;
+    let app_name = application_name();
+    let open_label = format!("Open {app_name}");
+    let quit_label = format!("Quit {app_name}");
+    let open = MenuItem::with_id(app, "open", open_label, true, None::<&str>)?;
+    let quit = MenuItem::with_id(app, "quit", quit_label, true, None::<&str>)?;
     let menu = Menu::with_items(app, &[&open, &quit])?;
 
     let tray_builder = TrayIconBuilder::new()
+        .tooltip(app_name)
         .menu(&menu)
         .show_menu_on_left_click(true)
         .on_menu_event(|app, event| {

@@ -21,6 +21,7 @@ pub struct DailySubtaskDto {
     pub summary: String,
     pub status: String,
     pub story_points: Option<i64>,
+    pub status_transition_at: Option<String>,
     pub assignee_account_id: String,
     pub parent_issue_key: Option<String>,
 }
@@ -263,6 +264,11 @@ fn daily_subtask(
         .and_then(Value::as_str)
         .unwrap_or("Unknown status")
         .to_owned();
+    let status_transition_at = fields
+        .get("statuscategorychangedate")
+        .or_else(|| fields.get("updated"))
+        .and_then(Value::as_str)
+        .map(str::to_owned);
     let parent_issue_key = fields
         .get("parent")
         .and_then(|value| value.get("key"))
@@ -275,6 +281,7 @@ fn daily_subtask(
         summary,
         status,
         story_points: story_points_field_id.and_then(|field_id| field_i64(&fields, field_id)),
+        status_transition_at,
         assignee_account_id,
         parent_issue_key,
     })
@@ -324,6 +331,7 @@ mod tests {
             json!({
                 "summary": "Implement API",
                 "status": {"name": "In Progress"},
+                "statuscategorychangedate": "2026-09-14T16:32:10.000+0300",
                 "issuetype": {"subtask": true},
                 "assignee": {"accountId": "test-user-a"},
                 "parent": {"key": "DEMO-1"},
@@ -338,5 +346,32 @@ mod tests {
         assert_eq!(subtask.status, "In Progress");
         assert_eq!(subtask.assignee_account_id, "test-user-a");
         assert_eq!(subtask.story_points, Some(5));
+        assert_eq!(
+            subtask.status_transition_at.as_deref(),
+            Some("2026-09-14T16:32:10.000+0300")
+        );
+    }
+
+    #[test]
+    fn uses_updated_date_when_status_category_date_is_missing() {
+        let subtask = daily_subtask(
+            "10003".into(),
+            "DEMO-3".into(),
+            json!({
+                "summary": "Fallback date",
+                "status": {"name": "Closed"},
+                "updated": "2026-09-15T09:00:00.000+0300",
+                "issuetype": {"subtask": true},
+                "assignee": {"accountId": "test-user-a"}
+            }),
+            &HashSet::from(["test-user-a"]),
+            None,
+        )
+        .expect("assigned Jira subtask should map");
+
+        assert_eq!(
+            subtask.status_transition_at.as_deref(),
+            Some("2026-09-15T09:00:00.000+0300")
+        );
     }
 }

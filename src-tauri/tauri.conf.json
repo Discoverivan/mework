@@ -3,6 +3,7 @@
   "productName": "mework",
   "version": "0.1.0",
   "identifier": "com.discoverivan.app.mework",
+  "mainBinaryName": "mework",
   "build": {
     "beforeDevCommand": "npm run dev",
     "devUrl": "http://localhost:1420",
