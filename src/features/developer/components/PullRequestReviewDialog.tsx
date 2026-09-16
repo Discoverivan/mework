@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { CheckCircle2, CircleAlert, ExternalLink, Loader2, RefreshCw, Send } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
@@ -33,6 +33,11 @@ export interface PullRequestReviewDialogProps {
   onSetDecision?: (pullRequest: MyPullRequest, action: "approve" | "needs_work") => Promise<void>;
 }
 
+type EditableComment = {
+  comment: PullRequestReviewComment;
+  index: number;
+};
+
 export function PullRequestReviewDialog({
   open,
   pullRequest,
@@ -47,20 +52,43 @@ export function PullRequestReviewDialog({
   const result = review?.result;
   const [pendingAction, setPendingAction] = useState<string>();
   const [publishedComments, setPublishedComments] = useState<Set<string>>(() => new Set());
+  const [editingComment, setEditingComment] = useState<EditableComment>();
+  const [commentDraft, setCommentDraft] = useState("");
   const [actionError, setActionError] = useState<string>();
 
   function commentKey(comment: PullRequestReviewComment, index: number): string {
     return `${comment.file}:${comment.line ?? "na"}:${index}`;
   }
 
-  async function publishComment(comment: PullRequestReviewComment, index: number) {
+  useEffect(() => {
+    if (!open) {
+      setEditingComment(undefined);
+      setCommentDraft("");
+      setActionError(undefined);
+    }
+  }, [open]);
+
+  function openCommentEditor(comment: PullRequestReviewComment, index: number) {
+    setEditingComment({ comment, index });
+    setCommentDraft(comment.comment);
+    setActionError(undefined);
+  }
+
+  async function publishComment(comment: PullRequestReviewComment, index: number, editedText: string) {
     if (!pullRequest || !onPublishComment) return;
     const key = commentKey(comment, index);
+    const nextComment = { ...comment, comment: editedText.trim() };
+    if (!nextComment.comment) {
+      setActionError("Comment text is required.");
+      return;
+    }
     setPendingAction(key);
     setActionError(undefined);
     try {
-      await onPublishComment(pullRequest, comment);
+      await onPublishComment(pullRequest, nextComment);
       setPublishedComments((current) => new Set(current).add(key));
+      setEditingComment(undefined);
+      setCommentDraft("");
     } catch (error) {
       setActionError(error instanceof Error ? error.message : typeof error === "string" ? error : "Unable to publish comment");
     } finally {
@@ -74,6 +102,7 @@ export function PullRequestReviewDialog({
     setActionError(undefined);
     try {
       await onSetDecision(pullRequest, action);
+      onOpenChange(false);
     } catch (error) {
       setActionError(error instanceof Error ? error.message : typeof error === "string" ? error : "Unable to update pull request decision");
     } finally {
@@ -82,7 +111,8 @@ export function PullRequestReviewDialog({
   }
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <>
+      <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-3xl">
         <DialogHeader className="gap-2">
           <DialogTitle aria-label="Review results" className="text-base font-semibold">
@@ -166,7 +196,7 @@ export function PullRequestReviewDialog({
                                         size="sm"
                                         className="h-7 shrink-0 px-2 text-xs"
                                         disabled={!onPublishComment || pendingAction != null || publishedComments.has(commentKey(comment, index))}
-                                        onClick={() => void publishComment(comment, index)}
+                                        onClick={() => openCommentEditor(comment, index)}
                                         aria-label={`Publish comment for ${comment.file}`}
                                       >
                                         {pendingAction === commentKey(comment, index) ? <Loader2 aria-hidden="true" className="size-3.5 animate-spin" /> : <Send aria-hidden="true" className="size-3.5" />}
@@ -234,5 +264,69 @@ export function PullRequestReviewDialog({
         </DialogFooter>
       </DialogContent>
     </Dialog>
+      <Dialog
+        open={Boolean(open && editingComment)}
+        onOpenChange={(nextOpen) => {
+          if (!nextOpen && pendingAction == null) {
+            setEditingComment(undefined);
+            setCommentDraft("");
+            setActionError(undefined);
+          }
+        }}
+      >
+        <DialogContent className="max-w-xl">
+          <DialogHeader>
+            <DialogTitle>Edit review comment</DialogTitle>
+            <DialogDescription>
+              Review the comment before sending it to the referenced line.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogBody className="space-y-3">
+            <div className="rounded-md border bg-muted/20 px-3 py-2 text-xs text-muted-foreground">
+              {editingComment?.comment.file}{editingComment?.comment.line != null ? `:${editingComment.comment.line}` : ""}
+            </div>
+            <div className="grid gap-2">
+              <label htmlFor="review-comment-editor" className="text-sm font-medium">Comment</label>
+              <textarea
+                id="review-comment-editor"
+                aria-label="Review comment"
+                className="min-h-32 w-full resize-y rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                value={commentDraft}
+                onChange={(event) => setCommentDraft(event.target.value)}
+                disabled={pendingAction != null}
+                autoFocus
+              />
+            </div>
+            {actionError ? <p role="alert" className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">{actionError}</p> : null}
+          </DialogBody>
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => {
+                if (pendingAction == null) {
+                  setEditingComment(undefined);
+                  setCommentDraft("");
+                  setActionError(undefined);
+                }
+              }}
+              disabled={pendingAction != null}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              onClick={() => {
+                if (editingComment) void publishComment(editingComment.comment, editingComment.index, commentDraft);
+              }}
+              disabled={!editingComment || !onPublishComment || !commentDraft.trim() || pendingAction != null}
+            >
+              {pendingAction != null ? <Loader2 aria-hidden="true" className="size-4 animate-spin" /> : <Send aria-hidden="true" className="size-4" />}
+              {pendingAction != null ? "Sending…" : "Send"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
   );
 }

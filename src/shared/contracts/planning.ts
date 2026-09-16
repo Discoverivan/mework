@@ -27,6 +27,8 @@ export interface ManagedProject {
   sourceSprintName?: string;
   defaultTaskSprintId?: string;
   defaultTaskSprintName?: string;
+  defaultEpicLinkKey?: string;
+  defaultEpicLinkSummary?: string;
   epicLinkJql?: string;
   availability?: PlanningAvailability;
 }

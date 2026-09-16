@@ -215,7 +215,7 @@ Source: `src/features/developer/MyPullRequestsPage.tsx`, route `#developer/pull-
 
 `Pull Request Review` и `My Pull Requests` имеют независимые переключатели `AI auto-review`: `autoReviewEnabled` запускает auto-review для reviewer PR, а `authoredAutoReviewEnabled` — только для author PR. В author PR новый commit запускает AI review, а native notification отправляется только после completed AI verdict.
 
-`Review Results` открывает generated AI summary/comments. `Publish` отправляет general PR comment через native Bitbucket `POST`; location file/line сохраняется в опубликованном тексте. `Approve` и `Needs Work` отправляют native participant `PUT` со статусом `APPROVED`/`NEEDS_WORK`; после успешного ответа decision icon и quick-filter state обновляются в карточке.
+`Review Results` открывает generated AI summary/comments. `Publish` сначала открывает popup `Edit review comment` с multiline-полем и кнопками `Cancel`/`Send`; mutation выполняется только после `Send`, а Bitbucket получает inline anchor для указанного file/line. `Approve` и `Needs Work` отправляют native participant `PUT` со статусом `APPROVED`/`NEEDS_WORK`; после успешного ответа decision icon и quick-filter state обновляются в карточке, а results popup закрывается.
 
 ┌──────────────────────────────────────────────┐
 │ Pull Request Review settings                 │
@@ -262,9 +262,12 @@ Rules:
 - Do not seed demo/example cards in the initial state.
 - The modal contains one large textarea and `Create with AI` starts the native AI draft command.
 - While the command is pending, show a visible skeleton card; after success show editable `summary`, `description`, `epic link`, `sprint`, and `assignee` fields.
+- Draft cards use at most two columns on wide screens so each task card remains wide enough for description and selectors.
+- `description` is generated and sent as Jira Server/DC wiki markup; preserve real line breaks and support `h1.`/`h2.`/`h3.` headings, `*bold*`, `_italic_`, and Jira lists. Markdown `**bold**` is normalized to Jira `*bold*` at the native boundary.
 - Saved team Epic link JQL supplies the Epic link options; the selector remains empty when no JQL is configured or no issues match.
+- The configured team default Epic link is selected for new Create task cards when one is saved in Team settings.
 - The header team selector matches Daily and reloads that team's configured members, sprints, and Epic candidates; inactive members are omitted.
-- The draft Assignee selector always contains `Unassigned` first by default and renders available avatar/name data.
+- The draft Assignee selector always contains `Unassigned` first by default, then active configured team members in the exact order saved in Team settings, and renders available avatar/name data.
 - Sprint options come from the selected team's usable Jira sprints; the configured default sprint is selected for new cards.
 - Cards, edited fields, statuses, and the selected team are persisted locally and restored when returning to this route. Pending AI generation resumes; an interrupted Jira create is returned to editable review without an automatic retry.
 - `Delete` clears the draft locally. `Create` sends the edited draft through the native Jira mutation and shows the returned issue key/link.
@@ -299,7 +302,7 @@ Rules:
 ### Native application lifecycle
 
 - Closing the main window hides it instead of terminating the process.
-- Tray icon uses the bundled application icon and exposes `Open mework` and `Quit mework`.
+- Tray icon uses the profile-specific bundled icon, shows `mework-dev` in the dev tooltip/menu, and exposes `Open mework-dev` and `Quit mework-dev` in dev; the release profile keeps `mework` labels.
 - Background health/PR loops remain alive while the window is hidden; `Quit mework` is the explicit full shutdown action.
 
 ## 7. Product / Daily
@@ -357,12 +360,14 @@ Canvas: frameless `1280×720`, 16:9.
 │ 🔴 Daily                         <project/team>              <date> [Refresh][Stop]│
 ├──────────────────────────────────────────────────────────────────────────────┤
 │        ◯                         <Alias>                                     │
-│                                  STORY POINTS                                 │
-│                                  <completed> / <planned> SP                  │
-│                                  ━━━━━━━━━━━━━━━░░░░░░░░░░ <percent>          │
+│                                  STORY POINT PROGRESS                         │
+│                                  <total> SP total                            │
+│                                  ━━━ green ━━━ blue ━━━ gray                  │
+│                                  [Closed <SP>] [In progress <SP>] [Backlog <SP>]│
 │                                                                              │
 │ ┌──────────────────────┬──────────────────────┬──────────────────────┬──────┐ │
 │ │ <TICKET-ID>  [STATUS]│ <TICKET-ID>  [STATUS]│ <TICKET-ID>  [STATUS]│ ...  │ │
+│ │              <date>  │              <date>  │              <date>  │      │ │
 │ │ <full summary>       │ <full summary>       │ <full summary>       │      │ │
 │ │                  <SP>│                  <SP>│                  <SP>│      │ │
 │ └──────────────────────┴──────────────────────┴──────────────────────┴──────┘ │
@@ -373,7 +378,8 @@ Rules:
 
 - No `TODAY'S FOCUS`, task count, project code, parent labels, update dates, comments, graphs, watermark, browser chrome or decorative illustrations.
 - Cards are white, radius about 16 px, soft shadow, thin gray-blue border.
-- Status pill is on the top right; ticket ID is on the top left; SP is aligned bottom-right.
+- Status pill is on the top right with the current status transition date directly below it; ticket ID is on the top left; SP is aligned bottom-right.
+- Story point progress is a segmented bar ordered left-to-right as green closed, blue in progress, and gray backlog. `Ready to test`, `Testing`, `Review`, blocked, and other non-backlog/non-closed statuses count as in progress.
 - Long summaries wrap naturally. Never use line clamp, ellipsis or hidden overflow for summaries.
 - Project/date/navigation remain visually secondary to the selected member and tasks.
 - Presenter state is synchronized from the main Daily window.
@@ -467,6 +473,7 @@ Source: `src/features/settings/planning-projects/ManagedProjectsSettings.tsx`, r
 │ │   Task creation settings                                                   │ │
 │ │   Default sprint for task creation [<sprint> ▼]                            │ │
 │ │   Epic link JQL [.................................] [Check]                │ │
+│ │   Default Epic link for task creation [<epic> ▼]                            │ │
 │ │                                      [Save task creation settings]          │ │
 │ │   Team members                                      [Add team member]       │ │
 │ │   ┌────────────────────────────────────────────────────────────────────┐  │ │
@@ -505,7 +512,9 @@ Member interaction contract:
 - The only member removal label is `Delete`.
 - Task creation settings are per team: the default sprint initializes new Create task cards.
 - Epic link JQL is read-only checked through `planning_epic_link_jql_preview`; the popup lists Jira issue KEY and summary.
+- The default Epic link selector uses the checked JQL results and persists the selected issue key and summary per team.
 - Saved Epic link JQL populates the Create task Epic link choices; selected sprint, epic and assignee are sent with the selected managed project.
+- Create task Assignee options preserve the configured team-member order.
 
 ## 12. Agent implementation checklist
 

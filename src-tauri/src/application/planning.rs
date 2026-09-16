@@ -52,6 +52,8 @@ pub struct ManagedProjectRequest {
     pub default_team_preset_id: Option<String>,
     pub default_task_sprint_id: Option<String>,
     pub default_task_sprint_name: Option<String>,
+    pub default_epic_link_key: Option<String>,
+    pub default_epic_link_summary: Option<String>,
     #[serde(default)]
     pub epic_link_jql: String,
     #[serde(default = "default_enabled")]
@@ -120,6 +122,8 @@ pub struct ManagedProjectDto {
     pub default_team_preset_id: Option<String>,
     pub default_task_sprint_id: Option<String>,
     pub default_task_sprint_name: Option<String>,
+    pub default_epic_link_key: Option<String>,
+    pub default_epic_link_summary: Option<String>,
     pub epic_link_jql: String,
     pub enabled: bool,
     pub last_metadata_refresh_at: Option<String>,
@@ -169,6 +173,8 @@ pub struct PlanningManagedProjectDto {
     pub story_points_field_id: Option<String>,
     pub default_task_sprint_id: Option<String>,
     pub default_task_sprint_name: Option<String>,
+    pub default_epic_link_key: Option<String>,
+    pub default_epic_link_summary: Option<String>,
     pub epic_link_jql: String,
     #[serde(default)]
     pub availability: PlanningAvailability,
@@ -554,6 +560,8 @@ pub async fn save_managed_project(
         default_team_preset_id: request.default_team_preset_id,
         default_task_sprint_id: request.default_task_sprint_id,
         default_task_sprint_name: request.default_task_sprint_name,
+        default_epic_link_key: request.default_epic_link_key,
+        default_epic_link_summary: request.default_epic_link_summary,
         epic_link_jql: request.epic_link_jql.trim().to_owned(),
         enabled: request.enabled,
         last_metadata_refresh_at: existing
@@ -569,8 +577,8 @@ pub async fn save_managed_project(
             .unwrap_or_default(),
     };
     if existing.is_some() {
-        sqlx::query("UPDATE managed_projects SET integration_id=?,jira_project_id=?,jira_project_key=?,jira_project_name=?,board_id=?,source_sprint_id=?,source_sprint_name=?,story_points_field_id=?,competency_field_id=?,subtask_issue_type_id=?,default_team_preset_id=?,default_task_sprint_id=?,default_task_sprint_name=?,epic_link_jql=?,enabled=?,updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=?")
-            .bind(&value.integration_id).bind(&value.jira_project_id).bind(&value.jira_project_key).bind(&value.jira_project_name).bind(&value.board_id).bind(&value.source_sprint_id).bind(&value.source_sprint_name).bind(&value.story_points_field_id).bind(&value.competency_field_id).bind(&value.subtask_issue_type_id).bind(&value.default_team_preset_id).bind(&value.default_task_sprint_id).bind(&value.default_task_sprint_name).bind(&value.epic_link_jql).bind(value.enabled).bind(&value.id).execute(pool).await.map_err(|_| PlanningError::Database)?;
+        sqlx::query("UPDATE managed_projects SET integration_id=?,jira_project_id=?,jira_project_key=?,jira_project_name=?,board_id=?,source_sprint_id=?,source_sprint_name=?,story_points_field_id=?,competency_field_id=?,subtask_issue_type_id=?,default_team_preset_id=?,default_task_sprint_id=?,default_task_sprint_name=?,epic_link_jql=?,default_epic_link_key=?,default_epic_link_summary=?,enabled=?,updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=?")
+            .bind(&value.integration_id).bind(&value.jira_project_id).bind(&value.jira_project_key).bind(&value.jira_project_name).bind(&value.board_id).bind(&value.source_sprint_id).bind(&value.source_sprint_name).bind(&value.story_points_field_id).bind(&value.competency_field_id).bind(&value.subtask_issue_type_id).bind(&value.default_team_preset_id).bind(&value.default_task_sprint_id).bind(&value.default_task_sprint_name).bind(&value.epic_link_jql).bind(&value.default_epic_link_key).bind(&value.default_epic_link_summary).bind(value.enabled).bind(&value.id).execute(pool).await.map_err(|_| PlanningError::Database)?;
     } else {
         planning_repositories::insert_managed_project_with_database_timestamps(pool, &value)
             .await
@@ -3004,6 +3012,8 @@ fn planning_project_dto(value: ManagedProject) -> PlanningManagedProjectDto {
         story_points_field_id: value.story_points_field_id,
         default_task_sprint_id: value.default_task_sprint_id,
         default_task_sprint_name: value.default_task_sprint_name,
+        default_epic_link_key: value.default_epic_link_key,
+        default_epic_link_summary: value.default_epic_link_summary,
         epic_link_jql: value.epic_link_jql,
         availability: PlanningAvailability::Unavailable,
     }
@@ -3024,6 +3034,8 @@ pub fn managed_project_dto(value: ManagedProject) -> Result<ManagedProjectDto, P
         default_team_preset_id: value.default_team_preset_id,
         default_task_sprint_id: value.default_task_sprint_id,
         default_task_sprint_name: value.default_task_sprint_name,
+        default_epic_link_key: value.default_epic_link_key,
+        default_epic_link_summary: value.default_epic_link_summary,
         epic_link_jql: value.epic_link_jql,
         enabled: value.enabled,
         last_metadata_refresh_at: value.last_metadata_refresh_at,

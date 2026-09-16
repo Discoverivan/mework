@@ -460,7 +460,18 @@ describe("MyPullRequestsPage", () => {
     expect(screen.getAllByRole("button", { name: /Publish comment for/ })).toHaveLength(3);
     expect(screen.getByRole("link", { name: "Open in web" })).toHaveAttribute("href", pullRequests[0].url);
     fireEvent.click(publishButton);
-    await waitFor(() => expect(publishCommentMock).toHaveBeenCalledWith(expect.objectContaining({ integrationId: "bitbucket-1", pullRequestId: "7", latestCommit: "commit-7" }), completedReview.result!.comments[0]));
+    expect(publishCommentMock).not.toHaveBeenCalled();
+    const commentDialog = await screen.findByRole("dialog", { name: "Edit review comment" });
+    expect(within(commentDialog).getByLabelText("Review comment")).toHaveValue("Guard this operation before retrying.");
+    fireEvent.change(within(commentDialog).getByLabelText("Review comment"), {
+      target: { value: "Guard this operation before retrying before the next attempt." },
+    });
+    fireEvent.click(within(commentDialog).getByRole("button", { name: "Send" }));
+    await waitFor(() => expect(publishCommentMock).toHaveBeenCalledWith(
+      expect.objectContaining({ integrationId: "bitbucket-1", pullRequestId: "7", latestCommit: "commit-7" }),
+      { ...completedReview.result!.comments[0], comment: "Guard this operation before retrying before the next attempt." },
+    ));
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Edit review comment" })).not.toBeInTheDocument());
     await waitFor(() => expect(publishButton).toHaveTextContent("Published"));
     expect(publishButton).toBeDisabled();
     expect(screen.getByRole("button", { name: "Re-run review" })).toBeInTheDocument();
@@ -472,10 +483,13 @@ describe("MyPullRequestsPage", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Approve" }));
     await waitFor(() => expect(setDecisionMock).toHaveBeenCalledWith(expect.objectContaining({ integrationId: "bitbucket-1", pullRequestId: "7", latestCommit: "commit-7" }), "approve"));
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Review results" })).not.toBeInTheDocument());
     const firstCard = screen.getByRole("heading", { name: "Example pull request" }).closest("[class*='border-l-']");
     expect(firstCard?.querySelector('[aria-label="Approved"]')).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: "Re-run review" }));
+    fireEvent.click(screen.getByRole("button", { name: "Review Results" }));
+    const reopenedDialog = await screen.findByRole("dialog", { name: "Review results" });
+    fireEvent.click(within(reopenedDialog).getByRole("button", { name: "Re-run review" }));
     await waitFor(() => expect(startReviewMock).toHaveBeenCalledWith(expect.objectContaining({ pullRequestId: "7", activity: "read" })));
     expect(await screen.findByRole("button", { name: "AI Review…" })).toBeDisabled();
   });
@@ -493,6 +507,7 @@ describe("MyPullRequestsPage", () => {
     fireEvent.click(screen.getByRole("button", { name: "Needs Work" }));
 
     await waitFor(() => expect(setDecisionMock).toHaveBeenCalledWith(expect.objectContaining({ pullRequestId: "7" }), "needs_work"));
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Review results" })).not.toBeInTheDocument());
     const firstCard = screen.getByRole("heading", { name: "Example pull request" }).closest("[class*='border-l-']");
     expect(firstCard?.querySelector('[aria-label="Needs work"]')).toBeInTheDocument();
   });

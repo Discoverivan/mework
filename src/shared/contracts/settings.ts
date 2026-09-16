@@ -95,6 +95,8 @@ export interface ManagedProjectSettings {
   defaultTeamPresetId?: string;
   defaultTaskSprintId?: string;
   defaultTaskSprintName?: string;
+  defaultEpicLinkKey?: string;
+  defaultEpicLinkSummary?: string;
   epicLinkJql: string;
   enabled: boolean;
   lastMetadataRefreshAt?: string;
@@ -117,6 +119,8 @@ export interface ManagedProjectSaveInput {
   defaultTeamPresetId?: string;
   defaultTaskSprintId?: string;
   defaultTaskSprintName?: string;
+  defaultEpicLinkKey?: string;
+  defaultEpicLinkSummary?: string;
   epicLinkJql?: string;
   enabled: boolean;
 }

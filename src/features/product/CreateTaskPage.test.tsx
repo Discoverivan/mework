@@ -89,6 +89,7 @@ describe("CreateTaskPage", () => {
 
     resolveDraft?.({ summary: "Add audit filters", description: "Allow filtering by actor and date." });
     expect(await screen.findByRole("article", { name: "Editable Jira task draft" })).toBeInTheDocument();
+    expect(screen.getByLabelText("Task drafts")).toHaveClass("xl:grid-cols-2");
     expect(screen.getByLabelText("Summary")).toHaveValue("Add audit filters");
     expect(screen.getByLabelText("Description")).toHaveValue("Allow filtering by actor and date.");
     expect(screen.getByLabelText("Epic link")).toBeDisabled();
@@ -177,6 +178,8 @@ describe("CreateTaskPage", () => {
       boardName: "Platform board",
       defaultTaskSprintId: "sprint-1",
       defaultTaskSprintName: "Platform Sprint",
+      defaultEpicLinkKey: "COREAPI-EPIC-1",
+      defaultEpicLinkSummary: "Platform epic",
       epicLinkJql: "project = COREAPI AND issuetype = Epic",
     }]);
     listMembersMock.mockResolvedValue([{ id: "user-1", displayName: "Ivan Petrov", avatarUrl: "/secure/avatar/ivan", active: true }]);
@@ -193,6 +196,7 @@ describe("CreateTaskPage", () => {
     fireEvent.change(screen.getByPlaceholderText("Describe your task"), { target: { value: "Create task" } });
     fireEvent.click(screen.getByRole("button", { name: "Create with AI" }));
     expect(await screen.findByRole("article", { name: "Editable Jira task draft" })).toBeInTheDocument();
+    expect(screen.getByText("COREAPI-EPIC-1 — Platform epic")).toBeInTheDocument();
 
     expect(screen.getByText("Platform Sprint")).toBeInTheDocument();
     fireEvent.click(screen.getByLabelText("Epic link"));

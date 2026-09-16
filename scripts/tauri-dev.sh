@@ -48,4 +48,4 @@ if [[ "${MEWORK_DEV_PREFLIGHT_ONLY:-false}" == "true" ]]; then
   exit 0
 fi
 
-exec npm run tauri -- dev
+exec npm run tauri -- dev --config src-tauri/tauri.dev.conf.json -- --bin mework-dev

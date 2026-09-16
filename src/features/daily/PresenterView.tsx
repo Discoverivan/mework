@@ -14,6 +14,7 @@ import {
   subscribePresenterState,
 } from "./api";
 import { dailyStatusTone } from "./status";
+import { dailyProgressMetrics, formatStatusTransitionDate } from "./presenterMetrics";
 import "./presenter.css";
 
 type DailySubtaskWithPoints = DailySubtask;
@@ -104,13 +105,22 @@ function TaskCard({ task, taskCount }: { task: DailySubtaskWithPoints; taskCount
     return () => observer.disconnect();
   }, [task.summary, taskCount]);
 
+  const statusTransitionDate = formatStatusTransitionDate(task.statusTransitionAt);
+
   return (
     <article ref={cardRef} className="daily-presenter-task-card">
       <div className="daily-presenter-task-meta">
         <span className="daily-presenter-ticket-id">{task.key}</span>
-        <span className={`daily-presenter-status daily-presenter-status-${dailyStatusTone(task.status)}`} aria-label={`Status: ${task.status}`}>
-          {task.status}
-        </span>
+        <div className="daily-presenter-status-stack">
+          <span className={`daily-presenter-status daily-presenter-status-${dailyStatusTone(task.status)}`} aria-label={`Status: ${task.status}`}>
+            {task.status}
+          </span>
+          {statusTransitionDate ? (
+            <time className="daily-presenter-status-date" dateTime={task.statusTransitionAt}>
+              {statusTransitionDate}
+            </time>
+          ) : null}
+        </div>
       </div>
       <h2 ref={titleRef} style={{ fontSize: `${fontSize}px` }}>{task.summary}</h2>
       <div className="daily-presenter-task-footer">
@@ -189,15 +199,7 @@ export function PresenterView() {
   const member = activeMembers.find((candidate) => candidate.accountId === state?.selectedMemberId);
   const memberIndex = member ? activeMembers.findIndex((candidate) => candidate.accountId === member.accountId) : -1;
   const tasks = workspace?.subtasks.filter((task) => task.assigneeAccountId === state?.selectedMemberId) ?? [];
-  const plannedPoints = useMemo(
-    () => tasks.reduce((total, task) => total + (task.storyPoints ?? 0), 0),
-    [tasks],
-  );
-  const completedPoints = useMemo(
-    () => tasks.reduce((total, task) => total + (dailyStatusTone(task.status) === "done" ? task.storyPoints ?? 0 : 0), 0),
-    [tasks],
-  );
-  const progress = plannedPoints > 0 ? Math.min(100, Math.round((completedPoints / plannedPoints) * 100)) : 0;
+  const progressMetrics = useMemo(() => dailyProgressMetrics(tasks), [tasks]);
 
   return (
     <main className="daily-presenter-view" aria-label="Daily meeting presenter view">
@@ -227,13 +229,47 @@ export function PresenterView() {
                 <MemberAvatar member={member} managedProjectId={workspace.managedProjectId} />
                 <div className="daily-presenter-member-copy">
                   <h1>{memberDisplayName(member)}</h1>
-                  <div className="daily-presenter-progress" aria-label={`${completedPoints} of ${plannedPoints} story points completed`}>
+                  <div
+                    className="daily-presenter-progress"
+                    aria-label={`Story point progress: ${progressMetrics.completedPoints} closed, ${progressMetrics.inProgressPoints} in progress, ${progressMetrics.backlogPoints} in backlog`}
+                  >
                     <div className="daily-presenter-progress-label">
-                      <span>Completed / planned</span>
-                      <strong>{completedPoints} / {plannedPoints} SP</strong>
+                      <span>Story point progress</span>
+                      <strong>{progressMetrics.totalPoints} SP total</strong>
                     </div>
-                    <div className="daily-presenter-progress-track" aria-hidden="true">
-                      <span style={{ width: `${progress}%` }} />
+                    <div className="daily-presenter-progress-layout">
+                      <div
+                        className="daily-presenter-progress-track"
+                        role="img"
+                        aria-label={`${progressMetrics.completedPercent}% closed, ${progressMetrics.inProgressPercent}% in progress, ${progressMetrics.backlogPercent}% in backlog`}
+                      >
+                        <span
+                          className="daily-presenter-progress-segment daily-presenter-progress-segment-closed"
+                          style={{ width: `${progressMetrics.completedPercent}%` }}
+                        />
+                        <span
+                          className="daily-presenter-progress-segment daily-presenter-progress-segment-progress"
+                          style={{ width: `${progressMetrics.inProgressPercent}%` }}
+                        />
+                        <span
+                          className="daily-presenter-progress-segment daily-presenter-progress-segment-backlog"
+                          style={{ width: `${progressMetrics.backlogPercent}%` }}
+                        />
+                      </div>
+                      <div className="daily-presenter-progress-badges" aria-label="Story point totals by status">
+                        <span className="daily-presenter-progress-badge daily-presenter-progress-badge-closed">
+                          <span>Closed</span>
+                          <strong>{progressMetrics.completedPoints} SP</strong>
+                        </span>
+                        <span className="daily-presenter-progress-badge daily-presenter-progress-badge-progress">
+                          <span>In progress</span>
+                          <strong>{progressMetrics.inProgressPoints} SP</strong>
+                        </span>
+                        <span className="daily-presenter-progress-badge daily-presenter-progress-badge-backlog">
+                          <span>In backlog</span>
+                          <strong>{progressMetrics.backlogPoints} SP</strong>
+                        </span>
+                      </div>
                     </div>
                   </div>
                 </div>

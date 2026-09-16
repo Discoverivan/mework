@@ -16,6 +16,15 @@ enum Authentication {
     Basic { username: String, password: String },
 }
 
+#[derive(Debug, Clone, Copy)]
+pub struct BitbucketInlineComment<'a> {
+    pub text: &'a str,
+    pub from_hash: &'a str,
+    pub to_hash: &'a str,
+    pub path: &'a str,
+    pub line: Option<i64>,
+}
+
 pub struct BitbucketDcClient {
     http: reqwest::Client,
     base_url: Url,
@@ -422,11 +431,17 @@ impl BitbucketDcClient {
         project_key: &str,
         repository_slug: &str,
         pull_request_id: u64,
-        text: &str,
+        comment: BitbucketInlineComment<'_>,
     ) -> Result<BitbucketComment, BitbucketDcError> {
         validate_path_segment(project_key)?;
         validate_path_segment(repository_slug)?;
-        if text.trim().is_empty() {
+        if comment.text.trim().is_empty()
+            || comment.from_hash.trim().is_empty()
+            || comment.to_hash.trim().is_empty()
+            || comment.path.trim().is_empty()
+            || comment.path.chars().any(char::is_control)
+            || comment.line.is_some_and(|value| value <= 0)
+        {
             return Err(BitbucketDcError::InvalidRequest);
         }
         let url = self.url_with_segments(&[
@@ -441,9 +456,21 @@ impl BitbucketDcClient {
             &pull_request_id.to_string(),
             "comments",
         ])?;
+        let mut anchor = serde_json::json!({
+            "diffType": "COMMIT",
+            "fromHash": comment.from_hash,
+            "toHash": comment.to_hash,
+            "path": comment.path,
+            "srcPath": comment.path,
+        });
+        if let Some(line) = comment.line {
+            anchor["line"] = serde_json::json!(line);
+            anchor["lineType"] = serde_json::json!("ADDED");
+            anchor["fileType"] = serde_json::json!("TO");
+        }
         let response = self
             .authenticated_request_with_method(Method::POST, url)
-            .json(&serde_json::json!({ "text": text }))
+            .json(&serde_json::json!({ "text": comment.text, "anchor": anchor }))
             .send()
             .await
             .map_err(|_| BitbucketDcError::Transport)?;

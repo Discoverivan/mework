@@ -103,6 +103,8 @@ interface ManagedProjectForm {
   boardId: string;
   defaultTaskSprintId: string;
   defaultTaskSprintName: string;
+  defaultEpicLinkKey: string;
+  defaultEpicLinkSummary: string;
   epicLinkJql: string;
   enabled: boolean;
 }
@@ -116,6 +118,8 @@ function emptyForm(integrationId?: string): ManagedProjectForm {
     boardId: "",
     defaultTaskSprintId: "",
     defaultTaskSprintName: "",
+    defaultEpicLinkKey: "",
+    defaultEpicLinkSummary: "",
     epicLinkJql: "",
     enabled: true,
   };
@@ -131,6 +135,8 @@ function formForProject(project: ManagedProjectSettings): ManagedProjectForm {
     boardId: project.boardId ?? "",
     defaultTaskSprintId: project.defaultTaskSprintId ?? "",
     defaultTaskSprintName: project.defaultTaskSprintName ?? "",
+    defaultEpicLinkKey: project.defaultEpicLinkKey ?? "",
+    defaultEpicLinkSummary: project.defaultEpicLinkSummary ?? "",
     epicLinkJql: project.epicLinkJql ?? "",
     enabled: project.enabled,
   };
@@ -218,6 +224,8 @@ export function ManagedProjectsSettings({
   const [taskSprintsError, setTaskSprintsError] = useState<string | null>(null);
   const [defaultTaskSprintId, setDefaultTaskSprintId] = useState("");
   const [defaultTaskSprintName, setDefaultTaskSprintName] = useState("");
+  const [defaultEpicLinkKey, setDefaultEpicLinkKey] = useState("");
+  const [defaultEpicLinkSummary, setDefaultEpicLinkSummary] = useState("");
   const [epicLinkJql, setEpicLinkJql] = useState("");
   const [epicPreviewIssues, setEpicPreviewIssues] = useState<EpicLinkJqlIssue[]>([]);
   const [epicPreviewOpen, setEpicPreviewOpen] = useState(false);
@@ -285,7 +293,10 @@ export function ManagedProjectsSettings({
     setMemberAlias("");
     setDefaultTaskSprintId(detailProject.defaultTaskSprintId ?? "");
     setDefaultTaskSprintName(detailProject.defaultTaskSprintName ?? "");
+    setDefaultEpicLinkKey(detailProject.defaultEpicLinkKey ?? "");
+    setDefaultEpicLinkSummary(detailProject.defaultEpicLinkSummary ?? "");
     setEpicLinkJql(detailProject.epicLinkJql ?? "");
+    setEpicPreviewIssues([]);
     setTaskSprints([]);
     setTaskSprintsError(null);
     setTaskSprintsLoading(true);
@@ -478,6 +489,8 @@ export function ManagedProjectsSettings({
         boardId: value(form.boardId),
         defaultTaskSprintId: value(form.defaultTaskSprintId) || undefined,
         defaultTaskSprintName: value(form.defaultTaskSprintName) || undefined,
+        defaultEpicLinkKey: value(form.defaultEpicLinkKey) || undefined,
+        defaultEpicLinkSummary: value(form.defaultEpicLinkSummary) || undefined,
         epicLinkJql: form.epicLinkJql.trim(),
         enabled: form.enabled,
       };
@@ -516,6 +529,8 @@ export function ManagedProjectsSettings({
         defaultTeamPresetId: detailProject.defaultTeamPresetId,
         defaultTaskSprintId: defaultTaskSprintId || undefined,
         defaultTaskSprintName: selectedSprint?.name ?? (defaultTaskSprintId ? defaultTaskSprintName : undefined),
+        defaultEpicLinkKey: defaultEpicLinkKey || undefined,
+        defaultEpicLinkSummary: defaultEpicLinkKey ? (defaultEpicLinkSummary || undefined) : undefined,
         epicLinkJql: epicLinkJql.trim(),
         enabled: detailProject.enabled,
       });
@@ -539,7 +554,12 @@ export function ManagedProjectsSettings({
     setTeamSaveError(null);
     try {
       const issues = await previewEpicLinkJql({ managedProjectId: detailProject.id, jql });
-      setEpicPreviewIssues(Array.isArray(issues) ? issues : []);
+      const nextIssues = Array.isArray(issues) ? issues : [];
+      setEpicPreviewIssues(nextIssues);
+      if (defaultEpicLinkKey && !nextIssues.some((issue) => issue.key === defaultEpicLinkKey)) {
+        setDefaultEpicLinkKey("");
+        setDefaultEpicLinkSummary("");
+      }
       setEpicPreviewOpen(true);
     } catch (error) {
       setTeamSaveError(`Unable to check Epic link JQL. ${commandError(error)}`);
@@ -886,7 +906,12 @@ export function ManagedProjectsSettings({
                     id={`epic-link-jql-${detailProject.id}`}
                     aria-label="Epic link JQL"
                     value={epicLinkJql}
-                    onChange={(event) => setEpicLinkJql(event.target.value)}
+                    onChange={(event) => {
+                      setEpicLinkJql(event.target.value);
+                      setEpicPreviewIssues([]);
+                      setDefaultEpicLinkKey("");
+                      setDefaultEpicLinkSummary("");
+                    }}
                     placeholder="project = COREAPI AND issuetype = Epic"
                     disabled={controlsDisabled}
                   />
@@ -895,6 +920,31 @@ export function ManagedProjectsSettings({
                   </Button>
                 </div>
                 <p className="text-xs text-muted-foreground">The matching Jira issues will be available as Epic link choices when creating a task.</p>
+                <div className="grid gap-2 sm:max-w-xl">
+                  <Label htmlFor={`default-epic-link-${detailProject.id}`}>Default Epic link for task creation</Label>
+                  <select
+                    id={`default-epic-link-${detailProject.id}`}
+                    aria-label="Default Epic link for task creation"
+                    className="h-10 rounded-md border border-input bg-background px-3 py-2 text-sm"
+                    value={defaultEpicLinkKey}
+                    onChange={(event) => {
+                      const nextKey = event.target.value;
+                      const selected = epicPreviewIssues.find((issue) => issue.key === nextKey);
+                      setDefaultEpicLinkKey(nextKey);
+                      setDefaultEpicLinkSummary(selected?.summary ?? (nextKey ? defaultEpicLinkSummary : ""));
+                    }}
+                    disabled={controlsDisabled}
+                  >
+                    <option value="">No default Epic link</option>
+                    {defaultEpicLinkKey && !epicPreviewIssues.some((issue) => issue.key === defaultEpicLinkKey) ? (
+                      <option value={defaultEpicLinkKey}>{defaultEpicLinkSummary || defaultEpicLinkKey}</option>
+                    ) : null}
+                    {epicPreviewIssues.map((issue) => (
+                      <option key={issue.key} value={issue.key}>{issue.key} — {issue.summary}</option>
+                    ))}
+                  </select>
+                  <p className="text-xs text-muted-foreground">Run Check to refresh the choices, select the default Epic, then save these task creation settings.</p>
+                </div>
               </div>
               {teamSaveError ? (
                 <Alert variant="destructive" role="alert">

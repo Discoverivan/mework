@@ -1,4 +1,14 @@
-use super::tray::{tray_command_for_menu_id, TrayCommand};
+use super::tray::{application_name, tray_command_for_menu_id, TrayCommand};
+
+#[test]
+fn uses_profile_specific_application_name() {
+    let expected = if cfg!(debug_assertions) {
+        "mework-dev"
+    } else {
+        "mework"
+    };
+    assert_eq!(application_name(), expected);
+}
 
 #[test]
 fn maps_supported_tray_menu_ids_to_commands() {
