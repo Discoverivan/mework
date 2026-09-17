@@ -43,7 +43,8 @@ ASCII фиксирует только пространственную стру�
 │   Integrations              │                                              │
 │   Team settings             │                                              │
 │                              │                                              │
-│ Theme  [White ▼]            │                                              │
+│ Theme                         │                                              │
+│ [Moon/Sun]                    │                                              │
 └──────────────────────────────┴──────────────────────────────────────────────┘
 ```
 
@@ -156,7 +157,7 @@ Route-independent shell: `src/components/layout/AppShell.tsx`.
 │   Team settings             │                                              │
 │                              │                                              │
 │ Theme                       │                                              │
-│ [White ▼]                   │                                              │
+│ [Moon/Sun]                 │                                              │
 └──────────────────────────────┴──────────────────────────────────────────────┘
 ```
 
@@ -166,7 +167,8 @@ Rules:
 - Navigation order is part of the contract.
 - Internal hashes/route IDs are not renamed for visual copy changes.
 - `Team settings` is the user-facing name of `#settings/projects`.
-- `White` and `Dark` are the only theme choices.
+- The theme control is an icon-only button: `Moon` in light mode switches to dark, and `Sun` in dark mode switches to light.
+- The theme button keeps an accessible action label and tooltip (`Switch to dark theme` / `Switch to light theme`).
 
 ## 4. Inbox
 
@@ -239,6 +241,14 @@ Create task states:
 │ Create task                                      [Team ▼] [Create task]       │
 │                                                                              │
 │ ┌──────────────────────────────────────────────────────────────────────────┐ │
+│ │                         [clipboard]                                      │ │
+│ │                           No tasks yet                                   │ │
+│ │             Your created Jira tasks will appear here.                    │ │
+│ │        Start by describing a task and let AI prepare the draft for you.  │ │
+│ │                     [＋ Create your first task]                          │ │
+│ └──────────────────────────────────────────────────────────────────────────┘ │
+│                                                                              │
+│ ┌──────────────────────────────────────────────────────────────────────────┐ │
 │ │ ✦ AI is thinking…                                                        │ │
 │ │   Building summary and description                                       │ │
 │ │   <summary skeleton>                                                     │ │
@@ -260,8 +270,9 @@ Create task states:
 Rules:
 
 - Do not seed demo/example cards in the initial state.
+- When no task cards exist, show the non-empty `No tasks yet` empty state with the clipboard icon, explanatory copy, and `Create your first task` action; the action opens the same task-description modal as the header button.
 - The modal contains one large textarea and `Create with AI` starts the native AI draft command.
-- While the command is pending, show a visible skeleton card; after success show editable `summary`, `description`, `epic link`, `sprint`, and `assignee` fields.
+- While the command is pending, show a visible skeleton card; after success show editable `summary`, `description`, `issue type` (`Task` or `Spike`), `epic link`, `sprint`, and `assignee` fields.
 - Draft cards use at most two columns on wide screens so each task card remains wide enough for description and selectors.
 - `description` is generated and sent as Jira Server/DC wiki markup; preserve real line breaks and support `h1.`/`h2.`/`h3.` headings, `*bold*`, `_italic_`, and Jira lists. Markdown `**bold**` is normalized to Jira `*bold*` at the native boundary.
 - Saved team Epic link JQL supplies the Epic link options; the selector remains empty when no JQL is configured or no issues match.
@@ -454,6 +465,22 @@ Provider dialog:
 ```
 
 Credentials are write-only. Never place tokens in the wireframe, DOM text, logs, error messages or screenshot fixtures.
+
+### AI Providers
+
+The AI section is above Data Integrations and contains the provider selector, model selector and review execution options. `OpenAI-compatible API` is a selectable provider card:
+
+```text
+┌──────────────────────────────────────────────┐
+│ OpenAI-compatible API             <status>   │
+│ Connect an OpenAI-compatible API for AI     │
+│ assisted workflows.                         │
+└──────────────────────────────────────────────┘
+```
+
+Its initial status is `Not configured`. Clicking the card opens a popup with `API URL` and write-only `Token`. Save and startup inspection always use `GET <base URL>/models` with Bearer authentication; the returned model IDs populate the top `Model` selector. OpenAI-compatible HTTPS connections always validate certificates; HTTP is allowed only for localhost. Only the URL is stored in SQLite; the token remains in the OS keyring. The same selected provider/model is used by Create task AI drafts and Pull Request Review through `POST <base URL>/chat/completions`; responses still pass native schema validation.
+
+The AI provider DTO returns status, discovered models and safe URL metadata only. It never returns a token, Authorization header or raw provider response body.
 
 ## 11. Settings / Team settings
 

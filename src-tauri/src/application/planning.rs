@@ -16,11 +16,9 @@ use crate::domain::planning::models::{
     TeamPreset, Workspace,
 };
 use crate::domain::planning::state_machine::PlanningStateMachine;
-#[cfg(debug_assertions)]
-use crate::infrastructure::credentials::keyring::DevCredentialStore;
-#[cfg(not(debug_assertions))]
-use crate::infrastructure::credentials::keyring::OsKeyring;
-use crate::infrastructure::credentials::keyring::{CredentialError, CredentialStore};
+use crate::infrastructure::credentials::keyring::{
+    CredentialError, CredentialStore, OsKeyring, DEV_KEYRING_SERVICE, PRODUCTION_KEYRING_SERVICE,
+};
 use crate::infrastructure::db::{planning_repositories, repositories};
 use crate::infrastructure::integrations::jira::{
     error::JiraError,
@@ -1505,8 +1503,11 @@ pub(crate) async fn list_team_members_with_dependencies<S: CredentialStore + ?Si
     Ok(result)
 }
 
-#[cfg(not(debug_assertions))]
-const KEYRING_SERVICE: &str = "com.discoverivan.app.mework";
+const KEYRING_SERVICE: &str = if cfg!(debug_assertions) {
+    DEV_KEYRING_SERVICE
+} else {
+    PRODUCTION_KEYRING_SERVICE
+};
 
 pub async fn load_jira_avatar_data(
     pool: &SqlitePool,
@@ -1583,22 +1584,8 @@ pub async fn load_jira_avatar_data(
 pub(crate) async fn planning_credential_store(
     pool: &SqlitePool,
 ) -> Result<Box<dyn CredentialStore>, PlanningCommandError> {
-    #[cfg(debug_assertions)]
-    {
-        let integrations = repositories::list_integrations(pool)
-            .await
-            .map_err(db_error)?;
-        let entries = integrations
-            .into_iter()
-            .map(|integration| (integration.credential_ref, integration.kind));
-        Ok(Box::new(DevCredentialStore::from_integrations(entries)))
-    }
-
-    #[cfg(not(debug_assertions))]
-    {
-        let _ = pool;
-        Ok(Box::new(OsKeyring::new(KEYRING_SERVICE)))
-    }
+    let _ = pool;
+    Ok(Box::new(OsKeyring::new(KEYRING_SERVICE)))
 }
 
 pub async fn apply_and_lock(

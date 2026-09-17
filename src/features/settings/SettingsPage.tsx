@@ -39,6 +39,7 @@ import {
   refreshIntegrationHealth,
   saveAiSettings,
   saveIntegration,
+  saveOpenAiCompatibleProvider,
 } from "./api";
 import { validateJiraProjectKey } from "./planning-projects/api";
 import { ManagedProjectsSettings } from "./planning-projects/ManagedProjectsSettings";
@@ -49,6 +50,11 @@ type IntegrationForm = {
   baseUrl: string;
   secret: string;
   allowInsecureTls: boolean;
+};
+
+type OpenAiCompatibleForm = {
+  baseUrl: string;
+  token: string;
 };
 
 type HealthConfirmation = {
@@ -82,12 +88,34 @@ const PROVIDERS: Provider[] = [
 
 function errorMessage(error: unknown): string {
   const message = error instanceof Error ? error.message : typeof error === "string" ? error : "Unknown error";
-  return message.replace(/(?:token|pat|password|secret|authorization)[^\n]*/gi, "credential details redacted");
+  return message
+    .replace(/\b(?:token|pat|password|secret)\b\s*["']?\s*[:=]\s*["']?[^\s,"'}]+["']?/gi, "credential details redacted")
+    .replace(/\bauthorization\b\s*[:=]\s*[^\n]*/gi, "authorization details redacted")
+    .replace(/\bBearer\s+[^\s,;]+/gi, "Bearer [redacted]");
 }
 
 function emptyForm(): IntegrationForm {
   return { baseUrl: "", secret: "", allowInsecureTls: false };
 }
+
+function emptyOpenAiCompatibleForm(): OpenAiCompatibleForm {
+  return { baseUrl: "", token: "" };
+}
+
+function isAllowedOpenAiUrl(value: string): boolean {
+  try {
+    const parsed = new URL(value);
+    const localHttp = parsed.protocol === "http:" && ["localhost", "127.0.0.1", "[::1]"].includes(parsed.hostname);
+    return (parsed.protocol === "https:" || localHttp)
+      && !parsed.username
+      && !parsed.password
+      && !parsed.search
+      && !parsed.hash;
+  } catch {
+    return false;
+  }
+}
+
 
 function formForIntegration(integration: IntegrationRedacted): IntegrationForm {
   return {
@@ -147,6 +175,12 @@ const INITIAL_AI_DATA: AiSettingsPageData = {
     available: false,
     models: [],
     message: "Detecting Codex CLI…",
+  }, {
+    id: "openai-compatible",
+    name: "OpenAI-compatible API",
+    status: "not_configured",
+    available: false,
+    models: [],
   }],
 };
 
@@ -159,6 +193,13 @@ const UNAVAILABLE_AI_DATA: AiSettingsPageData = {
     available: false,
     models: [],
     message: "Codex CLI could not be initialized",
+  }, {
+    id: "openai-compatible",
+    name: "OpenAI-compatible API",
+    status: "unavailable",
+    available: false,
+    models: [],
+    message: "OpenAI-compatible API could not be initialized",
   }],
 };
 
@@ -168,6 +209,8 @@ function aiStatusLabel(status: AiProviderStatus): string {
       return "Loading…";
     case "connected":
       return "Connected";
+    case "not_configured":
+      return "Not configured";
     case "not_found":
       return "CLI not found";
     case "not_authenticated":
@@ -180,8 +223,14 @@ function aiStatusLabel(status: AiProviderStatus): string {
 function aiStatusIcon(status: AiProviderStatus) {
   if (status === "loading") return <Loader2 className="size-5 animate-spin" aria-hidden="true" />;
   if (status === "connected") return <CheckCircle2 className="size-5 text-success" aria-hidden="true" />;
-  if (status === "not_found") return <Circle className="size-5" aria-hidden="true" />;
+  if (status === "not_configured" || status === "not_found") return <Circle className="size-5" aria-hidden="true" />;
   return <AlertTriangle className="size-5 text-warning" aria-hidden="true" />;
+}
+
+function modelForAiProvider(provider: AiProvider | null | undefined, currentModel: string): string {
+  if (!provider) return "";
+  if (provider.models.includes(currentModel)) return currentModel;
+  return provider.models.length === 1 ? provider.models[0] : "";
 }
 
 function aiProviderReady(provider: AiProvider | undefined, model: string): boolean {
@@ -203,6 +252,10 @@ export function SettingsPage({ section = "integrations" }: SettingsPageProps) {
   const [aiSaving, setAiSaving] = useState(false);
   const [aiError, setAiError] = useState<string | null>(null);
   const [aiSaved, setAiSaved] = useState(false);
+  const [openAiDialogOpen, setOpenAiDialogOpen] = useState(false);
+  const [openAiForm, setOpenAiForm] = useState<OpenAiCompatibleForm>(emptyOpenAiCompatibleForm);
+  const [openAiSaving, setOpenAiSaving] = useState(false);
+  const [openAiError, setOpenAiError] = useState<string | null>(null);
   const [selectedKind, setSelectedKind] = useState<IntegrationKind | null>(null);
   const [forms, setForms] = useState<Record<IntegrationKind, IntegrationForm>>({
     jira: emptyForm(),
@@ -294,6 +347,15 @@ export function SettingsPage({ section = "integrations" }: SettingsPageProps) {
   const form = selectedKind ? forms[selectedKind] : undefined;
   const controlsDisabled = action !== null;
 
+  useEffect(() => {
+    if (!selectedAiProvider || selectedAiProvider.models.length !== 1) return;
+    const onlyModel = selectedAiProvider.models[0];
+    setAiDraft((current) => {
+      if (current.provider !== selectedAiProvider.id || current.model === onlyModel) return current;
+      return { ...current, model: onlyModel };
+    });
+  }, [selectedAiProvider, aiDraft.model]);
+
   const validateProjectKey = useCallback(
     (projectKey: string, integrationId?: string) => {
       const jira = integrations.find(
@@ -325,6 +387,50 @@ export function SettingsPage({ section = "integrations" }: SettingsPageProps) {
     }
   }
 
+  function openOpenAiCompatibleDialog() {
+    const provider = aiData.providers.find((candidate) => candidate.id === "openai-compatible");
+    setOpenAiForm({
+      baseUrl: provider?.baseUrl ?? "",
+      token: "",
+    });
+    setOpenAiError(null);
+    setOpenAiDialogOpen(true);
+  }
+
+  async function handleSaveOpenAiCompatible(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const baseUrl = openAiForm.baseUrl.trim();
+    if (!baseUrl) {
+      setOpenAiError("API URL is required.");
+      return;
+    }
+    if (!isAllowedOpenAiUrl(baseUrl)) {
+      setOpenAiError("API URL must use https:// (http:// is allowed only for localhost) and must not contain credentials, a query, or a fragment.");
+      return;
+    }
+    if (!openAiForm.token) {
+      setOpenAiError("Token is required.");
+      return;
+    }
+
+    setOpenAiSaving(true);
+    setOpenAiError(null);
+    try {
+      const saved = await saveOpenAiCompatibleProvider({
+        baseUrl,
+        token: openAiForm.token,
+      });
+      setAiData(saved);
+      setAiDraft(saved.settings);
+      setOpenAiForm((current) => ({ ...current, token: "" }));
+      setOpenAiDialogOpen(false);
+    } catch (saveError) {
+      setOpenAiError(`Unable to configure OpenAI-compatible API: ${errorMessage(saveError)}`);
+    } finally {
+      setOpenAiSaving(false);
+    }
+  }
+
   function updateAiSetting<K extends keyof AiSettings>(field: K, value: AiSettings[K]) {
     setAiDraft((current) => ({ ...current, [field]: value }));
     setAiSaved(false);
@@ -332,7 +438,16 @@ export function SettingsPage({ section = "integrations" }: SettingsPageProps) {
   }
 
   function updateAiProvider(value: string) {
-    updateAiSetting("provider", value === "" ? null : value as AiSettings["provider"]);
+    const provider = value === ""
+      ? null
+      : aiData.providers.find((candidate) => candidate.id === value) ?? null;
+    setAiDraft((current) => ({
+      ...current,
+      provider: provider?.id ?? null,
+      model: modelForAiProvider(provider, current.model),
+    }));
+    setAiSaved(false);
+    setAiError(null);
   }
 
   function updateAiReasoning(value: string) {
@@ -561,7 +676,7 @@ export function SettingsPage({ section = "integrations" }: SettingsPageProps) {
                     className="h-9 rounded-md border border-input bg-background px-3 text-sm"
                   >
                     {(selectedAiProvider?.models ?? []).length === 0 ? (
-                      <option value="">No models reported by Codex CLI</option>
+                      <option value="">No models reported by {selectedAiProvider?.name ?? "selected provider"}</option>
                     ) : (selectedAiProvider?.models ?? []).map((model) => (
                       <option key={model} value={model}>{model}</option>
                     ))}
@@ -601,7 +716,7 @@ export function SettingsPage({ section = "integrations" }: SettingsPageProps) {
                   {!aiError && !aiSaved && aiDraft.provider && !aiReady ? (
                     <span className="text-warning">
                       {selectedAiProvider?.status === "connected"
-                        ? "No available Codex model selected."
+                        ? "No available model selected."
                         : selectedAiProvider?.message ?? "Selected provider is not connected."}
                     </span>
                   ) : null}
@@ -629,13 +744,21 @@ export function SettingsPage({ section = "integrations" }: SettingsPageProps) {
             {(aiData?.providers ?? []).map((candidate) => (
               <Card key={candidate.id} role="group" aria-label={`${candidate.name} AI provider`} className="w-full">
                 <CardHeader className="flex-row items-center justify-between gap-4 p-4">
-                  <div className="grid min-w-0 gap-1.5">
+                  <button
+                    type="button"
+                    className="grid min-w-0 flex-1 gap-1.5 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-default"
+                    aria-label={candidate.name}
+                    disabled={candidate.id !== "openai-compatible" || openAiSaving}
+                    onClick={candidate.id === "openai-compatible" ? openOpenAiCompatibleDialog : undefined}
+                  >
                     <p className="text-lg font-semibold">{candidate.name}</p>
                     <CardDescription>
-                      Use the local Codex installation with its existing authentication.
+                      {candidate.id === "openai-compatible"
+                        ? "Connect an OpenAI-compatible API for AI-assisted workflows."
+                        : "Use the local Codex installation with its existing authentication."}
                       {candidate.message ? <span className="mt-1 block">{candidate.message}</span> : null}
                     </CardDescription>
-                  </div>
+                  </button>
                   <div className="flex shrink-0 items-center gap-2 text-sm text-muted-foreground">
                     {aiStatusIcon(candidate.status)}
                     <span>{aiStatusLabel(candidate.status)}</span>
@@ -645,6 +768,79 @@ export function SettingsPage({ section = "integrations" }: SettingsPageProps) {
             ))}
           </div>
         </section>
+
+        <Dialog
+          open={openAiDialogOpen}
+          onOpenChange={(open) => {
+            if (!open && !openAiSaving) {
+              setOpenAiDialogOpen(false);
+              setOpenAiError(null);
+            }
+          }}
+        >
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>OpenAI-compatible API</DialogTitle>
+              <DialogDescription>
+                Enter an API URL and token. Authorization is checked through the API before the token is stored in the operating system keyring. Available models are always loaded from the API.
+              </DialogDescription>
+            </DialogHeader>
+            <DialogBody>
+              {openAiError ? (
+                <Alert variant="destructive" role="alert" aria-live="assertive" className="mb-4">
+                  <AlertDescription>{openAiError}</AlertDescription>
+                </Alert>
+              ) : null}
+              <form
+                id="openai-compatible-settings-form"
+                className="grid gap-4"
+                onSubmit={handleSaveOpenAiCompatible}
+                aria-busy={openAiSaving}
+              >
+                <div className="grid gap-2">
+                  <Label htmlFor="openai-compatible-api-url">API URL</Label>
+                  <Input
+                    id="openai-compatible-api-url"
+                    name="baseUrl"
+                    type="url"
+                    value={openAiForm.baseUrl}
+                    onChange={(event) => setOpenAiForm((current) => ({ ...current, baseUrl: event.target.value }))}
+                    placeholder="https://api.example.com/v1"
+                    disabled={openAiSaving}
+                    required
+                  />
+                </div>
+                <div className="grid gap-2">
+                  <Label htmlFor="openai-compatible-token">Token</Label>
+                  <Input
+                    id="openai-compatible-token"
+                    name="token"
+                    type="password"
+                    value={openAiForm.token}
+                    autoComplete="new-password"
+                    onChange={(event) => setOpenAiForm((current) => ({ ...current, token: event.target.value }))}
+                    disabled={openAiSaving}
+                    required
+                  />
+                  <p className="text-sm text-muted-foreground">The token is write-only and is never returned to the UI.</p>
+                </div>
+              </form>
+            </DialogBody>
+            <DialogFooter>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setOpenAiDialogOpen(false)}
+                disabled={openAiSaving}
+              >
+                Cancel
+              </Button>
+              <Button type="submit" form="openai-compatible-settings-form" disabled={openAiSaving}>
+                {openAiSaving ? "Checking…" : "Save"}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
 
         <section className="space-y-4" aria-labelledby="integrations-title">
         <div>

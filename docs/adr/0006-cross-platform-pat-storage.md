@@ -5,7 +5,7 @@
 
 ## Context
 
-mework stores Jira and Bitbucket personal access tokens. The renderer must never receive secret material, and the same release must work on macOS and Windows without a second credential implementation.
+mework stores Jira and Bitbucket personal access tokens. The renderer must never receive secret material, and development and release builds must use the same credential behavior with isolated application namespaces.
 
 ## Decision
 
@@ -17,9 +17,7 @@ The release backend is the native OS credential store:
 - Windows: Credential Manager;
 - other desktop targets supported by the crate: their native secure credential service.
 
-SQLite stores only a `credential_ref` and integration metadata. PAT values are not written to SQLite, renderer state, prompts, diagnostics, logs, or Git history. Credential errors are returned as safe classifications.
-
-Debug builds keep the repository's explicit development boundary: `MEWORK_DEV_JIRA_PAT` and `MEWORK_DEV_BITBUCKET_PAT` are read transiently into process memory for local checks and are never persisted.
+SQLite stores only a `credential_ref` and integration metadata. PAT values are not written to SQLite, renderer state, prompts, diagnostics, logs, or Git history. Credential errors are returned as safe classifications. Development and release use the same native keyring backend, with `com.discoverivan.app.mework.dev` reserved for the `mework-dev` bundle and `com.discoverivan.app.mework` for the release bundle. At startup, mework gathers all configured integration and AI credential references and reads one app-owned generic-password bundle item; the bundle contains the values for those refs and is kept only in process memory. Existing standalone legacy items are deliberately not opened automatically because macOS can prompt separately for each item; users re-save those credentials through Settings once to populate the bundle. Subsequent command loads use process memory only, and successful save/delete operations update or invalidate the bundle/cache.
 
 ## Alternatives considered
 

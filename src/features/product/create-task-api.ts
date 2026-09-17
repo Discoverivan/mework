@@ -1,5 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 
+export type JiraTaskIssueType = "Task" | "Spike";
+
 export interface TaskDraft {
   summary: string;
   description: string;
@@ -29,6 +31,7 @@ export const listJiraTaskTeamMembers = (managedProjectId: string) =>
 
 export const createJiraTask = (request: {
   managedProjectId: string;
+  issueType: JiraTaskIssueType;
   summary: string;
   description: string;
   epicLink?: string;

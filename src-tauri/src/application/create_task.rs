@@ -45,12 +45,35 @@ pub struct JiraCreatedTaskDto {
 #[serde(rename_all = "camelCase")]
 pub struct JiraTaskCreateRequest {
     pub managed_project_id: String,
+    #[serde(default)]
+    pub issue_type: JiraTaskIssueType,
     pub summary: String,
     pub description: String,
     pub epic_link: Option<String>,
     pub assignee: Option<String>,
     pub sprint: Option<String>,
     pub story_points: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, Default, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "PascalCase")]
+pub enum JiraTaskIssueType {
+    #[default]
+    Task,
+    Spike,
+}
+
+impl JiraTaskIssueType {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Task => "Task",
+            Self::Spike => "Spike",
+        }
+    }
+}
+
+fn jira_issue_type_field(issue_type: JiraTaskIssueType) -> Value {
+    json!({ "name": issue_type.as_str() })
 }
 
 #[derive(Debug, Deserialize)]
@@ -71,7 +94,12 @@ pub async fn generate_draft(
         return Err("Task description is too long".to_owned());
     }
     let settings = ai::ensure_review_ready(pool).await?;
-    tauri::async_runtime::spawn_blocking(move || execute_draft(&settings, &prompt))
+    let openai_runtime = if settings.provider == Some(ai::AiProviderId::OpenAiCompatible) {
+        Some(ai::openai_compatible_runtime_config(pool).await?)
+    } else {
+        None
+    };
+    tauri::async_runtime::spawn_blocking(move || execute_draft(&settings, openai_runtime, &prompt))
         .await
         .map_err(|_| "AI task generation failed".to_owned())?
 }
@@ -145,7 +173,10 @@ pub async fn create_task(
         "project".to_owned(),
         json!({ "key": project.jira_project_key }),
     );
-    fields.insert("issuetype".to_owned(), json!({ "name": "Task" }));
+    fields.insert(
+        "issuetype".to_owned(),
+        jira_issue_type_field(request.issue_type),
+    );
     fields.insert("summary".to_owned(), Value::String(summary));
     fields.insert("description".to_owned(), Value::String(description));
     fields.insert("priority".to_owned(), json!({ "name": "Medium" }));
@@ -419,17 +450,22 @@ fn jira_wiki_description(value: &str) -> String {
         .join("\n")
 }
 
-fn execute_draft(settings: &ai::AiSettings, prompt: &str) -> Result<TaskDraftDto, String> {
+fn execute_draft(
+    settings: &ai::AiSettings,
+    openai_runtime: Option<ai::OpenAiCompatibleRuntimeConfig>,
+    prompt: &str,
+) -> Result<TaskDraftDto, String> {
     let workdir = std::env::temp_dir().join(format!("mework-task-{}", uuid::Uuid::now_v7()));
     fs::create_dir_all(&workdir)
         .map_err(|_| "AI task workspace could not be prepared".to_owned())?;
-    let result = execute_draft_in_workspace(settings, prompt, &workdir);
+    let result = execute_draft_in_workspace(settings, openai_runtime.as_ref(), prompt, &workdir);
     let _ = fs::remove_dir_all(&workdir);
     result
 }
 
 fn execute_draft_in_workspace(
     settings: &ai::AiSettings,
+    openai_runtime: Option<&ai::OpenAiCompatibleRuntimeConfig>,
     prompt: &str,
     workdir: &PathBuf,
 ) -> Result<TaskDraftDto, String> {
@@ -440,6 +476,11 @@ fn execute_draft_in_workspace(
         .map_err(|_| "AI task schema could not be prepared".to_owned())?;
     fs::write(&prompt_path, task_prompt(prompt))
         .map_err(|_| "AI task prompt could not be prepared".to_owned())?;
+    if settings.provider == Some(ai::AiProviderId::OpenAiCompatible) {
+        let runtime = openai_runtime
+            .ok_or_else(|| "OpenAI-compatible API configuration is unavailable".to_owned())?;
+        return execute_openai_task_draft(runtime, &settings.model, prompt);
+    }
     let codex = ai::resolve_codex_binary()
         .ok_or_else(|| "Codex CLI executable was not found".to_owned())?;
     let reasoning = settings.reasoning.as_str();
@@ -502,6 +543,92 @@ fn execute_draft_in_workspace(
     Ok(draft)
 }
 
+fn execute_openai_task_draft(
+    runtime: &ai::OpenAiCompatibleRuntimeConfig,
+    model: &str,
+    prompt: &str,
+) -> Result<TaskDraftDto, String> {
+    let prompt = task_prompt(prompt);
+    let content = tauri::async_runtime::block_on(async {
+        let client = ai::openai_http_client(Duration::from_secs(15 * 60))?;
+        let payload = json!({
+            "model": model,
+            "max_tokens": ai::OPENAI_MAX_OUTPUT_TOKENS,
+            "stream": true,
+            "messages": [
+                {"role": "system", "content": "You create Jira task drafts. Return only the JSON object requested by the user."},
+                {"role": "user", "content": prompt}
+            ]
+        });
+        ai::log_openai_chat_request("task_generation", &runtime.base_url, &payload);
+        let response = client
+            .post(format!("{}/chat/completions", runtime.base_url))
+            .bearer_auth(&runtime.token)
+            .json(&payload)
+            .send()
+            .await
+            .map_err(|error| {
+                ai::log_openai_transport_error("task_generation", &error.to_string());
+                "OpenAI-compatible API task request could not be completed".to_owned()
+            })?;
+        let status = response.status();
+        let headers = response.headers().clone();
+        let body = response.bytes().await.map_err(|error| {
+            ai::log_openai_transport_error("task_generation_response_body", &error.to_string());
+            "OpenAI-compatible API returned an invalid task response".to_owned()
+        })?;
+        ai::log_openai_chat_response("task_generation", status.as_u16(), &headers, &body);
+        if status == reqwest::StatusCode::UNAUTHORIZED || status == reqwest::StatusCode::FORBIDDEN {
+            return Err(
+                "OpenAI-compatible API authorization failed during task generation".to_owned(),
+            );
+        }
+        if !status.is_success() {
+            let detail = serde_json::from_slice::<Value>(&body)
+                .ok()
+                .and_then(|payload| ai::safe_openai_error_detail(&payload))
+                .map(|value| format!(" ({value})"))
+                .unwrap_or_default();
+            return Err(format!(
+                "OpenAI-compatible API task generation returned HTTP {}{}",
+                status.as_u16(),
+                detail
+            ));
+        }
+        let content = serde_json::from_slice::<Value>(&body)
+            .ok()
+            .and_then(|payload| openai_message_content(&payload))
+            .or_else(|| ai::openai_stream_message_content(&body));
+        content.ok_or_else(|| "OpenAI-compatible API returned no task content".to_owned())
+    })?;
+
+    let mut draft: TaskDraftDto = serde_json::from_str(&content)
+        .map_err(|_| "OpenAI-compatible API returned invalid task JSON".to_owned())?;
+    required_text(&draft.summary, "AI summary", 255)?;
+    draft.description = jira_wiki_description(&required_text(
+        &draft.description,
+        "AI description",
+        50_000,
+    )?);
+    required_text(&draft.description, "AI description", 50_000)?;
+    Ok(draft)
+}
+
+fn openai_message_content(value: &Value) -> Option<String> {
+    let content = value.pointer("/choices/0/message/content")?;
+    if let Some(text) = content.as_str() {
+        return Some(text.to_owned());
+    }
+    content.as_array().and_then(|parts| {
+        let text = parts
+            .iter()
+            .filter_map(|part| part.get("text").and_then(Value::as_str))
+            .collect::<Vec<_>>()
+            .join("\n");
+        (!text.is_empty()).then_some(text)
+    })
+}
+
 fn task_draft_schema() -> &'static str {
     r#"{
   "type": "object",
@@ -523,9 +650,11 @@ fn task_prompt(prompt: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::{
-        jira_endpoint, jira_wiki_description, optional_text, parse_story_points, task_draft_schema,
-        task_prompt, unique_members_in_order, JiraTaskMemberDto,
+        jira_endpoint, jira_issue_type_field, jira_wiki_description, optional_text,
+        parse_story_points, task_draft_schema, task_prompt, unique_members_in_order,
+        JiraTaskCreateRequest, JiraTaskIssueType, JiraTaskMemberDto,
     };
+    use crate::application::ai::OpenAiCompatibleRuntimeConfig;
 
     #[test]
     fn parses_story_points_as_a_jira_number() {
@@ -607,5 +736,86 @@ mod tests {
         assert!(task_draft_schema().contains("additionalProperties"));
         assert_eq!(optional_text(Some("  "), 10), None);
         assert_eq!(optional_text(Some("Q3"), 10), Some("Q3".to_owned()));
+    }
+
+    #[test]
+    fn accepts_supported_issue_types_and_defaults_legacy_requests_to_task() {
+        let spike: JiraTaskCreateRequest = serde_json::from_value(serde_json::json!({
+            "managedProjectId": "team-1",
+            "issueType": "Spike",
+            "summary": "Investigate an option",
+            "description": "Document the result"
+        }))
+        .unwrap();
+        assert_eq!(spike.issue_type, JiraTaskIssueType::Spike);
+        assert_eq!(spike.issue_type.as_str(), "Spike");
+        assert_eq!(
+            jira_issue_type_field(spike.issue_type),
+            serde_json::json!({ "name": "Spike" })
+        );
+
+        let task: JiraTaskCreateRequest = serde_json::from_value(serde_json::json!({
+            "managedProjectId": "team-1",
+            "summary": "Implement the option",
+            "description": "Build the result"
+        }))
+        .unwrap();
+        assert_eq!(task.issue_type, JiraTaskIssueType::Task);
+        assert_eq!(serde_json::to_value(task.issue_type).unwrap(), "Task");
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn sends_openai_compatible_task_request_and_parses_response() {
+        use wiremock::{
+            matchers::{body_json, header, method, path},
+            Mock, MockServer, ResponseTemplate,
+        };
+
+        let server = MockServer::start().await;
+        let response_body = format!(
+            "data: {}\n\ndata: [DONE]\n\n",
+            serde_json::json!({
+                "choices": [{"delta": {"content": r#"{"summary":"Add audit filtering","description":"h1. Goal\n\n* Add audit filtering"}"#}}]
+            })
+        );
+        Mock::given(method("POST"))
+            .and(path("/v1/chat/completions"))
+            .and(header("authorization", "Bearer synthetic-token"))
+            .and(body_json(serde_json::json!({
+                "model": "example-model",
+                "max_tokens": 30_000,
+                "stream": true,
+                "messages": [
+                    {
+                        "role": "system",
+                        "content": "You create Jira task drafts. Return only the JSON object requested by the user."
+                    },
+                    {
+                        "role": "user",
+                        "content": task_prompt("Create an audit filter")
+                    }
+                ]
+            })))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .insert_header("content-type", "text/event-stream")
+                    .set_body_string(response_body),
+            )
+            .mount(&server)
+            .await;
+
+        let runtime = OpenAiCompatibleRuntimeConfig {
+            base_url: format!("{}/v1", server.uri()),
+            token: "synthetic-token".to_owned(),
+        };
+        let draft = tokio::task::spawn_blocking(move || {
+            super::execute_openai_task_draft(&runtime, "example-model", "Create an audit filter")
+        })
+        .await
+        .unwrap()
+        .unwrap();
+
+        assert_eq!(draft.summary, "Add audit filtering");
+        assert_eq!(draft.description, "h1. Goal\n\n* Add audit filtering");
     }
 }

@@ -1,25 +1,63 @@
 use std::{
-    env,
+    env, fs,
     io::{BufRead, BufReader, Write},
     path::{Path, PathBuf},
     process::{ChildStdin, Command, Stdio},
-    sync::mpsc,
+    sync::{mpsc, OnceLock},
     thread,
-    time::Duration,
+    time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
+use reqwest::header::HeaderMap;
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use sqlx::SqlitePool;
 
-use crate::infrastructure::db::repositories;
+use crate::infrastructure::{
+    credentials::keyring::{
+        CredentialStore, OsKeyring, DEV_KEYRING_SERVICE, PRODUCTION_KEYRING_SERVICE,
+    },
+    db::repositories,
+};
 
 const AI_SETTINGS_KEY: &str = "ai.settings";
 const AI_SETTINGS_SCHEMA_VERSION: i64 = 1;
+const OPENAI_COMPATIBLE_SETTINGS_KEY: &str = "ai.openai-compatible";
+const OPENAI_COMPATIBLE_SETTINGS_SCHEMA_VERSION: i64 = 1;
+const OPENAI_COMPATIBLE_CREDENTIAL_REF: &str = "ai-openai-compatible";
+
+const AI_KEYRING_SERVICE: &str = if cfg!(debug_assertions) {
+    DEV_KEYRING_SERVICE
+} else {
+    PRODUCTION_KEYRING_SERVICE
+};
+
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+struct OpenAiCompatibleProviderConfig {
+    base_url: String,
+    credential_ref: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct OpenAiCompatibleRuntimeConfig {
+    pub base_url: String,
+    pub token: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OpenAiCompatibleProviderSaveRequest {
+    pub base_url: String,
+    pub token: String,
+}
 
 #[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "kebab-case")]
 pub enum AiProviderId {
     CodexCli,
+    #[serde(rename = "openai-compatible")]
+    OpenAiCompatible,
 }
 
 #[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq)]
@@ -69,6 +107,7 @@ impl Default for AiSettings {
 pub enum AiProviderStatus {
     Loading,
     Connected,
+    NotConfigured,
     NotFound,
     NotAuthenticated,
     Unavailable,
@@ -84,6 +123,7 @@ pub struct AiProviderDto {
     pub models: Vec<String>,
     pub executable_path: Option<String>,
     pub version: Option<String>,
+    pub base_url: Option<String>,
     pub message: Option<String>,
 }
 
@@ -104,7 +144,7 @@ pub async fn load(pool: &SqlitePool) -> Result<AiSettings, String> {
 }
 
 pub async fn save(pool: &SqlitePool, settings: AiSettings) -> Result<(), String> {
-    validate_settings(&settings)?;
+    validate_settings(pool, &settings).await?;
     let value = serde_json::to_string(&settings)
         .map_err(|_| "failed to serialize AI settings".to_owned())?;
     repositories::upsert_setting(pool, AI_SETTINGS_KEY, &value, AI_SETTINGS_SCHEMA_VERSION)
@@ -112,14 +152,51 @@ pub async fn save(pool: &SqlitePool, settings: AiSettings) -> Result<(), String>
         .map_err(|_| "failed to save AI settings".to_owned())
 }
 
+pub async fn save_openai_compatible_provider(
+    pool: &SqlitePool,
+    request: OpenAiCompatibleProviderSaveRequest,
+) -> Result<AiSettingsPageDto, String> {
+    let base_url = normalize_openai_base_url(&request.base_url)?;
+    if request.token.trim().is_empty() {
+        return Err("Token is required".to_owned());
+    }
+
+    let models = load_openai_models(&base_url, &request.token).await?;
+    if models.is_empty() {
+        return Err("Authorization succeeded, but the API returned no models".to_owned());
+    }
+
+    let credential_store = openai_credential_store();
+    credential_store
+        .save(OPENAI_COMPATIBLE_CREDENTIAL_REF, &request.token)
+        .map_err(|_| "failed to save token in the operating system keyring".to_owned())?;
+    let config = OpenAiCompatibleProviderConfig {
+        base_url,
+        credential_ref: OPENAI_COMPATIBLE_CREDENTIAL_REF.to_owned(),
+    };
+    let value = serde_json::to_string(&config)
+        .map_err(|_| "failed to serialize OpenAI-compatible API settings".to_owned())?;
+    repositories::upsert_setting(
+        pool,
+        OPENAI_COMPATIBLE_SETTINGS_KEY,
+        &value,
+        OPENAI_COMPATIBLE_SETTINGS_SCHEMA_VERSION,
+    )
+    .await
+    .map_err(|_| "failed to save OpenAI-compatible API settings".to_owned())?;
+
+    dto(pool).await
+}
+
 pub async fn dto(pool: &SqlitePool) -> Result<AiSettingsPageDto, String> {
     let settings = load(pool).await?;
     let provider = tokio::task::spawn_blocking(inspect_codex_cli)
         .await
         .map_err(|_| "failed to inspect Codex CLI".to_owned())?;
+    let openai_provider = inspect_openai_compatible(pool).await;
     Ok(AiSettingsPageDto {
         settings,
-        providers: vec![provider],
+        providers: vec![provider, openai_provider],
     })
 }
 
@@ -146,7 +223,7 @@ pub async fn ensure_review_ready(pool: &SqlitePool) -> Result<AiSettings, String
         .any(|model| model == &data.settings.model)
     {
         return Err(
-            "Selected Codex model is not available. Refresh Settings → Integrations and choose an available model"
+            "Selected AI model is not available. Refresh Settings → Integrations and choose an available model"
                 .to_owned(),
         );
     }
@@ -163,6 +240,7 @@ pub fn inspect_codex_cli() -> AiProviderDto {
             models: Vec::new(),
             executable_path: None,
             version: None,
+            base_url: None,
             message: Some("Codex CLI was not found on this computer".to_owned()),
         };
     };
@@ -187,6 +265,7 @@ pub fn inspect_codex_cli() -> AiProviderDto {
             models: Vec::new(),
             executable_path: Some(path.display().to_string()),
             version,
+            base_url: None,
             message: Some("Codex CLI login status could not be checked".to_owned()),
         };
     };
@@ -211,6 +290,7 @@ pub fn inspect_codex_cli() -> AiProviderDto {
             models,
             executable_path: Some(path.display().to_string()),
             version,
+            base_url: None,
             message: None,
         };
     }
@@ -223,6 +303,7 @@ pub fn inspect_codex_cli() -> AiProviderDto {
         models: Vec::new(),
         executable_path: Some(path.display().to_string()),
         version,
+        base_url: None,
         message: Some("Codex CLI is installed, but it is not signed in".to_owned()),
     }
 }
@@ -387,6 +468,7 @@ fn unavailable_provider(path: PathBuf, models: Vec<String>, message: &str) -> Ai
         models,
         executable_path: Some(path.display().to_string()),
         version: None,
+        base_url: None,
         message: Some(message.to_owned()),
     }
 }
@@ -404,15 +486,524 @@ fn safe_first_line(bytes: &[u8]) -> Option<String> {
         })
 }
 
-fn validate_settings(settings: &AiSettings) -> Result<(), String> {
-    if settings.model.trim().is_empty()
-        || !available_codex_models()
+async fn validate_settings(pool: &SqlitePool, settings: &AiSettings) -> Result<(), String> {
+    if settings.model.trim().is_empty() {
+        return Err("Selected AI model is invalid".to_owned());
+    }
+    let provider = match settings.provider {
+        Some(provider) => provider,
+        None => return Err("Select an AI provider before saving".to_owned()),
+    };
+    let providers = dto(pool).await?.providers;
+    let Some(provider_status) = providers.iter().find(|item| item.id == provider) else {
+        return Err("Selected AI provider is unavailable".to_owned());
+    };
+    if !provider_status.available
+        || provider_status.status != AiProviderStatus::Connected
+        || !provider_status
+            .models
             .iter()
             .any(|model| model == &settings.model)
     {
         return Err("Selected AI model is invalid".to_owned());
     }
     Ok(())
+}
+
+fn openai_credential_store() -> OsKeyring {
+    OsKeyring::new(AI_KEYRING_SERVICE)
+}
+
+async fn load_openai_config(
+    pool: &SqlitePool,
+) -> Result<Option<OpenAiCompatibleProviderConfig>, String> {
+    let value = repositories::get_setting(pool, OPENAI_COMPATIBLE_SETTINGS_KEY)
+        .await
+        .map_err(|_| "failed to load OpenAI-compatible API settings".to_owned())?;
+    value
+        .map(|raw| {
+            serde_json::from_str::<OpenAiCompatibleProviderConfig>(&raw)
+                .map_err(|_| "stored OpenAI-compatible API settings are invalid".to_owned())
+        })
+        .transpose()
+}
+
+pub async fn configured_openai_credential_ref(pool: &SqlitePool) -> Result<Option<String>, String> {
+    Ok(load_openai_config(pool)
+        .await?
+        .map(|config| config.credential_ref))
+}
+
+pub async fn openai_compatible_runtime_config(
+    pool: &SqlitePool,
+) -> Result<OpenAiCompatibleRuntimeConfig, String> {
+    let Some(config) = load_openai_config(pool).await? else {
+        return Err("OpenAI-compatible API is not configured".to_owned());
+    };
+    let base_url = normalize_openai_base_url(&config.base_url)?;
+    let token = openai_credential_store()
+        .load(&config.credential_ref)
+        .map_err(|_| {
+            "OpenAI-compatible API token is unavailable in the operating system keyring".to_owned()
+        })?;
+    Ok(OpenAiCompatibleRuntimeConfig { base_url, token })
+}
+
+async fn inspect_openai_compatible(pool: &SqlitePool) -> AiProviderDto {
+    let config = match load_openai_config(pool).await {
+        Ok(Some(config)) => config,
+        Ok(None) => return openai_not_configured_provider(),
+        Err(message) => return openai_unavailable_provider(None, message),
+    };
+    let base_url = match normalize_openai_base_url(&config.base_url) {
+        Ok(base_url) => base_url,
+        Err(message) => return openai_unavailable_provider(Some(config.base_url), message),
+    };
+    let token =
+        match openai_credential_store().load(&config.credential_ref) {
+            Ok(token) => token,
+            Err(_) => return openai_provider(
+                AiProviderStatus::NotAuthenticated,
+                false,
+                base_url,
+                Vec::new(),
+                Some(
+                    "OpenAI-compatible API token is not available in the operating system keyring"
+                        .to_owned(),
+                ),
+            ),
+        };
+    match load_openai_models(&base_url, &token).await {
+        Ok(models) => openai_provider(AiProviderStatus::Connected, true, base_url, models, None),
+        Err(message) => openai_provider(
+            AiProviderStatus::Unavailable,
+            false,
+            base_url,
+            Vec::new(),
+            Some(message),
+        ),
+    }
+}
+
+fn openai_not_configured_provider() -> AiProviderDto {
+    openai_provider(
+        AiProviderStatus::NotConfigured,
+        false,
+        String::new(),
+        Vec::new(),
+        Some("Configure an API URL and token to load available models".to_owned()),
+    )
+}
+
+fn openai_unavailable_provider(base_url: Option<String>, message: String) -> AiProviderDto {
+    openai_provider(
+        AiProviderStatus::Unavailable,
+        false,
+        base_url.unwrap_or_default(),
+        Vec::new(),
+        Some(message),
+    )
+}
+
+fn openai_provider(
+    status: AiProviderStatus,
+    available: bool,
+    base_url: String,
+    models: Vec<String>,
+    message: Option<String>,
+) -> AiProviderDto {
+    AiProviderDto {
+        id: AiProviderId::OpenAiCompatible,
+        name: "OpenAI-compatible API".to_owned(),
+        status,
+        available,
+        models,
+        executable_path: None,
+        version: None,
+        base_url: (!base_url.is_empty()).then_some(base_url),
+        message,
+    }
+}
+
+fn normalize_openai_base_url(value: &str) -> Result<String, String> {
+    let parsed = reqwest::Url::parse(value.trim()).map_err(|_| "API URL is invalid".to_owned())?;
+    if parsed.query().is_some()
+        || parsed.fragment().is_some()
+        || !parsed.username().is_empty()
+        || parsed.password().is_some()
+    {
+        return Err("API URL must not contain credentials, a query, or a fragment".to_owned());
+    }
+    let is_local_http = parsed.scheme() == "http"
+        && matches!(parsed.host_str(), Some("localhost" | "127.0.0.1" | "::1"));
+    if parsed.scheme() != "https" && !is_local_http {
+        return Err("API URL must use https:// (http:// is allowed only for localhost)".to_owned());
+    }
+    if parsed.host_str().is_none() {
+        return Err("API URL must include a host".to_owned());
+    }
+    Ok(value.trim().trim_end_matches('/').to_owned())
+}
+
+pub fn safe_openai_error_detail(value: &serde_json::Value) -> Option<String> {
+    let error = value.get("error")?;
+    let label = safe_openai_error_label(error.get("code"))
+        .or_else(|| safe_openai_error_label(error.get("type")))?;
+    let parameter = safe_openai_error_label(error.get("param"));
+    Some(match parameter {
+        Some(parameter) => format!("{label} (parameter: {parameter})"),
+        None => label,
+    })
+}
+
+fn safe_openai_error_label(value: Option<&serde_json::Value>) -> Option<String> {
+    let label = value?.as_str()?.trim();
+    if label.is_empty()
+        || label.chars().count() > 80
+        || !label.chars().all(|character| {
+            character.is_ascii_alphanumeric() || matches!(character, '_' | '-' | '.' | '[' | ']')
+        })
+    {
+        return None;
+    }
+    Some(label.to_owned())
+}
+
+pub fn openai_http_client(timeout: Duration) -> Result<reqwest::Client, String> {
+    let builder = reqwest::Client::builder().timeout(timeout);
+    builder
+        .build()
+        .map_err(|_| "OpenAI-compatible API client could not be initialized".to_owned())
+}
+
+const OPENAI_DEBUG_LOG_MAX_CHARS: usize = 8_000;
+const OPENAI_DEBUG_LOG_MAX_BYTES: u64 = 2 * 1024 * 1024;
+static OPENAI_DEBUG_LOG_PATH: OnceLock<PathBuf> = OnceLock::new();
+
+#[cfg(debug_assertions)]
+pub fn initialize_openai_debug_log(app_data_dir: &Path) {
+    let path = app_data_dir
+        .join("logs")
+        .join("openai-compatible-debug.log");
+    let _ = fs::create_dir_all(path.parent().unwrap_or(app_data_dir));
+    let _ = OPENAI_DEBUG_LOG_PATH.set(path);
+}
+
+pub fn log_openai_chat_request(operation: &str, base_url: &str, payload: &Value) {
+    append_openai_debug_json(&serde_json::json!({
+        "event": "request",
+        "operation": operation,
+        "method": "POST",
+        "url": safe_openai_log_url(&format!("{base_url}/chat/completions")),
+        "payload": summarize_openai_chat_payload(payload),
+    }));
+}
+
+pub fn log_openai_chat_response(operation: &str, status: u16, headers: &HeaderMap, body: &[u8]) {
+    let mut safe_headers = serde_json::Map::new();
+    for header_name in [
+        "content-type",
+        "content-length",
+        "server",
+        "allow",
+        "x-request-id",
+        "request-id",
+        "retry-after",
+    ] {
+        if let Some(value) = headers
+            .get(header_name)
+            .and_then(|value| value.to_str().ok())
+        {
+            safe_headers.insert(
+                header_name.to_owned(),
+                Value::String(truncate_openai_log_text(&redact_bearer_tokens(value))),
+            );
+        }
+    }
+    append_openai_debug_json(&serde_json::json!({
+        "event": "response",
+        "operation": operation,
+        "status": status,
+        "headers": safe_headers,
+        "body": redact_openai_debug_body(body),
+    }));
+}
+
+pub fn log_openai_transport_error(operation: &str, detail: &str) {
+    append_openai_debug_json(&serde_json::json!({
+        "event": "transport_error",
+        "operation": operation,
+        "detail": truncate_openai_log_text(&redact_bearer_tokens(detail)),
+    }));
+}
+
+fn append_openai_debug_json(value: &Value) {
+    let Some(path) = OPENAI_DEBUG_LOG_PATH.get() else {
+        return;
+    };
+    if fs::metadata(path)
+        .map(|metadata| metadata.len() > OPENAI_DEBUG_LOG_MAX_BYTES)
+        .unwrap_or(false)
+    {
+        let _ = fs::write(path, "");
+    }
+    let timestamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|value| value.as_millis())
+        .unwrap_or_default();
+    let Ok(line) = serde_json::to_string(value) else {
+        return;
+    };
+    let Ok(mut file) = fs::OpenOptions::new().create(true).append(true).open(path) else {
+        return;
+    };
+    let _ = writeln!(file, "{timestamp} {line}");
+}
+
+fn summarize_openai_chat_payload(payload: &Value) -> Value {
+    let Some(object) = payload.as_object() else {
+        return Value::String("[non-object-payload]".to_owned());
+    };
+    let mut summary = serde_json::Map::new();
+    for key in ["model", "max_tokens", "stream"] {
+        if let Some(value) = object.get(key) {
+            summary.insert(key.to_owned(), value.clone());
+        }
+    }
+    if let Some(messages) = object.get("messages").and_then(Value::as_array) {
+        summary.insert(
+            "messages".to_owned(),
+            Value::Array(
+                messages
+                    .iter()
+                    .map(|message| {
+                        let role = message
+                            .get("role")
+                            .and_then(Value::as_str)
+                            .unwrap_or("[missing]");
+                        let content = message.get("content").map(summarize_openai_content);
+                        serde_json::json!({
+                            "role": truncate_openai_log_text(role),
+                            "content": content,
+                        })
+                    })
+                    .collect(),
+            ),
+        );
+    }
+    summary.insert(
+        "top_level_keys".to_owned(),
+        Value::Array(
+            object
+                .keys()
+                .map(|key| Value::String(key.clone()))
+                .collect(),
+        ),
+    );
+    Value::Object(summary)
+}
+
+fn summarize_openai_content(value: &Value) -> Value {
+    match value {
+        Value::String(text) => serde_json::json!({
+            "type": "text",
+            "chars": text.chars().count(),
+        }),
+        Value::Array(parts) => serde_json::json!({
+            "type": "array",
+            "parts": parts.len(),
+        }),
+        Value::Null => Value::String("[null]".to_owned()),
+        _ => serde_json::json!({ "type": "other" }),
+    }
+}
+
+fn redact_openai_debug_body(body: &[u8]) -> Value {
+    let text = String::from_utf8_lossy(body);
+    let value = serde_json::from_slice::<Value>(body)
+        .map(redact_openai_debug_value)
+        .ok();
+    match value {
+        Some(value) => Value::String(truncate_openai_log_text(
+            &serde_json::to_string(&value).unwrap_or_else(|_| "[invalid-json]".to_owned()),
+        )),
+        None => Value::String(truncate_openai_log_text(&redact_bearer_tokens(&text))),
+    }
+}
+
+fn redact_openai_debug_value(value: Value) -> Value {
+    match value {
+        Value::Object(object) => Value::Object(
+            object
+                .into_iter()
+                .map(|(key, value)| {
+                    let lower_key = key.to_ascii_lowercase();
+                    let value = if [
+                        "authorization",
+                        "api_key",
+                        "apikey",
+                        "credential",
+                        "password",
+                        "secret",
+                        "token",
+                    ]
+                    .iter()
+                    .any(|part| lower_key.contains(part))
+                    {
+                        Value::String("[REDACTED]".to_owned())
+                    } else {
+                        redact_openai_debug_value(value)
+                    };
+                    (key, value)
+                })
+                .collect(),
+        ),
+        Value::Array(values) => {
+            Value::Array(values.into_iter().map(redact_openai_debug_value).collect())
+        }
+        Value::String(value) => Value::String(redact_bearer_tokens(&value)),
+        value => value,
+    }
+}
+
+fn redact_bearer_tokens(value: &str) -> String {
+    let lower = value.to_ascii_lowercase();
+    let mut result = String::new();
+    let mut cursor = 0;
+    while let Some(relative_start) = lower[cursor..].find("bearer ") {
+        let start = cursor + relative_start;
+        result.push_str(&value[cursor..start]);
+        result.push_str("Bearer [REDACTED]");
+        let token_start = start + "bearer ".len();
+        let token_end = value[token_start..]
+            .char_indices()
+            .find(|(_, character)| {
+                character.is_whitespace() || matches!(character, '"' | '\'' | ',' | ')' | ']')
+            })
+            .map(|(index, _)| token_start + index)
+            .unwrap_or(value.len());
+        cursor = token_end;
+    }
+    result.push_str(&value[cursor..]);
+    result
+}
+
+fn truncate_openai_log_text(value: &str) -> String {
+    let mut text = value
+        .chars()
+        .take(OPENAI_DEBUG_LOG_MAX_CHARS)
+        .collect::<String>();
+    if value.chars().count() > OPENAI_DEBUG_LOG_MAX_CHARS {
+        text.push_str("…[truncated]");
+    }
+    text
+}
+
+fn safe_openai_log_url(value: &str) -> String {
+    let Ok(mut url) = reqwest::Url::parse(value) else {
+        return "[invalid-url]".to_owned();
+    };
+    let _ = url.set_username("");
+    let _ = url.set_password(None);
+    url.set_query(None);
+    url.set_fragment(None);
+    url.to_string()
+}
+
+pub fn openai_stream_message_content(body: &[u8]) -> Option<String> {
+    let text = String::from_utf8_lossy(body);
+    let mut content = String::new();
+    let mut saw_data = false;
+    for line in text.lines() {
+        let data = line
+            .strip_prefix("data:")
+            .map(str::trim_start)
+            .filter(|value| !value.is_empty() && *value != "[DONE]");
+        let Some(data) = data else {
+            continue;
+        };
+        let Ok(payload) = serde_json::from_str::<Value>(data) else {
+            continue;
+        };
+        saw_data = true;
+        let content_value = payload
+            .pointer("/choices/0/delta/content")
+            .or_else(|| payload.pointer("/choices/0/message/content"));
+        if let Some(content_value) = content_value {
+            append_openai_content(content_value, &mut content);
+        }
+    }
+    (saw_data && !content.is_empty()).then_some(content)
+}
+
+fn append_openai_content(value: &Value, output: &mut String) {
+    if let Some(text) = value.as_str() {
+        output.push_str(text);
+        return;
+    }
+    if let Some(parts) = value.as_array() {
+        for part in parts {
+            if let Some(text) = part.as_str() {
+                output.push_str(text);
+            } else if let Some(text) = part.get("text").and_then(Value::as_str) {
+                output.push_str(text);
+            }
+        }
+    }
+}
+
+pub const OPENAI_MAX_OUTPUT_TOKENS: u64 = 30_000;
+
+async fn load_openai_models(base_url: &str, token: &str) -> Result<Vec<String>, String> {
+    query_openai_models(base_url, token).await
+}
+
+async fn query_openai_models(base_url: &str, token: &str) -> Result<Vec<String>, String> {
+    let client = openai_http_client(Duration::from_secs(10))?;
+    let response = client
+        .get(format!("{base_url}/models"))
+        .bearer_auth(token)
+        .send()
+        .await
+        .map_err(|_| "OpenAI-compatible API could not be reached".to_owned())?;
+    if response.status() == reqwest::StatusCode::UNAUTHORIZED
+        || response.status() == reqwest::StatusCode::FORBIDDEN
+    {
+        return Err("OpenAI-compatible API authorization failed".to_owned());
+    }
+    if !response.status().is_success() {
+        return Err(format!(
+            "OpenAI-compatible API returned HTTP {} while loading models",
+            response.status().as_u16()
+        ));
+    }
+    let payload = response
+        .json::<serde_json::Value>()
+        .await
+        .map_err(|_| "OpenAI-compatible API returned an invalid model catalog".to_owned())?;
+    parse_openai_model_list_response(&payload)
+        .ok_or_else(|| "OpenAI-compatible API returned an invalid model catalog".to_owned())
+}
+
+pub fn parse_openai_model_list_response(value: &serde_json::Value) -> Option<Vec<String>> {
+    let entries = value.get("data")?.as_array()?;
+    let mut models = Vec::new();
+    for entry in entries {
+        let Some(model) = entry
+            .get("id")
+            .and_then(serde_json::Value::as_str)
+            .map(str::trim)
+            .filter(|model| {
+                !model.is_empty() && model.len() <= 200 && !model.chars().any(char::is_control)
+            })
+        else {
+            continue;
+        };
+        if !models.iter().any(|known| known == model) {
+            models.push(model.to_owned());
+        }
+    }
+    Some(models)
 }
 
 #[cfg(test)]
@@ -424,8 +1015,10 @@ pub fn test_process_env_lock() -> &'static std::sync::Mutex<()> {
 #[cfg(test)]
 mod tests {
     use super::{
-        inspect_codex_cli, parse_codex_model_list_response, query_codex_models_with_timeout,
-        safe_first_line, AiProviderId, AiProviderStatus, AiReasoning, AiSettings,
+        inspect_codex_cli, load_openai_models, normalize_openai_base_url,
+        parse_codex_model_list_response, parse_openai_model_list_response,
+        query_codex_models_with_timeout, safe_first_line, safe_openai_error_detail, AiProviderId,
+        AiProviderStatus, AiReasoning, AiSettings, OpenAiCompatibleProviderConfig,
     };
 
     #[test]
@@ -435,6 +1028,66 @@ mod tests {
         assert_eq!(settings.model, "");
         assert_eq!(settings.reasoning, AiReasoning::Medium);
         assert!(!settings.fast_mode);
+    }
+
+    #[test]
+    fn exposes_only_safe_openai_error_metadata() {
+        let payload = serde_json::json!({
+            "error": {
+                "message": "Bearer synthetic-token is invalid",
+                "type": "invalid_request_error",
+                "param": "temperature",
+                "code": "unsupported_parameter"
+            }
+        });
+
+        assert_eq!(
+            safe_openai_error_detail(&payload),
+            Some("unsupported_parameter (parameter: temperature)".to_owned())
+        );
+        assert!(!safe_openai_error_detail(&payload)
+            .unwrap()
+            .contains("synthetic-token"));
+    }
+
+    #[test]
+    fn debug_body_redacts_bearer_and_credential_fields() {
+        let body = br#"{"error":{"message":"Bearer synthetic-token is invalid","api_key":"synthetic-key","detail":"keep this diagnostic"}}"#;
+        let logged = super::redact_openai_debug_body(body).to_string();
+        assert!(!logged.contains("synthetic-token"));
+        assert!(!logged.contains("synthetic-key"));
+        assert!(logged.contains("[REDACTED]"));
+        assert!(logged.contains("keep this diagnostic"));
+    }
+
+    #[test]
+    fn request_summary_keeps_shape_without_logging_prompt_content() {
+        let payload = serde_json::json!({
+            "model": "example-model",
+            "max_tokens": 123,
+            "messages": [{"role": "user", "content": "private synthetic prompt"}]
+        });
+        let summary = super::summarize_openai_chat_payload(&payload);
+        let logged = summary.to_string();
+        assert_eq!(summary["model"], "example-model");
+        assert_eq!(summary["max_tokens"], 123);
+        assert!(!logged.contains("private synthetic prompt"));
+        assert!(logged.contains("\"chars\":24"));
+    }
+
+    #[test]
+    fn parses_openai_stream_message_content_from_sse_chunks() {
+        let first = serde_json::json!({
+            "choices": [{"delta": {"content": "part-a"}}]
+        });
+        let second = serde_json::json!({
+            "choices": [{"delta": {"content": "part-b"}}]
+        });
+        let body = format!("data: {first}\n\ndata: {second}\n\ndata: [DONE]\n\n");
+        assert_eq!(
+            super::openai_stream_message_content(body.as_bytes()).as_deref(),
+            Some("part-apart-b")
+        );
     }
 
     #[test]
@@ -449,6 +1102,10 @@ mod tests {
         assert_eq!(value["provider"], "codex-cli");
         assert_eq!(value["reasoning"], "high");
         assert_eq!(value["fastMode"], true);
+        assert_eq!(
+            serde_json::to_value(AiProviderId::OpenAiCompatible).unwrap(),
+            "openai-compatible"
+        );
     }
 
     #[test]
@@ -503,6 +1160,97 @@ mod tests {
         assert_eq!(
             parse_codex_model_list_response(&response),
             Some(vec!["gpt-6-astra".to_owned(), "gpt-5.5".to_owned()])
+        );
+    }
+
+    #[tokio::test]
+    async fn loads_openai_compatible_models_with_bearer_auth() {
+        use wiremock::{
+            matchers::{header, method, path},
+            Mock, MockServer, ResponseTemplate,
+        };
+
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/v1/models"))
+            .and(header("authorization", "Bearer synthetic-token"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "data": [
+                    {"id": "example-model"},
+                    {"id": "example-model"},
+                    {"id": "example-fast-model"},
+                    {"id": ""}
+                ]
+            })))
+            .mount(&server)
+            .await;
+
+        let models = load_openai_models(&format!("{}/v1", server.uri()), "synthetic-token")
+            .await
+            .unwrap();
+        assert_eq!(models, vec!["example-model", "example-fast-model"]);
+    }
+
+    #[test]
+    fn serializes_openai_provider_without_static_model_metadata() {
+        let config = OpenAiCompatibleProviderConfig {
+            base_url: "https://api.example.invalid/v1".to_owned(),
+            credential_ref: "ai-openai-compatible".to_owned(),
+        };
+        let value = serde_json::to_value(config).unwrap();
+
+        assert!(value.get("staticModels").is_none());
+        assert!(value.get("allowInsecureTls").is_none());
+        assert_eq!(value["credentialRef"], "ai-openai-compatible");
+    }
+
+    #[test]
+    fn ignores_legacy_static_model_metadata_when_loading_provider_config() {
+        let config: OpenAiCompatibleProviderConfig = serde_json::from_value(serde_json::json!({
+            "baseUrl": "https://api.example.invalid/v1",
+            "credentialRef": "ai-openai-compatible",
+            "staticModels": [{
+                "model": "legacy-model",
+                "contextLength": 1_000_000,
+                "maxOutputTokens": 30_000
+            }]
+        }))
+        .unwrap();
+        let value = serde_json::to_value(config).unwrap();
+
+        assert!(value.get("staticModels").is_none());
+    }
+
+    #[test]
+    fn uses_the_fixed_openai_output_limit_without_model_metadata() {
+        assert_eq!(super::OPENAI_MAX_OUTPUT_TOKENS, 30_000);
+    }
+
+    #[test]
+    fn validates_openai_compatible_api_url_and_allows_local_http() {
+        assert_eq!(
+            normalize_openai_base_url("https://api.example.invalid/v1/").unwrap(),
+            "https://api.example.invalid/v1"
+        );
+        assert!(normalize_openai_base_url("http://api.example.invalid/v1").is_err());
+        assert!(normalize_openai_base_url("http://localhost:1234/v1").is_ok());
+        assert!(normalize_openai_base_url("https://api.example.invalid/v1?token=secret").is_err());
+        assert!(normalize_openai_base_url("https://user:pass@api.example.invalid/v1").is_err());
+    }
+
+    #[test]
+    fn parses_openai_model_catalog_without_returning_untrusted_entries() {
+        let response = serde_json::json!({
+            "data": [
+                {"id": "example-model"},
+                {"id": "example-model"},
+                {"id": "\u{0000}"},
+                {"id": ""}
+            ]
+        });
+        assert_eq!(
+            parse_openai_model_list_response(&response),
+            Some(vec!["example-model".to_owned()])
         );
     }
 

@@ -83,15 +83,7 @@ impl ReqwestHealthChecker {
             IntegrationKind::Bitbucket => "GET /rest/api/1.0/repos?limit=1",
         };
         let Some(secret) = secret.filter(|value| !value.trim().is_empty()) else {
-            let credential_message = if cfg!(debug_assertions) {
-                match kind {
-                    IntegrationKind::Jira =>
-                        "Development Jira credential is missing (set MEWORK_DEV_JIRA_PAT).",
-                    IntegrationKind::Bitbucket => "Development Bitbucket credential is missing (set MEWORK_DEV_BITBUCKET_PAT).",
-                }
-            } else {
-                "Personal access token is missing."
-            };
+            let credential_message = "Personal access token is missing. Add it in Settings.";
             return HealthCheckResult::unavailable(
                 credential_message,
                 format!(

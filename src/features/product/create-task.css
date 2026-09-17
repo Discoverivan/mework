@@ -339,12 +339,19 @@
 }
 
 .create-task-empty {
-  border-style: dashed;
+  display: grid;
+  min-height: 21rem;
+  place-items: center;
+  overflow: hidden;
+  border: 1px dashed color-mix(in srgb, var(--primary) 28%, var(--border));
+  border-radius: 1rem;
+  background: linear-gradient(135deg, color-mix(in srgb, var(--primary) 5%, var(--card)), var(--card) 58%);
   text-align: center;
 }
 
 .create-task-empty > div {
   display: grid;
+  max-width: 32rem;
   place-items: center;
   gap: 0.7rem;
   padding: 3.5rem 1.5rem;

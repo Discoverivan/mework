@@ -103,11 +103,15 @@ body,
 }
 
 .theme-picker {
-  display: grid;
-  gap: 6px;
+  display: flex;
+  justify-content: flex-end;
   margin-top: auto;
   color: var(--muted-foreground);
-  font-size: 13px;
+}
+
+.theme-toggle {
+  width: 32px;
+  height: 32px;
 }
 
 .app-content {
