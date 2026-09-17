@@ -449,25 +449,61 @@ pub fn resolve_codex_binary() -> Option<PathBuf> {
             return Some(path);
         }
     }
+    let windows = cfg!(target_os = "windows");
     if let Some(path) = env::var_os("PATH") {
         for entry in env::split_paths(&path) {
-            let candidate = entry.join("codex");
-            if candidate.is_file() {
-                return Some(candidate);
+            for executable in codex_executable_names(windows) {
+                let candidate = entry.join(executable);
+                if candidate.is_file() {
+                    return Some(candidate);
+                }
             }
         }
     }
-    let home = env::var_os("HOME").map(PathBuf::from);
+    codex_install_paths(
+        env::var_os("HOME").map(PathBuf::from),
+        env::var_os("LOCALAPPDATA").map(PathBuf::from),
+        env::var_os("USERPROFILE").map(PathBuf::from),
+        windows,
+    )
+    .into_iter()
+    .find(|path| path.is_file())
+}
+
+fn codex_executable_names(windows: bool) -> &'static [&'static str] {
+    if windows {
+        &["codex.exe", "codex.cmd", "codex"]
+    } else {
+        &["codex"]
+    }
+}
+
+fn codex_install_paths(
+    home: Option<PathBuf>,
+    local_app_data: Option<PathBuf>,
+    user_profile: Option<PathBuf>,
+    windows: bool,
+) -> Vec<PathBuf> {
+    if windows {
+        let mut candidates = Vec::new();
+        if let Some(local_app_data) = local_app_data {
+            candidates.push(local_app_data.join("Programs/OpenAI/Codex/bin/codex.exe"));
+        }
+        if let Some(user_profile) = user_profile.or(home) {
+            candidates.push(user_profile.join("AppData/Local/Programs/OpenAI/Codex/bin/codex.exe"));
+        }
+        return candidates;
+    }
+
     [
         Some(PathBuf::from("/opt/homebrew/bin/codex")),
         Some(PathBuf::from("/usr/local/bin/codex")),
         home.as_ref().map(|value| value.join(".local/bin/codex")),
-        home.as_ref()
-            .map(|value| value.join(".npm-global/bin/codex")),
+        home.map(|value| value.join(".npm-global/bin/codex")),
     ]
     .into_iter()
     .flatten()
-    .find(|path| path.is_file())
+    .collect()
 }
 
 fn unavailable_provider(path: PathBuf, models: Vec<String>, message: &str) -> AiProviderDto {
@@ -1164,6 +1200,27 @@ mod tests {
             Some("codex-cli 0.142.5".to_owned())
         );
         assert_eq!(safe_first_line(b"\n\n"), None);
+    }
+
+    #[test]
+    fn includes_the_standard_windows_codex_install_path_and_executable_names() {
+        use std::path::PathBuf;
+
+        let user_profile = PathBuf::from("C:/Users/synthetic");
+        let local_app_data = user_profile.join("AppData/Local");
+        let candidates = super::codex_install_paths(
+            Some(user_profile.clone()),
+            Some(local_app_data),
+            Some(user_profile.clone()),
+            true,
+        );
+        let expected = user_profile.join("AppData/Local/Programs/OpenAI/Codex/bin/codex.exe");
+
+        assert!(candidates.iter().any(|candidate| candidate == &expected));
+        assert_eq!(
+            super::codex_executable_names(true),
+            &["codex.exe", "codex.cmd", "codex"]
+        );
     }
 
     #[cfg(unix)]
