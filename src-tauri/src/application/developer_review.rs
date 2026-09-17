@@ -733,7 +733,10 @@ async fn request_openai_review(
     model: &str,
     prompt: String,
 ) -> Result<PullRequestReviewResult, String> {
-    let client = crate::application::ai::openai_http_client(Duration::from_secs(15 * 60))?;
+    let client = crate::application::ai::openai_http_client(
+        Duration::from_secs(15 * 60),
+        runtime.allow_insecure_tls,
+    )?;
     let payload = serde_json::json!({
         "model": model,
         "max_tokens": crate::application::ai::OPENAI_MAX_OUTPUT_TOKENS,
@@ -743,7 +746,12 @@ async fn request_openai_review(
             {"role": "user", "content": prompt}
         ]
     });
-    crate::application::ai::log_openai_chat_request("review", &runtime.base_url, &payload);
+    crate::application::ai::log_openai_chat_request(
+        "review",
+        &runtime.base_url,
+        runtime.allow_insecure_tls,
+        &payload,
+    );
     let response = client
         .post(format!("{}/chat/completions", runtime.base_url))
         .bearer_auth(&runtime.token)
@@ -1104,6 +1112,7 @@ mod tests {
         let runtime = crate::application::ai::OpenAiCompatibleRuntimeConfig {
             base_url: format!("{}/v1", server.uri()),
             token: "synthetic-token".to_owned(),
+            allow_insecure_tls: false,
         };
         let result =
             request_openai_review(&runtime, "example-model", "Review this diff".to_owned())

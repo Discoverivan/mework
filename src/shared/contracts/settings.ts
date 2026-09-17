@@ -18,6 +18,7 @@ export interface AiProvider {
   executablePath?: string;
   version?: string;
   baseUrl?: string;
+  allowInsecureTls?: boolean;
   message?: string;
 }
 
@@ -29,6 +30,7 @@ export interface AiSettingsPageData {
 export interface OpenAiCompatibleProviderSaveInput {
   baseUrl: string;
   token: string;
+  allowInsecureTls?: boolean;
 }
 export type IntegrationKind = "jira" | "bitbucket";
 export type IntegrationHealthStatus = "unknown" | "working" | "unavailable";

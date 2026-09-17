@@ -211,7 +211,6 @@ describe("SettingsPage integrations smoke tests", () => {
     expect(await screen.findByRole("group", { name: "OpenAI-compatible API AI provider" })).toHaveTextContent("Not configured");
     fireEvent.click(screen.getByRole("button", { name: "OpenAI-compatible API" }));
     expect(screen.getByRole("heading", { name: "OpenAI-compatible API" })).toBeInTheDocument();
-    expect(screen.queryByRole("checkbox", { name: /Allow insecure TLS/ })).not.toBeInTheDocument();
     expect(screen.queryByText("Static models")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Add model" })).not.toBeInTheDocument();
     fireEvent.change(screen.getByLabelText("API URL"), {
@@ -220,11 +219,13 @@ describe("SettingsPage integrations smoke tests", () => {
     fireEvent.change(screen.getByLabelText("Token"), {
       target: { value: "synthetic-token" },
     });
+    fireEvent.click(screen.getByRole("checkbox", { name: /Allow insecure TLS/ }));
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
 
     await waitFor(() => expect(saveOpenAiCompatibleProviderMock).toHaveBeenCalledWith({
       baseUrl: "https://api.example.invalid/v1",
       token: "synthetic-token",
+      allowInsecureTls: true,
     }));
     expect(await screen.findByRole("group", { name: "OpenAI-compatible API AI provider" })).toHaveTextContent("Connected");
     expect(screen.queryByLabelText("Token")).not.toBeInTheDocument();
