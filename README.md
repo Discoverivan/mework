@@ -1,22 +1,22 @@
 <div align="center">
-  <a href="https://discoverivan.github.io/mework/">
+  <a href="https://discoverivan.github.io/mework/#downloads">
     <img src="docs/assets/mework-icon.png" alt="mework" width="96" height="96">
   </a>
   <h1>mework</h1>
   <p><strong>A local-first desktop workspace for Jira, pull requests, and AI-assisted delivery.</strong></p>
   <p>
-    <a href="https://discoverivan.github.io/mework/"><strong>Download latest</strong></a>
+    <a href="https://discoverivan.github.io/mework/#downloads"><strong>Download latest</strong></a>
     &nbsp;·&nbsp;
     <a href="https://github.com/Discoverivan/mework/releases/latest">Release notes</a>
     &nbsp;·&nbsp;
     <a href="https://github.com/Discoverivan/mework/actions">Build status</a>
   </p>
   <p>
-    <a href="https://github.com/Discoverivan/mework/releases/download/mework-v0.1.8/mework_0.1.8_aarch64.dmg">macOS · Apple Silicon</a>
+    <a href="https://discoverivan.github.io/mework/#downloads">macOS · Apple Silicon</a>
     &nbsp;·&nbsp;
-    <a href="https://github.com/Discoverivan/mework/releases/download/mework-v0.1.8/mework_0.1.8_x64.dmg">macOS · Intel</a>
+    <a href="https://discoverivan.github.io/mework/#downloads">macOS · Intel</a>
     &nbsp;·&nbsp;
-    <a href="https://github.com/Discoverivan/mework/releases/download/mework-v0.1.8/mework_0.1.8_x64-setup.exe">Windows</a>
+    <a href="https://discoverivan.github.io/mework/#downloads">Windows</a>
   </p>
   <p>
     <img src="https://img.shields.io/github/v/release/Discoverivan/mework?display_name=tag&sort=semver&label=latest" alt="Latest release">
@@ -25,18 +25,18 @@
   </p>
 </div>
 
-## Latest release: `v0.1.8`
+## Download
 
-The current release is available for macOS and Windows. The [download page](https://discoverivan.github.io/mework/) resolves the latest GitHub release automatically; the links below point to the exact `v0.1.8` artifacts.
+The [download page](https://discoverivan.github.io/mework/#downloads) reads the latest published GitHub release at runtime, so its platform links stay current without changing this README.
 
-| Platform | Installer | Updater bundle |
-| --- | --- | --- |
-| macOS · Apple Silicon | [DMG](https://github.com/Discoverivan/mework/releases/download/mework-v0.1.8/mework_0.1.8_aarch64.dmg) | [`.app.tar.gz`](https://github.com/Discoverivan/mework/releases/download/mework-v0.1.8/mework_0.1.8_aarch64.app.tar.gz) · [signature](https://github.com/Discoverivan/mework/releases/download/mework-v0.1.8/mework_0.1.8_aarch64.app.tar.gz.sig) |
-| macOS · Intel | [DMG](https://github.com/Discoverivan/mework/releases/download/mework-v0.1.8/mework_0.1.8_x64.dmg) | [`.app.tar.gz`](https://github.com/Discoverivan/mework/releases/download/mework-v0.1.8/mework_0.1.8_x64.app.tar.gz) · [signature](https://github.com/Discoverivan/mework/releases/download/mework-v0.1.8/mework_0.1.8_x64.app.tar.gz.sig) |
-| Windows · NSIS | [`.exe`](https://github.com/Discoverivan/mework/releases/download/mework-v0.1.8/mework_0.1.8_x64-setup.exe) | [signature](https://github.com/Discoverivan/mework/releases/download/mework-v0.1.8/mework_0.1.8_x64-setup.exe.sig) |
-| Windows · MSI | [`.msi`](https://github.com/Discoverivan/mework/releases/download/mework-v0.1.8/mework_0.1.8_x64_en-US.msi) | [signature](https://github.com/Discoverivan/mework/releases/download/mework-v0.1.8/mework_0.1.8_x64_en-US.msi.sig) |
-
-See the complete [v0.1.8 release](https://github.com/Discoverivan/mework/releases/tag/mework-v0.1.8) for checksums, updater metadata, and all published assets.
+| Platform | Latest download |
+| --- | --- |
+| macOS · Apple Silicon | [Open latest download](https://discoverivan.github.io/mework/#downloads) |
+| macOS · Intel | [Open latest download](https://discoverivan.github.io/mework/#downloads) |
+| Windows · Installer | [Open latest download](https://discoverivan.github.io/mework/#downloads) |
+| Windows · MSI | [Open latest download](https://discoverivan.github.io/mework/#downloads) |
+| Updater metadata | [`latest.json`](https://github.com/Discoverivan/mework/releases/latest/download/latest.json) |
+| All release assets | [Open latest GitHub release](https://github.com/Discoverivan/mework/releases/latest) |
 
 > **macOS note:** the application is ad-hoc signed and not notarized. On first launch, macOS may require **System Settings → Privacy & Security → Open Anyway**.
 
@@ -104,7 +104,7 @@ The static download landing page is [`docs/index.html`](docs/index.html). [`Depl
 
 **https://discoverivan.github.io/mework/**
 
-The page reads the public GitHub Releases API at runtime and falls back to the current `v0.1.8` release links if the API is unavailable. It does not require credentials or a build step.
+The page reads the public GitHub Releases API at runtime and falls back to the latest GitHub release page if the API is unavailable. It contains no credentials, requires no build step, and does not require version-specific edits when a new release is published.
 
 To enable it in a repository that has not used Pages before, select **Settings → Pages → Source: GitHub Actions** once; subsequent updates deploy from the workflow.
 
