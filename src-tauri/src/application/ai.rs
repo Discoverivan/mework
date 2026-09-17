@@ -37,12 +37,15 @@ const AI_KEYRING_SERVICE: &str = if cfg!(debug_assertions) {
 struct OpenAiCompatibleProviderConfig {
     base_url: String,
     credential_ref: String,
+    #[serde(default)]
+    allow_insecure_tls: bool,
 }
 
 #[derive(Debug, Clone)]
 pub struct OpenAiCompatibleRuntimeConfig {
     pub base_url: String,
     pub token: String,
+    pub allow_insecure_tls: bool,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -50,6 +53,8 @@ pub struct OpenAiCompatibleRuntimeConfig {
 pub struct OpenAiCompatibleProviderSaveRequest {
     pub base_url: String,
     pub token: String,
+    #[serde(default)]
+    pub allow_insecure_tls: bool,
 }
 
 #[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq)]
@@ -124,6 +129,7 @@ pub struct AiProviderDto {
     pub executable_path: Option<String>,
     pub version: Option<String>,
     pub base_url: Option<String>,
+    pub allow_insecure_tls: Option<bool>,
     pub message: Option<String>,
 }
 
@@ -161,7 +167,7 @@ pub async fn save_openai_compatible_provider(
         return Err("Token is required".to_owned());
     }
 
-    let models = load_openai_models(&base_url, &request.token).await?;
+    let models = load_openai_models(&base_url, &request.token, request.allow_insecure_tls).await?;
     if models.is_empty() {
         return Err("Authorization succeeded, but the API returned no models".to_owned());
     }
@@ -173,6 +179,7 @@ pub async fn save_openai_compatible_provider(
     let config = OpenAiCompatibleProviderConfig {
         base_url,
         credential_ref: OPENAI_COMPATIBLE_CREDENTIAL_REF.to_owned(),
+        allow_insecure_tls: request.allow_insecure_tls,
     };
     let value = serde_json::to_string(&config)
         .map_err(|_| "failed to serialize OpenAI-compatible API settings".to_owned())?;
@@ -241,6 +248,7 @@ pub fn inspect_codex_cli() -> AiProviderDto {
             executable_path: None,
             version: None,
             base_url: None,
+            allow_insecure_tls: None,
             message: Some("Codex CLI was not found on this computer".to_owned()),
         };
     };
@@ -266,6 +274,7 @@ pub fn inspect_codex_cli() -> AiProviderDto {
             executable_path: Some(path.display().to_string()),
             version,
             base_url: None,
+            allow_insecure_tls: None,
             message: Some("Codex CLI login status could not be checked".to_owned()),
         };
     };
@@ -291,6 +300,7 @@ pub fn inspect_codex_cli() -> AiProviderDto {
             executable_path: Some(path.display().to_string()),
             version,
             base_url: None,
+            allow_insecure_tls: None,
             message: None,
         };
     }
@@ -304,6 +314,7 @@ pub fn inspect_codex_cli() -> AiProviderDto {
         executable_path: Some(path.display().to_string()),
         version,
         base_url: None,
+        allow_insecure_tls: None,
         message: Some("Codex CLI is installed, but it is not signed in".to_owned()),
     }
 }
@@ -469,6 +480,7 @@ fn unavailable_provider(path: PathBuf, models: Vec<String>, message: &str) -> Ai
         executable_path: Some(path.display().to_string()),
         version: None,
         base_url: None,
+        allow_insecure_tls: None,
         message: Some(message.to_owned()),
     }
 }
@@ -546,7 +558,11 @@ pub async fn openai_compatible_runtime_config(
         .map_err(|_| {
             "OpenAI-compatible API token is unavailable in the operating system keyring".to_owned()
         })?;
-    Ok(OpenAiCompatibleRuntimeConfig { base_url, token })
+    Ok(OpenAiCompatibleRuntimeConfig {
+        base_url,
+        token,
+        allow_insecure_tls: config.allow_insecure_tls,
+    })
 }
 
 async fn inspect_openai_compatible(pool: &SqlitePool) -> AiProviderDto {
@@ -567,19 +583,28 @@ async fn inspect_openai_compatible(pool: &SqlitePool) -> AiProviderDto {
                 false,
                 base_url,
                 Vec::new(),
+                Some(config.allow_insecure_tls),
                 Some(
                     "OpenAI-compatible API token is not available in the operating system keyring"
                         .to_owned(),
                 ),
             ),
         };
-    match load_openai_models(&base_url, &token).await {
-        Ok(models) => openai_provider(AiProviderStatus::Connected, true, base_url, models, None),
+    match load_openai_models(&base_url, &token, config.allow_insecure_tls).await {
+        Ok(models) => openai_provider(
+            AiProviderStatus::Connected,
+            true,
+            base_url,
+            models,
+            Some(config.allow_insecure_tls),
+            None,
+        ),
         Err(message) => openai_provider(
             AiProviderStatus::Unavailable,
             false,
             base_url,
             Vec::new(),
+            Some(config.allow_insecure_tls),
             Some(message),
         ),
     }
@@ -591,6 +616,7 @@ fn openai_not_configured_provider() -> AiProviderDto {
         false,
         String::new(),
         Vec::new(),
+        None,
         Some("Configure an API URL and token to load available models".to_owned()),
     )
 }
@@ -601,6 +627,7 @@ fn openai_unavailable_provider(base_url: Option<String>, message: String) -> AiP
         false,
         base_url.unwrap_or_default(),
         Vec::new(),
+        None,
         Some(message),
     )
 }
@@ -610,6 +637,7 @@ fn openai_provider(
     available: bool,
     base_url: String,
     models: Vec<String>,
+    allow_insecure_tls: Option<bool>,
     message: Option<String>,
 ) -> AiProviderDto {
     AiProviderDto {
@@ -621,6 +649,7 @@ fn openai_provider(
         executable_path: None,
         version: None,
         base_url: (!base_url.is_empty()).then_some(base_url),
+        allow_insecure_tls,
         message,
     }
 }
@@ -669,8 +698,14 @@ fn safe_openai_error_label(value: Option<&serde_json::Value>) -> Option<String> 
     Some(label.to_owned())
 }
 
-pub fn openai_http_client(timeout: Duration) -> Result<reqwest::Client, String> {
-    let builder = reqwest::Client::builder().timeout(timeout);
+pub fn openai_http_client(
+    timeout: Duration,
+    allow_insecure_tls: bool,
+) -> Result<reqwest::Client, String> {
+    let mut builder = reqwest::Client::builder().timeout(timeout);
+    if allow_insecure_tls {
+        builder = builder.danger_accept_invalid_certs(true);
+    }
     builder
         .build()
         .map_err(|_| "OpenAI-compatible API client could not be initialized".to_owned())
@@ -689,12 +724,18 @@ pub fn initialize_openai_debug_log(app_data_dir: &Path) {
     let _ = OPENAI_DEBUG_LOG_PATH.set(path);
 }
 
-pub fn log_openai_chat_request(operation: &str, base_url: &str, payload: &Value) {
+pub fn log_openai_chat_request(
+    operation: &str,
+    base_url: &str,
+    allow_insecure_tls: bool,
+    payload: &Value,
+) {
     append_openai_debug_json(&serde_json::json!({
         "event": "request",
         "operation": operation,
         "method": "POST",
         "url": safe_openai_log_url(&format!("{base_url}/chat/completions")),
+        "allow_insecure_tls": allow_insecure_tls,
         "payload": summarize_openai_chat_payload(payload),
     }));
 }
@@ -954,12 +995,20 @@ fn append_openai_content(value: &Value, output: &mut String) {
 
 pub const OPENAI_MAX_OUTPUT_TOKENS: u64 = 30_000;
 
-async fn load_openai_models(base_url: &str, token: &str) -> Result<Vec<String>, String> {
-    query_openai_models(base_url, token).await
+async fn load_openai_models(
+    base_url: &str,
+    token: &str,
+    allow_insecure_tls: bool,
+) -> Result<Vec<String>, String> {
+    query_openai_models(base_url, token, allow_insecure_tls).await
 }
 
-async fn query_openai_models(base_url: &str, token: &str) -> Result<Vec<String>, String> {
-    let client = openai_http_client(Duration::from_secs(10))?;
+async fn query_openai_models(
+    base_url: &str,
+    token: &str,
+    allow_insecure_tls: bool,
+) -> Result<Vec<String>, String> {
+    let client = openai_http_client(Duration::from_secs(10), allow_insecure_tls)?;
     let response = client
         .get(format!("{base_url}/models"))
         .bearer_auth(token)
@@ -1185,7 +1234,7 @@ mod tests {
             .mount(&server)
             .await;
 
-        let models = load_openai_models(&format!("{}/v1", server.uri()), "synthetic-token")
+        let models = load_openai_models(&format!("{}/v1", server.uri()), "synthetic-token", false)
             .await
             .unwrap();
         assert_eq!(models, vec!["example-model", "example-fast-model"]);
@@ -1196,11 +1245,12 @@ mod tests {
         let config = OpenAiCompatibleProviderConfig {
             base_url: "https://api.example.invalid/v1".to_owned(),
             credential_ref: "ai-openai-compatible".to_owned(),
+            allow_insecure_tls: true,
         };
         let value = serde_json::to_value(config).unwrap();
 
         assert!(value.get("staticModels").is_none());
-        assert!(value.get("allowInsecureTls").is_none());
+        assert_eq!(value["allowInsecureTls"], true);
         assert_eq!(value["credentialRef"], "ai-openai-compatible");
     }
 
