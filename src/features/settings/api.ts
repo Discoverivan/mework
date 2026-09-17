@@ -2,6 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import type {
   AiSettings,
   AiSettingsPageData,
+  OpenAiCompatibleProviderSaveInput,
   IntegrationDeleteInput,
   IntegrationHealthCheckInput,
   IntegrationRedacted,
@@ -14,6 +15,9 @@ export const getAiSettings = () => invoke<AiSettingsPageData>("ai_settings");
 
 export const saveAiSettings = (settings: AiSettings) =>
   invoke<AiSettingsPageData>("ai_settings_save", { settings });
+
+export const saveOpenAiCompatibleProvider = (input: OpenAiCompatibleProviderSaveInput) =>
+  invoke<AiSettingsPageData>("ai_openai_compatible_save", { request: input });
 
 export const listIntegrations = () => invoke<IntegrationRedacted[]>("integration_list");
 

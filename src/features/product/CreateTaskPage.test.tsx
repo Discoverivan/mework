@@ -59,6 +59,19 @@ beforeEach(() => {
 });
 
 describe("CreateTaskPage", () => {
+  it("shows an inviting empty state before the first task is created", async () => {
+    render(<CreateTaskPage />);
+
+    expect(await screen.findByRole("heading", { name: "No tasks yet" })).toBeInTheDocument();
+    expect(screen.getByText("Your created Jira tasks will appear here.")).toBeInTheDocument();
+    expect(screen.getByText("Start by describing a task and let AI prepare the draft for you.")).toBeInTheDocument();
+    expect(document.querySelector(".create-task-empty-icon svg.lucide-clipboard-list")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Create your first task" }));
+
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
+    expect(screen.getByPlaceholderText("Describe your task")).toBeInTheDocument();
+  });
+
   it("opens the compact AI description modal", async () => {
     render(<CreateTaskPage />);
 
@@ -92,12 +105,25 @@ describe("CreateTaskPage", () => {
     expect(screen.getByLabelText("Task drafts")).toHaveClass("xl:grid-cols-2");
     expect(screen.getByLabelText("Summary")).toHaveValue("Add audit filters");
     expect(screen.getByLabelText("Description")).toHaveValue("Allow filtering by actor and date.");
+    expect(screen.getByLabelText("Issue type")).toBeEnabled();
     expect(screen.getByLabelText("Epic link")).toBeDisabled();
     await waitFor(() => expect(screen.getByLabelText("Assignee")).toBeEnabled());
     expect(screen.getByLabelText("Sprint")).toBeEnabled();
     fireEvent.click(screen.getByLabelText("Assignee"));
     expect(await screen.findByRole("option", { name: "Unassigned" })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("option", { name: "Unassigned" }));
+  });
+
+  it("shows an AI provider error when draft generation fails", async () => {
+    generateMock.mockRejectedValue(new Error("OpenAI-compatible API authorization failed during task generation"));
+    render(<CreateTaskPage />);
+    fireEvent.click(screen.getByRole("button", { name: "Create task" }));
+    fireEvent.change(screen.getByPlaceholderText("Describe your task"), { target: { value: "Create an audit filter" } });
+    fireEvent.click(screen.getByRole("button", { name: "Create with AI" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "OpenAI-compatible API authorization failed during task generation",
+    );
   });
 
   it("restores task draft state after leaving and returning to the section", async () => {
@@ -209,9 +235,12 @@ describe("CreateTaskPage", () => {
     expect(avatarMock).toHaveBeenCalledWith("team-1", "/secure/avatar/ivan");
     fireEvent.keyDown(document, { key: "Escape" });
     fireEvent.change(screen.getByLabelText("Story points"), { target: { value: "5" } });
+    fireEvent.click(screen.getByLabelText("Issue type"));
+    fireEvent.click(await screen.findByRole("option", { name: "Spike" }));
     fireEvent.click(screen.getByRole("button", { name: "Create" }));
     await waitFor(() => expect(createMock).toHaveBeenCalledWith({
       managedProjectId: "team-1",
+      issueType: "Spike",
       summary: "Initial summary",
       description: "Initial description",
       epicLink: "COREAPI-EPIC-1",
@@ -237,6 +266,7 @@ describe("CreateTaskPage", () => {
 
     await waitFor(() => expect(createMock).toHaveBeenCalledWith({
       managedProjectId: "team-1",
+      issueType: "Task",
       summary: "Edited summary",
       description: "Initial description",
       epicLink: undefined,

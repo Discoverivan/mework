@@ -1,7 +1,7 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { getAiSettings, listIntegrations, saveAiSettings, saveIntegration } from "./api";
+import { getAiSettings, listIntegrations, saveAiSettings, saveIntegration, saveOpenAiCompatibleProvider } from "./api";
 import { SettingsPage } from "./SettingsPage";
 
 vi.mock("./api", () => ({
@@ -11,6 +11,7 @@ vi.mock("./api", () => ({
   refreshIntegrationHealth: vi.fn(),
   saveAiSettings: vi.fn(),
   saveIntegration: vi.fn(),
+  saveOpenAiCompatibleProvider: vi.fn(),
 }));
 
 vi.mock("./planning-projects/api", () => ({
@@ -23,6 +24,7 @@ const getAiSettingsMock = vi.mocked(getAiSettings);
 const listIntegrationsMock = vi.mocked(listIntegrations);
 const saveAiSettingsMock = vi.mocked(saveAiSettings);
 const saveIntegrationMock = vi.mocked(saveIntegration);
+const saveOpenAiCompatibleProviderMock = vi.mocked(saveOpenAiCompatibleProvider);
 
 const jiraIntegration = {
   id: "jira-1",
@@ -52,6 +54,26 @@ const codexAiSettings = {
     models: ["gpt-6-astra", "gpt-5.5"],
     version: "codex-cli 0.142.5",
   }],
+};
+
+const openAiAiSettings = {
+  settings: {
+    provider: "openai-compatible" as const,
+    model: "example-model",
+    reasoning: "medium" as const,
+    fastMode: false,
+  },
+  providers: [
+    ...codexAiSettings.providers,
+    {
+      id: "openai-compatible" as const,
+      name: "OpenAI-compatible API",
+      status: "connected" as const,
+      available: true,
+      models: ["example-model", "example-fast-model"],
+      baseUrl: "https://api.example.invalid/v1",
+    },
+  ],
 };
 
 describe("SettingsPage integrations smoke tests", () => {
@@ -136,5 +158,112 @@ describe("SettingsPage integrations smoke tests", () => {
       reasoning: "high",
       fastMode: true,
     }));
+  });
+
+  it("selects the only available model when an AI provider is chosen", async () => {
+    getAiSettingsMock.mockResolvedValue({
+      settings: {
+        provider: null,
+        model: "",
+        reasoning: "medium",
+        fastMode: false,
+      },
+      providers: [
+        {
+          id: "openai-compatible" as const,
+          name: "OpenAI-compatible API",
+          status: "connected" as const,
+          available: true,
+          models: ["example-model"],
+          baseUrl: "https://api.example.invalid/v1",
+        },
+      ],
+    });
+    render(<SettingsPage />);
+
+    await screen.findByRole("heading", { name: "AI" });
+    fireEvent.change(screen.getByRole("combobox", { name: "AI provider" }), {
+      target: { value: "openai-compatible" },
+    });
+
+    expect(screen.getByRole("combobox", { name: "Model" })).toHaveValue("example-model");
+    expect(screen.queryByText("No available model selected.")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Save AI settings" })).toBeEnabled();
+  });
+
+  it("configures the OpenAI-compatible API and exposes API models for selection", async () => {
+    getAiSettingsMock.mockResolvedValue({
+      ...codexAiSettings,
+      providers: [
+        ...codexAiSettings.providers,
+        {
+          id: "openai-compatible" as const,
+          name: "OpenAI-compatible API",
+          status: "not_configured" as const,
+          available: false,
+          models: [],
+        },
+      ],
+    });
+    saveOpenAiCompatibleProviderMock.mockResolvedValue(openAiAiSettings);
+    render(<SettingsPage />);
+
+    expect(await screen.findByRole("group", { name: "OpenAI-compatible API AI provider" })).toHaveTextContent("Not configured");
+    fireEvent.click(screen.getByRole("button", { name: "OpenAI-compatible API" }));
+    expect(screen.getByRole("heading", { name: "OpenAI-compatible API" })).toBeInTheDocument();
+    expect(screen.queryByText("Static models")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Add model" })).not.toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText("API URL"), {
+      target: { value: "https://api.example.invalid/v1" },
+    });
+    fireEvent.change(screen.getByLabelText("Token"), {
+      target: { value: "synthetic-token" },
+    });
+    fireEvent.click(screen.getByRole("checkbox", { name: /Allow insecure TLS/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(saveOpenAiCompatibleProviderMock).toHaveBeenCalledWith({
+      baseUrl: "https://api.example.invalid/v1",
+      token: "synthetic-token",
+      allowInsecureTls: true,
+    }));
+    expect(await screen.findByRole("group", { name: "OpenAI-compatible API AI provider" })).toHaveTextContent("Connected");
+    expect(screen.queryByLabelText("Token")).not.toBeInTheDocument();
+    expect(screen.getByRole("combobox", { name: "AI provider" })).toHaveTextContent("OpenAI-compatible API");
+    expect(screen.getByRole("combobox", { name: "Model" })).toHaveTextContent("example-model");
+  });
+
+  it("keeps safe OpenAI-compatible authorization errors readable", async () => {
+    getAiSettingsMock.mockResolvedValue({
+      ...codexAiSettings,
+      providers: [
+        ...codexAiSettings.providers,
+        {
+          id: "openai-compatible" as const,
+          name: "OpenAI-compatible API",
+          status: "not_configured" as const,
+          available: false,
+          models: [],
+        },
+      ],
+    });
+    saveOpenAiCompatibleProviderMock.mockRejectedValue(
+      new Error("OpenAI-compatible API authorization failed"),
+    );
+    render(<SettingsPage />);
+
+    await screen.findByRole("group", { name: "OpenAI-compatible API AI provider" });
+    fireEvent.click(screen.getByRole("button", { name: "OpenAI-compatible API" }));
+    fireEvent.change(screen.getByLabelText("API URL"), {
+      target: { value: "https://api.example.invalid/v1" },
+    });
+    fireEvent.change(screen.getByLabelText("Token"), {
+      target: { value: "synthetic-token" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    expect(await screen.findByText(
+      "Unable to configure OpenAI-compatible API: OpenAI-compatible API authorization failed",
+    )).toBeInTheDocument();
   });
 });

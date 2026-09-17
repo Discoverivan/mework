@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { AppShell } from "./AppShell";
 
@@ -29,5 +29,20 @@ describe("AppShell product navigation", () => {
     expect(screen.getByText("5")).toBeInTheDocument();
     expect(screen.queryByRole("link", { name: "Inbox" })).not.toBeInTheDocument();
     expect(screen.queryByRole("link", { name: "Planning" })).not.toBeInTheDocument();
+  });
+
+  it("uses an icon-only theme toggle with an accessible action label", () => {
+    const onThemeChange = vi.fn();
+    render(
+      <AppShell theme="light" onThemeChange={onThemeChange} activeSection="developer-pull-requests">
+        <div>Content</div>
+      </AppShell>,
+    );
+
+    const themeToggle = screen.getByRole("button", { name: "Switch to dark theme" });
+    expect(themeToggle).toHaveClass("theme-toggle");
+    expect(themeToggle).not.toHaveTextContent("White");
+    fireEvent.click(themeToggle);
+    expect(onThemeChange).toHaveBeenCalledWith("dark");
   });
 });

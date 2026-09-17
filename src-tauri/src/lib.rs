@@ -50,16 +50,29 @@ pub fn run() {
 
             let app_data_dir = app.path().app_data_dir()?;
             std::fs::create_dir_all(&app_data_dir)?;
+            #[cfg(debug_assertions)]
+            crate::application::ai::initialize_openai_debug_log(&app_data_dir);
             let database_path = app_data_dir.join(crate::infrastructure::db::DATABASE_FILENAME);
             let pool = tauri::async_runtime::block_on(crate::infrastructure::db::open_database(
                 &database_path,
             ))?;
+            if tauri::async_runtime::block_on(
+                crate::commands::integrations::preload_all_credentials(&pool),
+            )
+            .is_err()
+            {
+                eprintln!("Operating system keyring preload failed");
+            }
             app.manage(crate::commands::presenter::PresenterState::default());
             let background_pool = pool.clone();
             let background_app = app.handle().clone();
             app.manage(pool);
             tauri::async_runtime::spawn(async move {
                 let notifier = crate::os::notifications::NativeNotificationAdapter::new(background_app.clone());
+                // App initialization owns the first health/snapshot pass. Starting the
+                // recurring worker after one interval avoids duplicate keyring prompts and
+                // duplicate provider requests during startup.
+                tokio::time::sleep(Duration::from_secs(300)).await;
                 loop {
                     match crate::commands::integrations::refresh_all_integration_health_background(&background_pool).await {
                         Ok(integrations) => {
@@ -330,6 +343,7 @@ pub fn run() {
             commands::command_board::command_board_run,
             commands::ai::ai_settings,
             commands::ai::ai_settings_save,
+            commands::ai::ai_openai_compatible_save,
             commands::inbox::inbox_list,
             commands::inbox::inbox_update_state,
             commands::integrations::integration_list,

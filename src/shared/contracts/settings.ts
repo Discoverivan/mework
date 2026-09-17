@@ -1,5 +1,5 @@
-export type AiProviderId = "codex-cli";
-export type AiProviderStatus = "loading" | "connected" | "not_found" | "not_authenticated" | "unavailable";
+export type AiProviderId = "codex-cli" | "openai-compatible";
+export type AiProviderStatus = "loading" | "connected" | "not_configured" | "not_found" | "not_authenticated" | "unavailable";
 export type AiReasoning = "minimal" | "low" | "medium" | "high" | "xhigh";
 
 export interface AiSettings {
@@ -17,6 +17,8 @@ export interface AiProvider {
   models: string[];
   executablePath?: string;
   version?: string;
+  baseUrl?: string;
+  allowInsecureTls?: boolean;
   message?: string;
 }
 
@@ -25,6 +27,11 @@ export interface AiSettingsPageData {
   providers: AiProvider[];
 }
 
+export interface OpenAiCompatibleProviderSaveInput {
+  baseUrl: string;
+  token: string;
+  allowInsecureTls?: boolean;
+}
 export type IntegrationKind = "jira" | "bitbucket";
 export type IntegrationHealthStatus = "unknown" | "working" | "unavailable";
 

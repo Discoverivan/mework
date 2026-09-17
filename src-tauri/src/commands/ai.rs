@@ -1,7 +1,9 @@
 use sqlx::SqlitePool;
 use tauri::State;
 
-use crate::application::ai::{self, AiSettings, AiSettingsPageDto};
+use crate::application::ai::{
+    self, AiSettings, AiSettingsPageDto, OpenAiCompatibleProviderSaveRequest,
+};
 
 #[tauri::command]
 pub async fn ai_settings(state: State<'_, SqlitePool>) -> Result<AiSettingsPageDto, String> {
@@ -15,4 +17,12 @@ pub async fn ai_settings_save(
 ) -> Result<AiSettingsPageDto, String> {
     ai::save(&state, settings).await?;
     ai::dto(&state).await
+}
+
+#[tauri::command]
+pub async fn ai_openai_compatible_save(
+    state: State<'_, SqlitePool>,
+    request: OpenAiCompatibleProviderSaveRequest,
+) -> Result<AiSettingsPageDto, String> {
+    ai::save_openai_compatible_provider(&state, request).await
 }

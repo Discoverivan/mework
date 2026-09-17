@@ -6,7 +6,7 @@ mework is a local-first macOS/Windows desktop application for turning Jira and l
 
 - Tauri 2 shell with a React + TypeScript + Vite renderer.
 - Rust local core owns polling, SQLite state, event normalization, workflows, approvals, credentials, notifications, and recovery.
-- SQLite is local-only; production/release secrets are stored in the operating system keyring and never in the renderer or database. Debug development runs can use transient `MEWORK_DEV_JIRA_PAT` and `MEWORK_DEV_BITBUCKET_PAT` environment variables; they are never persisted or logged.
+- SQLite is local-only; credentials for both production and development are stored in the operating system keyring and never in the renderer or database. Development uses a separate keyring namespace from the release application.
 - Polling is the only external-change ingestion mechanism. Webhooks are out of scope.
 
 The first vertical slice is Jira subscription → polling → snapshot → event → inbox → native notification. Hermes is deliberately not required for that slice.
@@ -23,16 +23,9 @@ npm run build
 cargo test --manifest-path src-tauri/Cargo.toml
 ```
 
-These checks do not launch the desktop application. For an intentional UI verification only, fill the local ignored `.env.dev` file and run `npm run tauri:dev` (or the Zed task `mework: UI dev (explicit launch)`):
+These checks do not launch the desktop application. For an intentional UI verification only, run `npm run tauri:dev` (or the Zed task `mework: UI dev (explicit launch)`) and configure Jira/Bitbucket credentials in **Settings → Integrations**. The save flow validates authentication before storing each PAT in the OS keyring.
 
-```dotenv
-MEWORK_DEV_JIRA_URL=https://jira.example
-MEWORK_DEV_JIRA_PAT=<local Jira PAT>
-MEWORK_DEV_BITBUCKET_URL=https://bitbucket.example
-MEWORK_DEV_BITBUCKET_PAT=<local Bitbucket PAT>
-```
-
-The launcher sources `.env.dev`, validates the required variables, and starts `tauri dev` with `src-tauri/tauri.dev.conf.json`. The development application is named `mework-dev` and uses bundle identifier `com.discoverivan.app.mework.dev`; Tauri therefore gives it a separate `app_data_dir` and SQLite database from the release `mework` app. The debug Rust process reads the PAT variables instead of Keychain. They are held only in process memory and are not written to SQLite or returned to the renderer. The dev app also uses a separate icon with a `DEV` badge. The file is ignored by Git.
+The launcher starts `tauri dev` with `src-tauri/tauri.dev.conf.json`. The development application is named `mework-dev` and uses bundle identifier `com.discoverivan.app.mework.dev`; Tauri therefore gives it a separate `app_data_dir` and SQLite database from the release `mework` app. The debug Rust process uses the separate OS keyring namespace `com.discoverivan.app.mework.dev`; it never reads `.env` files, writes PATs to SQLite, or returns them to the renderer. The dev app also uses a separate icon with a `DEV` badge.
 
 Release builds continue to use the standard `src-tauri/tauri.conf.json` and the regular `mework` identifier.
 

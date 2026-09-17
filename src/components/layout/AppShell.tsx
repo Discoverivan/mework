@@ -3,23 +3,17 @@ import {
   CalendarDays,
   Command,
   GitPullRequest,
+  Moon,
   PlugZap,
   Settings2,
   SquarePen,
+  Sun,
   UsersRound,
   type LucideIcon,
 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
-import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 
 export type Theme = "light" | "dark";
 
@@ -142,16 +136,21 @@ export function AppShell({
           </div>
         </nav>
         <div className="theme-picker">
-          <Label htmlFor="theme-select">Theme</Label>
-          <Select value={theme} onValueChange={(value) => onThemeChange(value as Theme)}>
-            <SelectTrigger id="theme-select" aria-label="Theme">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="light">White</SelectItem>
-              <SelectItem value="dark">Dark</SelectItem>
-            </SelectContent>
-          </Select>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="theme-toggle size-8"
+            aria-label={theme === "light" ? "Switch to dark theme" : "Switch to light theme"}
+            title={theme === "light" ? "Switch to dark theme" : "Switch to light theme"}
+            onClick={() => onThemeChange(theme === "light" ? "dark" : "light")}
+          >
+            {theme === "light" ? (
+              <Moon className="size-4" aria-hidden="true" />
+            ) : (
+              <Sun className="size-4" aria-hidden="true" />
+            )}
+          </Button>
         </div>
       </aside>
       <main aria-label="mework" className="app-content">

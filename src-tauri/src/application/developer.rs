@@ -9,11 +9,9 @@ use serde::{Deserialize, Serialize};
 
 use crate::application::developer_review::{self, PullRequestReviewDto};
 use crate::domain::models::{IntegrationHealthStatus, IntegrationKind};
-use crate::infrastructure::credentials::keyring::CredentialStore;
-#[cfg(debug_assertions)]
-use crate::infrastructure::credentials::keyring::DevCredentialStore;
-#[cfg(not(debug_assertions))]
-use crate::infrastructure::credentials::keyring::OsKeyring;
+use crate::infrastructure::credentials::keyring::{
+    CredentialStore, OsKeyring, DEV_KEYRING_SERVICE, PRODUCTION_KEYRING_SERVICE,
+};
 use crate::infrastructure::db::repositories;
 use crate::infrastructure::integrations::bitbucket_dc::client::{
     BitbucketDcClient, BitbucketInlineComment,
@@ -26,8 +24,11 @@ use crate::infrastructure::integrations::bitbucket_dc::models::{
 };
 use sqlx::SqlitePool;
 
-#[cfg(not(debug_assertions))]
-const KEYRING_SERVICE: &str = "com.discoverivan.app.mework";
+const KEYRING_SERVICE: &str = if cfg!(debug_assertions) {
+    DEV_KEYRING_SERVICE
+} else {
+    PRODUCTION_KEYRING_SERVICE
+};
 const REVIEW_FILTERS_SETTING_KEY: &str = "developer.pull_request_review_filters";
 const REVIEW_FILTERS_SCHEMA_VERSION: i64 = 3;
 const PULL_REQUEST_ACTIVITY_SETTING_KEY: &str = "developer.pull_request_activity";
@@ -348,13 +349,6 @@ pub async fn search_bitbucket_repositories(
             false,
         )
     })?;
-    #[cfg(debug_assertions)]
-    let keyring = DevCredentialStore::from_integrations(
-        integrations
-            .iter()
-            .map(|integration| (integration.credential_ref.clone(), integration.kind)),
-    );
-    #[cfg(not(debug_assertions))]
     let keyring = OsKeyring::new(KEYRING_SERVICE);
     let mut result = Vec::new();
     let mut seen = std::collections::HashSet::new();
@@ -430,13 +424,6 @@ pub async fn search_bitbucket_users(
             false,
         )
     })?;
-    #[cfg(debug_assertions)]
-    let keyring = DevCredentialStore::from_integrations(
-        integrations
-            .iter()
-            .map(|integration| (integration.credential_ref.clone(), integration.kind)),
-    );
-    #[cfg(not(debug_assertions))]
     let keyring = OsKeyring::new(KEYRING_SERVICE);
     let mut result = Vec::new();
     let mut seen = std::collections::HashSet::new();
@@ -537,12 +524,6 @@ pub async fn pull_request_diff(
                 false,
             )
         })?;
-    #[cfg(debug_assertions)]
-    let keyring = DevCredentialStore::from_integrations(std::iter::once((
-        integration.credential_ref.clone(),
-        integration.kind,
-    )));
-    #[cfg(not(debug_assertions))]
     let keyring = OsKeyring::new(KEYRING_SERVICE);
     let secret = keyring.load(&integration.credential_ref).map_err(|_| {
         command_error(
@@ -641,13 +622,6 @@ pub async fn sync_my_pull_requests_with_notifications(
             }
         }
     }
-    #[cfg(debug_assertions)]
-    let keyring = DevCredentialStore::from_integrations(
-        integrations
-            .iter()
-            .map(|integration| (integration.credential_ref.clone(), integration.kind)),
-    );
-    #[cfg(not(debug_assertions))]
     let keyring = OsKeyring::new(KEYRING_SERVICE);
     let mut all_values = Vec::new();
     let mut notifications = Vec::new();
@@ -966,12 +940,6 @@ async fn bitbucket_action_context(
         ));
     }
 
-    #[cfg(debug_assertions)]
-    let keyring = DevCredentialStore::from_integrations(std::iter::once((
-        integration.credential_ref.clone(),
-        integration.kind,
-    )));
-    #[cfg(not(debug_assertions))]
     let keyring = OsKeyring::new(KEYRING_SERVICE);
     let secret = keyring.load(&integration.credential_ref).map_err(|_| {
         command_error(

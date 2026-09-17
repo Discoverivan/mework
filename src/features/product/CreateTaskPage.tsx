@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
-import { ExternalLink, LoaderCircle, Plus, RefreshCw, Sparkles, Trash2 } from "lucide-react";
+import { ClipboardList, ExternalLink, LoaderCircle, Plus, RefreshCw, Sparkles, Trash2 } from "lucide-react";
 
 import { PageHeader } from "@/components/shared/PageHeader";
 import { Button } from "@/components/ui/button";
@@ -23,7 +23,7 @@ import {
 } from "@/components/ui/select";
 import type { ManagedProject, PlanningSprint, EpicLinkJqlIssue } from "@/shared/contracts/planning";
 import { listManagedProjects, listTargetSprints, previewEpicLinkJql, loadJiraAvatarData } from "../planning/api";
-import type { CreatedJiraTask, JiraTaskMember } from "./create-task-api";
+import type { CreatedJiraTask, JiraTaskIssueType, JiraTaskMember } from "./create-task-api";
 import { createJiraTask, generateTaskDraft, listJiraTaskTeamMembers } from "./create-task-api";
 
 import "./create-task.css";
@@ -48,6 +48,7 @@ type TaskCard = {
   id: string;
   prompt: string;
   teamId?: string;
+  issueType: JiraTaskIssueType;
   summary: string;
   description: string;
   epicLink: string;
@@ -75,12 +76,17 @@ function stringValue(value: unknown): string | undefined {
   return typeof value === "string" ? value : undefined;
 }
 
+function issueTypeValue(value: unknown): JiraTaskIssueType {
+  return value === "Spike" ? "Spike" : "Task";
+}
+
 function parsePersistedCard(value: unknown): TaskCard | undefined {
   if (!isRecord(value)) return undefined;
   const id = stringValue(value.id);
   const prompt = stringValue(value.prompt);
   const summary = stringValue(value.summary);
   const description = stringValue(value.description);
+  const issueType = issueTypeValue(value.issueType);
   const epicLink = stringValue(value.epicLink);
   const assignee = stringValue(value.assignee);
   const sprint = stringValue(value.sprint);
@@ -106,6 +112,7 @@ function parsePersistedCard(value: unknown): TaskCard | undefined {
     id,
     prompt,
     ...(stringValue(value.teamId) ? { teamId: stringValue(value.teamId) } : {}),
+    issueType,
     summary,
     description,
     epicLink,
@@ -236,6 +243,7 @@ function DraftSkeletonCard() {
             "Sprint",
             "Assignee",
             "Story points",
+            "Issue type",
           ].map((label) => (
             <div key={label} className="grid gap-1.5">
               <span className="text-xs font-medium text-muted-foreground">{label}</span>
@@ -358,8 +366,8 @@ export function CreateTaskPage() {
         status: "ready",
         error: undefined,
       });
-    } catch {
-      updateCard(id, { status: "failed", error: "Unable to create an AI draft" });
+    } catch (error) {
+      updateCard(id, { status: "failed", error: taskErrorMessage(error) });
     }
   };
 
@@ -391,6 +399,7 @@ export function CreateTaskPage() {
         id,
         prompt: value,
         teamId: selectedTeamId,
+        issueType: "Task",
         summary: "",
         description: "",
         epicLink: teams.find((team) => team.id === selectedTeamId)?.defaultEpicLinkKey ?? "",
@@ -415,6 +424,7 @@ export function CreateTaskPage() {
     try {
       const result = await createJiraTask({
         managedProjectId: card.teamId ?? "",
+        issueType: card.issueType,
         summary: card.summary,
         description: card.description,
         epicLink: card.epicLink || undefined,
@@ -477,7 +487,7 @@ export function CreateTaskPage() {
               return (
                 <article key={card.id} className="rounded-xl border border-destructive/40 bg-card p-5 shadow-sm" aria-label="Task draft failed" aria-live="polite">
                   <h2 className="text-base font-semibold text-foreground">AI draft failed</h2>
-                  <p className="mt-2 text-sm text-destructive">{card.error}</p>
+                  <p className="mt-2 text-sm text-destructive" role="alert">{card.error}</p>
                   <div className="mt-5 flex items-center justify-between">
                     <Button type="button" variant="ghost" className="text-muted-foreground" onClick={() => startGeneration(card.id, card.prompt)}>
                       <RefreshCw className="mr-2 h-4 w-4" aria-hidden="true" /> Retry
@@ -509,6 +519,16 @@ export function CreateTaskPage() {
                 {card.status === "created" && card.createdTask?.warning ? <p className="mb-4 text-sm text-amber-700 dark:text-amber-300" role="status">{card.createdTask.warning}</p> : null}
                 {card.error ? <p className="mb-4 text-sm text-destructive" role="alert">{card.error}</p> : null}
                 <div className="grid gap-4">
+                  <div className="grid gap-2">
+                    <Label htmlFor={`draft-issue-type-${card.id}`}>Issue type</Label>
+                    <Select value={card.issueType} onValueChange={(value) => updateCard(card.id, { issueType: issueTypeValue(value) })} disabled={card.status === "created" || card.status === "creating"}>
+                      <SelectTrigger id={`draft-issue-type-${card.id}`} aria-label="Issue type"><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="Task">Task</SelectItem>
+                        <SelectItem value="Spike">Spike</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
                   <div className="grid gap-2">
                     <Label htmlFor={`draft-summary-${card.id}`}>Summary</Label>
                     <Input id={`draft-summary-${card.id}`} value={card.summary} disabled={card.status === "creating" || card.status === "created"} onChange={(event) => updateCard(card.id, { summary: event.target.value })} />
@@ -597,8 +617,22 @@ export function CreateTaskPage() {
             );
           })}
         </div>
-      ) : <div className="create-task-empty" aria-hidden="true" />}
-
+      ) : (
+        <div className="create-task-empty" role="status" aria-labelledby="create-task-empty-title">
+          <div>
+            <div className="create-task-empty-icon">
+              <ClipboardList className="h-6 w-6" aria-hidden="true" />
+            </div>
+            <h2 id="create-task-empty-title">No tasks yet</h2>
+            <p>Your created Jira tasks will appear here.</p>
+            <p>Start by describing a task and let AI prepare the draft for you.</p>
+            <Button type="button" onClick={() => setDialogOpen(true)}>
+              <Plus aria-hidden="true" />
+              Create your first task
+            </Button>
+          </div>
+        </div>
+      )}
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
         <DialogContent className="create-task-dialog">
           <DialogHeader>

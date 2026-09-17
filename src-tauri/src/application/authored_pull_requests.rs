@@ -12,10 +12,9 @@ use crate::application::developer::{
 };
 use crate::application::developer_review;
 use crate::domain::models::{IntegrationHealthStatus, IntegrationKind};
-#[cfg(debug_assertions)]
-use crate::infrastructure::credentials::keyring::{CredentialStore, DevCredentialStore};
-#[cfg(not(debug_assertions))]
-use crate::infrastructure::credentials::keyring::{CredentialStore, OsKeyring};
+use crate::infrastructure::credentials::keyring::{
+    CredentialStore, OsKeyring, DEV_KEYRING_SERVICE, PRODUCTION_KEYRING_SERVICE,
+};
 use crate::infrastructure::db::repositories;
 use crate::infrastructure::integrations::bitbucket_dc::client::BitbucketDcClient;
 use crate::infrastructure::integrations::bitbucket_dc::models::{
@@ -27,8 +26,11 @@ const ACTIVITY_SCHEMA_VERSION: i64 = 2;
 const CACHE_SETTING_KEY: &str = "developer.authored_pull_request_cache";
 const CACHE_SCHEMA_VERSION: i64 = 1;
 const MAX_PAGE_SIZE: u64 = 100;
-#[cfg(not(debug_assertions))]
-const KEYRING_SERVICE: &str = "com.discoverivan.app.mework";
+const KEYRING_SERVICE: &str = if cfg!(debug_assertions) {
+    DEV_KEYRING_SERVICE
+} else {
+    PRODUCTION_KEYRING_SERVICE
+};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
@@ -98,13 +100,6 @@ pub async fn sync_authored_pull_requests_with_notifications(
     let mut all_values = Vec::new();
     let mut notifications = Vec::new();
 
-    #[cfg(debug_assertions)]
-    let keyring = DevCredentialStore::from_integrations(
-        integrations
-            .iter()
-            .map(|integration| (integration.credential_ref.clone(), integration.kind)),
-    );
-    #[cfg(not(debug_assertions))]
     let keyring = OsKeyring::new(KEYRING_SERVICE);
 
     for integration in integrations.into_iter().filter(|value| {
