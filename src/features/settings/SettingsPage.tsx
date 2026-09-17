@@ -55,7 +55,6 @@ type IntegrationForm = {
 type OpenAiCompatibleForm = {
   baseUrl: string;
   token: string;
-  allowInsecureTls: boolean;
 };
 
 type HealthConfirmation = {
@@ -100,7 +99,7 @@ function emptyForm(): IntegrationForm {
 }
 
 function emptyOpenAiCompatibleForm(): OpenAiCompatibleForm {
-  return { baseUrl: "", token: "", allowInsecureTls: false };
+  return { baseUrl: "", token: "" };
 }
 
 function isAllowedOpenAiUrl(value: string): boolean {
@@ -393,7 +392,6 @@ export function SettingsPage({ section = "integrations" }: SettingsPageProps) {
     setOpenAiForm({
       baseUrl: provider?.baseUrl ?? "",
       token: "",
-      allowInsecureTls: provider?.allowInsecureTls ?? false,
     });
     setOpenAiError(null);
     setOpenAiDialogOpen(true);
@@ -421,7 +419,6 @@ export function SettingsPage({ section = "integrations" }: SettingsPageProps) {
       const saved = await saveOpenAiCompatibleProvider({
         baseUrl,
         token: openAiForm.token,
-        allowInsecureTls: openAiForm.allowInsecureTls,
       });
       setAiData(saved);
       setAiDraft(saved.settings);
@@ -827,21 +824,6 @@ export function SettingsPage({ section = "integrations" }: SettingsPageProps) {
                   />
                   <p className="text-sm text-muted-foreground">The token is write-only and is never returned to the UI.</p>
                 </div>
-                <label className="flex items-start gap-3 text-sm">
-                  <input
-                    id="openai-compatible-allow-insecure-tls"
-                    name="allowInsecureTls"
-                    type="checkbox"
-                    checked={openAiForm.allowInsecureTls}
-                    onChange={(event) => setOpenAiForm((current) => ({ ...current, allowInsecureTls: event.target.checked }))}
-                    disabled={openAiSaving}
-                    className="mt-1 size-4 accent-primary"
-                  />
-                  <span>
-                    <span className="font-medium">Allow insecure TLS</span>
-                    <span className="block text-muted-foreground">Disable certificate verification for this OpenAI-compatible API.</span>
-                  </span>
-                </label>
               </form>
             </DialogBody>
             <DialogFooter>

@@ -550,8 +550,7 @@ fn execute_openai_task_draft(
 ) -> Result<TaskDraftDto, String> {
     let prompt = task_prompt(prompt);
     let content = tauri::async_runtime::block_on(async {
-        let client =
-            ai::openai_http_client(Duration::from_secs(15 * 60), runtime.allow_insecure_tls)?;
+        let client = ai::openai_http_client(Duration::from_secs(15 * 60))?;
         let payload = json!({
             "model": model,
             "max_tokens": ai::OPENAI_MAX_OUTPUT_TOKENS,
@@ -561,12 +560,7 @@ fn execute_openai_task_draft(
                 {"role": "user", "content": prompt}
             ]
         });
-        ai::log_openai_chat_request(
-            "task_generation",
-            &runtime.base_url,
-            runtime.allow_insecure_tls,
-            &payload,
-        );
+        ai::log_openai_chat_request("task_generation", &runtime.base_url, &payload);
         let response = client
             .post(format!("{}/chat/completions", runtime.base_url))
             .bearer_auth(&runtime.token)
@@ -813,7 +807,6 @@ mod tests {
         let runtime = OpenAiCompatibleRuntimeConfig {
             base_url: format!("{}/v1", server.uri()),
             token: "synthetic-token".to_owned(),
-            allow_insecure_tls: false,
         };
         let draft = tokio::task::spawn_blocking(move || {
             super::execute_openai_task_draft(&runtime, "example-model", "Create an audit filter")

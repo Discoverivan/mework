@@ -478,9 +478,9 @@ The AI section is above Data Integrations and contains the provider selector, mo
 └──────────────────────────────────────────────┘
 ```
 
-Its initial status is `Not configured`. Clicking the card opens a popup with `API URL`, write-only `Token` and an unchecked `Allow insecure TLS` option. Save and startup inspection always use `GET <base URL>/models` with Bearer authentication; the returned model IDs populate the top `Model` selector. When enabled, insecure TLS is scoped to this OpenAI-compatible provider. Only the URL and TLS flag are stored in SQLite; the token remains in the OS keyring. The same selected provider/model is used by Create task AI drafts and Pull Request Review through `POST <base URL>/chat/completions`; responses still pass native schema validation.
+Its initial status is `Not configured`. Clicking the card opens a popup with `API URL` and write-only `Token`. Save and startup inspection always use `GET <base URL>/models` with Bearer authentication; the returned model IDs populate the top `Model` selector. OpenAI-compatible HTTPS connections always validate certificates; HTTP is allowed only for localhost. Only the URL is stored in SQLite; the token remains in the OS keyring. The same selected provider/model is used by Create task AI drafts and Pull Request Review through `POST <base URL>/chat/completions`; responses still pass native schema validation.
 
-The AI provider DTO returns status, discovered models, safe URL metadata and the TLS flag only. It never returns a token, Authorization header or raw provider response body.
+The AI provider DTO returns status, discovered models and safe URL metadata only. It never returns a token, Authorization header or raw provider response body.
 
 ## 11. Settings / Team settings
 
