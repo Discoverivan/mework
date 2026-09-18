@@ -46,6 +46,9 @@ pub fn run() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .setup(|app| {
             #[cfg(desktop)]
+            crate::os::menu::setup(app)?;
+
+            #[cfg(desktop)]
             crate::os::tray::setup(app)?;
 
             let app_data_dir = app.path().app_data_dir()?;

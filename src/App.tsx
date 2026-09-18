@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { getVersion } from "@tauri-apps/api/app";
 import { listen } from "@tauri-apps/api/event";
 import { AppShell, type AppSection, type Theme } from "./components/layout/AppShell";
 import { SplashScreen } from "./components/shared/SplashScreen";
@@ -44,6 +45,7 @@ function unreadCount(page: MyPullRequestPage): number {
 function App() {
   const initialRoute = routeFromHash(typeof window !== "undefined" ? window.location.hash : "");
   const [theme, setTheme] = useState<Theme>(systemTheme);
+  const [appVersion, setAppVersion] = useState("0.1.0");
   const [route, setRoute] = useState<AppRoute>(initialRoute);
   const [ready, setReady] = useState(false);
   const [unreadPullRequestCount, setUnreadPullRequestCount] = useState(0);
@@ -52,6 +54,12 @@ function App() {
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
   }, [theme]);
+
+  useEffect(() => {
+    void getVersion().then(setAppVersion).catch(() => {
+      // The browser test environment does not expose the Tauri app plugin.
+    });
+  }, []);
 
   useEffect(() => {
     let active = true;
@@ -188,6 +196,7 @@ function App() {
         <AppShell
           theme={theme}
           onThemeChange={setTheme}
+          version={appVersion}
           onNavigate={navigate}
           activeSection={route}
           unreadPullRequestCount={unreadPullRequestCount}

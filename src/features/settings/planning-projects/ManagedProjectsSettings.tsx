@@ -34,7 +34,8 @@ import {
 import type { ManagedProjectSaveInput } from "@/shared/contracts/settings";
 import { deleteManagedProject, listManagedProjects, saveManagedProject } from "./api";
 
-type Action = "save" | "delete" | null;
+type Action = "next" | "save" | "delete" | null;
+type AddTeamStep = "details" | "board";
 
 const ROLE_OPTIONS = ["backend", "frontend", "qa", "devops", "analyst", "product", "architect"];
 
@@ -180,6 +181,13 @@ function formErrors(form: ManagedProjectForm): string[] {
   return errors;
 }
 
+function addTeamDetailsErrors(form: ManagedProjectForm): string[] {
+  const errors: string[] = [];
+  if (!value(form.jiraProjectName)) errors.push("Team name is required.");
+  if (!value(form.jiraProjectKey)) errors.push("Jira Project Key is required.");
+  return errors;
+}
+
 export function reorderMemberIdsAtInsertionIndex(memberIds: string[], draggedId: string, insertionIndex: number): string[] {
   const sourceIndex = memberIds.indexOf(draggedId);
   if (sourceIndex < 0 || insertionIndex < 0 || insertionIndex > memberIds.length) return memberIds;
@@ -198,6 +206,8 @@ export function ManagedProjectsSettings({
 }: ManagedProjectsSettingsProps) {
   const [projects, setProjects] = useState<ManagedProjectSettings[]>([]);
   const [form, setForm] = useState<ManagedProjectForm | null>(null);
+  const [addTeamStep, setAddTeamStep] = useState<AddTeamStep>("details");
+  const [validatedProject, setValidatedProject] = useState<ProjectKeyValidationSuccess | null>(null);
   const [detailProject, setDetailProject] = useState<ManagedProjectSettings | null>(null);
   const [loading, setLoading] = useState(true);
   const [action, setAction] = useState<Action>(null);
@@ -360,6 +370,7 @@ export function ManagedProjectsSettings({
   }, [detailProject, memberSearch]);
 
   const errors = form ? formErrors(form) : [];
+  const addDetailsErrors = form ? addTeamDetailsErrors(form) : [];
   const controlsDisabled = action !== null || teamSaving || boardsLoading;
 
   function updateForm(field: keyof ManagedProjectForm, nextValue: string) {
@@ -384,6 +395,8 @@ export function ManagedProjectsSettings({
   function startAdd() {
     setDetailProject(null);
     resetBoards();
+    setAddTeamStep("details");
+    setValidatedProject(null);
     setSaveError(null);
     setForm(emptyForm(jiraIntegrations.find((integration) => integration.enabled)?.id));
   }
@@ -391,6 +404,8 @@ export function ManagedProjectsSettings({
   function startEdit(project: ManagedProjectSettings) {
     setDetailProject(null);
     resetBoards();
+    setAddTeamStep("details");
+    setValidatedProject(null);
     setSaveError(null);
     setForm(formForProject(project));
   }
@@ -456,6 +471,53 @@ export function ManagedProjectsSettings({
     }
   }
 
+  async function handleNext() {
+    if (!form || form.id || controlsDisabled) return;
+    if (addDetailsErrors.length > 0) {
+      setSaveError(addDetailsErrors.join(" "));
+      return;
+    }
+    if (!value(form.integrationId)) {
+      setSaveError("A Jira integration is required before adding a team.");
+      return;
+    }
+    if (!validateProjectKey) {
+      setSaveError("Project-key validation is unavailable; the team cannot be added yet.");
+      return;
+    }
+
+    setAction("next");
+    setSaveError(null);
+    setBoardsError(null);
+    setBoardsLoading(true);
+    try {
+      const validation = await validateProjectKey(value(form.jiraProjectKey), value(form.integrationId));
+      if ("error" in validation) {
+        setSaveError(validation.error);
+        return;
+      }
+
+      const loaded = await listPlanningProjectBoards({
+        integrationId: value(form.integrationId),
+        projectKey: value(validation.projectKey),
+      });
+      const nextBoards = Array.isArray(loaded) ? loaded : [];
+      if (nextBoards.length === 0) {
+        setBoards([]);
+        setSaveError("No Jira boards were found for this project.");
+        return;
+      }
+      setBoards(nextBoards);
+      setValidatedProject(validation);
+      setAddTeamStep("board");
+    } catch (error) {
+      setSaveError(`Unable to load Jira boards. ${commandError(error)}`);
+    } finally {
+      setBoardsLoading(false);
+      setAction(null);
+    }
+  }
+
   async function handleSave(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!form || errors.length > 0 || controlsDisabled) return;
@@ -463,21 +525,28 @@ export function ManagedProjectsSettings({
     setAction("save");
     setSaveError(null);
     try {
-      if (!validateProjectKey) {
-        setSaveError("Project-key validation is unavailable; the project cannot be saved yet.");
-        return;
-      }
-
       let validation: ProjectKeyValidationResult;
-      try {
-        validation = await validateProjectKey(value(form.jiraProjectKey), value(form.integrationId));
-      } catch (error) {
-        setSaveError(`Unable to validate Jira project key. ${commandError(error)}`);
-        return;
-      }
-      if ("error" in validation) {
-        setSaveError(validation.error);
-        return;
+      if (!form.id) {
+        if (addTeamStep !== "board" || !validatedProject) {
+          setSaveError("Complete project validation before saving the team.");
+          return;
+        }
+        validation = validatedProject;
+      } else {
+        if (!validateProjectKey) {
+          setSaveError("Project-key validation is unavailable; the project cannot be saved yet.");
+          return;
+        }
+        try {
+          validation = await validateProjectKey(value(form.jiraProjectKey), value(form.integrationId));
+        } catch (error) {
+          setSaveError(`Unable to validate Jira project key. ${commandError(error)}`);
+          return;
+        }
+        if ("error" in validation) {
+          setSaveError(validation.error);
+          return;
+        }
       }
 
       const request: ManagedProjectSaveInput = {
@@ -485,7 +554,7 @@ export function ManagedProjectsSettings({
         integrationId: value(form.integrationId),
         jiraProjectId: value(validation.projectId),
         jiraProjectKey: value(validation.projectKey),
-        jiraProjectName: value(validation.projectName ?? form.jiraProjectName),
+        jiraProjectName: value(form.jiraProjectName),
         boardId: value(form.boardId),
         defaultTaskSprintId: value(form.defaultTaskSprintId) || undefined,
         defaultTaskSprintName: value(form.defaultTaskSprintName) || undefined,
@@ -707,6 +776,8 @@ export function ManagedProjectsSettings({
     }
   }
 
+  const isCreatingTeam = form !== null && !form.id;
+
   return (
     <section className="space-y-4" aria-label="Team settings">
       <div className="flex flex-wrap items-start justify-end gap-3">
@@ -721,7 +792,7 @@ export function ManagedProjectsSettings({
           <AlertDescription>Unable to load managed projects. {loadError}</AlertDescription>
         </Alert>
       ) : null}
-      {saveError ? (
+      {saveError && !form ? (
         <Alert variant="destructive" role="alert">
           <AlertDescription>{saveError}</AlertDescription>
         </Alert>
@@ -795,76 +866,167 @@ export function ManagedProjectsSettings({
           <DialogContent>
             <DialogHeader>
               <DialogTitle>{form.id ? "Edit team" : "Add team"}</DialogTitle>
-              <DialogDescription>Connect a Jira team and choose its board.</DialogDescription>
+              <DialogDescription>
+                {isCreatingTeam
+                  ? (addTeamStep === "details" ? "Enter the team name and Jira project key." : "Choose the Jira board for this team.")
+                  : "Connect a Jira team and choose its board."}
+              </DialogDescription>
             </DialogHeader>
-          <div className="grid gap-4">
-            <form className="grid gap-4" onSubmit={(event) => void handleSave(event)} aria-busy={controlsDisabled}>
-              <TextField
-                label="Project name"
-                value={form.jiraProjectName}
-                onChange={(next) => updateForm("jiraProjectName", next)}
-                disabled={controlsDisabled}
-              />
-              <TextField
-                label="Jira Project Key"
-                value={form.jiraProjectKey}
-                onChange={(next) => updateForm("jiraProjectKey", next)}
-                disabled={controlsDisabled}
-                onBlur={() => void handleLoadBoards()}
-              />
-              <div className="grid gap-2">
-                <Label htmlFor="jira-board">Jira board</Label>
-                <div className="flex flex-wrap gap-2">
-                  <select
-                    id="jira-board"
-                    aria-label="Jira board"
-                    className="h-10 min-w-72 rounded-md border border-input bg-background px-3 py-2 text-sm"
-                    value={form.boardId}
-                    onFocus={() => void handleLoadBoards()}
-                    onChange={(event) => updateForm("boardId", event.target.value)}
+            <div className="grid gap-4">
+              {isCreatingTeam && addTeamStep === "details" ? (
+                <form
+                  className="grid gap-4"
+                  onSubmit={(event) => {
+                    event.preventDefault();
+                    void handleNext();
+                  }}
+                  aria-busy={controlsDisabled}
+                >
+                  <TextField
+                    label="Team name"
+                    value={form.jiraProjectName}
+                    onChange={(next) => updateForm("jiraProjectName", next)}
                     disabled={controlsDisabled}
-                  >
-                    <option value="">{boardsLoading ? "Loading Jira boards…" : "Choose a Jira board"}</option>
-                    {boards.map((board) => (
-                      <option key={board.id} value={board.id}>
-                        {board.name} ({board.id})
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                {boardsLoading ? <p role="status">Loading Jira boards for this project…</p> : null}
-                {boardsError ? (
-                  <Alert variant="destructive" role="alert">
-                    <AlertDescription>{boardsError}</AlertDescription>
-                  </Alert>
-                ) : null}
-              </div>
-              {!value(form.integrationId) ? (
-                <Alert variant="destructive" role="alert">
-                  <AlertDescription>A Jira integration is required before adding a project.</AlertDescription>
-                </Alert>
-              ) : null}
-              {errors.length > 0 ? (
-                <Alert variant="destructive" role="alert" aria-live="assertive">
-                  <AlertTitle>Complete the project details</AlertTitle>
-                  <AlertDescription>
-                    <ul className="list-disc pl-5">
-                      {errors.filter((error) => !error.includes("integration")).map((error) => <li key={error}>{error}</li>)}
-                    </ul>
-                  </AlertDescription>
-                </Alert>
-              ) : null}
-
-              <div className="flex flex-wrap gap-2 pt-2">
-                <Button type="submit" disabled={controlsDisabled || errors.length > 0}>
-                  {action === "save" ? "Saving…" : "Save managed project"}
-                </Button>
-                <Button type="button" variant="ghost" onClick={() => setForm(null)} disabled={controlsDisabled}>
-                  Cancel
-                </Button>
-              </div>
-            </form>
-          </div>
+                  />
+                  <TextField
+                    label="Jira Project Key"
+                    value={form.jiraProjectKey}
+                    onChange={(next) => updateForm("jiraProjectKey", next)}
+                    disabled={controlsDisabled}
+                  />
+                  {!value(form.integrationId) ? (
+                    <Alert variant="destructive" role="alert">
+                      <AlertDescription>A Jira integration is required before adding a team.</AlertDescription>
+                    </Alert>
+                  ) : null}
+                  {addDetailsErrors.length > 0 ? (
+                    <Alert variant="destructive" role="alert" aria-live="assertive">
+                      <AlertTitle>Complete the team details</AlertTitle>
+                      <AlertDescription>
+                        <ul className="list-disc pl-5">
+                          {addDetailsErrors.map((error) => <li key={error}>{error}</li>)}
+                        </ul>
+                      </AlertDescription>
+                    </Alert>
+                  ) : null}
+                  {saveError ? (
+                    <Alert variant="destructive" role="alert">
+                      <AlertDescription>{saveError}</AlertDescription>
+                    </Alert>
+                  ) : null}
+                  <div className="flex flex-wrap gap-2 pt-2">
+                    <Button type="submit" disabled={controlsDisabled || addDetailsErrors.length > 0}>
+                      {action === "next" ? "Checking…" : "Next"}
+                    </Button>
+                    <Button type="button" variant="ghost" onClick={() => setForm(null)} disabled={controlsDisabled}>
+                      Cancel
+                    </Button>
+                  </div>
+                </form>
+              ) : (
+                <form className="grid gap-4" onSubmit={(event) => void handleSave(event)} aria-busy={controlsDisabled}>
+                  {isCreatingTeam ? (
+                    <div className="grid gap-3 rounded-md border bg-muted/20 p-3 text-sm">
+                      <div>
+                        <p className="text-muted-foreground">Team name</p>
+                        <p className="font-medium">{form.jiraProjectName}</p>
+                      </div>
+                      <div>
+                        <p className="text-muted-foreground">Jira Project Key</p>
+                        <p className="font-medium">{form.jiraProjectKey}</p>
+                      </div>
+                    </div>
+                  ) : (
+                    <>
+                      <TextField
+                        label="Team name"
+                        value={form.jiraProjectName}
+                        onChange={(next) => updateForm("jiraProjectName", next)}
+                        disabled={controlsDisabled}
+                      />
+                      <TextField
+                        label="Jira Project Key"
+                        value={form.jiraProjectKey}
+                        onChange={(next) => updateForm("jiraProjectKey", next)}
+                        disabled={controlsDisabled}
+                        onBlur={() => void handleLoadBoards()}
+                      />
+                    </>
+                  )}
+                  <div className="grid gap-2">
+                    <Label htmlFor="jira-board">Jira board</Label>
+                    <div className="flex flex-wrap gap-2">
+                      <select
+                        id="jira-board"
+                        aria-label="Jira board"
+                        className="h-10 min-w-72 rounded-md border border-input bg-background px-3 py-2 text-sm"
+                        value={form.boardId}
+                        onFocus={isCreatingTeam ? undefined : () => void handleLoadBoards()}
+                        onChange={(event) => updateForm("boardId", event.target.value)}
+                        disabled={controlsDisabled}
+                      >
+                        <option value="">{boardsLoading ? "Loading Jira boards…" : "Choose a Jira board"}</option>
+                        {boards.map((board) => (
+                          <option key={board.id} value={board.id}>
+                            {board.name} ({board.id})
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    {boardsLoading ? <p role="status">Loading Jira boards for this project…</p> : null}
+                    {boardsError ? (
+                      <Alert variant="destructive" role="alert">
+                        <AlertDescription>{boardsError}</AlertDescription>
+                      </Alert>
+                    ) : null}
+                  </div>
+                  {!value(form.integrationId) && !isCreatingTeam ? (
+                    <Alert variant="destructive" role="alert">
+                      <AlertDescription>A Jira integration is required before editing this team.</AlertDescription>
+                    </Alert>
+                  ) : null}
+                  {errors.length > 0 ? (
+                    <Alert variant="destructive" role="alert" aria-live="assertive">
+                      <AlertTitle>Complete the project details</AlertTitle>
+                      <AlertDescription>
+                        <ul className="list-disc pl-5">
+                          {errors.filter((error) => !error.includes("integration")).map((error) => <li key={error}>{error}</li>)}
+                        </ul>
+                      </AlertDescription>
+                    </Alert>
+                  ) : null}
+                  {saveError ? (
+                    <Alert variant="destructive" role="alert">
+                      <AlertDescription>{saveError}</AlertDescription>
+                    </Alert>
+                  ) : null}
+                  <div className="flex flex-wrap gap-2 pt-2">
+                    {isCreatingTeam ? (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={(event) => {
+                          event.preventDefault();
+                          event.stopPropagation();
+                          setAddTeamStep("details");
+                          setValidatedProject(null);
+                          resetBoards();
+                        }}
+                        disabled={controlsDisabled}
+                      >
+                        Back
+                      </Button>
+                    ) : null}
+                    <Button type="submit" disabled={controlsDisabled || errors.length > 0}>
+                      {action === "save" ? "Saving…" : "Save team"}
+                    </Button>
+                    <Button type="button" variant="ghost" onClick={() => setForm(null)} disabled={controlsDisabled}>
+                      Cancel
+                    </Button>
+                  </div>
+                </form>
+              )}
+            </div>
           </DialogContent>
         </Dialog>
       ) : null}

@@ -1,6 +1,16 @@
 #[cfg(target_os = "macos")]
 use std::time::Duration;
 
+#[cfg(target_os = "macos")]
+use block2::RcBlock;
+#[cfg(target_os = "macos")]
+use objc2_foundation::{NSError, NSString};
+#[cfg(target_os = "macos")]
+use objc2_user_notifications::{
+    UNMutableNotificationContent, UNNotificationRequest, UNNotificationSound,
+    UNUserNotificationCenter,
+};
+
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Runtime};
 
@@ -86,6 +96,42 @@ pub fn open_notification_settings() -> Result<(), String> {
 #[cfg(not(target_os = "macos"))]
 pub fn open_notification_settings() -> Result<(), String> {
     Err("notification settings are only available on macOS".to_owned())
+}
+
+#[cfg(target_os = "macos")]
+pub fn send_test_notification() -> Result<(), String> {
+    use std::sync::mpsc;
+
+    let center = UNUserNotificationCenter::currentNotificationCenter();
+    let content = UNMutableNotificationContent::new();
+    let title = NSString::from_str("mework notification test");
+    let body = NSString::from_str("Notifications are enabled and working.");
+    content.setTitle(&title);
+    content.setBody(&body);
+    let sound = UNNotificationSound::defaultSound();
+    content.setSound(Some(&sound));
+
+    let identifier = NSString::from_str(&format!("mework-test-{}", uuid::Uuid::now_v7()));
+    let request =
+        UNNotificationRequest::requestWithIdentifier_content_trigger(&identifier, &content, None);
+    let (sender, receiver) = mpsc::sync_channel(1);
+    let callback = RcBlock::new(move |error: *mut NSError| {
+        let result = if error.is_null() {
+            Ok(())
+        } else {
+            Err("macOS rejected the notification request".to_owned())
+        };
+        let _ = sender.send(result);
+    });
+    center.addNotificationRequest_withCompletionHandler(&request, Some(&callback));
+    receiver
+        .recv_timeout(Duration::from_secs(2))
+        .map_err(|_| "macOS notification request timed out".to_owned())?
+}
+
+#[cfg(not(target_os = "macos"))]
+pub fn send_test_notification() -> Result<(), String> {
+    Err("native test notifications are only available on macOS".to_owned())
 }
 
 pub trait NotificationAdapter: Send + Sync {

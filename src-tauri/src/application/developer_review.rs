@@ -2,7 +2,6 @@ use std::{
     collections::{HashMap, HashSet},
     fs,
     path::Path,
-    process::Command,
     sync::{Mutex, OnceLock},
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
@@ -13,6 +12,7 @@ use tauri::{AppHandle, Emitter, Runtime};
 use uuid::Uuid;
 
 use super::developer::MyPullRequestDto;
+use crate::application::ai::codex_command;
 use crate::infrastructure::db::repositories;
 
 const REVIEW_STATE_SETTING_KEY: &str = "developer.pull_request_reviews";
@@ -676,7 +676,7 @@ fn execute_review_in_workspace(
     } else {
         "false"
     };
-    let mut command = Command::new(codex);
+    let mut command = codex_command(codex);
     command
         .args([
             "--ask-for-approval",

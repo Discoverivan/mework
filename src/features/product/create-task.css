@@ -458,3 +458,100 @@
     gap: 0.25rem;
   }
 }
+
+.create-task-card-columns {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: start;
+  gap: 1rem;
+}
+
+.create-task-card-column {
+  display: grid;
+  min-width: 0;
+  align-content: start;
+  gap: 1rem;
+}
+
+.create-task-created-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  padding: 0.9rem 1rem 0.85rem;
+  border: 1px solid color-mix(in srgb, var(--success) 38%, var(--border));
+  border-radius: 0.75rem;
+  background: color-mix(in srgb, var(--success) 5%, var(--card));
+  box-shadow: 0 8px 24px color-mix(in srgb, var(--foreground) 5%, transparent);
+}
+
+.create-task-created-card-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.create-task-created-card-main {
+  display: grid;
+  min-width: 0;
+  gap: 0.5rem;
+}
+
+.create-task-created-badge {
+  display: inline-flex;
+  width: fit-content;
+  align-items: center;
+  border: 1px solid color-mix(in srgb, var(--success) 40%, var(--border));
+  border-radius: 0.45rem;
+  background: color-mix(in srgb, var(--success) 12%, var(--card));
+  padding: 0.25rem 0.55rem;
+  color: var(--success);
+  font-size: 0.75rem;
+  font-weight: 750;
+  letter-spacing: 0.02em;
+  line-height: 1;
+}
+
+.create-task-created-title {
+  display: -webkit-box;
+  overflow: hidden;
+  margin: 0;
+  color: var(--foreground);
+  font-size: 1rem;
+  font-weight: 650;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.create-task-created-warning {
+  margin: 0;
+  color: var(--warning-foreground, var(--muted-foreground));
+  font-size: 0.75rem;
+  line-height: 1.35;
+}
+
+.create-task-created-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-top: auto;
+  border-top: 1px solid color-mix(in srgb, var(--border) 80%, transparent);
+  padding-top: 0.6rem;
+}
+
+.create-task-epic-item {
+  padding-left: 0.5rem !important;
+}
+
+.create-task-epic-item > span {
+  left: 0.25rem;
+}
+
+@media (max-width: 720px) {
+  .create-task-card-columns {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

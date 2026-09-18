@@ -102,11 +102,34 @@ body,
   font-size: 13px;
 }
 
-.theme-picker {
+.sidebar-footer {
   display: flex;
-  justify-content: flex-end;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
   margin-top: auto;
   color: var(--muted-foreground);
+}
+
+.sidebar-version {
+  min-width: 0;
+  justify-content: flex-start;
+  overflow: hidden;
+  padding: 0 8px;
+  color: var(--muted-foreground);
+  font-size: 11px;
+}
+
+.sidebar-version a {
+  min-width: 0;
+}
+
+.sidebar-version:hover {
+  color: var(--foreground);
+}
+
+.theme-picker {
+  flex-shrink: 0;
 }
 
 .theme-toggle {
