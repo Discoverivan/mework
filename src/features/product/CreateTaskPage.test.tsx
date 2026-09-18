@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { CreateTaskPage } from "./CreateTaskPage";
@@ -97,16 +97,22 @@ describe("CreateTaskPage", () => {
     fireEvent.click(screen.getByRole("button", { name: "Create with AI" }));
 
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
-    expect(screen.getByRole("article", { name: "AI is thinking" })).toBeInTheDocument();
+    const skeleton = screen.getByRole("article", { name: "AI is thinking" });
+    expect(skeleton).toBeInTheDocument();
+    expect(skeleton.querySelector("svg.lucide-sparkles")).toBeInTheDocument();
     expect(generateMock).toHaveBeenCalledWith("Let admins filter events by actor and date.");
 
     resolveDraft?.({ summary: "Add audit filters", description: "Allow filtering by actor and date." });
-    expect(await screen.findByRole("article", { name: "Editable Jira task draft" })).toBeInTheDocument();
-    expect(screen.getByLabelText("Task drafts")).toHaveClass("xl:grid-cols-2");
+    const draft = await screen.findByRole("article", { name: "Editable Jira task draft" });
+    expect(draft.querySelector("svg.lucide-pencil")).toBeInTheDocument();
+    expect(screen.getByLabelText("Task drafts")).toHaveClass("create-task-card-columns");
+    expect(screen.getByLabelText("Task drafts").querySelectorAll(".create-task-card-column")).toHaveLength(2);
     expect(screen.getByLabelText("Summary")).toHaveValue("Add audit filters");
     expect(screen.getByLabelText("Description")).toHaveValue("Allow filtering by actor and date.");
     expect(screen.getByLabelText("Issue type")).toBeEnabled();
+    expect(screen.getByLabelText("Issue type")).toHaveClass("h-10");
     expect(screen.getByLabelText("Epic link")).toBeDisabled();
+    expect(screen.getByLabelText("Epic link")).toHaveClass("h-10", "px-2");
     await waitFor(() => expect(screen.getByLabelText("Assignee")).toBeEnabled());
     expect(screen.getByLabelText("Sprint")).toBeEnabled();
     fireEvent.click(screen.getByLabelText("Assignee"));
@@ -114,6 +120,49 @@ describe("CreateTaskPage", () => {
     fireEvent.click(screen.getByRole("option", { name: "Unassigned" }));
   });
 
+  it("improves the draft description with additional context", async () => {
+    generateMock
+      .mockResolvedValueOnce({ summary: "Initial summary", description: "Initial description" })
+      .mockResolvedValueOnce({ summary: "Ignored summary", description: "Improved description" });
+    render(<CreateTaskPage />);
+    fireEvent.click(screen.getByRole("button", { name: "Create task" }));
+    fireEvent.change(screen.getByPlaceholderText("Describe your task"), { target: { value: "Create task" } });
+    fireEvent.click(screen.getByRole("button", { name: "Create with AI" }));
+
+    expect(await screen.findByLabelText("Description")).toHaveValue("Initial description");
+    fireEvent.click(screen.getByRole("button", { name: "Improve with AI" }));
+    expect(screen.getByRole("heading", { name: "Improve description with AI" })).toBeInTheDocument();
+    fireEvent.change(screen.getByPlaceholderText(/mention the affected API/), { target: { value: "Mention the audit actor and date filters." } });
+    fireEvent.click(screen.getByRole("button", { name: "Improve description" }));
+
+    await waitFor(() => expect(screen.getByLabelText("Description")).toHaveValue("Improved description"));
+    expect(screen.getByLabelText("Summary")).toHaveValue("Initial summary");
+    expect(generateMock).toHaveBeenNthCalledWith(2, expect.stringContaining("Additional context from the user:\nMention the audit actor and date filters."));
+    expect(screen.queryByRole("heading", { name: "Improve description with AI" })).not.toBeInTheDocument();
+  });
+  it("closes the improve dialog and locks description while AI is working", async () => {
+    let resolveImprovement: ((value: { summary: string; description: string }) => void) | undefined;
+    generateMock
+      .mockResolvedValueOnce({ summary: "Initial summary", description: "Initial description" })
+      .mockReturnValueOnce(new Promise((resolve) => { resolveImprovement = resolve; }));
+    render(<CreateTaskPage />);
+    fireEvent.click(screen.getByRole("button", { name: "Create task" }));
+    fireEvent.change(screen.getByPlaceholderText("Describe your task"), { target: { value: "Create task" } });
+    fireEvent.click(screen.getByRole("button", { name: "Create with AI" }));
+
+    expect(await screen.findByLabelText("Description")).toHaveValue("Initial description");
+    fireEvent.click(screen.getByRole("button", { name: "Improve with AI" }));
+    fireEvent.change(screen.getByPlaceholderText(/mention the affected API/), { target: { value: "Add acceptance criteria." } });
+    fireEvent.click(screen.getByRole("button", { name: "Improve description" }));
+
+    await waitFor(() => expect(screen.queryByRole("heading", { name: "Improve description with AI" })).not.toBeInTheDocument());
+    expect(screen.getByLabelText("Description")).toBeDisabled();
+    expect(screen.getByText("Improving…")).toBeInTheDocument();
+
+    resolveImprovement?.({ summary: "Ignored summary", description: "Improved description" });
+    await waitFor(() => expect(screen.getByLabelText("Description")).toHaveValue("Improved description"));
+    expect(screen.getByLabelText("Description")).toBeEnabled();
+  });
   it("shows an AI provider error when draft generation fails", async () => {
     generateMock.mockRejectedValue(new Error("OpenAI-compatible API authorization failed during task generation"));
     render(<CreateTaskPage />);
@@ -274,8 +323,82 @@ describe("CreateTaskPage", () => {
       sprint: undefined,
       storyPoints: undefined,
     }));
-    expect(await screen.findByText("COREAPI-101")).toBeInTheDocument();
+    const createdCard = await screen.findByRole("article", { name: "Created Jira task COREAPI-101" });
+    expect(createdCard.querySelector("svg.lucide-check")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Edited summary" })).toBeInTheDocument();
+    expect(screen.queryByLabelText("Summary")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Description")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Dismiss" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /Open in Jira/ })).toHaveAttribute("href", "https://jira.example.invalid/browse/COREAPI-101");
+  });
+
+  it("restores persisted task cards by creation date", async () => {
+    window.localStorage.setItem("mework.create-task.state.v1", JSON.stringify({
+      version: 2,
+      selectedTeamId: "team-1",
+      cards: [
+        {
+          id: "newer",
+          createdAt: 200,
+          prompt: "Newer task",
+          teamId: "team-1",
+          issueType: "Task",
+          summary: "Newer summary",
+          description: "Newer description",
+          epicLink: "",
+          assignee: "__unassigned__",
+          sprint: "",
+          storyPoints: "",
+          status: "ready",
+        },
+        {
+          id: "older",
+          createdAt: 100,
+          prompt: "Older task",
+          teamId: "team-1",
+          issueType: "Task",
+          summary: "Older summary",
+          description: "Older description",
+          epicLink: "",
+          assignee: "__unassigned__",
+          sprint: "",
+          storyPoints: "",
+          status: "ready",
+        },
+      ],
+    }));
+    render(<CreateTaskPage />);
+
+    const taskDrafts = screen.getByLabelText("Task drafts");
+    expect(await within(taskDrafts).findByDisplayValue("Older summary")).toBeInTheDocument();
+    expect(within(taskDrafts).getAllByLabelText("Summary").map((input) => (input as HTMLInputElement).value)).toEqual([
+      "Older summary",
+      "Newer summary",
+    ]);
+  });
+  it("keeps task cards in creation order when a draft becomes created", async () => {
+    generateMock
+      .mockResolvedValueOnce({ summary: "First summary", description: "First description" })
+      .mockResolvedValueOnce({ summary: "Second summary", description: "Second description" });
+    createMock.mockResolvedValue({ id: "10001", key: "COREAPI-201", url: "https://jira.example.invalid/browse/COREAPI-201" });
+    render(<CreateTaskPage />);
+
+    const submitPrompt = (value: string) => {
+      fireEvent.click(screen.getByRole("button", { name: "Create task" }));
+      fireEvent.change(screen.getByPlaceholderText("Describe your task"), { target: { value } });
+      fireEvent.click(screen.getByRole("button", { name: "Create with AI" }));
+    };
+    submitPrompt("First task");
+    submitPrompt("Second task");
+
+    const taskDrafts = screen.getByLabelText("Task drafts");
+    await waitFor(() => expect(within(taskDrafts).getAllByRole("article", { name: "Editable Jira task draft" })).toHaveLength(2));
+    const firstCard = within(taskDrafts).getAllByRole("article", { name: "Editable Jira task draft" })[0];
+    fireEvent.click(within(firstCard).getByRole("button", { name: "Create" }));
+
+    await waitFor(() => expect(within(taskDrafts).getByRole("article", { name: "Created Jira task COREAPI-201" })).toBeInTheDocument());
+    expect(within(taskDrafts).getAllByRole("article")[0]).toHaveAccessibleName("Created Jira task COREAPI-201");
+    expect(within(taskDrafts).getAllByRole("article")[1]).toHaveAccessibleName("Editable Jira task draft");
   });
 
   it("deletes the editable draft without a Jira mutation", async () => {

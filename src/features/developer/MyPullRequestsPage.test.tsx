@@ -265,14 +265,14 @@ describe("MyPullRequestsPage", () => {
 
     await waitFor(() => expect(saveSettingsMock).toHaveBeenCalledWith({
       repositoryBlacklist: [],
-      creatorBlacklist: [],
+      creatorBlacklist: ["Test Author A"],
       repositoryWhitelist: [],
-      creatorWhitelist: ["Test Author A"],
+      creatorWhitelist: [],
       autoReviewEnabled: false,
       authoredAutoReviewEnabled: false,
     }));
-    expect(await screen.findByRole("heading", { name: "Example pull request" })).toBeInTheDocument();
-    expect(screen.queryByRole("heading", { name: "Example documentation change" })).not.toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Example documentation change" })).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Example pull request" })).not.toBeInTheDocument();
   });
 
   it("supports separate blacklist and whitelist tabs at the same time", async () => {
@@ -280,9 +280,8 @@ describe("MyPullRequestsPage", () => {
     await screen.findByRole("heading", { name: "Example pull request" });
 
     fireEvent.click(screen.getByRole("button", { name: "Permanent filters" }));
-    expect(screen.getByRole("tab", { name: "Whitelist" })).toHaveAttribute("aria-selected", "true");
-    fireEvent.click(screen.getByRole("tab", { name: "Blacklist" }));
     expect(screen.getByRole("tab", { name: "Blacklist" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByRole("tab", { name: "Whitelist" })).toHaveAttribute("aria-selected", "false");
     fireEvent.change(screen.getByRole("textbox", { name: "Creator filters" }), { target: { value: "Test Author A" } });
     await waitFor(() => expect(searchUsersMock).toHaveBeenCalledWith("Test Author A"));
     fireEvent.click(screen.getByRole("button", { name: "Test Author A (test-author-a)" }));

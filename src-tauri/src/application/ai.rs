@@ -1,5 +1,7 @@
 use std::{
-    env, fs,
+    env,
+    ffi::OsStr,
+    fs,
     io::{BufRead, BufReader, Write},
     path::{Path, PathBuf},
     process::{ChildStdin, Command, Stdio},
@@ -7,6 +9,9 @@ use std::{
     thread,
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
+
+#[cfg(target_os = "windows")]
+use std::os::windows::process::CommandExt;
 
 use reqwest::header::HeaderMap;
 use serde::{Deserialize, Serialize};
@@ -25,6 +30,18 @@ const AI_SETTINGS_SCHEMA_VERSION: i64 = 1;
 const OPENAI_COMPATIBLE_SETTINGS_KEY: &str = "ai.openai-compatible";
 const OPENAI_COMPATIBLE_SETTINGS_SCHEMA_VERSION: i64 = 1;
 const OPENAI_COMPATIBLE_CREDENTIAL_REF: &str = "ai-openai-compatible";
+
+#[cfg(target_os = "windows")]
+const CREATE_NO_WINDOW: u32 = 0x08000000;
+
+pub(crate) fn codex_command(path: impl AsRef<OsStr>) -> Command {
+    let command = Command::new(path);
+    #[cfg(target_os = "windows")]
+    let mut command = command;
+    #[cfg(target_os = "windows")]
+    command.creation_flags(CREATE_NO_WINDOW);
+    command
+}
 
 const AI_KEYRING_SERVICE: &str = if cfg!(debug_assertions) {
     DEV_KEYRING_SERVICE
@@ -253,7 +270,7 @@ pub fn inspect_codex_cli() -> AiProviderDto {
         };
     };
 
-    let version_output = Command::new(&path).arg("--version").output();
+    let version_output = codex_command(&path).arg("--version").output();
     let Ok(version_output) = version_output else {
         return unavailable_provider(path, Vec::new(), "Codex CLI could not be started");
     };
@@ -263,7 +280,7 @@ pub fn inspect_codex_cli() -> AiProviderDto {
     let version =
         safe_first_line(&version_output.stdout).or_else(|| safe_first_line(&version_output.stderr));
 
-    let login_output = Command::new(&path).args(["login", "status"]).output();
+    let login_output = codex_command(&path).args(["login", "status"]).output();
     let Ok(login_output) = login_output else {
         return AiProviderDto {
             id: AiProviderId::CodexCli,
@@ -331,7 +348,7 @@ fn query_codex_models(path: &Path) -> Option<Vec<String>> {
 }
 
 fn query_codex_models_with_timeout(path: &Path, timeout: Duration) -> Option<Vec<String>> {
-    let mut child = Command::new(path)
+    let mut child = codex_command(path)
         .args(["app-server", "--stdio"])
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
