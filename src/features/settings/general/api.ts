@@ -2,6 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { AppLanguage } from "@/i18n/types";
 
 export type NotificationPermission = "granted" | "denied" | "notDetermined";
+export type NotificationTestKind = "review" | "authored";
 export type ThemePreference = "system" | "light" | "dark";
 
 export interface GeneralSettings {
@@ -35,8 +36,8 @@ export const saveGeneralSettings = (input: GeneralSettingsSaveInput) =>
 export const saveAppearanceSettings = (language: AppLanguage, themePreference: ThemePreference) =>
   invoke<GeneralSettings>("general_appearance_save", { language, themePreference });
 
-export const sendNotificationTest = () =>
-  invoke<void>("notification_test");
+export const sendNotificationTest = (notificationKind: NotificationTestKind) =>
+  invoke<void>("notification_test", { notificationKind });
 
 export const openNotificationSettings = () =>
   invoke<void>("notification_open_settings");

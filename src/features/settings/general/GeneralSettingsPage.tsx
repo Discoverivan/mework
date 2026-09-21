@@ -1,6 +1,6 @@
 import type { Update } from "@tauri-apps/plugin-updater";
 
-import { AlertTriangle, CheckCircle2, ChevronDown, RefreshCw } from "lucide-react";
+import { AlertTriangle, BellRing, CheckCircle2, ChevronDown, Download, RefreshCw } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -17,6 +17,7 @@ import {
   sendNotificationTest,
   type GeneralSettings,
   type GeneralSettingsSaveInput,
+  type NotificationTestKind,
   type ThemePreference,
 } from "./api";
 import { useI18n } from "@/i18n/context";
@@ -32,7 +33,8 @@ export function GeneralSettingsPage() {
   const [settings, setSettings] = useState<GeneralSettings | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [testing, setTesting] = useState(false);
+  const [testingNotification, setTestingNotification] = useState<NotificationTestKind | null>(null);
+  const [testedNotification, setTestedNotification] = useState<NotificationTestKind | null>(null);
   const [checkingUpdates, setCheckingUpdates] = useState(false);
   const [updateStatus, setUpdateStatus] = useState<"idle" | "current" | "available" | "error">("idle");
   const [availableUpdate, setAvailableUpdate] = useState<Update | null>(null);
@@ -41,7 +43,6 @@ export function GeneralSettingsPage() {
   const [updateInstallError, setUpdateInstallError] = useState<string | null>(null);
   const [openingSettings, setOpeningSettings] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [testResult, setTestResult] = useState<string | null>(null);
   const savingRef = useRef(false);
   const languageRef = useRef(language);
   const themePreferenceRef = useRef(themePreference);
@@ -91,7 +92,7 @@ export function GeneralSettingsPage() {
     savingRef.current = true;
     setSaving(true);
     setError(null);
-    setTestResult(null);
+    setTestedNotification(null);
     setSettings({ ...settings, ...requested });
     try {
       const appearanceChanged = changes.language !== undefined || changes.themePreference !== undefined;
@@ -111,18 +112,18 @@ export function GeneralSettingsPage() {
     }
   }
 
-  async function handleTestNotification() {
-    setTesting(true);
+  async function handleTestNotification(notificationKind: NotificationTestKind) {
+    setTestingNotification(notificationKind);
+    setTestedNotification(null);
     setError(null);
-    setTestResult(null);
     try {
-      await sendNotificationTest();
-      setTestResult(t("general.testSent"));
+      await sendNotificationTest(notificationKind);
+      setTestedNotification(notificationKind);
     } catch (testError) {
       setError(errorMessage(testError, t("common.unknownError")));
       await loadSettings();
     } finally {
-      setTesting(false);
+      setTestingNotification(null);
     }
   }
 
@@ -300,9 +301,27 @@ export function GeneralSettingsPage() {
           <div className="grid gap-3 border-t pt-4">
             <div className="flex items-center justify-between gap-4 pl-4">
               <div>
-                <Label htmlFor="general-review-notifications-enabled" className="font-medium">
-                  {t("general.notificationsReview")}
-                </Label>
+                <div className="flex items-center gap-1.5">
+                  <Label htmlFor="general-review-notifications-enabled" className="font-medium">
+                    {t("general.notificationsReview")}
+                  </Label>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="h-6 w-6 text-muted-foreground hover:text-foreground [&_svg]:!size-3.5"
+                    onClick={() => void handleTestNotification("review")}
+                    disabled={loading || testingNotification !== null || !(settings?.notificationsEnabled ?? true) || !(settings?.reviewNotificationsEnabled ?? true)}
+                    aria-label={t("general.testReviewNotification")}
+                    title={t("general.testReviewNotification")}
+                  >
+                    {testingNotification === "review"
+                      ? <RefreshCw className="animate-spin" aria-hidden="true" />
+                      : testedNotification === "review"
+                        ? <CheckCircle2 className="text-success" aria-hidden="true" />
+                        : <BellRing aria-hidden="true" />}
+                  </Button>
+                </div>
                 <CardDescription className="mt-1">
                   {t("general.notificationsReviewDescription")}
                 </CardDescription>
@@ -319,9 +338,27 @@ export function GeneralSettingsPage() {
             </div>
             <div className="flex items-center justify-between gap-4 pl-4">
               <div>
-                <Label htmlFor="general-authored-notifications-enabled" className="font-medium">
-                  {t("general.notificationsAuthored")}
-                </Label>
+                <div className="flex items-center gap-1.5">
+                  <Label htmlFor="general-authored-notifications-enabled" className="font-medium">
+                    {t("general.notificationsAuthored")}
+                  </Label>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="h-6 w-6 text-muted-foreground hover:text-foreground [&_svg]:!size-3.5"
+                    onClick={() => void handleTestNotification("authored")}
+                    disabled={loading || testingNotification !== null || !(settings?.notificationsEnabled ?? true) || !(settings?.authoredNotificationsEnabled ?? true)}
+                    aria-label={t("general.testAuthoredNotification")}
+                    title={t("general.testAuthoredNotification")}
+                  >
+                    {testingNotification === "authored"
+                      ? <RefreshCw className="animate-spin" aria-hidden="true" />
+                      : testedNotification === "authored"
+                        ? <CheckCircle2 className="text-success" aria-hidden="true" />
+                        : <BellRing aria-hidden="true" />}
+                  </Button>
+                </div>
                 <CardDescription className="mt-1">
                   {t("general.notificationsAuthoredDescription")}
                 </CardDescription>
@@ -334,47 +371,62 @@ export function GeneralSettingsPage() {
               />
             </div>
           </div>
-          <div className="flex flex-wrap items-center gap-3">
-            <Button type="button" variant="outline" onClick={() => void handleTestNotification()} disabled={loading || testing || !(settings?.notificationsEnabled ?? true)}>
-              {testing ? t("general.sending") : t("general.testNotification")}
-            </Button>
-            {testResult ? (
-              <span className="flex items-center gap-1.5 text-sm text-success" role="status" aria-live="polite">
-                <CheckCircle2 className="size-4" aria-hidden="true" />
-                {testResult}
-              </span>
-            ) : null}
-          </div>
+          <span className="sr-only" role="status" aria-live="polite">
+            {testedNotification ? t("general.testSent") : ""}
+          </span>
         </CardHeader>
       </Card>
 
       <Card>
         <CardHeader className="space-y-4 px-4 pb-4 pt-3.5">
-          <div>
-            <h3 className="text-lg font-semibold leading-tight">{t("general.updates")}</h3>
-            <CardDescription className="mt-1 leading-snug">
-              {t("general.updatesDescription")}
-            </CardDescription>
-          </div>
-          <div className="flex flex-wrap items-center gap-3">
-            <Button type="button" variant="outline" onClick={() => void handleCheckForUpdates()} disabled={checkingUpdates}>
-              <RefreshCw className={`mr-2 size-4 ${checkingUpdates ? "animate-spin" : ""}`} aria-hidden="true" />
-              {checkingUpdates ? t("general.checking") : t("general.checkUpdates")}
-            </Button>
-            {updateStatus === "current" ? <span role="status" className="text-sm text-muted-foreground">{t("general.current")}</span> : null}
-            {updateStatus === "available" ? (
-              <>
-                <span role="status" className="text-sm text-primary">
-                  {t("general.updateAvailable", { version: availableUpdateVersion ?? "" })}
-                </span>
-                <Button type="button" size="sm" onClick={() => void handleInstallUpdate()} disabled={installingUpdate}>
-                  {installingUpdate ? t("general.updating") : t("general.updateNow")}
+          <div className="flex items-center justify-between gap-4">
+            <div>
+              <h3 className="text-lg font-semibold leading-tight">{t("general.updates")}</h3>
+              <CardDescription className="mt-1 leading-snug">
+                {t("general.updatesDescription")}
+              </CardDescription>
+            </div>
+            <div className="flex shrink-0 items-center gap-2">
+              {updateStatus === "available" ? (
+                <Button
+                  type="button"
+                  size="icon"
+                  className="h-9 w-9"
+                  onClick={() => void handleInstallUpdate()}
+                  disabled={checkingUpdates || installingUpdate}
+                  aria-label={installingUpdate
+                    ? t("general.updating", { version: availableUpdateVersion ?? "" })
+                    : t("general.updateNow", { version: availableUpdateVersion ?? "" })}
+                  title={installingUpdate
+                    ? t("general.updating", { version: availableUpdateVersion ?? "" })
+                    : t("general.updateNow", { version: availableUpdateVersion ?? "" })}
+                >
+                  {installingUpdate
+                    ? <RefreshCw className="animate-spin" aria-hidden="true" />
+                    : <Download aria-hidden="true" />}
                 </Button>
-              </>
-            ) : null}
-            {updateInstallError ? <span role="alert" className="text-sm text-destructive">{updateInstallError}</span> : null}
-            {updateStatus === "error" ? <span role="status" className="text-sm text-destructive">{t("general.updateCheckError")}</span> : null}
+              ) : null}
+              <Button
+                type="button"
+                variant="outline"
+                size="icon"
+                className="h-9 w-9"
+                onClick={() => void handleCheckForUpdates()}
+                disabled={checkingUpdates || installingUpdate}
+                aria-label={checkingUpdates ? t("general.checking") : t("general.checkUpdates")}
+                title={checkingUpdates ? t("general.checking") : t("general.checkUpdates")}
+              >
+                <RefreshCw className={checkingUpdates ? "animate-spin" : undefined} aria-hidden="true" />
+              </Button>
+            </div>
           </div>
+          {updateStatus === "current" || updateStatus === "error" || updateInstallError ? (
+            <div className="flex flex-wrap items-center gap-3">
+              {updateStatus === "current" ? <span role="status" className="text-sm text-muted-foreground">{t("general.current")}</span> : null}
+              {updateInstallError ? <span role="alert" className="text-sm text-destructive">{updateInstallError}</span> : null}
+              {updateStatus === "error" ? <span role="status" className="text-sm text-destructive">{t("general.updateCheckError")}</span> : null}
+            </div>
+          ) : null}
         </CardHeader>
       </Card>
     </section>
