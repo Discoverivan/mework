@@ -134,7 +134,12 @@ describe("AuthoredPullRequestsPage", () => {
     expect(screen.getByRole("button", { name: "Mark all as read" })).toHaveClass("h-9");
     expect(screen.getByRole("button", { name: "Mark all as read" })).not.toHaveTextContent("Mark all as read");
     expect(screen.getByRole("button", { name: "Mark all as read" }).parentElement).toBe(updateButton.parentElement);
-    expect(screen.getByText(/Last updated: just now · Next update: in 5 min/)).toBeInTheDocument();
+    const status = screen.getByText("1 authored pull request").closest<HTMLElement>(".page-header-description");
+    expect(status).not.toBeNull();
+    expect(within(status!).getByText("Updated just now")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Show pull request details" }));
+    expect(screen.getByText("Pull request details")).toBeInTheDocument();
+    expect(screen.getByText("Every 5 minutes")).toBeInTheDocument();
     expect(listAuthoredPullRequestsMock).toHaveBeenCalledWith(0, 100);
     expect(refreshAuthoredPullRequestsMock).not.toHaveBeenCalled();
   });

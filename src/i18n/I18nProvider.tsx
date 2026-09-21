@@ -9,6 +9,7 @@ import {
 } from "@/features/settings/general/api";
 import { en, type TranslationKey } from "./locales/en";
 import { ru } from "./locales/ru";
+import { cacheThemePreference, readCachedThemePreference } from "./appearance-cache";
 import { APP_LANGUAGE_LOCALES, AppLanguage, type TranslationParams } from "./types";
 import { I18nContext, type I18nContextValue } from "./context";
 
@@ -27,7 +28,7 @@ function translate(language: AppLanguage, key: TranslationKey, params?: Translat
 
 export function I18nProvider({ children }: { children: ReactNode }) {
   const [language, setLanguage] = useState<AppLanguage>(AppLanguage.English);
-  const [themePreference, setThemePreference] = useState<ThemePreference>("system");
+  const [themePreference, setThemePreference] = useState<ThemePreference>(() => readCachedThemePreference() ?? "system");
   const [appearanceSaving, setAppearanceSaving] = useState(false);
   const languageRef = useRef(language);
   const themePreferenceRef = useRef(themePreference);
@@ -42,6 +43,7 @@ export function I18nProvider({ children }: { children: ReactNode }) {
       if (appearanceRevisionRef.current !== revision) return;
       languageRef.current = settings.language;
       themePreferenceRef.current = settings.themePreference;
+      cacheThemePreference(settings.themePreference);
       setLanguage(settings.language);
       setThemePreference(settings.themePreference);
     }).catch(() => {
@@ -61,6 +63,7 @@ export function I18nProvider({ children }: { children: ReactNode }) {
 
     languageRef.current = requestedLanguage;
     themePreferenceRef.current = requestedThemePreference;
+    cacheThemePreference(requestedThemePreference);
     setLanguage(requestedLanguage);
     setThemePreference(requestedThemePreference);
     setAppearanceSaving(true);
@@ -70,6 +73,7 @@ export function I18nProvider({ children }: { children: ReactNode }) {
       if (appearanceRevisionRef.current === revision) {
         languageRef.current = saved.language;
         themePreferenceRef.current = saved.themePreference;
+        cacheThemePreference(saved.themePreference);
         setLanguage(saved.language);
         setThemePreference(saved.themePreference);
       }
@@ -78,6 +82,7 @@ export function I18nProvider({ children }: { children: ReactNode }) {
       if (appearanceRevisionRef.current === revision) {
         languageRef.current = previousLanguage;
         themePreferenceRef.current = previousThemePreference;
+        cacheThemePreference(previousThemePreference);
         setLanguage(previousLanguage);
         setThemePreference(previousThemePreference);
       }

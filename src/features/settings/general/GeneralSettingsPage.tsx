@@ -8,6 +8,7 @@ import { checkForAvailableUpdate } from "@/components/shared/update-check";
 import { installAvailableUpdate } from "@/components/shared/update-install";
 import { Card, CardDescription, CardHeader } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
+import { Separator } from "@/components/ui/separator";
 import { Switch } from "@/components/ui/switch";
 import {
   generalSettings,
@@ -220,13 +221,13 @@ export function GeneralSettingsPage() {
       ) : null}
 
       <Card>
-        <CardHeader className="gap-4 p-5">
+        <CardHeader className="space-y-4 px-4 pb-4 pt-3.5">
           <div className="flex flex-wrap items-center justify-between gap-4">
             <div>
-              <Label htmlFor="general-language" className="text-lg font-semibold">
+              <Label htmlFor="general-language" className="text-lg font-semibold leading-tight">
                 {t("general.language")}
               </Label>
-              <CardDescription className="mt-1">
+              <CardDescription className="mt-1 leading-snug">
                 {t("general.languageDescription")}
               </CardDescription>
             </div>
@@ -249,13 +250,13 @@ export function GeneralSettingsPage() {
       </Card>
 
       <Card>
-        <CardHeader className="gap-4 p-5">
+        <CardHeader className="space-y-4 px-4 pb-4 pt-3.5">
           <div className="flex flex-wrap items-center justify-between gap-4">
             <div>
-              <Label htmlFor="general-theme" className="text-lg font-semibold">
+              <Label htmlFor="general-theme" className="text-lg font-semibold leading-tight">
                 {t("general.theme")}
               </Label>
-              <CardDescription className="mt-1">
+              <CardDescription className="mt-1 leading-snug">
                 {t("general.themeDescription")}
               </CardDescription>
             </div>
@@ -279,13 +280,13 @@ export function GeneralSettingsPage() {
       </Card>
 
       <Card>
-        <CardHeader className="gap-4 p-5">
-          <div className="flex items-start justify-between gap-4">
+        <CardHeader className="space-y-4 px-4 pb-4 pt-3.5">
+          <div className="flex items-center justify-between gap-4">
             <div>
-              <Label htmlFor="general-notifications-enabled" className="text-lg font-semibold">
+              <Label htmlFor="general-notifications-enabled" className="text-lg font-semibold leading-tight">
                 {t("general.notifications")}
               </Label>
-              <CardDescription className="mt-1">
+              <CardDescription className="mt-1 leading-snug">
                 {t("general.notificationsDescription")}
               </CardDescription>
             </div>
@@ -294,11 +295,10 @@ export function GeneralSettingsPage() {
               checked={settings?.notificationsEnabled ?? true}
               onCheckedChange={(checked) => void handlePreferencesChange({ notificationsEnabled: checked })}
               disabled={loading || saving}
-              className="mt-1"
             />
           </div>
           <div className="grid gap-3 border-t pt-4">
-            <div className="flex items-start justify-between gap-4 pl-4">
+            <div className="flex items-center justify-between gap-4 pl-4">
               <div>
                 <Label htmlFor="general-review-notifications-enabled" className="font-medium">
                   {t("general.notificationsReview")}
@@ -312,10 +312,12 @@ export function GeneralSettingsPage() {
                 checked={settings?.reviewNotificationsEnabled ?? true}
                 onCheckedChange={(checked) => void handlePreferencesChange({ reviewNotificationsEnabled: checked })}
                 disabled={loading || saving || !(settings?.notificationsEnabled ?? true)}
-                className="mt-1"
               />
             </div>
-            <div className="flex items-start justify-between gap-4 pl-4">
+            <div className="pl-4">
+              <Separator />
+            </div>
+            <div className="flex items-center justify-between gap-4 pl-4">
               <div>
                 <Label htmlFor="general-authored-notifications-enabled" className="font-medium">
                   {t("general.notificationsAuthored")}
@@ -329,7 +331,6 @@ export function GeneralSettingsPage() {
                 checked={settings?.authoredNotificationsEnabled ?? true}
                 onCheckedChange={(checked) => void handlePreferencesChange({ authoredNotificationsEnabled: checked })}
                 disabled={loading || saving || !(settings?.notificationsEnabled ?? true)}
-                className="mt-1"
               />
             </div>
           </div>
@@ -348,10 +349,10 @@ export function GeneralSettingsPage() {
       </Card>
 
       <Card>
-        <CardHeader className="gap-4 p-5">
+        <CardHeader className="space-y-4 px-4 pb-4 pt-3.5">
           <div>
-            <h3 className="text-lg font-semibold">{t("general.updates")}</h3>
-            <CardDescription className="mt-1">
+            <h3 className="text-lg font-semibold leading-tight">{t("general.updates")}</h3>
+            <CardDescription className="mt-1 leading-snug">
               {t("general.updatesDescription")}
             </CardDescription>
           </div>

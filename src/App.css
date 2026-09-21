@@ -115,11 +115,14 @@ body,
 .sidebar-version {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
+  height: 28px;
   min-width: 0;
   overflow: hidden;
   padding: 0 8px;
   color: var(--muted-foreground);
   font-size: 11px;
+  line-height: 1;
 }
 
 .theme-picker {
@@ -127,8 +130,8 @@ body,
 }
 
 .theme-toggle {
-  width: 32px;
-  height: 32px;
+  width: 28px;
+  height: 28px;
 }
 
 .app-content {

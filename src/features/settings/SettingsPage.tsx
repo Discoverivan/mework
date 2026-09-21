@@ -613,11 +613,19 @@ export function SettingsPage({ section = "integrations" }: SettingsPageProps) {
 
   return (
     <main className="space-y-6" aria-labelledby="settings-title">
-      <PageHeader
-        title={section === "general" ? t("nav.general") : section === "ai" ? t("nav.aiSettings") : section === "projects" ? t("nav.teamSettings") : t("nav.dataIntegrations")}
-        titleId="settings-title"
-        description={section === "ai" ? t("settings.ai.description") : section === "integrations" ? t("settings.data.description") : undefined}
-      />
+      {section !== "projects" || loading ? (
+        <PageHeader
+          title={section === "general" ? t("nav.general") : section === "ai" ? t("nav.aiSettings") : section === "projects" ? t("nav.teamSettings") : t("nav.dataIntegrations")}
+          titleId="settings-title"
+          description={section === "ai"
+            ? t("settings.ai.description")
+            : section === "integrations"
+              ? t("settings.data.description")
+              : section === "projects"
+                ? t("settings.projects.description")
+                : undefined}
+        />
+      ) : null}
 
       {section !== "general" && loading ? (
         <Alert role="status" aria-live="polite">
@@ -644,13 +652,13 @@ export function SettingsPage({ section = "integrations" }: SettingsPageProps) {
       {section === "general" ? <GeneralSettingsPage /> : null}
 
       {section === "ai" ? (
-        <>
+        <div className="space-y-8">
           <section className="space-y-4" aria-label={t("nav.aiSettings")}>
           <Card>
-            <CardHeader className="gap-4 p-4">
+            <CardHeader className="space-y-4 px-4 pb-4 pt-3.5">
               <div className="grid gap-4 md:grid-cols-4">
-                <div className="grid gap-2">
-                  <Label htmlFor="ai-provider">{t("settings.ai.provider")}</Label>
+                <div className="grid gap-2.5">
+                  <Label htmlFor="ai-provider" className="pl-1">{t("settings.ai.provider")}</Label>
                   <div className="relative">
                     <select
                       id="ai-provider"
@@ -670,8 +678,8 @@ export function SettingsPage({ section = "integrations" }: SettingsPageProps) {
                     <ChevronDown className="pointer-events-none absolute right-3 top-1/2 size-4 -translate-y-1/2 opacity-50" aria-hidden="true" />
                   </div>
                 </div>
-                <div className="grid gap-2">
-                  <Label htmlFor="ai-model">{t("settings.ai.model")}</Label>
+                <div className="grid gap-2.5">
+                  <Label htmlFor="ai-model" className="pl-1">{t("settings.ai.model")}</Label>
                   <div className="relative">
                     <select
                       id="ai-model"
@@ -694,8 +702,8 @@ export function SettingsPage({ section = "integrations" }: SettingsPageProps) {
                     <ChevronDown className="pointer-events-none absolute right-3 top-1/2 size-4 -translate-y-1/2 opacity-50" aria-hidden="true" />
                   </div>
                 </div>
-                <div className="grid gap-2">
-                  <Label htmlFor="ai-reasoning">{t("settings.ai.reasoning")}</Label>
+                <div className="grid gap-2.5">
+                  <Label htmlFor="ai-reasoning" className="pl-1">{t("settings.ai.reasoning")}</Label>
                   <div className="relative">
                     <select
                       id="ai-reasoning"
@@ -724,7 +732,7 @@ export function SettingsPage({ section = "integrations" }: SettingsPageProps) {
                   <Label htmlFor="ai-fast-mode" className="font-medium">{t("settings.ai.fastMode")}</Label>
                 </div>
               </div>
-              <div className="flex flex-wrap items-center gap-3">
+              {aiError || aiSaving || aiSaved || (aiDraft.provider && !aiReady) ? (
                 <div className="text-sm" aria-live="polite">
                   {aiError ? <span className="text-destructive">{aiError}</span> : null}
                   {!aiError && aiSaving ? <span className="text-muted-foreground">{t("settings.common.saving")}</span> : null}
@@ -737,7 +745,7 @@ export function SettingsPage({ section = "integrations" }: SettingsPageProps) {
                     </span>
                   ) : null}
                 </div>
-              </div>
+              ) : null}
             </CardHeader>
           </Card>
         </section>
@@ -752,7 +760,7 @@ export function SettingsPage({ section = "integrations" }: SettingsPageProps) {
           <div aria-label={t("settings.aiProviders.aria")} className="flex w-full flex-col gap-3">
             {(aiData?.providers ?? []).map((candidate) => (
               <Card key={candidate.id} role="group" aria-label={`${candidate.name} AI provider`} className="w-full">
-                <CardHeader className="flex-row items-center justify-between gap-4 p-4">
+                <CardHeader className="flex-row items-center justify-between space-y-0 gap-4 px-4 pb-4 pt-3.5">
                   <button
                     type="button"
                     className="grid min-w-0 flex-1 gap-1.5 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-default"
@@ -760,8 +768,8 @@ export function SettingsPage({ section = "integrations" }: SettingsPageProps) {
                     disabled={candidate.id !== "openai-compatible" || openAiSaving}
                     onClick={candidate.id === "openai-compatible" ? openOpenAiCompatibleDialog : undefined}
                   >
-                    <p className="text-lg font-semibold">{candidate.name}</p>
-                    <CardDescription>
+                    <p className="text-lg font-semibold leading-tight">{candidate.name}</p>
+                    <CardDescription className="leading-snug">
                       {candidate.id === "openai-compatible"
                         ? t("settings.aiProviders.openAiDescription")
                         : t("settings.aiProviders.codexDescription")}
@@ -870,7 +878,7 @@ export function SettingsPage({ section = "integrations" }: SettingsPageProps) {
           </DialogContent>
         </Dialog>
 
-        </>
+        </div>
       ) : null}
 
       {section === "integrations" ? (
@@ -892,7 +900,7 @@ export function SettingsPage({ section = "integrations" }: SettingsPageProps) {
                   selected && "border-primary",
                 )}
               >
-                <CardHeader className="flex-row items-center justify-between gap-4 p-4">
+                <CardHeader className="flex-row items-center justify-between space-y-0 gap-4 px-4 pb-4 pt-3.5">
                   <button
                     type="button"
                     className="grid min-w-0 flex-1 gap-1.5 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
@@ -903,8 +911,8 @@ export function SettingsPage({ section = "integrations" }: SettingsPageProps) {
                       setError(null);
                     }}
                   >
-                    <p className="text-lg font-semibold">{candidate.label}</p>
-                    <CardDescription>
+                    <p className="text-lg font-semibold leading-tight">{candidate.label}</p>
+                    <CardDescription className="leading-snug">
                       {t(candidate.kind === "jira" ? "settings.data.jiraDescription" : "settings.data.bitbucketDescription")}
                     </CardDescription>
                   </button>
@@ -1116,15 +1124,22 @@ export function SettingsPage({ section = "integrations" }: SettingsPageProps) {
             validateProjectKey={validateProjectKey}
           />
         ) : (
-          <Alert aria-labelledby="project-settings-dependency-title">
-            <AlertTitle id="project-settings-dependency-title">{t("settings.projects.configureJira")}</AlertTitle>
-            <AlertDescription>
-              <p>{t("settings.projects.requiresJira")}</p>
-              <Button asChild variant="outline" size="sm" className="mt-3">
-                <a href="#settings/integrations">{t("settings.projects.openIntegrations")}</a>
-              </Button>
-            </AlertDescription>
-          </Alert>
+          <>
+            <PageHeader
+              title={t("nav.teamSettings")}
+              titleId="settings-title"
+              description={t("settings.projects.description")}
+            />
+            <Alert aria-labelledby="project-settings-dependency-title">
+              <AlertTitle id="project-settings-dependency-title">{t("settings.projects.configureJira")}</AlertTitle>
+              <AlertDescription>
+                <p>{t("settings.projects.requiresJira")}</p>
+                <Button asChild variant="outline" size="sm" className="mt-3">
+                  <a href="#settings/integrations">{t("settings.projects.openIntegrations")}</a>
+                </Button>
+              </AlertDescription>
+            </Alert>
+          </>
         )
       ) : null}
     </main>

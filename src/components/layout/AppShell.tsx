@@ -159,7 +159,7 @@ export function AppShell({
             disabled={themeChanging}
           >
             <SelectTrigger
-              className="theme-toggle theme-picker w-8 justify-center gap-0 border-0 bg-transparent p-0 shadow-none [&>span]:flex [&>span]:items-center [&>span]:justify-center [&>svg:last-child]:hidden"
+              className="theme-toggle theme-picker h-7 w-7 justify-center gap-0 border-0 bg-transparent p-0 shadow-none [&>span]:flex [&>span]:items-center [&>span]:justify-center [&>svg:last-child]:hidden"
               aria-label={t("nav.themePicker")}
               title={t("nav.themePicker")}
             >
@@ -188,7 +188,7 @@ export function AppShell({
             <Button
               type="button"
               variant="ghost"
-              className="sidebar-version"
+              className="sidebar-version h-7 px-2 py-0 leading-none"
               aria-label={t("nav.openReleases")}
               title={`${t("nav.developmentBuild")} · ${t("nav.openReleases")}`}
               onClick={() => void openUrl(GITHUB_RELEASES_URL)}
@@ -199,7 +199,7 @@ export function AppShell({
             <Button
               type="button"
               variant="ghost"
-              className="sidebar-version"
+              className="sidebar-version h-7 px-2 py-0 leading-none"
               aria-label={t("nav.openRelease", { version })}
               title={t("nav.openRelease", { version })}
               onClick={() => void openUrl(`${GITHUB_RELEASES_URL}/tag/mework-v${version}`)}
