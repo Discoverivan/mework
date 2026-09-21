@@ -120,6 +120,7 @@ export interface PullRequestListItemProps {
   onStartReview: (pullRequest: MyPullRequest) => void;
   onOpenResults: (pullRequest: MyPullRequest) => void;
   completedLabel?: string;
+  showProjectKey?: boolean;
 }
 
 export function PullRequestListItem({
@@ -132,6 +133,7 @@ export function PullRequestListItem({
   onStartReview,
   onOpenResults,
   completedLabel = "Review Results",
+  showProjectKey = true,
 }: PullRequestListItemProps) {
   const review = pullRequest.review;
   const reviewRunning = reviewStarting || review?.status === "running";
@@ -152,7 +154,7 @@ export function PullRequestListItem({
         <div className="min-w-0 flex-1 space-y-1.5">
           <div className="flex min-w-0 items-center gap-2 pr-review-card-meta">
             <p className="min-w-0 truncate text-sm text-foreground">
-              {pullRequest.projectKey}/{pullRequest.repositorySlug} <span className="ml-2 text-muted-foreground">#{pullRequest.pullRequestId}</span>
+              {showProjectKey ? `${pullRequest.projectKey}/` : ""}{pullRequest.repositorySlug} <span className="ml-2 text-muted-foreground">#{pullRequest.pullRequestId}</span>
             </p>
             <ActivityBadge activity={pullRequest.activity} />
           </div>

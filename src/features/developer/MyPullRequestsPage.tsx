@@ -1,6 +1,6 @@
 import { listen } from "@tauri-apps/api/event";
 import { useCallback, useEffect, useState } from "react";
-import { CheckCheck, Filter, RefreshCw, Sparkles } from "lucide-react";
+import { CheckCheck, Filter, RefreshCw, Settings2, Sparkles } from "lucide-react";
 
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -29,8 +29,10 @@ import type {
 } from "@/shared/contracts/developer";
 
 import { PullRequestListItem } from "./components/PullRequestListItem";
+import { PullRequestDisplayOptionsDialog } from "./components/PullRequestDisplayOptionsDialog";
 import { PullRequestReviewDialog } from "./components/PullRequestReviewDialog";
 import { PullRequestSyncStatus } from "./components/PullRequestSyncStatus";
+import { groupPullRequestsByProject } from "./components/pull-request-projects";
 import { PageHeader } from "@/components/shared/PageHeader";
 
 import { getAiSettings } from "../settings/api";
@@ -162,6 +164,8 @@ export function MyPullRequestsPage() {
   const [creatorSearchLoading, setCreatorSearchLoading] = useState(false);
   const [creatorSearchError, setCreatorSearchError] = useState<string>();
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [displayOptionsOpen, setDisplayOptionsOpen] = useState(false);
+  const [groupByProject, setGroupByProject] = useState(true);
   const [filterTab, setFilterTab] = useState<FilterTab>("whitelist");
   const [quickFilter, setQuickFilter] = useState<QuickFilter>("all");
   const [saving, setSaving] = useState(false);
@@ -422,6 +426,7 @@ export function MyPullRequestsPage() {
   const visiblePullRequests = filteredPullRequests.filter((pullRequest) =>
     quickFilter === "all" || pullRequest.myDecision === "not_reviewed",
   );
+  const projectGroups = groupPullRequestsByProject(visiblePullRequests);
   const reviewDialogPullRequest = reviewDialogKey
     ? pullRequests.find((pullRequest) => pullRequestKey(pullRequest) === reviewDialogKey)
     : undefined;
@@ -585,10 +590,31 @@ export function MyPullRequestsPage() {
   const activeCreatorField = filterField(filterTab, "creator");
   const activeTabLabel = filterTab === "blacklist" ? "Blacklist" : "Whitelist";
 
+  function renderPullRequest(pullRequest: MyPullRequest, showProjectKey: boolean) {
+    const itemKey = pullRequestKey(pullRequest);
+    return (
+      <PullRequestListItem
+        key={itemKey}
+        pullRequest={pullRequest}
+        mode="reviewer"
+        aiReviewReady={aiReviewReady}
+        reviewStarting={reviewStartingKeys.has(itemKey)}
+        showProjectKey={showProjectKey}
+        onOpenPullRequest={(item) => void markRead(item)}
+        onMarkViewed={(item) => void markRead(item)}
+        onStartReview={(item) => void startReview(item)}
+        onOpenResults={(item) => {
+          if (item.activity !== "read") void markRead(item);
+          setReviewDialogKey(pullRequestKey(item));
+        }}
+      />
+    );
+  }
+
   return (
     <section aria-labelledby="pull-request-review-title" className="space-y-4">
       <PageHeader
-        title="Pull Request Review"
+        title="Pull requests awaiting your review"
         titleId="pull-request-review-title"
         description={!loading && !error ? (
           <>
@@ -651,7 +677,19 @@ export function MyPullRequestsPage() {
         >
           Pending your review
         </Button>
-        <div className="ml-auto">
+        <div className="ml-auto flex items-center gap-2">
+          <Button
+            type="button"
+            variant="outline"
+            size="icon"
+            className="h-9 w-9"
+            aria-label="Display options"
+            title="Display options"
+            onClick={() => setDisplayOptionsOpen(true)}
+            disabled={loading}
+          >
+            <Settings2 aria-hidden="true" />
+          </Button>
           <Button
             type="button"
             variant="outline"
@@ -670,7 +708,7 @@ export function MyPullRequestsPage() {
       {loading ? <div role="status" aria-label="Loading pull request review">Loading pull requests…</div> : null}
       {error ? (
         <Alert variant="destructive" role="alert">
-          <AlertTitle>Pull Request Review unavailable</AlertTitle>
+          <AlertTitle>Pull requests awaiting your review unavailable</AlertTitle>
           <AlertDescription>Unable to load pull request review. {error}</AlertDescription>
         </Alert>
       ) : null}
@@ -681,26 +719,22 @@ export function MyPullRequestsPage() {
         <Card><CardContent className="pt-6"><p>No pull requests match the selected filters.</p></CardContent></Card>
       ) : null}
 
-      <div className="inbox-list" aria-live="polite">
-        {visiblePullRequests.map((pullRequest) => {
-          const itemKey = pullRequestKey(pullRequest);
-          return (
-            <PullRequestListItem
-              key={itemKey}
-              pullRequest={pullRequest}
-              mode="reviewer"
-              aiReviewReady={aiReviewReady}
-              reviewStarting={reviewStartingKeys.has(itemKey)}
-              onOpenPullRequest={(item) => void markRead(item)}
-              onMarkViewed={(item) => void markRead(item)}
-              onStartReview={(item) => void startReview(item)}
-              onOpenResults={(item) => {
-                if (item.activity !== "read") void markRead(item);
-                setReviewDialogKey(pullRequestKey(item));
-              }}
-            />
-          );
-        })}
+      <div className={groupByProject ? "space-y-5" : "inbox-list"} aria-live="polite">
+        {groupByProject
+          ? projectGroups.map((group) => (
+              <section key={group.key} aria-label={`${group.projectKey} project`} className="space-y-2">
+                <div className="flex items-center gap-3 border-b pb-2">
+                  <span className="text-sm font-semibold text-foreground">{group.projectKey}</span>
+                  <span className="text-xs text-muted-foreground">
+                    {group.pullRequests.length} {group.pullRequests.length === 1 ? "pull request" : "pull requests"}
+                  </span>
+                </div>
+                <div className="inbox-list">
+                  {group.pullRequests.map((pullRequest) => renderPullRequest(pullRequest, false))}
+                </div>
+              </section>
+            ))
+          : visiblePullRequests.map((pullRequest) => renderPullRequest(pullRequest, true))}
       </div>
 
       <PullRequestReviewDialog
@@ -715,6 +749,13 @@ export function MyPullRequestsPage() {
         onRerunReview={(item) => void startReview(item)}
         onPublishComment={publishReviewComment}
         onSetDecision={updateReviewDecision}
+      />
+
+      <PullRequestDisplayOptionsDialog
+        open={displayOptionsOpen}
+        groupByProject={groupByProject}
+        onOpenChange={setDisplayOptionsOpen}
+        onGroupByProjectChange={setGroupByProject}
       />
 
       <Dialog open={settingsOpen} onOpenChange={setSettingsOpen}>

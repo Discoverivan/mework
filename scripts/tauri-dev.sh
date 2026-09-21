@@ -15,13 +15,13 @@ elif [[ -x "$HOME/.local/bin/node" ]]; then
 fi
 
 if ! command -v node >/dev/null 2>&1; then
-  print -u2 "Node.js >=20.19.0 is required, but node was not found"
+  print -u2 "Node.js >=24.15.0 <25 is required, but node was not found"
   exit 1
 fi
 
-if ! node -e 'const [major, minor] = process.versions.node.split(".").map(Number); process.exit(major > 20 || (major === 20 && minor >= 19) ? 0 : 1)'; then
-  print -u2 "Node.js >=20.19.0 is required (detected $(node --version))"
+if ! node -e 'const [major, minor] = process.versions.node.split(".").map(Number); process.exit(major === 24 && minor >= 15 ? 0 : 1)'; then
+  print -u2 "Node.js >=24.15.0 <25 is required (detected $(node --version))"
   exit 1
 fi
 
-exec npm run tauri -- dev --config src-tauri/tauri.dev.conf.json -- --bin mework-dev
+exec node ./scripts/tauri-dev.mjs

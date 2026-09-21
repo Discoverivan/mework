@@ -202,7 +202,7 @@ describe("MyPullRequestsPage", () => {
     expect(refreshMyPullRequestsMock).not.toHaveBeenCalled();
     expect(screen.getByText("NEW")).toBeInTheDocument();
     expect(screen.getByText("UPDATED")).toBeInTheDocument();
-    expect(screen.getByText("DEMO/sample-repository", { exact: false }).closest("p")).not.toHaveClass("font-semibold");
+    expect(screen.getByText("sample-repository", { exact: false }).closest("p")).not.toHaveTextContent("DEMO/");
     expect(screen.getByText("NEW").closest(".pr-review-card-meta")).toBeInTheDocument();
     expect(screen.getByText("UPDATED").closest(".pr-review-card-meta")).toBeInTheDocument();
     const updateButton = screen.getByRole("button", { name: "Update now" });
@@ -242,6 +242,37 @@ describe("MyPullRequestsPage", () => {
     expect(screen.getByRole("heading", { name: "Pending example pull request" })).toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "Example documentation change" })).not.toBeInTheDocument();
     expect(screen.getByRole("img", { name: "Review pending" })).toBeInTheDocument();
+  });
+
+  it("groups pull requests by Bitbucket project", async () => {
+    listMyPullRequestsMock.mockResolvedValueOnce({
+      ...firstPage,
+      values: [
+        pullRequests[0],
+        pullRequests[1],
+        { ...thirdPullRequest, projectKey: "TOOLS", title: "Tools project change" },
+      ],
+    });
+
+    render(<MyPullRequestsPage />);
+
+    const demoGroup = await screen.findByRole("region", { name: "DEMO project" });
+    const toolsGroup = screen.getByRole("region", { name: "TOOLS project" });
+    expect(within(demoGroup).getByText("2 pull requests")).toBeInTheDocument();
+    expect(within(demoGroup).getByText("sample-repository", { exact: false })).not.toHaveTextContent("DEMO/");
+    expect(within(demoGroup).getByRole("heading", { name: "Example documentation change" })).toBeInTheDocument();
+    expect(within(demoGroup).getByRole("heading", { name: "Example pull request" })).toBeInTheDocument();
+    expect(within(toolsGroup).getByText("1 pull request")).toBeInTheDocument();
+    expect(within(toolsGroup).getByRole("heading", { name: "Tools project change" })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Display options" }));
+    const displayOptions = screen.getByRole("dialog", { name: "Display options" });
+    const groupByProject = within(displayOptions).getByRole("switch", { name: "Group by project" });
+    expect(groupByProject).toBeChecked();
+    fireEvent.click(groupByProject);
+
+    expect(screen.queryByRole("region", { name: "DEMO project" })).not.toBeInTheDocument();
+    expect(screen.getByText("DEMO/sample-repository", { exact: false })).toBeInTheDocument();
   });
 
   it("does not block pull requests while AI settings are pending", async () => {

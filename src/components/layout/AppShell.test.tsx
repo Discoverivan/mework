@@ -15,12 +15,12 @@ describe("AppShell product navigation", () => {
     expect(screen.getByText("Product")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Create task" })).toHaveAttribute("href", "#product/create-task");
     expect(screen.getByRole("link", { name: "Daily" })).toHaveAttribute("href", "#product/daily");
-    expect(screen.getByRole("link", { name: "Pull Request Review, 3 unread" })).toHaveAttribute("href", "#developer/pull-requests");
-    expect(screen.getByRole("link", { name: "Pull Request Review, 3 unread" })).toHaveAttribute("aria-current", "page");
-    expect(screen.getByRole("link", { name: "Pull Request Review, 3 unread" })).toHaveClass("bg-accent", "text-accent-foreground", "px-3");
-    expect(screen.getByRole("link", { name: "My Pull Requests, 5 unread" })).toHaveAttribute("href", "#developer/my-pull-requests");
-    expect(screen.getByRole("link", { name: "My Pull Requests, 5 unread" })).not.toHaveAttribute("aria-current", "page");
-    expect(screen.getByRole("link", { name: "My Pull Requests, 5 unread" }).querySelector("svg")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "PRs to review, 3 unread" })).toHaveAttribute("href", "#developer/pull-requests");
+    expect(screen.getByRole("link", { name: "PRs to review, 3 unread" })).toHaveAttribute("aria-current", "page");
+    expect(screen.getByRole("link", { name: "PRs to review, 3 unread" })).toHaveClass("bg-accent", "text-accent-foreground", "px-3");
+    expect(screen.getByRole("link", { name: "Your PRs, 5 unread" })).toHaveAttribute("href", "#developer/my-pull-requests");
+    expect(screen.getByRole("link", { name: "Your PRs, 5 unread" })).not.toHaveAttribute("aria-current", "page");
+    expect(screen.getByRole("link", { name: "Your PRs, 5 unread" }).querySelector("svg")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Command Board" })).toHaveAttribute("href", "#developer/command-board");
     expect(screen.getByRole("link", { name: "Command Board" }).querySelector("svg")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Create task" }).querySelector("svg")).toBeInTheDocument();

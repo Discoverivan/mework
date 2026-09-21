@@ -3,7 +3,7 @@
   "private": true,
   "version": "0.1.0",
   "engines": {
-    "node": ">=20.19.0"
+    "node": ">=24.15.0 <25"
   },
   "type": "module",
   "scripts": {
@@ -11,7 +11,7 @@
     "build": "tsc && vite build",
     "preview": "vite preview",
     "tauri": "tauri",
-    "tauri:dev": "./scripts/tauri-dev.sh",
+    "tauri:dev": "node ./scripts/tauri-dev.mjs",
     "test": "vitest",
     "lint": "tsc --noEmit"
   },

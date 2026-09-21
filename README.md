@@ -46,8 +46,8 @@ mework keeps day-to-day engineering work in one local desktop workspace:
 
 - **Create task** — describe work in natural language, generate an editable AI draft, choose `Task` or `Spike`, review Jira fields, and create the issue only after an explicit action.
 - **Daily** — inspect active-sprint subtasks by team member, refresh status, and open a second-window presenter view for stand-ups.
-- **Pull Request Review** — poll Bitbucket pull requests, track new or updated activity, run an AI review, inspect severity-grouped comments, and publish an edited comment or decision from the review flow.
-- **My Pull Requests** — follow authored pull requests, surface items that need attention, and optionally run automatic AI review for configured activity.
+- **Pull requests awaiting your review** — poll Bitbucket pull requests, track new or updated activity, run an AI review, inspect severity-grouped comments, and publish an edited comment or decision from the review flow.
+- **Pull requests authored by you** — follow authored pull requests, surface items that need attention, and optionally run automatic AI review for configured activity.
 - **Command Board** — keep local scripts and commands close at hand and run them from a small, editable command board.
 - **Settings** — manage Jira and Bitbucket connections, AI providers, managed teams, notifications, themes, and application updates.
 
@@ -73,7 +73,7 @@ mework keeps day-to-day engineering work in one local desktop workspace:
 
 ### Prerequisites
 
-- Node.js `>=20.19.0` and npm
+- Node.js `>=24.15.0 <25` and npm
 - Rust stable and the native toolchain required by Tauri 2
 - The repository-pinned Node version from [`.nvmrc`](.nvmrc)
 
