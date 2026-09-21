@@ -1,14 +1,16 @@
 import { listen } from "@tauri-apps/api/event";
 import { useCallback, useEffect, useState } from "react";
-import { CheckCheck, RefreshCw, Sparkles } from "lucide-react";
+import { CheckCheck, RefreshCw, Settings2, Sparkles } from "lucide-react";
 
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { PageHeader } from "@/components/shared/PageHeader";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { PullRequestDisplayOptionsDialog } from "./components/PullRequestDisplayOptionsDialog";
 import { PullRequestListItem } from "./components/PullRequestListItem";
 import { PullRequestReviewDialog } from "./components/PullRequestReviewDialog";
 import { PullRequestSyncStatus } from "./components/PullRequestSyncStatus";
+import { groupPullRequestsByProject } from "./components/pull-request-projects";
 import type { AiSettingsPageData } from "@/shared/contracts/settings";
 import type { PullRequestReviewSettings } from "@/shared/contracts/developer";
 import type {
@@ -35,6 +37,7 @@ const LOCAL_ACTIVITY_CHANGED_EVENT = "pull_request_review_activity_changed";
 const REVIEW_CHANGED_EVENT = "pull_request_review_changed";
 
 type AuthoredPullRequestEvent = MyPullRequestPage;
+type QuickFilter = "all" | "needs_action";
 
 function commandError(error: unknown): string {
   if (error instanceof Error) return error.message;
@@ -83,6 +86,9 @@ export function AuthoredPullRequestsPage() {
   const [now, setNow] = useState(() => Date.now());
   const [reviewStartingKeys, setReviewStartingKeys] = useState<Set<string>>(() => new Set());
   const [reviewDialogKey, setReviewDialogKey] = useState<string>();
+  const [displayOptionsOpen, setDisplayOptionsOpen] = useState(false);
+  const [groupByProject, setGroupByProject] = useState(true);
+  const [quickFilter, setQuickFilter] = useState<QuickFilter>("all");
 
   useEffect(() => {
     const timer = window.setInterval(() => setNow(Date.now()), 30_000);
@@ -306,11 +312,39 @@ export function AuthoredPullRequestsPage() {
   const reviewDialogPullRequest = reviewDialogKey
     ? pullRequests.find((item) => pullRequestKey(item) === reviewDialogKey)
     : undefined;
+  const visiblePullRequests = pullRequests.filter((pullRequest) =>
+    quickFilter === "all"
+      || pullRequest.needsAction
+      || (pullRequest.reviewSummary?.needsWork ?? 0) > 0,
+  );
+  const projectGroups = groupPullRequestsByProject(visiblePullRequests);
+
+  function renderPullRequest(pullRequest: MyPullRequest, showProjectKey: boolean) {
+    const key = pullRequestKey(pullRequest);
+    return (
+      <PullRequestListItem
+        key={key}
+        pullRequest={pullRequest}
+        mode="author"
+        aiReviewReady={aiReviewReady}
+        reviewStarting={reviewStartingKeys.has(key)}
+        completedLabel="View results"
+        showProjectKey={showProjectKey}
+        onOpenPullRequest={(item) => void markRead(item)}
+        onMarkViewed={(item) => void markRead(item)}
+        onStartReview={(item) => void startReview(item)}
+        onOpenResults={(item) => {
+          void markRead(item);
+          setReviewDialogKey(pullRequestKey(item));
+        }}
+      />
+    );
+  }
 
   return (
     <section aria-labelledby="my-pull-requests-title" className="space-y-4">
       <PageHeader
-        title="My Pull Requests"
+        title="Pull requests authored by you"
         titleId="my-pull-requests-title"
         description={!loading && !error ? (
           <>
@@ -352,38 +386,73 @@ export function AuthoredPullRequestsPage() {
         )}
       />
 
+      <div role="tablist" aria-label="My pull request quick filters" className="flex flex-wrap items-center gap-2">
+        <Button
+          type="button"
+          role="tab"
+          size="sm"
+          variant={quickFilter === "all" ? "default" : "outline"}
+          aria-selected={quickFilter === "all"}
+          onClick={() => setQuickFilter("all")}
+        >
+          All
+        </Button>
+        <Button
+          type="button"
+          role="tab"
+          size="sm"
+          variant={quickFilter === "needs_action" ? "default" : "outline"}
+          aria-selected={quickFilter === "needs_action"}
+          onClick={() => setQuickFilter("needs_action")}
+        >
+          Needs action
+        </Button>
+        <div className="ml-auto flex items-center gap-2">
+          <Button
+            type="button"
+            variant="outline"
+            size="icon"
+            className="h-9 w-9"
+            aria-label="Display options"
+            title="Display options"
+            onClick={() => setDisplayOptionsOpen(true)}
+            disabled={loading}
+          >
+            <Settings2 aria-hidden="true" />
+          </Button>
+        </div>
+      </div>
+
       {loading ? <div role="status" aria-label="Loading my pull requests">Loading pull requests…</div> : null}
       {error ? (
         <Alert variant="destructive" role="alert">
-          <AlertTitle>My Pull Requests unavailable</AlertTitle>
+          <AlertTitle>Pull requests authored by you unavailable</AlertTitle>
           <AlertDescription>Unable to load your pull requests. {error}</AlertDescription>
         </Alert>
       ) : null}
       {!loading && !error && pullRequests.length === 0 ? (
         <Card><CardContent className="pt-6"><p>No open pull requests authored by you.</p></CardContent></Card>
       ) : null}
+      {!loading && !error && pullRequests.length > 0 && visiblePullRequests.length === 0 ? (
+        <Card><CardContent className="pt-6"><p>No pull requests match the selected filters.</p></CardContent></Card>
+      ) : null}
 
-      <div className="inbox-list" aria-live="polite">
-        {pullRequests.map((pullRequest) => {
-          const key = pullRequestKey(pullRequest);
-          return (
-            <PullRequestListItem
-              key={key}
-              pullRequest={pullRequest}
-              mode="author"
-              aiReviewReady={aiReviewReady}
-              reviewStarting={reviewStartingKeys.has(key)}
-              completedLabel="View results"
-              onOpenPullRequest={(item) => void markRead(item)}
-              onMarkViewed={(item) => void markRead(item)}
-              onStartReview={(item) => void startReview(item)}
-              onOpenResults={(item) => {
-                void markRead(item);
-                setReviewDialogKey(pullRequestKey(item));
-              }}
-            />
-          );
-        })}
+      <div className={groupByProject ? "space-y-5" : "inbox-list"} aria-live="polite">
+        {groupByProject
+          ? projectGroups.map((group) => (
+              <section key={group.key} aria-label={`${group.projectKey} project`} className="space-y-2">
+                <div className="flex items-center gap-3 border-b pb-2">
+                  <span className="text-sm font-semibold text-foreground">{group.projectKey}</span>
+                  <span className="text-xs text-muted-foreground">
+                    {group.pullRequests.length} {group.pullRequests.length === 1 ? "pull request" : "pull requests"}
+                  </span>
+                </div>
+                <div className="inbox-list">
+                  {group.pullRequests.map((pullRequest) => renderPullRequest(pullRequest, false))}
+                </div>
+              </section>
+            ))
+          : visiblePullRequests.map((pullRequest) => renderPullRequest(pullRequest, true))}
       </div>
 
       <PullRequestReviewDialog
@@ -396,6 +465,13 @@ export function AuthoredPullRequestsPage() {
         }}
         onOpenPullRequest={(item) => void markRead(item)}
         onRerunReview={(item) => void startReview(item)}
+      />
+
+      <PullRequestDisplayOptionsDialog
+        open={displayOptionsOpen}
+        groupByProject={groupByProject}
+        onOpenChange={setDisplayOptionsOpen}
+        onGroupByProjectChange={setGroupByProject}
       />
     </section>
   );

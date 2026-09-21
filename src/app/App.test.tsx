@@ -8,11 +8,11 @@ vi.mock("../features/settings/SettingsPage", () => ({
 }));
 
 vi.mock("../features/developer/MyPullRequestsPage", () => ({
-  MyPullRequestsPage: () => <h1>Pull Request Review</h1>,
+  MyPullRequestsPage: () => <h1>Pull requests awaiting your review</h1>,
 }));
 
 vi.mock("../features/developer/AuthoredPullRequestsPage", () => ({
-  AuthoredPullRequestsPage: () => <h1>My Pull Requests</h1>,
+  AuthoredPullRequestsPage: () => <h1>Pull requests authored by you</h1>,
 }));
 const { getAiSettingsMock, listAuthoredPullRequestsMock, listMyPullRequestsMock, refreshMyPullRequestsMock, refreshAllIntegrationsHealthMock } = vi.hoisted(() => ({
   getAiSettingsMock: vi.fn().mockResolvedValue({
@@ -128,10 +128,10 @@ describe("mework application shell", () => {
     expect(await screen.findByRole("main", { name: "mework" })).toBeInTheDocument();
   });
 
-  it("opens Pull Request Review by default", async () => {
+  it("opens pull requests awaiting your review by default", async () => {
     render(<App />);
 
-    expect(await screen.findByRole("heading", { name: "Pull Request Review" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Pull requests awaiting your review" })).toBeInTheDocument();
   });
 
   it("opens My Pull Requests from its dedicated hash route", async () => {
@@ -141,7 +141,7 @@ describe("mework application shell", () => {
     window.location.hash = "#developer/my-pull-requests";
     window.dispatchEvent(new HashChangeEvent("hashchange"));
 
-    expect(await screen.findByRole("heading", { name: "My Pull Requests" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Pull requests authored by you" })).toBeInTheDocument();
   });
 
   it("shows unread authored pull requests on the My Pull Requests navigation item", async () => {
@@ -154,7 +154,7 @@ describe("mework application shell", () => {
     render(<App />);
 
     await screen.findByRole("main", { name: "mework" });
-    expect(await screen.findByRole("link", { name: "My Pull Requests, 1 unread" })).toHaveAttribute(
+    expect(await screen.findByRole("link", { name: "Your PRs, 1 unread" })).toHaveAttribute(
       "href",
       "#developer/my-pull-requests",
     );

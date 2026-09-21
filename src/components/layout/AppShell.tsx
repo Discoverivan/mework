@@ -51,8 +51,8 @@ const productNavigation: NavigationItem[] = [
 ];
 
 const developerNavigation: NavigationItem[] = [
-  { section: "developer-pull-requests", label: "Pull Request Review", href: "#developer/pull-requests", icon: GitPullRequest },
-  { section: "developer-my-pull-requests", label: "My Pull Requests", href: "#developer/my-pull-requests", icon: GitPullRequest },
+  { section: "developer-pull-requests", label: "PRs to review", href: "#developer/pull-requests", icon: GitPullRequest },
+  { section: "developer-my-pull-requests", label: "Your PRs", href: "#developer/my-pull-requests", icon: GitPullRequest },
   { section: "developer-command-board", label: "Command Board", href: "#developer/command-board", icon: Command },
 ];
 

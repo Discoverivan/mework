@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { MyPullRequest, MyPullRequestPage, PullRequestReviewSettings, PullRequestReviewState } from "@/shared/contracts/developer";
@@ -113,11 +113,11 @@ describe("AuthoredPullRequestsPage", () => {
     render(<AuthoredPullRequestsPage />);
 
     expect(await screen.findByRole("heading", { name: "Owned pull request" })).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "My Pull Requests" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Pull requests authored by you" })).toBeInTheDocument();
     expect(screen.getByLabelText("Approved: 2")).toBeInTheDocument();
     expect(screen.getByLabelText("Needs work: 1")).toBeInTheDocument();
     expect(screen.getByLabelText("Comments: 4")).toBeInTheDocument();
-    expect(screen.getByText("Needs action")).toBeInTheDocument();
+    expect(screen.getByText("Needs action", { selector: "div" })).toBeInTheDocument();
     expect(screen.getByText("AI Verdict · Needs work")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Mark as viewed" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Update now" })).toHaveClass("h-9");
@@ -126,6 +126,45 @@ describe("AuthoredPullRequestsPage", () => {
     expect(screen.getByText(/Last updated: just now · Next update: in 5 min/)).toBeInTheDocument();
     expect(listAuthoredPullRequestsMock).toHaveBeenCalledWith(0, 100);
     expect(refreshAuthoredPullRequestsMock).not.toHaveBeenCalled();
+  });
+
+  it("groups authored pull requests by project and can show the flat list", async () => {
+    listAuthoredPullRequestsMock.mockResolvedValueOnce({
+      ...page,
+      values: [
+        authoredPullRequest,
+        {
+          ...authoredPullRequest,
+          pullRequestId: "43",
+          title: "Owned tools change",
+          projectKey: "TOOLS",
+          latestCommit: "owned-commit-2",
+          needsAction: false,
+          reviewSummary: { approved: 1, needsWork: 0, comments: 0 },
+        },
+      ],
+      total: 2,
+    });
+
+    render(<AuthoredPullRequestsPage />);
+
+    const demoGroup = await screen.findByRole("region", { name: "DEMO project" });
+    expect(within(demoGroup).getByText("sample-repository", { exact: false })).not.toHaveTextContent("DEMO/");
+    expect(screen.getByRole("region", { name: "TOOLS project" })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Display options" }));
+    const displayOptions = screen.getByRole("dialog", { name: "Display options" });
+    const groupByProject = within(displayOptions).getByRole("switch", { name: "Group by project" });
+    expect(groupByProject).toBeChecked();
+    fireEvent.click(groupByProject);
+
+    expect(screen.queryByRole("region", { name: "DEMO project" })).not.toBeInTheDocument();
+    expect(screen.getByText("DEMO/sample-repository", { exact: false })).toBeInTheDocument();
+
+    fireEvent.click(within(displayOptions).getByRole("button", { name: "Done" }));
+    fireEvent.click(screen.getByRole("tab", { name: "Needs action" }));
+    expect(screen.getByRole("heading", { name: "Owned pull request" })).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Owned tools change" })).not.toBeInTheDocument();
   });
 
   it("marks an authored PR read before opening shared review results without reviewer actions", async () => {
