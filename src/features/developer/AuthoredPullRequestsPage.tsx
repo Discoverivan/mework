@@ -12,7 +12,7 @@ import { PullRequestDisplayOptionsDialog } from "./components/PullRequestDisplay
 import { PullRequestListItem } from "./components/PullRequestListItem";
 import { PullRequestProjectSection } from "./components/PullRequestProjectSection";
 import { PullRequestReviewDialog } from "./components/PullRequestReviewDialog";
-import { PullRequestSyncStatus } from "./components/PullRequestSyncStatus";
+import { PullRequestStatus } from "./components/PullRequestStatus";
 import {
   groupPullRequestsByProject,
   sortPullRequestsByUpdatedDate,
@@ -360,12 +360,15 @@ export function AuthoredPullRequestsPage() {
         title={t("page.yourPrs")}
         titleId="my-pull-requests-title"
         description={!loading && !error ? (
-          <>
-            {t("pr.summary.authored", { count: total ?? pullRequests.length })}
-            {polling ? ` · ${t("pr.checkingUpdates")}` : ""}
-          </>
+          <PullRequestStatus
+            kind="authored"
+            count={total ?? pullRequests.length}
+            sortOrder={sortOrder}
+            lastSyncAt={lastSyncAt}
+            now={now}
+            polling={polling}
+          />
         ) : undefined}
-        meta={<PullRequestSyncStatus lastSyncAt={lastSyncAt} now={now} />}
       />
 
       <div role="tablist" aria-label={t("pr.quickFilters.authored")} className="flex flex-wrap items-center gap-2">

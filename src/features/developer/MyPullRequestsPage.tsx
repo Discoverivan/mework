@@ -33,7 +33,7 @@ import { PullRequestListItem } from "./components/PullRequestListItem";
 import { PullRequestDisplayOptionsDialog } from "./components/PullRequestDisplayOptionsDialog";
 import { PullRequestProjectSection } from "./components/PullRequestProjectSection";
 import { PullRequestReviewDialog } from "./components/PullRequestReviewDialog";
-import { PullRequestSyncStatus } from "./components/PullRequestSyncStatus";
+import { PullRequestStatus } from "./components/PullRequestStatus";
 import {
   groupPullRequestsByProject,
   sortPullRequestsByUpdatedDate,
@@ -630,15 +630,16 @@ export function MyPullRequestsPage() {
         title={t("page.prsToReview")}
         titleId="pull-request-review-title"
         description={!loading && !error ? (
-          <>
-            {t("pr.summary.review", {
-              count: total ?? pullRequests.length,
-              filters: settings.repositoryBlacklist.length + settings.creatorBlacklist.length + settings.repositoryWhitelist.length + settings.creatorWhitelist.length,
-            })}
-            {polling ? ` · ${t("pr.checkingUpdates")}` : ""}
-          </>
+          <PullRequestStatus
+            kind="review"
+            count={total ?? pullRequests.length}
+            activeFilterCount={settings.repositoryBlacklist.length + settings.creatorBlacklist.length + settings.repositoryWhitelist.length + settings.creatorWhitelist.length}
+            sortOrder={sortOrder}
+            lastSyncAt={lastSyncAt}
+            now={now}
+            polling={polling}
+          />
         ) : undefined}
-        meta={<PullRequestSyncStatus lastSyncAt={lastSyncAt} now={now} />}
       />
 
       <div role="tablist" aria-label={t("pr.quickFilters.review")} className="flex flex-wrap items-center gap-2">

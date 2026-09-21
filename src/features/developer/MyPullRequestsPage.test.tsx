@@ -205,7 +205,12 @@ describe("MyPullRequestsPage", () => {
     await renderFlatPage();
 
     expect(await screen.findByRole("heading", { name: "Example pull request" })).toBeInTheDocument();
-    expect(screen.getByText(/Last updated: just now · Next update: in 5 min/)).toHaveAttribute("title", "Next update: in 5 min");
+    const status = screen.getByText("2 review requests").closest<HTMLElement>(".page-header-description");
+    expect(status).not.toBeNull();
+    expect(within(status!).getByText("Updated just now")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Show pull request details" }));
+    expect(screen.getByText("Pull request details")).toBeInTheDocument();
+    expect(screen.getByText("Every 5 minutes")).toBeInTheDocument();
     expect(listMyPullRequestsMock).toHaveBeenCalledWith(0, 100);
     expect(refreshMyPullRequestsMock).not.toHaveBeenCalled();
     expect(screen.getByText("NEW")).toHaveAttribute("title", "New pull request you haven't viewed yet");
