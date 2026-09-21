@@ -729,7 +729,7 @@ export function MyPullRequestsPage() {
         <Card><CardContent className="pt-6"><p>{t("pr.emptyFiltered")}</p></CardContent></Card>
       ) : null}
 
-      <div className={groupByProject ? "space-y-5" : "inbox-list"} aria-live="polite">
+      <div className={`${groupByProject ? "space-y-5" : "inbox-list"} pt-1`} aria-live="polite">
         {groupByProject
           ? projectGroups.map((group) => (
               <PullRequestProjectSection

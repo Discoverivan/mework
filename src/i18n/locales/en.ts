@@ -400,6 +400,7 @@ export const en = {
   "settings.integration.saveAnyway": "Save anyway",
   "settings.projects.configureJira": "Configure Jira first",
   "settings.projects.requiresJira": "Team settings are unavailable until the Jira integration is configured.",
+  "settings.projects.description": "Configure Jira teams, boards, members, and task creation defaults.",
   "settings.projects.openIntegrations": "Open integrations",
   "settings.common.cancel": "Cancel",
   "settings.common.close": "Close",

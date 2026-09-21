@@ -5,20 +5,49 @@
     <link rel="icon" type="image/png" href="/mework-icon.png" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>mework</title>
-  </head>
-
-  <body>
+    <script>
+      (() => {
+        let preference = "system";
+        try {
+          const cached = window.localStorage.getItem("mework.appearance.theme.v1");
+          if (cached === "system" || cached === "light" || cached === "dark") preference = cached;
+        } catch {
+          // Fall back to the operating-system preference when storage is unavailable.
+        }
+        const theme = preference === "system"
+          ? (window.matchMedia?.("(prefers-color-scheme: dark)").matches ? "dark" : "light")
+          : preference;
+        document.documentElement.dataset.theme = theme;
+        document.documentElement.style.colorScheme = theme;
+      })();
+    </script>
     <style>
+      :root {
+        --boot-background: #f7f8fb;
+        --boot-foreground: #1b2430;
+        --boot-muted: #566275;
+        --boot-track: #e1e5ef;
+        --boot-primary: #465fc7;
+        --boot-glow: rgba(70, 95, 199, 0.10);
+      }
+      :root[data-theme="dark"] {
+        --boot-background: #11151c;
+        --boot-foreground: #e9edf5;
+        --boot-muted: #aeb9ca;
+        --boot-track: #2a3240;
+        --boot-primary: #8eb8ff;
+        --boot-glow: rgba(142, 184, 255, 0.10);
+      }
       html, body, #root { min-height: 100%; margin: 0; }
-      body { background: #f7f8fb; }
+      body { background: var(--boot-background); }
       .boot-loader {
         box-sizing: border-box;
         min-height: 100vh;
         display: grid;
         place-items: center;
         padding: 24px;
-        background: radial-gradient(circle at 50% 35%, rgba(70, 95, 199, 0.10), transparent 42%), #f7f8fb;
-        color: #1b2430;
+        background: radial-gradient(circle at 50% 35%, var(--boot-glow), transparent 42%), var(--boot-background);
+        color: var(--boot-foreground);
         font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
       }
       .boot-loader-panel {
@@ -32,20 +61,20 @@
       .boot-loader img { display: block; width: 72px; height: 72px; object-fit: cover; border-radius: 18px; }
       .boot-loader-copy { display: grid; justify-items: center; gap: 6px; text-align: center; }
       .boot-loader-copy strong { font-size: 18px; letter-spacing: -0.01em; }
-      .boot-loader-copy span { color: #566275; font-size: 14px; }
+      .boot-loader-copy span { color: var(--boot-muted); font-size: 14px; }
       .boot-loader-track {
         position: relative;
         width: min(100%, 320px);
         height: 8px;
         overflow: hidden;
         border-radius: 999px;
-        background: #e1e5ef;
+        background: var(--boot-track);
       }
       .boot-loader-bar {
         width: 42%;
         height: 100%;
         border-radius: inherit;
-        background: #465fc7;
+        background: var(--boot-primary);
         animation: boot-loader-progress 1.45s ease-in-out infinite;
       }
       @keyframes boot-loader-progress {
@@ -57,6 +86,9 @@
         .boot-loader-bar { width: 64%; animation: none; transform: translateX(28%); }
       }
     </style>
+  </head>
+
+  <body>
     <div id="root">
       <div class="boot-loader" role="status" aria-label="Loading mework" aria-busy="true">
         <div class="boot-loader-panel">

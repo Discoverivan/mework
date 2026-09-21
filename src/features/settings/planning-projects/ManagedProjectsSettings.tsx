@@ -1,6 +1,7 @@
 import { ChevronDown, GripVertical, LoaderCircle, Pencil, Plus, Trash2 } from "lucide-react";
 import { createPortal } from "react-dom";
 import { Fragment, useEffect, useRef, useState, type FormEvent } from "react";
+import { PageHeader } from "@/components/shared/PageHeader";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -790,20 +791,25 @@ export function ManagedProjectsSettings({
   const isCreatingTeam = form !== null && !form.id;
 
   return (
-    <section className="space-y-4" aria-label={t("teams.section")}>
-      <div className="flex flex-wrap items-start justify-end gap-3">
-        <Button
-          type="button"
-          size="icon"
-          className="h-9 w-9"
-          onClick={startAdd}
-          disabled={controlsDisabled}
-          aria-label={t("teams.add")}
-          title={t("teams.add")}
-        >
-          <Plus className="size-4" aria-hidden="true" />
-        </Button>
-      </div>
+    <section className="space-y-4" aria-labelledby="settings-title">
+      <PageHeader
+        title={t("nav.teamSettings")}
+        titleId="settings-title"
+        description={t("settings.projects.description")}
+        actions={(
+          <Button
+            type="button"
+            size="icon"
+            className="h-9 w-9"
+            onClick={startAdd}
+            disabled={controlsDisabled}
+            aria-label={t("teams.add")}
+            title={t("teams.add")}
+          >
+            <Plus className="size-4" aria-hidden="true" />
+          </Button>
+        )}
+      />
 
       {loading ? <p role="status">{t("teams.loading")}</p> : null}
       {loadError ? (
@@ -831,13 +837,13 @@ export function ManagedProjectsSettings({
             return (
               <div key={project.id} role="listitem" aria-label={project.projectName} className="w-full">
                 <Card className="w-full">
-                  <CardHeader className="gap-2 p-4">
-                    <div className="flex flex-wrap items-start justify-between gap-3">
-                      <div>
+                  <CardHeader className="space-y-0 px-4 pb-4 pt-3.5">
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                      <div className="grid min-w-0 flex-1 gap-1.5">
                         <Button
                           type="button"
                           variant="ghost"
-                          className="h-auto justify-start p-0 text-left text-lg font-semibold"
+                          className="h-auto justify-start p-0 text-left text-lg font-semibold leading-tight"
                           onClick={() => detailProject?.id === project.id ? setDetailProject(null) : openDetail(project)}
                           disabled={controlsDisabled}
                           aria-label={t("teams.openDetails", { team: project.projectName })}
@@ -845,7 +851,7 @@ export function ManagedProjectsSettings({
                           <ChevronDown className={`mr-1 inline-block h-4 w-4 transition-transform ${detailProject?.id === project.id ? "rotate-180" : ""}`} aria-hidden="true" />
                           {project.projectName}
                         </Button>
-                        <CardDescription>
+                        <CardDescription className="leading-snug">
                           <span aria-label={t("teams.projectKeyFor", { team: project.projectName })}>{project.projectKey}</span>
                           {` · ${boardNames[project.id] ?? project.boardId ?? t("teams.jiraBoard")}`}
                         </CardDescription>

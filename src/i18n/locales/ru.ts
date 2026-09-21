@@ -402,6 +402,7 @@ export const ru: Record<TranslationKey, string> = {
   "settings.integration.saveAnyway": "Всё равно сохранить",
   "settings.projects.configureJira": "Сначала настройте Jira",
   "settings.projects.requiresJira": "Настройки команды недоступны, пока не настроена интеграция с Jira.",
+  "settings.projects.description": "Настройте команды Jira, их доски, участников и параметры создания задач.",
   "settings.projects.openIntegrations": "Открыть интеграции",
   "settings.common.cancel": "Отмена",
   "settings.common.close": "Закрыть",

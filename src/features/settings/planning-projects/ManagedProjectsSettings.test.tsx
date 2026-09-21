@@ -103,6 +103,8 @@ describe("ManagedProjectsSettings task creation settings", () => {
     const addTeamButton = await screen.findByRole("button", { name: "Add team" });
     expect(addTeamButton.querySelector("svg.lucide-plus")).not.toBeNull();
     expect(addTeamButton).not.toHaveTextContent("Add team");
+    expect(addTeamButton.closest("header")).toHaveClass("page-header");
+    expect(screen.getByText("Configure Jira teams, boards, members, and task creation defaults.")).toBeInTheDocument();
     fireEvent.click(addTeamButton);
     expect(screen.getByRole("textbox", { name: "Team name" })).toBeInTheDocument();
     expect(screen.getByRole("textbox", { name: "Jira project key" })).toBeInTheDocument();
