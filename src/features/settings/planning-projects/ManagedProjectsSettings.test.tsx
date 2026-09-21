@@ -42,7 +42,7 @@ const project = {
   id: "team-1",
   integrationId: "jira-1",
   projectId: "10001",
-  projectKey: "COREAPI",
+  projectKey: "DEMO",
   projectName: "Platform team",
   boardId: "board-1",
   enabled: true,
@@ -57,12 +57,12 @@ beforeEach(() => {
   listSprintsMock.mockResolvedValue([
     { id: "sprint-1", boardId: "board-1", name: "Platform Sprint", state: "future", usable: true },
   ]);
-  previewMock.mockResolvedValue([{ key: "COREAPI-EPIC-1", summary: "Platform epic" }]);
+  previewMock.mockResolvedValue([{ key: "DEMO-EPIC-1", summary: "Example epic" }]);
   saveProjectMock.mockResolvedValue({
     ...project,
     defaultTaskSprintId: "sprint-1",
     defaultTaskSprintName: "Platform Sprint",
-    epicLinkJql: "project = COREAPI AND issuetype = Epic",
+    epicLinkJql: "project = DEMO AND issuetype = Epic",
   });
   vi.mocked(deleteManagedProject).mockResolvedValue(undefined);
   vi.mocked(addPlanningTeamMember).mockResolvedValue({
@@ -80,7 +80,7 @@ describe("ManagedProjectsSettings task creation settings", () => {
   it("creates a team through project validation and board selection steps", async () => {
     const validateProjectKey = vi.fn().mockResolvedValue({
       projectId: "10001",
-      projectKey: "COREAPI",
+      projectKey: "DEMO",
       projectName: "Jira project name",
     });
     render(
@@ -96,20 +96,27 @@ describe("ManagedProjectsSettings task creation settings", () => {
       />,
     );
 
-    fireEvent.click(await screen.findByRole("button", { name: "Add team" }));
+    const editTeamButton = await screen.findByRole("button", { name: "Edit Platform team" });
+    expect(editTeamButton.querySelector("svg.lucide-pencil")).not.toBeNull();
+    const deleteTeamButton = screen.getByRole("button", { name: "Delete Platform team" });
+    expect(deleteTeamButton.querySelector("svg.lucide-trash-2")).not.toBeNull();
+    const addTeamButton = await screen.findByRole("button", { name: "Add team" });
+    expect(addTeamButton.querySelector("svg.lucide-plus")).not.toBeNull();
+    expect(addTeamButton).not.toHaveTextContent("Add team");
+    fireEvent.click(addTeamButton);
     expect(screen.getByRole("textbox", { name: "Team name" })).toBeInTheDocument();
-    expect(screen.getByRole("textbox", { name: "Jira Project Key" })).toBeInTheDocument();
+    expect(screen.getByRole("textbox", { name: "Jira project key" })).toBeInTheDocument();
     expect(screen.queryByRole("combobox", { name: "Jira board" })).not.toBeInTheDocument();
 
     fireEvent.change(screen.getByRole("textbox", { name: "Team name" }), { target: { value: "Platform team" } });
-    fireEvent.change(screen.getByRole("textbox", { name: "Jira Project Key" }), { target: { value: "COREAPI" } });
+    fireEvent.change(screen.getByRole("textbox", { name: "Jira project key" }), { target: { value: "DEMO" } });
     fireEvent.click(screen.getByRole("button", { name: "Next" }));
 
     expect(await screen.findByRole("combobox", { name: "Jira board" })).toBeInTheDocument();
-    await waitFor(() => expect(validateProjectKey).toHaveBeenCalledWith("COREAPI", "jira-1"));
+    await waitFor(() => expect(validateProjectKey).toHaveBeenCalledWith("DEMO", "jira-1"));
     await waitFor(() => expect(listBoardsMock).toHaveBeenCalledWith({
       integrationId: "jira-1",
-      projectKey: "COREAPI",
+      projectKey: "DEMO",
     }));
 
     fireEvent.change(screen.getByRole("combobox", { name: "Jira board" }), { target: { value: "board-1" } });
@@ -117,7 +124,7 @@ describe("ManagedProjectsSettings task creation settings", () => {
     await waitFor(() => expect(saveProjectMock).toHaveBeenCalledWith(expect.objectContaining({
       integrationId: "jira-1",
       jiraProjectId: "10001",
-      jiraProjectKey: "COREAPI",
+      jiraProjectKey: "DEMO",
       jiraProjectName: "Platform team",
       boardId: "board-1",
     })));
@@ -131,7 +138,7 @@ describe("ManagedProjectsSettings task creation settings", () => {
     }));
     const validateProjectKey = vi.fn().mockResolvedValue({
       projectId: "10001",
-      projectKey: "COREAPI",
+      projectKey: "DEMO",
       projectName: "Jira project name",
     });
     render(
@@ -149,10 +156,10 @@ describe("ManagedProjectsSettings task creation settings", () => {
 
     fireEvent.click(await screen.findByRole("button", { name: "Add team" }));
     fireEvent.change(screen.getByRole("textbox", { name: "Team name" }), { target: { value: "Platform team" } });
-    fireEvent.change(screen.getByRole("textbox", { name: "Jira Project Key" }), { target: { value: "COREAPI" } });
+    fireEvent.change(screen.getByRole("textbox", { name: "Jira project key" }), { target: { value: "DEMO" } });
     fireEvent.click(screen.getByRole("button", { name: "Next" }));
 
-    await waitFor(() => expect(validateProjectKey).toHaveBeenCalledWith("COREAPI", "jira-1"));
+    await waitFor(() => expect(validateProjectKey).toHaveBeenCalledWith("DEMO", "jira-1"));
     expect(screen.queryByRole("combobox", { name: "Jira board" })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Checking…" })).toBeDisabled();
 
@@ -167,6 +174,12 @@ describe("ManagedProjectsSettings task creation settings", () => {
   });
 
   it("checks Epic link JQL and persists sprint and JQL defaults per team", async () => {
+    listMembersMock.mockResolvedValue([{
+      accountId: "user-1",
+      displayName: "Example Member",
+      tags: ["backend"],
+      active: true,
+    }]);
     render(
       <ManagedProjectsSettings
         jiraIntegrations={[{
@@ -178,7 +191,7 @@ describe("ManagedProjectsSettings task creation settings", () => {
         }]}
         validateProjectKey={vi.fn().mockResolvedValue({
           projectId: "10001",
-          projectKey: "COREAPI",
+          projectKey: "DEMO",
           projectName: "Platform team",
         })}
       />,
@@ -186,24 +199,28 @@ describe("ManagedProjectsSettings task creation settings", () => {
 
     fireEvent.click(await screen.findByRole("button", { name: "Open Platform team project details" }));
     expect(await screen.findByLabelText("Task creation settings")).toBeInTheDocument();
+    const editMemberButton = await screen.findByRole("button", { name: "Edit Example Member" });
+    expect(editMemberButton.querySelector("svg.lucide-pencil")).not.toBeNull();
+    const deleteMemberButton = screen.getByRole("button", { name: "Delete Example Member" });
+    expect(deleteMemberButton.querySelector("svg.lucide-trash-2")).not.toBeNull();
     await waitFor(() => expect(listSprintsMock).toHaveBeenCalledWith("team-1"));
 
     fireEvent.change(screen.getByLabelText("Default sprint for task creation"), { target: { value: "sprint-1" } });
     fireEvent.change(screen.getByLabelText("Epic link JQL"), {
-      target: { value: "project = COREAPI AND issuetype = Epic" },
+      target: { value: "project = DEMO AND issuetype = Epic" },
     });
     fireEvent.click(screen.getByRole("button", { name: "Check" }));
 
     expect(await screen.findByRole("dialog")).toBeInTheDocument();
-    expect(screen.getByText("COREAPI-EPIC-1")).toBeInTheDocument();
-    expect(screen.getByText("Platform epic")).toBeInTheDocument();
+    expect(screen.getByText("DEMO-EPIC-1")).toBeInTheDocument();
+    expect(screen.getByText("Example epic")).toBeInTheDocument();
     await waitFor(() => expect(previewMock).toHaveBeenCalledWith({
       managedProjectId: "team-1",
-      jql: "project = COREAPI AND issuetype = Epic",
+      jql: "project = DEMO AND issuetype = Epic",
     }));
     fireEvent.click(screen.getByRole("button", { name: "Close" }));
     fireEvent.change(screen.getByLabelText("Default Epic link for task creation"), {
-      target: { value: "COREAPI-EPIC-1" },
+      target: { value: "DEMO-EPIC-1" },
     });
 
     fireEvent.click(screen.getByRole("button", { name: "Save task creation settings" }));
@@ -211,9 +228,9 @@ describe("ManagedProjectsSettings task creation settings", () => {
       id: "team-1",
       defaultTaskSprintId: "sprint-1",
       defaultTaskSprintName: "Platform Sprint",
-      defaultEpicLinkKey: "COREAPI-EPIC-1",
-      defaultEpicLinkSummary: "Platform epic",
-      epicLinkJql: "project = COREAPI AND issuetype = Epic",
+      defaultEpicLinkKey: "DEMO-EPIC-1",
+      defaultEpicLinkSummary: "Example epic",
+      epicLinkJql: "project = DEMO AND issuetype = Epic",
     })));
   });
 });

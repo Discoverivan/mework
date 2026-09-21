@@ -25,7 +25,7 @@ describe("UpdateBanner", () => {
 
     render(<UpdateBanner enabled />);
 
-    expect(await screen.findByText("mework 0.1.5 is available")).toBeInTheDocument();
+    expect(await screen.findByText("MeWork 0.1.5 is available")).toBeInTheDocument();
     expect(screen.getByText("A new version is ready to install.")).toBeInTheDocument();
     expect(screen.queryByText(update.body)).not.toBeInTheDocument();
 

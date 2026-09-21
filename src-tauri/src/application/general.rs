@@ -8,18 +8,51 @@ use crate::os::notifications::NotificationAdapter;
 use crate::os::notifications::{self, NotificationPermission};
 
 const GENERAL_SETTINGS_KEY: &str = "general.settings";
-const GENERAL_SETTINGS_SCHEMA_VERSION: i64 = 1;
+const GENERAL_SETTINGS_SCHEMA_VERSION: i64 = 3;
+
+const fn enabled_by_default() -> bool {
+    true
+}
+
+#[derive(Debug, Clone, Copy, Default, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum AppLanguage {
+    #[default]
+    English,
+    Russian,
+}
+
+#[derive(Debug, Clone, Copy, Default, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ThemePreference {
+    #[default]
+    System,
+    Light,
+    Dark,
+}
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct GeneralSettings {
     pub notifications_enabled: bool,
+    #[serde(default = "enabled_by_default")]
+    pub review_notifications_enabled: bool,
+    #[serde(default = "enabled_by_default")]
+    pub authored_notifications_enabled: bool,
+    #[serde(default)]
+    pub language: AppLanguage,
+    #[serde(default)]
+    pub theme_preference: ThemePreference,
 }
 
 impl Default for GeneralSettings {
     fn default() -> Self {
         Self {
             notifications_enabled: true,
+            review_notifications_enabled: true,
+            authored_notifications_enabled: true,
+            language: AppLanguage::English,
+            theme_preference: ThemePreference::System,
         }
     }
 }
@@ -28,6 +61,10 @@ impl Default for GeneralSettings {
 #[serde(rename_all = "camelCase")]
 pub struct GeneralSettingsDto {
     pub notifications_enabled: bool,
+    pub review_notifications_enabled: bool,
+    pub authored_notifications_enabled: bool,
+    pub language: AppLanguage,
+    pub theme_preference: ThemePreference,
     pub notification_permission: NotificationPermission,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub permission_check_error: Option<String>,
@@ -64,13 +101,23 @@ pub async fn dto(pool: &SqlitePool) -> Result<GeneralSettingsDto, String> {
     };
     Ok(GeneralSettingsDto {
         notifications_enabled: settings.notifications_enabled,
+        review_notifications_enabled: settings.review_notifications_enabled,
+        authored_notifications_enabled: settings.authored_notifications_enabled,
+        language: settings.language,
+        theme_preference: settings.theme_preference,
         notification_permission,
         permission_check_error,
     })
 }
 
-pub async fn notifications_enabled(pool: &SqlitePool) -> Result<bool, String> {
-    Ok(load(pool).await?.notifications_enabled)
+pub async fn review_notifications_enabled(pool: &SqlitePool) -> Result<bool, String> {
+    let settings = load(pool).await?;
+    Ok(settings.notifications_enabled && settings.review_notifications_enabled)
+}
+
+pub async fn authored_notifications_enabled(pool: &SqlitePool) -> Result<bool, String> {
+    let settings = load(pool).await?;
+    Ok(settings.notifications_enabled && settings.authored_notifications_enabled)
 }
 
 pub fn send_test_notification<R: Runtime>(app: &AppHandle<R>) -> Result<(), String> {
@@ -106,10 +153,15 @@ pub fn open_notification_settings() -> Result<(), String> {
 
 #[cfg(test)]
 mod tests {
-    use super::GeneralSettings;
+    use super::{AppLanguage, GeneralSettings, ThemePreference};
 
     #[test]
-    fn notifications_are_enabled_by_default() {
-        assert!(GeneralSettings::default().notifications_enabled);
+    fn general_preferences_have_expected_defaults() {
+        let settings = GeneralSettings::default();
+        assert!(settings.notifications_enabled);
+        assert!(settings.review_notifications_enabled);
+        assert!(settings.authored_notifications_enabled);
+        assert_eq!(settings.language, AppLanguage::English);
+        assert_eq!(settings.theme_preference, ThemePreference::System);
     }
 }

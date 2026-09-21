@@ -45,7 +45,7 @@ The [download page](https://discoverivan.github.io/mework/#downloads) reads the 
 mework keeps day-to-day engineering work in one local desktop workspace:
 
 - **Create task** — describe work in natural language, generate an editable AI draft, choose `Task` or `Spike`, review Jira fields, and create the issue only after an explicit action.
-- **Daily** — inspect active-sprint subtasks by team member, refresh status, and open a second-window presenter view for stand-ups.
+- **Sprint tasks** — choose a Jira sprint, inspect all work by assignee, refresh status, and open a second-window presenter view for stand-ups.
 - **Pull requests awaiting your review** — poll Bitbucket pull requests, track new or updated activity, run an AI review, inspect severity-grouped comments, and publish an edited comment or decision from the review flow.
 - **Pull requests authored by you** — follow authored pull requests, surface items that need attention, and optionally run automatic AI review for configured activity.
 - **Command Board** — keep local scripts and commands close at hand and run them from a small, editable command board.

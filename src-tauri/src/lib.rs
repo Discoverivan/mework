@@ -147,7 +147,7 @@ pub fn run() {
                             } else {
                                 notifications
                             };
-                            if crate::application::general::notifications_enabled(&background_pool)
+                            if crate::application::general::review_notifications_enabled(&background_pool)
                                 .await
                                 .unwrap_or(true)
                             {
@@ -243,7 +243,7 @@ pub fn run() {
                                     .map(|notification| (notification, None))
                                     .collect()
                             };
-                            if crate::application::general::notifications_enabled(&background_pool)
+                            if crate::application::general::authored_notifications_enabled(&background_pool)
                                 .await
                                 .unwrap_or(true)
                             {
@@ -335,6 +335,7 @@ pub fn run() {
             commands::developer::save_pull_request_review_settings,
             commands::general::general_settings,
             commands::general::general_settings_save,
+            commands::general::general_appearance_save,
             commands::general::notification_test,
             commands::general::notification_open_settings,
             commands::create_task::ai_task_draft,

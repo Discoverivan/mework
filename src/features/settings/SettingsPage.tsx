@@ -1,5 +1,5 @@
-import { AlertTriangle, CheckCircle2, Circle, CircleHelp, Loader2, RefreshCw } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
+import { AlertTriangle, CheckCircle2, ChevronDown, Circle, CircleHelp, Loader2, RefreshCw } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import {
   Alert,
   AlertDescription,
@@ -44,6 +44,8 @@ import {
 import { validateJiraProjectKey } from "./planning-projects/api";
 import { ManagedProjectsSettings } from "./planning-projects/ManagedProjectsSettings";
 import { GeneralSettingsPage } from "./general/GeneralSettingsPage";
+import { useI18n } from "@/i18n/context";
+import type { TranslationKey } from "@/i18n/locales/en";
 import { INTEGRATIONS_HEALTH_REFRESHED_EVENT } from "./health-events";
 
 type IntegrationForm = {
@@ -68,27 +70,21 @@ type HealthConfirmation = {
 type Provider = {
   kind: IntegrationKind;
   label: string;
-  credentialLabel: string;
-  description: string;
 };
 
 const PROVIDERS: Provider[] = [
   {
     kind: "jira",
     label: "Jira",
-    credentialLabel: "Personal access token",
-    description: "Track Jira issues and project activity.",
   },
   {
     kind: "bitbucket",
     label: "Bitbucket",
-    credentialLabel: "Personal access token",
-    description: "Connect repositories and pull request activity.",
   },
 ];
 
-function errorMessage(error: unknown): string {
-  const message = error instanceof Error ? error.message : typeof error === "string" ? error : "Unknown error";
+function errorMessage(error: unknown, fallback: string): string {
+  const message = error instanceof Error ? error.message : typeof error === "string" ? error : fallback;
   return message
     .replace(/\b(?:token|pat|password|secret)\b\s*["']?\s*[:=]\s*["']?[^\s,"'}]+["']?/gi, "credential details redacted")
     .replace(/\bauthorization\b\s*[:=]\s*[^\n]*/gi, "authorization details redacted")
@@ -147,16 +143,11 @@ function healthStatusFor(integration: IntegrationRedacted): IntegrationHealthSta
   return integration.healthStatus ?? "unknown";
 }
 
-function healthLabel(status: IntegrationHealthStatus): string {
-  switch (status) {
-    case "working":
-      return "Configured and working";
-    case "unavailable":
-      return "Configured but not working";
-    default:
-      return "Configured — health not checked";
-  }
-}
+const HEALTH_LABEL_KEYS: Record<IntegrationHealthStatus, TranslationKey> = {
+  working: "settings.health.working",
+  unavailable: "settings.health.unavailable",
+  unknown: "settings.health.unknown",
+};
 
 const AI_REASONING_OPTIONS: AiReasoning[] = ["minimal", "low", "medium", "high", "xhigh"];
 
@@ -204,22 +195,14 @@ const UNAVAILABLE_AI_DATA: AiSettingsPageData = {
   }],
 };
 
-function aiStatusLabel(status: AiProviderStatus): string {
-  switch (status) {
-    case "loading":
-      return "Loading…";
-    case "connected":
-      return "Connected";
-    case "not_configured":
-      return "Not configured";
-    case "not_found":
-      return "CLI not found";
-    case "not_authenticated":
-      return "Sign in required";
-    default:
-      return "Unavailable";
-  }
-}
+const AI_STATUS_LABEL_KEYS: Record<AiProviderStatus, TranslationKey> = {
+  loading: "settings.status.loading",
+  connected: "settings.status.connected",
+  not_configured: "settings.status.notConfigured",
+  not_found: "settings.status.cliNotFound",
+  not_authenticated: "settings.status.signInRequired",
+  unavailable: "settings.status.unavailable",
+};
 
 function aiStatusIcon(status: AiProviderStatus) {
   if (status === "loading") return <Loader2 className="size-5 animate-spin" aria-hidden="true" />;
@@ -240,19 +223,21 @@ function aiProviderReady(provider: AiProvider | undefined, model: string): boole
     && provider.models.includes(model);
 }
 
-export type SettingsSection = "general" | "integrations" | "projects";
+export type SettingsSection = "general" | "ai" | "integrations" | "projects";
 
 interface SettingsPageProps {
   section?: SettingsSection;
 }
 
 export function SettingsPage({ section = "integrations" }: SettingsPageProps) {
+  const { t } = useI18n();
   const [integrations, setIntegrations] = useState<IntegrationRedacted[]>([]);
   const [aiData, setAiData] = useState<AiSettingsPageData>(INITIAL_AI_DATA);
   const [aiDraft, setAiDraft] = useState<AiSettings>(DEFAULT_AI_SETTINGS);
   const [aiSaving, setAiSaving] = useState(false);
   const [aiError, setAiError] = useState<string | null>(null);
   const [aiSaved, setAiSaved] = useState(false);
+  const aiSaveRevisionRef = useRef(0);
   const [openAiDialogOpen, setOpenAiDialogOpen] = useState(false);
   const [openAiForm, setOpenAiForm] = useState<OpenAiCompatibleForm>(emptyOpenAiCompatibleForm);
   const [openAiSaving, setOpenAiSaving] = useState(false);
@@ -279,9 +264,29 @@ export function SettingsPage({ section = "integrations" }: SettingsPageProps) {
     let active = true;
     setLoading(true);
     setError(null);
-    setAiData(INITIAL_AI_DATA);
-    setAiDraft(DEFAULT_AI_SETTINGS);
-    setAiError(null);
+    if (section === "ai") {
+      setAiData(INITIAL_AI_DATA);
+      setAiDraft(DEFAULT_AI_SETTINGS);
+      setAiError(null);
+      void getAiSettings()
+        .then((loadedAiData) => {
+          if (!active) return;
+          setAiData(loadedAiData);
+          setAiDraft(loadedAiData.settings);
+        })
+        .catch(() => {
+          if (!active) return;
+          setAiData(UNAVAILABLE_AI_DATA);
+          setAiError(t("settings.error.loadCodex"));
+        })
+        .finally(() => {
+          if (active) setLoading(false);
+        });
+      return () => {
+        active = false;
+      };
+    }
+
     void listIntegrations()
       .then((loadedIntegrations) => {
         if (!active) return;
@@ -295,28 +300,16 @@ export function SettingsPage({ section = "integrations" }: SettingsPageProps) {
         });
       })
       .catch(() => {
-        if (active) setError("Unable to load integrations. Try again.");
+        if (active) setError(t("settings.error.loadIntegrations"));
       })
       .finally(() => {
         if (active) setLoading(false);
-      });
-    void getAiSettings()
-      .then((loadedAiData) => {
-        if (!active) return;
-        setAiData(loadedAiData);
-        setAiDraft(loadedAiData.settings);
-      })
-      .catch(() => {
-        if (active) {
-          setAiData(UNAVAILABLE_AI_DATA);
-          setAiError("Unable to load Codex CLI settings. AI Review is disabled.");
-        }
       });
 
     return () => {
       active = false;
     };
-  }, [retry, section]);
+  }, [retry, section, t]);
 
   useEffect(() => {
     const onHealthRefreshed = (event: Event) => {
@@ -363,30 +356,41 @@ export function SettingsPage({ section = "integrations" }: SettingsPageProps) {
         (integration) =>
           integration.kind === "jira" && integration.enabled && (!integrationId || integration.id === integrationId),
       );
-      if (!jira) return Promise.reject(new Error("A Jira integration is required."));
+      if (!jira) return Promise.reject(new Error(t("teams.integrationRequired")));
       return validateJiraProjectKey({ integrationId: jira.id, projectKey });
     },
-    [integrations],
+    [integrations, t],
   );
 
   const hasJiraIntegration = integrations.some((integration) => integration.kind === "jira");
 
-  async function handleSaveAiSettings() {
-    if (!aiDraft.provider || !aiReady) return;
-    setAiSaving(true);
-    setAiError(null);
-    setAiSaved(false);
-    try {
-      const saved = await saveAiSettings(aiDraft);
-      setAiData(saved);
-      setAiDraft(saved.settings);
-      setAiSaved(true);
-    } catch (saveError) {
-      setAiError(`Unable to save AI settings: ${errorMessage(saveError)}`);
-    } finally {
-      setAiSaving(false);
-    }
-  }
+  useEffect(() => {
+    const revision = aiSaveRevisionRef.current + 1;
+    aiSaveRevisionRef.current = revision;
+    const unchanged = aiDraft.provider === aiData.settings.provider
+      && aiDraft.model === aiData.settings.model
+      && aiDraft.reasoning === aiData.settings.reasoning
+      && aiDraft.fastMode === aiData.settings.fastMode;
+    if (unchanged || !aiDraft.provider || !aiReady) return;
+
+    const timer = window.setTimeout(() => {
+      setAiSaving(true);
+      setAiError(null);
+      void saveAiSettings(aiDraft).then((saved) => {
+        if (aiSaveRevisionRef.current !== revision) return;
+        setAiData(saved);
+        setAiDraft(saved.settings);
+        setAiSaved(true);
+        setAiSaving(false);
+      }).catch((saveError) => {
+        if (aiSaveRevisionRef.current !== revision) return;
+        setAiError(t("settings.error.saveAi", { error: errorMessage(saveError, t("common.unknownError")) }));
+        setAiSaving(false);
+      });
+    }, 250);
+
+    return () => window.clearTimeout(timer);
+  }, [aiData.settings, aiDraft, aiReady, t]);
 
   function openOpenAiCompatibleDialog() {
     const provider = aiData.providers.find((candidate) => candidate.id === "openai-compatible");
@@ -403,15 +407,15 @@ export function SettingsPage({ section = "integrations" }: SettingsPageProps) {
     event.preventDefault();
     const baseUrl = openAiForm.baseUrl.trim();
     if (!baseUrl) {
-      setOpenAiError("API URL is required.");
+      setOpenAiError(t("settings.error.apiUrlRequired"));
       return;
     }
     if (!isAllowedOpenAiUrl(baseUrl)) {
-      setOpenAiError("API URL must use https:// (http:// is allowed only for localhost) and must not contain credentials, a query, or a fragment.");
+      setOpenAiError(t("settings.error.apiUrlInvalid"));
       return;
     }
     if (!openAiForm.token) {
-      setOpenAiError("Token is required.");
+      setOpenAiError(t("settings.error.tokenRequired"));
       return;
     }
 
@@ -428,7 +432,7 @@ export function SettingsPage({ section = "integrations" }: SettingsPageProps) {
       setOpenAiForm((current) => ({ ...current, token: "" }));
       setOpenAiDialogOpen(false);
     } catch (saveError) {
-      setOpenAiError(`Unable to configure OpenAI-compatible API: ${errorMessage(saveError)}`);
+      setOpenAiError(t("settings.error.configureOpenAi", { error: errorMessage(saveError, t("common.unknownError")) }));
     } finally {
       setOpenAiSaving(false);
     }
@@ -500,7 +504,7 @@ export function SettingsPage({ section = "integrations" }: SettingsPageProps) {
         });
       }
     } catch (error) {
-      setError(`Unable to check ${provider.label} health: ${errorMessage(error)}`);
+      setError(t("settings.error.checkHealth", { provider: provider.label, error: errorMessage(error, t("common.unknownError")) }));
     } finally {
       setHealthCheckKind(null);
     }
@@ -513,15 +517,15 @@ export function SettingsPage({ section = "integrations" }: SettingsPageProps) {
     const activeForm = form;
     const activeProvider = provider;
     if (!activeForm.baseUrl.trim()) {
-      setError("Base URL is required.");
+      setError(t("settings.error.baseUrlRequired"));
       return;
     }
     if (!activeForm.baseUrl.trim().startsWith("https://")) {
-      setError("Base URL must start with https://.");
+      setError(t("settings.error.baseUrlHttps"));
       return;
     }
     if (!selectedIntegration && !activeForm.secret.trim()) {
-      setError("Personal access token is required for a new integration.");
+      setError(t("settings.error.personalTokenRequired"));
       return;
     }
 
@@ -552,7 +556,7 @@ export function SettingsPage({ section = "integrations" }: SettingsPageProps) {
       }
       applySavedIntegration(kind, result.integration);
     } catch (error) {
-      setError(`Unable to save ${activeProvider.label} integration: ${errorMessage(error)}`);
+      setError(t("settings.error.saveIntegration", { provider: activeProvider.label, error: errorMessage(error, t("common.unknownError")) }));
     } finally {
       setAction(null);
     }
@@ -581,7 +585,7 @@ export function SettingsPage({ section = "integrations" }: SettingsPageProps) {
     } catch (error) {
       setHealthConfirmation(null);
       setSelectedKind(kind);
-      setError(`Unable to save ${provider.label} integration: ${errorMessage(error)}`);
+      setError(t("settings.error.saveIntegration", { provider: provider.label, error: errorMessage(error, t("common.unknownError")) }));
     } finally {
       setAction(null);
     }
@@ -601,7 +605,7 @@ export function SettingsPage({ section = "integrations" }: SettingsPageProps) {
       setForms((current) => ({ ...current, [kind]: emptyForm() }));
       setSelectedKind(null);
     } catch (error) {
-      setError(`Unable to delete ${provider.label} integration: ${errorMessage(error)}`);
+      setError(t("settings.error.deleteIntegration", { provider: provider.label, error: errorMessage(error, t("common.unknownError")) }));
     } finally {
       setAction(null);
     }
@@ -610,13 +614,14 @@ export function SettingsPage({ section = "integrations" }: SettingsPageProps) {
   return (
     <main className="space-y-6" aria-labelledby="settings-title">
       <PageHeader
-        title={section === "general" ? "General" : section === "projects" ? "Team settings" : "Integrations"}
+        title={section === "general" ? t("nav.general") : section === "ai" ? t("nav.aiSettings") : section === "projects" ? t("nav.teamSettings") : t("nav.dataIntegrations")}
         titleId="settings-title"
+        description={section === "ai" ? t("settings.ai.description") : section === "integrations" ? t("settings.data.description") : undefined}
       />
 
       {section !== "general" && loading ? (
         <Alert role="status" aria-live="polite">
-          <AlertDescription>Loading integrations…</AlertDescription>
+          <AlertDescription>{t(section === "ai" ? "settings.ai.loading" : "settings.loading")}</AlertDescription>
         </Alert>
       ) : null}
       {section !== "general" && error && selectedKind === null ? (
@@ -630,7 +635,7 @@ export function SettingsPage({ section = "integrations" }: SettingsPageProps) {
               className="mt-3"
               onClick={() => setRetry((current) => current + 1)}
             >
-              Retry loading integrations
+              {t("settings.retryLoading")}
             </Button>
           </AlertDescription>
         </Alert>
@@ -638,69 +643,76 @@ export function SettingsPage({ section = "integrations" }: SettingsPageProps) {
 
       {section === "general" ? <GeneralSettingsPage /> : null}
 
-      {section === "integrations" ? (
+      {section === "ai" ? (
         <>
-          <section className="space-y-4" aria-labelledby="ai-title">
-          <div>
-            <h2 id="ai-title">AI</h2>
-            <p className="text-muted-foreground">
-              Select the provider and review execution options used by AI-assisted workflows.
-            </p>
-          </div>
+          <section className="space-y-4" aria-label={t("nav.aiSettings")}>
           <Card>
             <CardHeader className="gap-4 p-4">
               <div className="grid gap-4 md:grid-cols-4">
                 <div className="grid gap-2">
-                  <Label htmlFor="ai-provider">AI provider</Label>
-                  <select
-                    id="ai-provider"
-                    aria-label="AI provider"
-                    value={aiDraft.provider ?? ""}
-                    onChange={(event) => updateAiProvider(event.target.value)}
-                    disabled={aiData === null || aiLoading || aiSaving}
-                    className="h-9 rounded-md border border-input bg-background px-3 text-sm"
-                  >
-                    <option value="">Not selected</option>
-                    {aiData?.providers.map((candidate) => (
-                      <option key={candidate.id} value={candidate.id} disabled={!candidate.available}>
-                        {candidate.name}{candidate.available ? "" : " (unavailable)"}
-                      </option>
-                    ))}
-                  </select>
+                  <Label htmlFor="ai-provider">{t("settings.ai.provider")}</Label>
+                  <div className="relative">
+                    <select
+                      id="ai-provider"
+                      aria-label={t("settings.ai.provider")}
+                      value={aiDraft.provider ?? ""}
+                      onChange={(event) => updateAiProvider(event.target.value)}
+                      disabled={aiData === null || aiLoading || aiSaving}
+                      className="h-9 w-full appearance-none rounded-md border border-input bg-background px-3 pr-9 text-sm disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      <option value="">{t("settings.ai.notSelected")}</option>
+                      {aiData?.providers.map((candidate) => (
+                        <option key={candidate.id} value={candidate.id} disabled={!candidate.available}>
+                          {candidate.name}{candidate.available ? "" : ` (${t("settings.ai.unavailableSuffix")})`}
+                        </option>
+                      ))}
+                    </select>
+                    <ChevronDown className="pointer-events-none absolute right-3 top-1/2 size-4 -translate-y-1/2 opacity-50" aria-hidden="true" />
+                  </div>
                 </div>
                 <div className="grid gap-2">
-                  <Label htmlFor="ai-model">Model</Label>
-                  <select
-                    id="ai-model"
-                    aria-label="Model"
-                    value={aiDraft.model}
-                    onChange={(event) => updateAiSetting("model", event.target.value)}
-                    disabled={!aiDraft.provider || !selectedAiProvider || aiSaving}
-                    className="h-9 rounded-md border border-input bg-background px-3 text-sm"
-                  >
-                    {(selectedAiProvider?.models ?? []).length === 0 ? (
-                      <option value="">No models reported by {selectedAiProvider?.name ?? "selected provider"}</option>
-                    ) : (selectedAiProvider?.models ?? []).map((model) => (
-                      <option key={model} value={model}>{model}</option>
-                    ))}
-                  </select>
+                  <Label htmlFor="ai-model">{t("settings.ai.model")}</Label>
+                  <div className="relative">
+                    <select
+                      id="ai-model"
+                      aria-label={t("settings.ai.model")}
+                      value={aiDraft.model}
+                      onChange={(event) => updateAiSetting("model", event.target.value)}
+                      disabled={!aiDraft.provider || !selectedAiProvider || aiSaving}
+                      className="h-9 w-full appearance-none rounded-md border border-input bg-background px-3 pr-9 text-sm disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      {(selectedAiProvider?.models ?? []).length === 0 ? (
+                        <option value="">
+                          {t("settings.ai.noModels", {
+                            provider: selectedAiProvider?.name ?? t("settings.ai.selectedProvider"),
+                          })}
+                        </option>
+                      ) : (selectedAiProvider?.models ?? []).map((model) => (
+                        <option key={model} value={model}>{model}</option>
+                      ))}
+                    </select>
+                    <ChevronDown className="pointer-events-none absolute right-3 top-1/2 size-4 -translate-y-1/2 opacity-50" aria-hidden="true" />
+                  </div>
                 </div>
                 <div className="grid gap-2">
-                  <Label htmlFor="ai-reasoning">Reasoning</Label>
-                  <select
-                    id="ai-reasoning"
-                    aria-label="Reasoning"
-                    value={aiDraft.reasoning}
-                    onChange={(event) => updateAiReasoning(event.target.value)}
-                    disabled={!aiDraft.provider || aiSaving}
-                    className="h-9 rounded-md border border-input bg-background px-3 text-sm"
-                  >
-                    {AI_REASONING_OPTIONS.map((reasoning) => (
-                      <option key={reasoning} value={reasoning}>{reasoning}</option>
-                    ))}
-                  </select>
+                  <Label htmlFor="ai-reasoning">{t("settings.ai.reasoning")}</Label>
+                  <div className="relative">
+                    <select
+                      id="ai-reasoning"
+                      aria-label={t("settings.ai.reasoning")}
+                      value={aiDraft.reasoning}
+                      onChange={(event) => updateAiReasoning(event.target.value)}
+                      disabled={!aiDraft.provider || aiSaving}
+                      className="h-9 w-full appearance-none rounded-md border border-input bg-background px-3 pr-9 text-sm disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      {AI_REASONING_OPTIONS.map((reasoning) => (
+                        <option key={reasoning} value={reasoning}>{reasoning}</option>
+                      ))}
+                    </select>
+                    <ChevronDown className="pointer-events-none absolute right-3 top-1/2 size-4 -translate-y-1/2 opacity-50" aria-hidden="true" />
+                  </div>
                 </div>
-                <div className="flex items-end gap-2 pb-1">
+                <div className="flex items-center gap-2 md:pt-6">
                   <input
                     id="ai-fast-mode"
                     type="checkbox"
@@ -709,28 +721,22 @@ export function SettingsPage({ section = "integrations" }: SettingsPageProps) {
                     disabled={!aiDraft.provider || aiSaving}
                     className="size-4 accent-primary"
                   />
-                  <Label htmlFor="ai-fast-mode" className="font-medium">Fast mode</Label>
+                  <Label htmlFor="ai-fast-mode" className="font-medium">{t("settings.ai.fastMode")}</Label>
                 </div>
               </div>
-              <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="flex flex-wrap items-center gap-3">
                 <div className="text-sm" aria-live="polite">
                   {aiError ? <span className="text-destructive">{aiError}</span> : null}
-                  {!aiError && aiSaved ? <span className="text-success">AI settings saved.</span> : null}
+                  {!aiError && aiSaving ? <span className="text-muted-foreground">{t("settings.common.saving")}</span> : null}
+                  {!aiError && !aiSaving && aiSaved ? <span className="text-success">{t("settings.ai.saved")}</span> : null}
                   {!aiError && !aiSaved && aiDraft.provider && !aiReady ? (
                     <span className="text-warning">
                       {selectedAiProvider?.status === "connected"
-                        ? "No available model selected."
-                        : selectedAiProvider?.message ?? "Selected provider is not connected."}
+                        ? t("settings.ai.noModelSelected")
+                        : selectedAiProvider?.message ?? t("settings.ai.notConnected")}
                     </span>
                   ) : null}
                 </div>
-                <Button
-                  type="button"
-                  onClick={() => void handleSaveAiSettings()}
-                  disabled={!aiDraft.provider || !aiReady || aiSaving}
-                >
-                  {aiSaving ? "Saving…" : "Save AI settings"}
-                </Button>
               </div>
             </CardHeader>
           </Card>
@@ -738,12 +744,12 @@ export function SettingsPage({ section = "integrations" }: SettingsPageProps) {
 
         <section className="space-y-4" aria-labelledby="ai-providers-title">
           <div>
-            <h2 id="ai-providers-title">AI Providers</h2>
+            <h2 id="ai-providers-title">{t("settings.aiProviders.title")}</h2>
             <p className="text-muted-foreground">
-              Providers available to mework AI workflows.
+              {t("settings.aiProviders.description")}
             </p>
           </div>
-          <div aria-label="AI providers" className="flex w-full flex-col gap-3">
+          <div aria-label={t("settings.aiProviders.aria")} className="flex w-full flex-col gap-3">
             {(aiData?.providers ?? []).map((candidate) => (
               <Card key={candidate.id} role="group" aria-label={`${candidate.name} AI provider`} className="w-full">
                 <CardHeader className="flex-row items-center justify-between gap-4 p-4">
@@ -757,14 +763,14 @@ export function SettingsPage({ section = "integrations" }: SettingsPageProps) {
                     <p className="text-lg font-semibold">{candidate.name}</p>
                     <CardDescription>
                       {candidate.id === "openai-compatible"
-                        ? "Connect an OpenAI-compatible API for AI-assisted workflows."
-                        : "Use the local Codex installation with its existing authentication."}
+                        ? t("settings.aiProviders.openAiDescription")
+                        : t("settings.aiProviders.codexDescription")}
                       {candidate.message ? <span className="mt-1 block">{candidate.message}</span> : null}
                     </CardDescription>
                   </button>
                   <div className="flex shrink-0 items-center gap-2 text-sm text-muted-foreground">
                     {aiStatusIcon(candidate.status)}
-                    <span>{aiStatusLabel(candidate.status)}</span>
+                    <span>{t(AI_STATUS_LABEL_KEYS[candidate.status])}</span>
                   </div>
                 </CardHeader>
               </Card>
@@ -783,9 +789,9 @@ export function SettingsPage({ section = "integrations" }: SettingsPageProps) {
         >
           <DialogContent>
             <DialogHeader>
-              <DialogTitle>OpenAI-compatible API</DialogTitle>
+              <DialogTitle>{t("settings.openAi.title")}</DialogTitle>
               <DialogDescription>
-                Enter an API URL and token. Authorization is checked through the API before the token is stored in the operating system keyring. Available models are always loaded from the API.
+                {t("settings.openAi.description")}
               </DialogDescription>
             </DialogHeader>
             <DialogBody>
@@ -814,7 +820,7 @@ export function SettingsPage({ section = "integrations" }: SettingsPageProps) {
                   />
                 </div>
                 <div className="grid gap-2">
-                  <Label htmlFor="openai-compatible-token">Token</Label>
+                  <Label htmlFor="openai-compatible-token">{t("settings.openAi.token")}</Label>
                   <Input
                     id="openai-compatible-token"
                     name="token"
@@ -825,7 +831,9 @@ export function SettingsPage({ section = "integrations" }: SettingsPageProps) {
                     disabled={openAiSaving}
                     required
                   />
-                  <p className="text-sm text-muted-foreground">The token is write-only and is never returned to the UI.</p>
+                  <p className="text-sm text-muted-foreground">
+                    {t("settings.openAi.tokenDescription")}
+                  </p>
                 </div>
                 <label className="flex items-start gap-3 text-sm">
                   <input
@@ -838,8 +846,10 @@ export function SettingsPage({ section = "integrations" }: SettingsPageProps) {
                     className="mt-1 size-4 accent-primary"
                   />
                   <span>
-                    <span className="font-medium">Allow insecure TLS</span>
-                    <span className="block text-muted-foreground">Disable certificate verification for this OpenAI-compatible API.</span>
+                    <span className="font-medium">{t("settings.openAi.allowInsecureTls")}</span>
+                    <span className="block text-muted-foreground">
+                      {t("settings.openAi.allowInsecureTlsDescription")}
+                    </span>
                   </span>
                 </label>
               </form>
@@ -851,24 +861,22 @@ export function SettingsPage({ section = "integrations" }: SettingsPageProps) {
                 onClick={() => setOpenAiDialogOpen(false)}
                 disabled={openAiSaving}
               >
-                Cancel
+                {t("settings.common.cancel")}
               </Button>
               <Button type="submit" form="openai-compatible-settings-form" disabled={openAiSaving}>
-                {openAiSaving ? "Checking…" : "Save"}
+                {openAiSaving ? t("settings.common.checking") : t("settings.common.save")}
               </Button>
             </DialogFooter>
           </DialogContent>
         </Dialog>
 
-        <section className="space-y-4" aria-labelledby="integrations-title">
-        <div>
-          <h2 id="integrations-title">Data Integrations</h2>
-          <p className="text-muted-foreground">
-            Connect Jira and Bitbucket to provide data for mework workflows. Secrets are write-only and are never displayed.
-          </p>
-        </div>
+        </>
+      ) : null}
 
-        <div aria-label="Data integration providers" className="flex w-full flex-col gap-3">
+      {section === "integrations" ? (
+        <>
+        <section className="space-y-4" aria-label={t("settings.data.title")}>
+        <div aria-label={t("settings.data.aria")} className="flex w-full flex-col gap-3">
           {PROVIDERS.map((candidate) => {
             const integration = integrations.find((item) => item.kind === candidate.kind);
             const configured = integration !== undefined;
@@ -896,7 +904,9 @@ export function SettingsPage({ section = "integrations" }: SettingsPageProps) {
                     }}
                   >
                     <p className="text-lg font-semibold">{candidate.label}</p>
-                    <CardDescription>{candidate.description}</CardDescription>
+                    <CardDescription>
+                      {t(candidate.kind === "jira" ? "settings.data.jiraDescription" : "settings.data.bitbucketDescription")}
+                    </CardDescription>
                   </button>
                   <div className="flex shrink-0 items-center gap-2 text-sm text-muted-foreground">
                     <div className="flex min-w-0 flex-col items-end gap-0.5">
@@ -910,11 +920,11 @@ export function SettingsPage({ section = "integrations" }: SettingsPageProps) {
                         ) : (
                           <CircleHelp className="size-5 text-muted-foreground" aria-hidden="true" />
                         )}
-                        <span>{configured ? healthLabel(healthStatus) : "Not configured"}</span>
+                        <span>{configured ? t(HEALTH_LABEL_KEYS[healthStatus]) : t("settings.health.notConfigured")}</span>
                       </span>
                       {configured && healthStatus === "working" && integration.accountDisplayName ? (
                         <span className="text-xs text-muted-foreground">
-                          Connected as {integration.accountDisplayName}
+                          {t("settings.health.connectedAs", { account: integration.accountDisplayName })}
                         </span>
                       ) : null}
                     </div>
@@ -923,8 +933,8 @@ export function SettingsPage({ section = "integrations" }: SettingsPageProps) {
                         type="button"
                         variant="ghost"
                         size="icon"
-                        aria-label={`Refresh ${candidate.label} health check`}
-                        title={`Refresh ${candidate.label} health check`}
+                        aria-label={t("settings.health.refresh", { provider: candidate.label })}
+                        title={t("settings.health.refresh", { provider: candidate.label })}
                         disabled={healthCheckKind !== null}
                         onClick={(event) => {
                           event.stopPropagation();
@@ -955,12 +965,12 @@ export function SettingsPage({ section = "integrations" }: SettingsPageProps) {
           {provider && form ? (
             <DialogContent>
               <DialogHeader>
-                <DialogTitle>{provider.label} integration</DialogTitle>
+                <DialogTitle>{t("settings.integration.title", { provider: provider.label })}</DialogTitle>
                 <DialogDescription>
                   {selectedIntegration
-                    ? "Token is configured; enter a new value to replace it."
-                    : "Token is write-only and will not be shown after saving."}
-                  {" "}The token/API key is cleared after saving.
+                    ? t("settings.integration.tokenConfigured")
+                    : t("settings.integration.tokenWriteOnly")}
+                  {" "}{t("settings.integration.tokenCleared")}
                 </DialogDescription>
               </DialogHeader>
               <DialogBody>
@@ -976,7 +986,7 @@ export function SettingsPage({ section = "integrations" }: SettingsPageProps) {
                   aria-busy={controlsDisabled}
                 >
                   <div className="grid gap-2">
-                    <Label htmlFor="settings-base-url">Base URL</Label>
+                    <Label htmlFor="settings-base-url">{t("settings.integration.baseUrl")}</Label>
                     <Input
                       id="settings-base-url"
                       name="baseUrl"
@@ -990,10 +1000,10 @@ export function SettingsPage({ section = "integrations" }: SettingsPageProps) {
                   </div>
 
                   <div className="grid gap-2">
-                    <Label htmlFor="settings-secret">{provider.credentialLabel}</Label>
+                    <Label htmlFor="settings-secret">{t("settings.integration.personalToken")}</Label>
                     <Input
                       id="settings-secret"
-                      aria-label="Personal access token"
+                      aria-label={t("settings.integration.personalToken")}
                       name="secret"
                       type="password"
                       value={form.secret}
@@ -1015,10 +1025,10 @@ export function SettingsPage({ section = "integrations" }: SettingsPageProps) {
                     />
                     <div>
                       <Label htmlFor="settings-allow-insecure-tls" className="font-medium">
-                        Allow insecure TLS connection
+                        {t("settings.integration.allowInsecureTls")}
                       </Label>
                       <p className="text-sm text-muted-foreground">
-                        Allow invalid or self-signed certificates. Use only on trusted internal networks.
+                        {t("settings.integration.allowInsecureTlsDescription")}
                       </p>
                     </div>
                   </div>
@@ -1033,11 +1043,11 @@ export function SettingsPage({ section = "integrations" }: SettingsPageProps) {
                     disabled={controlsDisabled}
                     onClick={() => void handleDelete()}
                   >
-                    {action === "delete" ? "Deleting…" : "Delete integration"}
+                    {action === "delete" ? t("settings.integration.deleting") : t("settings.integration.delete")}
                   </Button>
                 ) : null}
                 <Button type="submit" form="integration-settings-form" disabled={controlsDisabled}>
-                  {action === "save" ? "Saving…" : "Save integration"}
+                  {action === "save" ? t("settings.common.saving") : t("settings.integration.save")}
                 </Button>
               </DialogFooter>
             </DialogContent>
@@ -1053,25 +1063,25 @@ export function SettingsPage({ section = "integrations" }: SettingsPageProps) {
           {healthConfirmation ? (
             <DialogContent>
               <DialogHeader>
-                <DialogTitle>Integration health check failed</DialogTitle>
+                <DialogTitle>{t("settings.integration.healthFailed")}</DialogTitle>
                 <DialogDescription>
-                  {healthConfirmation.provider.label} is not recommended for saving because its health check failed.
+                  {t("settings.integration.healthFailedDescription", { provider: healthConfirmation.provider.label })}
                 </DialogDescription>
               </DialogHeader>
               <DialogBody className="space-y-4">
                 <Alert>
                   <AlertTriangle className="size-4 text-warning" aria-hidden="true" />
-                  <AlertTitle>Configured but not working</AlertTitle>
+                  <AlertTitle>{t("settings.health.unavailable")}</AlertTitle>
                   <AlertDescription>
-                    {healthConfirmation.health.message ?? "The health check failed."}
+                    {healthConfirmation.health.message ?? t("settings.integration.healthFailedFallback")}
                   </AlertDescription>
                 </Alert>
                 <details className="rounded-md border border-border bg-muted/40 p-3 text-sm">
                   <summary className="cursor-pointer font-medium">
-                    Show health check details
+                    {t("settings.integration.healthDetails")}
                   </summary>
                   <pre className="mt-3 whitespace-pre-wrap font-mono text-xs text-muted-foreground">
-                    {healthConfirmation.health.details ?? "No additional details were returned."}
+                    {healthConfirmation.health.details ?? t("settings.integration.noHealthDetails")}
                   </pre>
                 </details>
               </DialogBody>
@@ -1079,14 +1089,16 @@ export function SettingsPage({ section = "integrations" }: SettingsPageProps) {
                 <Button
                   type="button"
                   variant="outline"
-                  aria-label={healthConfirmation.saveInput ? "Cancel integration save" : "Dismiss health check details"}
+                  aria-label={healthConfirmation.saveInput
+                    ? t("settings.integration.cancelSave")
+                    : t("settings.integration.dismissHealth")}
                   onClick={closeHealthConfirmation}
                 >
-                  {healthConfirmation.saveInput ? "Cancel" : "Close"}
+                  {healthConfirmation.saveInput ? t("settings.common.cancel") : t("settings.common.close")}
                 </Button>
                 {healthConfirmation.saveInput ? (
                   <Button type="button" onClick={() => void handleHealthConfirmationSave()}>
-                    {action === "save" ? "Saving…" : "Save anyway"}
+                    {action === "save" ? t("settings.common.saving") : t("settings.integration.saveAnyway")}
                   </Button>
                 ) : null}
               </DialogFooter>
@@ -1105,11 +1117,11 @@ export function SettingsPage({ section = "integrations" }: SettingsPageProps) {
           />
         ) : (
           <Alert aria-labelledby="project-settings-dependency-title">
-            <AlertTitle id="project-settings-dependency-title">Configure Jira first</AlertTitle>
+            <AlertTitle id="project-settings-dependency-title">{t("settings.projects.configureJira")}</AlertTitle>
             <AlertDescription>
-              <p>Team settings are unavailable until the Jira integration is configured.</p>
+              <p>{t("settings.projects.requiresJira")}</p>
               <Button asChild variant="outline" size="sm" className="mt-3">
-                <a href="#settings/integrations">Open Integrations</a>
+                <a href="#settings/integrations">{t("settings.projects.openIntegrations")}</a>
               </Button>
             </AlertDescription>
           </Alert>

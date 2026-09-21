@@ -1,10 +1,21 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
-import { ArrowLeft, ArrowRight, MoreHorizontal, Play, RefreshCw, Square } from "lucide-react";
+import { openUrl } from "@tauri-apps/plugin-opener";
+import { ArrowLeft, ArrowRight, Copy, ExternalLink, MoreHorizontal, Plus, Presentation, RefreshCw, Square } from "lucide-react";
 import { PageHeader } from "@/components/shared/PageHeader";
+import { useI18n } from "@/i18n/context";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { Separator } from "@/components/ui/separator";
 import {
   Select,
   SelectContent,
@@ -67,6 +78,42 @@ function orderedMembers(members: TeamMember[]): TeamMember[] {
     });
 }
 
+const OTHER_ASSIGNEES_ID = "__other_assignees__";
+const UNASSIGNED_ID = "__unassigned__";
+
+interface TaskOwner {
+  id: string;
+  label: string;
+  member?: TeamMember;
+}
+
+function taskOwners(workspace: DailyWorkspace, otherAssigneesLabel: string, unassignedLabel: string): TaskOwner[] {
+  const members = orderedMembers(workspace.members);
+  const memberIds = new Set(members.map((member) => member.accountId));
+  const owners: TaskOwner[] = members.map((member) => ({
+    id: member.accountId,
+    label: memberDisplayName(member),
+    member,
+  }));
+  if (workspace.subtasks.some((task) => task.assigneeAccountId && !memberIds.has(task.assigneeAccountId))) {
+    owners.push({ id: OTHER_ASSIGNEES_ID, label: otherAssigneesLabel });
+  }
+  if (workspace.subtasks.some((task) => !task.assigneeAccountId)) {
+    owners.push({ id: UNASSIGNED_ID, label: unassignedLabel });
+  }
+  return owners;
+}
+
+function ownerTasks(workspace: DailyWorkspace, ownerId: string | undefined): DailyWorkspace["subtasks"] {
+  if (!ownerId) return [];
+  if (ownerId === UNASSIGNED_ID) return workspace.subtasks.filter((task) => !task.assigneeAccountId);
+  if (ownerId === OTHER_ASSIGNEES_ID) {
+    const memberIds = new Set(orderedMembers(workspace.members).map((member) => member.accountId));
+    return workspace.subtasks.filter((task) => task.assigneeAccountId && !memberIds.has(task.assigneeAccountId));
+  }
+  return workspace.subtasks.filter((task) => task.assigneeAccountId === ownerId);
+}
+
 function memberStats(subtasks: DailyWorkspace["subtasks"]): { total: number; progress: number; done: number; backlog: number } {
   return subtasks.reduce((stats, subtask) => {
     const tone = dailyStatusTone(subtask.status);
@@ -79,6 +126,7 @@ function memberStats(subtasks: DailyWorkspace["subtasks"]): { total: number; pro
 }
 
 export function DailyPage() {
+  const { t } = useI18n();
   const [projects, setProjects] = useState<ManagedProject[]>([]);
   const [selectedProjectId, setSelectedProjectId] = useState<string>();
   const [workspace, setWorkspace] = useState<DailyWorkspace>();
@@ -89,6 +137,8 @@ export function DailyPage() {
   const [error, setError] = useState<string>();
   const [presenterOpen, setPresenterOpen] = useState(false);
   const [presenterError, setPresenterError] = useState<string>();
+  const [taskActionError, setTaskActionError] = useState<string>();
+  const [taskActionNotice, setTaskActionNotice] = useState<string>();
 
   useEffect(() => {
     let active = true;
@@ -109,30 +159,31 @@ export function DailyPage() {
     };
   }, []);
 
-  const refreshWorkspace = useCallback(async (projectId: string) => {
+  const refreshWorkspace = useCallback(async (projectId: string, sprintId?: string) => {
     setLoadingWorkspace(true);
     setError(undefined);
     try {
-      const loaded = await loadDailyWorkspace(projectId);
+      const loaded = await loadDailyWorkspace(projectId, sprintId);
       setWorkspace(loaded);
+      const owners = taskOwners(loaded, t("daily.otherAssignees"), t("daily.unassigned"));
       setSelectedMemberId((current) =>
-        loaded.members.some((member) => member.accountId === current)
+        owners.some((owner) => owner.id === current)
           ? current
-          : orderedMembers(loaded.members)[0]?.accountId,
+          : owners[0]?.id,
       );
     } catch (reason) {
       setError(commandError(reason));
     } finally {
       setLoadingWorkspace(false);
     }
-  }, []);
+  }, [t]);
 
   const refreshStatuses = useCallback(async () => {
     if (!workspace) return;
     setRefreshingStatuses(true);
     setError(undefined);
     try {
-      const subtasks = await refreshDailyWorkspace(workspace.managedProjectId, workspace.activeSprintId);
+      const subtasks = await refreshDailyWorkspace(workspace.managedProjectId, workspace.selectedSprintId);
       setWorkspace((current) => current ? { ...current, subtasks } : current);
     } catch (reason) {
       setError(commandError(reason));
@@ -153,25 +204,29 @@ export function DailyPage() {
     return undefined;
   }, [refreshWorkspace, selectedProjectId]);
 
-  const activeMembers = useMemo(() => orderedMembers(workspace?.members ?? []), [workspace]);
-  const selectedMember = activeMembers.find((member) => member.accountId === selectedMemberId);
-  const selectedMemberIndex = selectedMember ? activeMembers.findIndex((member) => member.accountId === selectedMember.accountId) : -1;
+  const owners = useMemo(
+    () => workspace ? taskOwners(workspace, t("daily.otherAssignees"), t("daily.unassigned")) : [],
+    [t, workspace],
+  );
+  const selectedOwner = owners.find((owner) => owner.id === selectedMemberId);
+  const selectedMember = selectedOwner?.member;
+  const selectedOwnerIndex = selectedOwner ? owners.findIndex((owner) => owner.id === selectedOwner.id) : -1;
   const selectedSubtasks = useMemo(
-    () => workspace?.subtasks.filter((subtask) => subtask.assigneeAccountId === selectedMemberId) ?? [],
+    () => workspace ? ownerTasks(workspace, selectedMemberId) : [],
     [selectedMemberId, workspace],
   );
   const selectedMemberSummary = memberStats(selectedSubtasks);
 
   function selectAdjacentMember(offset: number) {
-    if (selectedMemberIndex < 0 || activeMembers.length === 0) return;
-    const nextIndex = (selectedMemberIndex + offset + activeMembers.length) % activeMembers.length;
-    setSelectedMemberId(activeMembers[nextIndex]?.accountId);
+    if (selectedOwnerIndex < 0 || owners.length === 0) return;
+    const nextIndex = (selectedOwnerIndex + offset + owners.length) % owners.length;
+    setSelectedMemberId(owners[nextIndex]?.id);
   }
 
   useEffect(() => {
-    if (!workspace || !selectedMemberId) return;
+    if (!workspace || !selectedMember || !selectedMemberId) return;
     void publishPresenterState({ workspace, selectedMemberId });
-  }, [selectedMemberId, workspace]);
+  }, [selectedMember, selectedMemberId, workspace]);
 
   useEffect(() => {
     const managedProjectId = workspace?.managedProjectId;
@@ -206,7 +261,7 @@ export function DailyPage() {
       setPresenterOpen(false);
       return;
     }
-    if (!workspace || !selectedMemberId) return;
+    if (!workspace || !selectedMember || !selectedMemberId) return;
     setPresenterError(undefined);
     try {
       await publishPresenterState({ workspace, selectedMemberId });
@@ -217,100 +272,180 @@ export function DailyPage() {
     }
   }
 
+  async function openJiraIssue(url: string) {
+    setTaskActionError(undefined);
+    setTaskActionNotice(undefined);
+    try {
+      await openUrl(url);
+    } catch (reason) {
+      setTaskActionError(commandError(reason));
+    }
+  }
+
+  async function copyTaskValue(value: string, notice: string) {
+    setTaskActionError(undefined);
+    setTaskActionNotice(undefined);
+    try {
+      if (!navigator.clipboard) throw new Error(t("daily.clipboardUnavailable"));
+      await navigator.clipboard.writeText(value);
+      setTaskActionNotice(notice);
+    } catch (reason) {
+      setTaskActionError(commandError(reason));
+    }
+  }
+
   return (
     <section aria-labelledby="daily-title" className="space-y-4">
       <PageHeader
         className="daily-page-header"
-        title="Daily"
+        title={t("page.sprintTasks")}
         titleId="daily-title"
-        description="Review today's assigned sub-tasks by team member."
-        actions={(
-          <>
-            {!loadingProjects && projects.length > 0 ? (
-              <Select value={selectedProjectId} onValueChange={setSelectedProjectId}>
-                <SelectTrigger id="daily-team-select" aria-label="Team" className="w-48">
-                  <SelectValue placeholder="Select a team" />
-                </SelectTrigger>
-                <SelectContent>
-                  {projects.map((project) => (
-                    <SelectItem key={project.id} value={project.id}>{project.name}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            ) : null}
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              disabled={!selectedProjectId || loadingWorkspace || refreshingStatuses}
-              onClick={() => {
-                if (workspace) void refreshStatuses();
-                else if (selectedProjectId) void refreshWorkspace(selectedProjectId);
-              }}
-            >
-              <RefreshCw aria-hidden="true" className={loadingWorkspace || refreshingStatuses ? "animate-spin" : undefined} />
-              {refreshingStatuses ? "Refreshing…" : "Refresh"}
-            </Button>
-            <Button
-              type="button"
-              variant={presenterOpen ? "secondary" : "default"}
-              size="sm"
-              disabled={!workspace || !selectedMemberId || loadingWorkspace}
-              aria-pressed={presenterOpen}
-              onClick={() => void togglePresenter()}
-            >
-              {presenterOpen ? <Square aria-hidden="true" /> : <Play aria-hidden="true" />}
-              {presenterOpen ? "Stop presenter view" : "Presenter view"}
-            </Button>
-          </>
-        )}
+        description={t("daily.description")}
       />
+
+      <div className="flex flex-wrap items-center gap-2">
+        {!loadingProjects && projects.length > 0 ? (
+          <Select value={selectedProjectId} onValueChange={setSelectedProjectId}>
+            <SelectTrigger id="daily-team-select" aria-label={t("daily.team")} className="w-48">
+              <SelectValue placeholder={t("daily.selectTeam")} />
+            </SelectTrigger>
+            <SelectContent>
+              {projects.map((project) => (
+                <SelectItem key={project.id} value={project.id}>{project.name}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        ) : null}
+        {workspace ? (
+          <Select
+            value={workspace.selectedSprintId}
+            onValueChange={(sprintId) => {
+              if (selectedProjectId) void refreshWorkspace(selectedProjectId, sprintId);
+            }}
+          >
+            <SelectTrigger id="sprint-tasks-sprint-select" aria-label={t("daily.sprint")} className="w-56" disabled={loadingWorkspace}>
+              <SelectValue placeholder={t("daily.selectSprint")} />
+            </SelectTrigger>
+            <SelectContent>
+              {workspace.sprints.map((sprint) => (
+                <SelectItem key={sprint.id} value={sprint.id}>
+                  {sprint.name} ({sprint.state === "active"
+                    ? t("daily.sprintState.active")
+                    : sprint.state === "closed"
+                      ? t("daily.sprintState.closed")
+                      : sprint.state === "future"
+                        ? t("daily.sprintState.future")
+                        : sprint.state})
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        ) : null}
+        <div className="ml-auto flex items-center gap-2">
+          <Button
+            type="button"
+            variant={presenterOpen ? "secondary" : "default"}
+            size="icon"
+            className="h-9 w-9"
+            disabled={!workspace || loadingWorkspace || (!presenterOpen && !selectedMember)}
+            aria-pressed={presenterOpen}
+            aria-label={presenterOpen ? t("daily.presenter.stop") : t("daily.presenter.start")}
+            title={presenterOpen ? t("daily.presenter.stop") : t("daily.presenter.start")}
+            onClick={() => void togglePresenter()}
+          >
+            {presenterOpen ? <Square aria-hidden="true" /> : <Presentation aria-hidden="true" />}
+          </Button>
+          <Separator orientation="vertical" className="h-6" />
+          <Button
+            type="button"
+            variant="outline"
+            size="icon"
+            className="h-9 w-9"
+            aria-label={refreshingStatuses ? t("daily.refreshing") : t("daily.refresh")}
+            title={refreshingStatuses ? t("daily.refreshing") : t("daily.refresh")}
+            disabled={!selectedProjectId || loadingWorkspace || refreshingStatuses}
+            onClick={() => {
+              if (workspace) void refreshStatuses();
+              else if (selectedProjectId) void refreshWorkspace(selectedProjectId);
+            }}
+          >
+            <RefreshCw aria-hidden="true" className={loadingWorkspace || refreshingStatuses ? "animate-spin" : undefined} />
+          </Button>
+          <Button
+            type="button"
+            size="icon"
+            className="h-9 w-9"
+            aria-label={t("daily.createTask")}
+            title={t("daily.createTask")}
+            disabled={!selectedProjectId || !workspace}
+            onClick={() => {
+              if (!selectedProjectId || !workspace) return;
+              window.location.hash = `#product/create-task?team=${encodeURIComponent(selectedProjectId)}&sprint=${encodeURIComponent(workspace.selectedSprintId)}`;
+            }}
+          >
+            <Plus aria-hidden="true" />
+          </Button>
+        </div>
+      </div>
 
       {presenterError ? (
         <Alert variant="destructive" role="alert">
-          <AlertTitle>Presenter view unavailable</AlertTitle>
+          <AlertTitle>{t("daily.presenter.unavailable")}</AlertTitle>
           <AlertDescription>{presenterError}</AlertDescription>
         </Alert>
       ) : null}
+      {taskActionError ? (
+        <Alert variant="destructive" role="alert">
+          <AlertTitle>{t("daily.taskActionUnavailable")}</AlertTitle>
+          <AlertDescription>{taskActionError}</AlertDescription>
+        </Alert>
+      ) : null}
+      {taskActionNotice ? <p className="text-sm text-muted-foreground" role="status">{taskActionNotice}</p> : null}
 
-      {loadingProjects ? <div role="status" aria-label="Loading teams">Loading teams…</div> : null}
+      {loadingProjects ? <div role="status" aria-label={t("daily.loadingTeams")}>{t("daily.loadingTeams")}</div> : null}
       {error ? (
         <Alert variant="destructive" role="alert">
-          <AlertTitle>Daily unavailable</AlertTitle>
-          <AlertDescription>Unable to load Daily. {error}</AlertDescription>
+          <AlertTitle>{t("daily.unavailable")}</AlertTitle>
+          <AlertDescription>{t("daily.loadError", { error })}</AlertDescription>
         </Alert>
       ) : null}
       {!loadingProjects && !error && projects.length === 0 ? (
         <Card>
-          <CardContent className="pt-6"><p>Configure a managed Jira team and its members in Team settings first.</p></CardContent>
+          <CardContent className="pt-6"><p>{t("daily.configureTeam")}</p></CardContent>
         </Card>
       ) : null}
 
-      {loadingWorkspace ? <div role="status" aria-label="Loading daily workspace">Loading Daily workspace…</div> : null}
+      {loadingWorkspace ? <div role="status" aria-label={t("daily.loadingTasks")}>{t("daily.loadingTasks")}</div> : null}
       {workspace && !loadingWorkspace ? (
         <div className="daily-workspace-layout">
           <Card className="daily-members-card">
             <CardHeader className="daily-panel-header">
-              <CardTitle className="text-sm uppercase tracking-wide">Team</CardTitle>
+              <CardTitle className="text-sm uppercase tracking-wide">{t("daily.assignees")}</CardTitle>
             </CardHeader>
             <CardContent className="daily-members-content">
-              {activeMembers.length === 0 ? (
-                <p className="text-sm text-muted-foreground">No active team members are configured for this project.</p>
+              {owners.length === 0 ? (
+                <p className="text-sm text-muted-foreground">{t("daily.noSprintTasks")}</p>
               ) : (
                 <div className="daily-member-list">
-                  {activeMembers.map((member) => {
-                    const taskCount = workspace.subtasks.filter((subtask) => subtask.assigneeAccountId === member.accountId).length;
-                    const selected = selectedMemberId === member.accountId;
+                  {owners.map((owner) => {
+                    const taskCount = ownerTasks(workspace, owner.id).length;
+                    const selected = selectedMemberId === owner.id;
                     return (
                       <button
-                        key={member.accountId}
+                        key={owner.id}
                         type="button"
                         aria-pressed={selected}
                         className={`daily-member-item${selected ? " daily-member-item-selected" : ""}`}
-                        onClick={() => setSelectedMemberId(member.accountId)}
+                        onClick={() => setSelectedMemberId(owner.id)}
                       >
-                        <MemberAvatar member={member} className="h-8 w-8 shrink-0" managedProjectId={workspace.managedProjectId} />
-                        <span className="min-w-0 flex-1 truncate font-medium">{memberDisplayName(member)}</span>
+                        {owner.member ? (
+                          <MemberAvatar member={owner.member} className="h-8 w-8 shrink-0" managedProjectId={workspace.managedProjectId} />
+                        ) : (
+                          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-muted text-xs font-medium" aria-hidden="true">
+                            {owner.id === UNASSIGNED_ID ? "—" : "+"}
+                          </span>
+                        )}
+                        <span className="min-w-0 flex-1 truncate font-medium">{owner.label}</span>
                         <span className="daily-member-task-count">{taskCount}</span>
                         <ArrowRight aria-hidden="true" className="daily-member-arrow" />
                       </button>
@@ -321,16 +456,16 @@ export function DailyPage() {
             </CardContent>
           </Card>
 
-          <section className="daily-tasks-column" aria-label="Selected member tasks">
-            {selectedMember ? (
+          <section className="daily-tasks-column" aria-label={t("daily.selectedTasks")}>
+            {selectedOwner ? (
               <Card className="daily-selected-member-card">
                 <CardHeader className="daily-selected-member-header">
                   <div className="flex min-w-0 items-center gap-3">
-                    <MemberAvatar member={selectedMember} className="h-10 w-10 shrink-0" managedProjectId={workspace.managedProjectId} />
+                    {selectedMember ? <MemberAvatar member={selectedMember} className="h-10 w-10 shrink-0" managedProjectId={workspace.managedProjectId} /> : null}
                     <div className="min-w-0">
-                      <CardTitle className="truncate text-xl">{memberDisplayName(selectedMember)}</CardTitle>
+                      <CardTitle className="truncate text-xl">{selectedOwner.label}</CardTitle>
                       <CardDescription>
-                        {selectedMemberSummary.total} tasks · {selectedMemberSummary.progress} in progress · {selectedMemberSummary.done} done · {selectedMemberSummary.backlog} backlog
+                        {t("daily.summary", selectedMemberSummary)}
                       </CardDescription>
                     </div>
                   </div>
@@ -339,8 +474,8 @@ export function DailyPage() {
                       type="button"
                       variant="outline"
                       size="icon"
-                      aria-label="Previous team member"
-                      disabled={activeMembers.length < 2}
+                      aria-label={t("daily.previousMember")}
+                      disabled={owners.length < 2}
                       onClick={() => selectAdjacentMember(-1)}
                     >
                       <ArrowLeft aria-hidden="true" />
@@ -349,8 +484,8 @@ export function DailyPage() {
                       type="button"
                       variant="outline"
                       size="icon"
-                      aria-label="Next team member"
-                      disabled={activeMembers.length < 2}
+                      aria-label={t("daily.nextMember")}
+                      disabled={owners.length < 2}
                       onClick={() => selectAdjacentMember(1)}
                     >
                       <ArrowRight aria-hidden="true" />
@@ -358,22 +493,62 @@ export function DailyPage() {
                   </div>
                 </CardHeader>
                 <CardContent className="daily-task-content">
-                  <h2 id="daily-subtasks-title" className="daily-task-section-title">Tasks</h2>
+                  <h2 id="daily-subtasks-title" className="daily-task-section-title">{t("daily.tasks")}</h2>
                   {selectedSubtasks.length === 0 ? (
-                    <p className="text-sm text-muted-foreground">No assigned sub-tasks in the active sprint.</p>
+                    <p className="text-sm text-muted-foreground">{t("daily.noAssigneeTasks")}</p>
                   ) : (
                     <div className="daily-task-list" aria-live="polite">
                       {selectedSubtasks.map((subtask) => (
                         <article key={subtask.id} className="daily-task-row">
-                          <span className="daily-task-key">{subtask.key}</span>
-                          <span className="daily-task-summary">{subtask.summary}</span>
+                          <button
+                            type="button"
+                            className="daily-task-key daily-task-link"
+                            title={t("daily.openInJira")}
+                            onClick={() => void openJiraIssue(subtask.url)}
+                          >
+                            {subtask.key}
+                          </button>
+                          <span className="daily-task-summary">
+                            <strong>{subtask.summary}</strong>
+                            <small>
+                              {subtask.issueType}
+                              {subtask.parentIssueKey ? ` · ${t("daily.parent", { key: subtask.parentIssueKey })}` : ""}
+                              {selectedOwner.id === OTHER_ASSIGNEES_ID && subtask.assigneeDisplayName ? ` · ${subtask.assigneeDisplayName}` : ""}
+                            </small>
+                          </span>
                           <span className="daily-task-points">SP {subtask.storyPoints ?? "—"}</span>
-                          <span className={`daily-status-label daily-status-${dailyStatusTone(subtask.status)}`} aria-label={`Status: ${subtask.status}`}>
+                          <span className={`daily-status-label daily-status-${dailyStatusTone(subtask.status)}`} aria-label={t("daily.status", { status: subtask.status })}>
                             {subtask.status}
                           </span>
-                          <Button type="button" variant="ghost" size="icon" className="daily-task-menu" aria-label={`Actions for ${subtask.key}`}>
-                            <MoreHorizontal aria-hidden="true" />
-                          </Button>
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                              <Button type="button" variant="ghost" size="icon" className="daily-task-menu" aria-label={t("daily.actions", { key: subtask.key })}>
+                                <MoreHorizontal aria-hidden="true" />
+                              </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end" className="w-56">
+                              <DropdownMenuLabel>{subtask.key}</DropdownMenuLabel>
+                              <DropdownMenuItem onSelect={() => void openJiraIssue(subtask.url)}>
+                                <ExternalLink aria-hidden="true" />
+                                {t("daily.openInJira")}
+                              </DropdownMenuItem>
+                              {subtask.parentUrl && subtask.parentIssueKey ? (
+                                <DropdownMenuItem onSelect={() => void openJiraIssue(subtask.parentUrl!)}>
+                                  <ExternalLink aria-hidden="true" />
+                                  {t("daily.openParentInJira", { key: subtask.parentIssueKey })}
+                                </DropdownMenuItem>
+                              ) : null}
+                              <DropdownMenuSeparator />
+                              <DropdownMenuItem onSelect={() => void copyTaskValue(subtask.key, t("daily.keyCopied", { key: subtask.key }))}>
+                                <Copy aria-hidden="true" />
+                                {t("daily.copyKey")}
+                              </DropdownMenuItem>
+                              <DropdownMenuItem onSelect={() => void copyTaskValue(subtask.url, t("daily.linkCopied", { key: subtask.key }))}>
+                                <Copy aria-hidden="true" />
+                                {t("daily.copyLink")}
+                              </DropdownMenuItem>
+                            </DropdownMenuContent>
+                          </DropdownMenu>
                         </article>
                       ))}
                     </div>
@@ -381,7 +556,7 @@ export function DailyPage() {
                 </CardContent>
               </Card>
             ) : (
-              <Card><CardContent className="pt-6"><p>Select a team member to see assigned tasks.</p></CardContent></Card>
+              <Card><CardContent className="pt-6"><p>{t("daily.selectMember")}</p></CardContent></Card>
             )}
           </section>
         </div>

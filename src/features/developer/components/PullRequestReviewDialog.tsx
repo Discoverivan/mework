@@ -13,6 +13,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import type { MyPullRequest, PullRequestReviewComment, PullRequestReviewState } from "@/shared/contracts/developer";
+import { useI18n } from "@/i18n/context";
 
 import {
   CreatorAvatar,
@@ -49,6 +50,7 @@ export function PullRequestReviewDialog({
   onPublishComment,
   onSetDecision,
 }: PullRequestReviewDialogProps) {
+  const { t } = useI18n();
   const result = review?.result;
   const [pendingAction, setPendingAction] = useState<string>();
   const [publishedComments, setPublishedComments] = useState<Set<string>>(() => new Set());
@@ -79,7 +81,7 @@ export function PullRequestReviewDialog({
     const key = commentKey(comment, index);
     const nextComment = { ...comment, comment: editedText.trim() };
     if (!nextComment.comment) {
-      setActionError("Comment text is required.");
+      setActionError(t("pr.dialog.commentRequired"));
       return;
     }
     setPendingAction(key);
@@ -90,7 +92,7 @@ export function PullRequestReviewDialog({
       setEditingComment(undefined);
       setCommentDraft("");
     } catch (error) {
-      setActionError(error instanceof Error ? error.message : typeof error === "string" ? error : "Unable to publish comment");
+      setActionError(error instanceof Error ? error.message : typeof error === "string" ? error : t("pr.dialog.publishError"));
     } finally {
       setPendingAction(undefined);
     }
@@ -104,7 +106,7 @@ export function PullRequestReviewDialog({
       await onSetDecision(pullRequest, action);
       onOpenChange(false);
     } catch (error) {
-      setActionError(error instanceof Error ? error.message : typeof error === "string" ? error : "Unable to update pull request decision");
+      setActionError(error instanceof Error ? error.message : typeof error === "string" ? error : t("pr.dialog.decisionError"));
     } finally {
       setPendingAction(undefined);
     }
@@ -115,7 +117,7 @@ export function PullRequestReviewDialog({
       <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-3xl">
         <DialogHeader className="gap-2">
-          <DialogTitle aria-label="Review results" className="text-base font-semibold">
+          <DialogTitle aria-label={t("pr.dialog.results")} className="text-base font-semibold">
             {pullRequest?.projectKey}/{pullRequest?.repositorySlug} #{pullRequest?.pullRequestId}
           </DialogTitle>
           <div className="flex items-end justify-between gap-3">
@@ -129,7 +131,7 @@ export function PullRequestReviewDialog({
                   <span className="font-normal text-foreground">{pullRequest.authorDisplayName}</span>
                   <span aria-hidden="true">•</span>
                   <time dateTime={pullRequest.updatedDate != null ? new Date(pullRequest.updatedDate).toISOString() : undefined}>
-                    {formatRelativeDate(pullRequest.updatedDate)}
+                    {formatRelativeDate(pullRequest.updatedDate, t)}
                   </time>
                 </div>
               ) : null}
@@ -140,11 +142,11 @@ export function PullRequestReviewDialog({
                   href={pullRequest.url}
                   target="_blank"
                   rel="noreferrer"
-                  aria-label="Open in web"
+                  aria-label={t("pr.dialog.openWeb")}
                   onClick={() => onOpenPullRequest(pullRequest)}
                 >
                   <ExternalLink aria-hidden="true" className="size-4" />
-                  Open in web
+                  {t("pr.dialog.openWeb")}
                 </a>
               </Button>
             ) : null}
@@ -156,7 +158,7 @@ export function PullRequestReviewDialog({
               <section aria-labelledby="ai-summary-title" className="rounded-xl border bg-muted/20 p-4">
                 <div className="flex items-start justify-between gap-4">
                   <div className="min-w-0 space-y-2">
-                    <h3 id="ai-summary-title" className="text-sm font-semibold">AI Summary</h3>
+                    <h3 id="ai-summary-title" className="text-sm font-semibold">{t("pr.dialog.aiSummary")}</h3>
                     <p className="whitespace-pre-wrap break-words text-sm text-foreground">{result.description}</p>
                     <p className="whitespace-pre-wrap break-words text-sm text-foreground">{result.summary}</p>
                   </div>
@@ -164,23 +166,23 @@ export function PullRequestReviewDialog({
                     variant={result.verdict === "ok" ? "default" : "destructive"}
                     className={result.verdict === "ok" ? "shrink-0 bg-emerald-600 hover:bg-emerald-600" : "shrink-0"}
                   >
-                    {result.verdict === "ok" ? "Approved" : "Needs work"}
+                    {t(result.verdict === "ok" ? "pr.decision.approved" : "pr.decision.needsWork")}
                   </Badge>
                 </div>
               </section>
               <section aria-labelledby="ai-comments-title" className="space-y-3">
-                <h3 id="ai-comments-title" className="text-sm font-semibold">AI Comments</h3>
+                <h3 id="ai-comments-title" className="text-sm font-semibold">{t("pr.dialog.aiComments")}</h3>
                 <div className="space-y-2">
                   {reviewSeveritySections.map((section) => {
                     const comments = result.comments.filter((comment) => comment.severity === section.key);
                     return (
                       <details key={section.key} open={comments.length > 0} className="rounded-lg border">
                         <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-3 py-2 text-sm font-semibold">
-                          <span className={`rounded-full px-2 py-0.5 text-xs ${reviewSeverityBadgeClasses[section.key]}`}>{section.label} ({comments.length})</span>
+                          <span className={`rounded-full px-2 py-0.5 text-xs ${reviewSeverityBadgeClasses[section.key]}`}>{t(section.labelKey)} ({comments.length})</span>
                         </summary>
                         <div className="border-t px-3 py-2">
                           {comments.length === 0 ? (
-                            <p className="text-sm text-muted-foreground">No comments.</p>
+                            <p className="text-sm text-muted-foreground">{t("pr.dialog.noComments")}</p>
                           ) : (
                             <ul className="space-y-2">
                               {comments.map((comment, index) => (
@@ -197,10 +199,10 @@ export function PullRequestReviewDialog({
                                         className="h-7 shrink-0 px-2 text-xs"
                                         disabled={!onPublishComment || pendingAction != null || publishedComments.has(commentKey(comment, index))}
                                         onClick={() => openCommentEditor(comment, index)}
-                                        aria-label={`Publish comment for ${comment.file}`}
+                                        aria-label={t("pr.dialog.publishFor", { file: comment.file })}
                                       >
                                         {pendingAction === commentKey(comment, index) ? <Loader2 aria-hidden="true" className="size-3.5 animate-spin" /> : <Send aria-hidden="true" className="size-3.5" />}
-                                        {publishedComments.has(commentKey(comment, index)) ? "Published" : pendingAction === commentKey(comment, index) ? "Publishing…" : "Publish"}
+                                        {publishedComments.has(commentKey(comment, index)) ? t("pr.dialog.published") : pendingAction === commentKey(comment, index) ? t("pr.dialog.publishing") : t("pr.dialog.publish")}
                                       </Button>
                                     ) : null}
                                   </div>
@@ -234,7 +236,7 @@ export function PullRequestReviewDialog({
             disabled={!pullRequest}
           >
             <RefreshCw aria-hidden="true" className="size-4" />
-            Re-run review
+            {t("pr.dialog.rerun")}
           </Button>
           {reviewerActions ? (
             <div className="flex items-center gap-2">
@@ -247,7 +249,7 @@ export function PullRequestReviewDialog({
                 className="border-amber-300 bg-amber-50 text-amber-800 hover:bg-amber-100 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-300 dark:hover:bg-amber-950/60"
               >
                 {pendingAction === "needs_work" ? <Loader2 aria-hidden="true" className="size-4 animate-spin" /> : <CircleAlert aria-hidden="true" className="size-4" />}
-                {pendingAction === "needs_work" ? "Saving…" : "Needs Work"}
+                {pendingAction === "needs_work" ? t("pr.dialog.saving") : t("pr.dialog.needsWork")}
               </Button>
               <Button
                 type="button"
@@ -257,7 +259,7 @@ export function PullRequestReviewDialog({
                 className="bg-emerald-600 text-white hover:bg-emerald-700 dark:bg-emerald-600 dark:hover:bg-emerald-700"
               >
                 {pendingAction === "approve" ? <Loader2 aria-hidden="true" className="size-4 animate-spin" /> : <CheckCircle2 aria-hidden="true" className="size-4" />}
-                {pendingAction === "approve" ? "Saving…" : "Approve"}
+                {pendingAction === "approve" ? t("pr.dialog.saving") : t("pr.dialog.approve")}
               </Button>
             </div>
           ) : null}
@@ -276,9 +278,9 @@ export function PullRequestReviewDialog({
       >
         <DialogContent className="max-w-xl">
           <DialogHeader>
-            <DialogTitle>Edit review comment</DialogTitle>
+            <DialogTitle>{t("pr.dialog.editComment")}</DialogTitle>
             <DialogDescription>
-              Review the comment before sending it to the referenced line.
+              {t("pr.dialog.editCommentDescription")}
             </DialogDescription>
           </DialogHeader>
           <DialogBody className="space-y-3">
@@ -286,10 +288,10 @@ export function PullRequestReviewDialog({
               {editingComment?.comment.file}{editingComment?.comment.line != null ? `:${editingComment.comment.line}` : ""}
             </div>
             <div className="grid gap-2">
-              <label htmlFor="review-comment-editor" className="text-sm font-medium">Comment</label>
+              <label htmlFor="review-comment-editor" className="text-sm font-medium">{t("pr.dialog.comment")}</label>
               <textarea
                 id="review-comment-editor"
-                aria-label="Review comment"
+                aria-label={t("pr.dialog.reviewComment")}
                 className="min-h-32 w-full resize-y rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
                 value={commentDraft}
                 onChange={(event) => setCommentDraft(event.target.value)}
@@ -312,7 +314,7 @@ export function PullRequestReviewDialog({
               }}
               disabled={pendingAction != null}
             >
-              Cancel
+              {t("settings.common.cancel")}
             </Button>
             <Button
               type="button"
@@ -322,7 +324,7 @@ export function PullRequestReviewDialog({
               disabled={!editingComment || !onPublishComment || !commentDraft.trim() || pendingAction != null}
             >
               {pendingAction != null ? <Loader2 aria-hidden="true" className="size-4 animate-spin" /> : <Send aria-hidden="true" className="size-4" />}
-              {pendingAction != null ? "Sending…" : "Send"}
+              {pendingAction != null ? t("pr.dialog.sending") : t("pr.dialog.send")}
             </Button>
           </DialogFooter>
         </DialogContent>

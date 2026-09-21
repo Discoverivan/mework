@@ -37,6 +37,7 @@ const secondTeam = {
 beforeEach(() => {
   vi.clearAllMocks();
   window.localStorage.clear();
+  window.location.hash = "";
   Element.prototype.scrollIntoView = vi.fn();
   listTeamsMock.mockResolvedValue([{
     id: "team-1",
@@ -55,7 +56,7 @@ beforeEach(() => {
   ]);
   avatarMock.mockResolvedValue(null);
   epicPreviewMock.mockResolvedValue([]);
-  createMock.mockResolvedValue({ id: "10001", key: "COREAPI-101", url: "https://jira.example.invalid/browse/COREAPI-101" });
+  createMock.mockResolvedValue({ id: "10001", key: "DEMO-101", url: "https://jira.example.invalid/browse/DEMO-101" });
 });
 
 describe("CreateTaskPage", () => {
@@ -76,8 +77,13 @@ describe("CreateTaskPage", () => {
     render(<CreateTaskPage />);
 
     expect(screen.getByRole("heading", { name: "Create task" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Create task" })).toHaveClass("h-9");
+    expect(screen.getByText("Create Jira tasks with AI-assisted drafts for the selected team and sprint.")).toBeInTheDocument();
+    const createTaskButton = screen.getByRole("button", { name: "Create task" });
+    expect(createTaskButton).toHaveClass("h-9", "w-9");
+    expect(createTaskButton.querySelector("svg.lucide-plus")).not.toBeNull();
+    expect(createTaskButton).not.toHaveTextContent("Create task");
     expect(await screen.findByLabelText("Team")).toBeInTheDocument();
+    expect(await screen.findByLabelText("Sprint for new tasks")).toBeInTheDocument();
     await waitFor(() => expect(listMembersMock).toHaveBeenCalledWith("team-1"));
     expect(screen.queryByText("Product", { exact: true })).not.toBeInTheDocument();
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
@@ -97,7 +103,7 @@ describe("CreateTaskPage", () => {
     fireEvent.click(screen.getByRole("button", { name: "Create with AI" }));
 
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
-    const skeleton = screen.getByRole("article", { name: "AI is thinking" });
+    const skeleton = screen.getByRole("article", { name: "AI is thinking…" });
     expect(skeleton).toBeInTheDocument();
     expect(skeleton.querySelector("svg.lucide-sparkles")).toBeInTheDocument();
     expect(generateMock).toHaveBeenCalledWith("Let admins filter events by actor and date.");
@@ -213,6 +219,31 @@ describe("CreateTaskPage", () => {
     });
   });
 
+  it("uses the team and sprint passed from Sprint tasks", async () => {
+    window.location.hash = "#product/create-task?team=team-2&sprint=sprint-2";
+    listTeamsMock.mockResolvedValue([
+      {
+        id: "team-1",
+        integrationId: "jira-1",
+        jiraProjectId: "10001",
+        name: "Platform team",
+        boardId: "board-1",
+        boardName: "Platform board",
+      },
+      secondTeam,
+    ]);
+    listSprintsMock.mockResolvedValue([
+      { id: "sprint-2", boardId: "board-2", name: "Payments Sprint", state: "active", usable: true },
+    ]);
+
+    render(<CreateTaskPage />);
+
+    expect(await screen.findByLabelText("Team")).toHaveTextContent("Payments team");
+    expect(await screen.findByLabelText("Sprint for new tasks")).toHaveTextContent("Payments Sprint");
+    expect(listMembersMock).toHaveBeenCalledWith("team-2");
+    expect(listSprintsMock).toHaveBeenCalledWith("team-2");
+  });
+
   it("keeps multiple AI draft cards independent while they are generating", async () => {
     const resolvers: Array<(value: { summary: string; description: string }) => void> = [];
     generateMock.mockImplementation(() => new Promise((resolve) => { resolvers.push(resolve); }));
@@ -226,7 +257,7 @@ describe("CreateTaskPage", () => {
     submitPrompt("First task");
     submitPrompt("Second task");
 
-    expect(screen.getAllByRole("article", { name: "AI is thinking" })).toHaveLength(2);
+    expect(screen.getAllByRole("article", { name: "AI is thinking…" })).toHaveLength(2);
     expect(screen.getAllByText("Preparing editable task fields", { exact: true })).toHaveLength(2);
     expect(screen.getAllByText("Summary", { exact: true })).toHaveLength(2);
     expect(screen.getAllByText("Description", { exact: true })).toHaveLength(2);
@@ -236,7 +267,7 @@ describe("CreateTaskPage", () => {
     resolvers[1]?.({ summary: "Second summary", description: "Second description" });
     expect((await screen.findAllByRole("article", { name: "Editable Jira task draft" }))).toHaveLength(1);
     expect(screen.getByDisplayValue("Second summary")).toBeInTheDocument();
-    expect(screen.getAllByRole("article", { name: "AI is thinking" })).toHaveLength(1);
+    expect(screen.getAllByRole("article", { name: "AI is thinking…" })).toHaveLength(1);
 
     resolvers[0]?.({ summary: "First summary", description: "First description" });
     expect(await screen.findByDisplayValue("First summary")).toBeInTheDocument();
@@ -253,30 +284,30 @@ describe("CreateTaskPage", () => {
       boardName: "Platform board",
       defaultTaskSprintId: "sprint-1",
       defaultTaskSprintName: "Platform Sprint",
-      defaultEpicLinkKey: "COREAPI-EPIC-1",
+      defaultEpicLinkKey: "DEMO-EPIC-1",
       defaultEpicLinkSummary: "Platform epic",
-      epicLinkJql: "project = COREAPI AND issuetype = Epic",
+      epicLinkJql: "project = DEMO AND issuetype = Epic",
     }]);
     listMembersMock.mockResolvedValue([{ id: "user-1", displayName: "Ivan Petrov", avatarUrl: "/secure/avatar/ivan", active: true }]);
-    epicPreviewMock.mockResolvedValue([{ key: "COREAPI-EPIC-1", summary: "Platform epic" }]);
+    epicPreviewMock.mockResolvedValue([{ key: "DEMO-EPIC-1", summary: "Example epic" }]);
     avatarMock.mockResolvedValue("data:image/png;base64,synthetic");
     generateMock.mockResolvedValue({ summary: "Initial summary", description: "Initial description" });
     render(<CreateTaskPage />);
 
     await waitFor(() => expect(epicPreviewMock).toHaveBeenCalledWith({
       managedProjectId: "team-1",
-      jql: "project = COREAPI AND issuetype = Epic",
+      jql: "project = DEMO AND issuetype = Epic",
     }));
     fireEvent.click(screen.getByRole("button", { name: "Create task" }));
     fireEvent.change(screen.getByPlaceholderText("Describe your task"), { target: { value: "Create task" } });
     fireEvent.click(screen.getByRole("button", { name: "Create with AI" }));
     expect(await screen.findByRole("article", { name: "Editable Jira task draft" })).toBeInTheDocument();
-    expect(screen.getByText("COREAPI-EPIC-1 — Platform epic")).toBeInTheDocument();
+    expect(screen.getByText("DEMO-EPIC-1 — Example epic")).toBeInTheDocument();
 
-    expect(screen.getByText("Platform Sprint")).toBeInTheDocument();
+    expect(screen.getByLabelText("Sprint for new tasks")).toHaveTextContent("Platform Sprint");
     fireEvent.click(screen.getByLabelText("Epic link"));
-    expect(await screen.findByRole("option", { name: "COREAPI-EPIC-1 — Platform epic" })).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("option", { name: "COREAPI-EPIC-1 — Platform epic" }));
+    expect(await screen.findByRole("option", { name: "DEMO-EPIC-1 — Example epic" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("option", { name: "DEMO-EPIC-1 — Example epic" }));
     fireEvent.click(screen.getByLabelText("Assignee"));
     expect(await screen.findByRole("option", { name: "Ivan Petrov" })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("option", { name: "Ivan Petrov" }));
@@ -292,7 +323,7 @@ describe("CreateTaskPage", () => {
       issueType: "Spike",
       summary: "Initial summary",
       description: "Initial description",
-      epicLink: "COREAPI-EPIC-1",
+      epicLink: "DEMO-EPIC-1",
       assignee: "user-1",
       sprint: "sprint-1",
       storyPoints: "5",
@@ -323,13 +354,13 @@ describe("CreateTaskPage", () => {
       sprint: undefined,
       storyPoints: undefined,
     }));
-    const createdCard = await screen.findByRole("article", { name: "Created Jira task COREAPI-101" });
+    const createdCard = await screen.findByRole("article", { name: "Created Jira task DEMO-101" });
     expect(createdCard.querySelector("svg.lucide-check")).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Edited summary" })).toBeInTheDocument();
     expect(screen.queryByLabelText("Summary")).not.toBeInTheDocument();
     expect(screen.queryByLabelText("Description")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Dismiss" })).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: /Open in Jira/ })).toHaveAttribute("href", "https://jira.example.invalid/browse/COREAPI-101");
+    expect(screen.getByRole("link", { name: /Open in Jira/ })).toHaveAttribute("href", "https://jira.example.invalid/browse/DEMO-101");
   });
 
   it("restores persisted task cards by creation date", async () => {
@@ -380,7 +411,7 @@ describe("CreateTaskPage", () => {
     generateMock
       .mockResolvedValueOnce({ summary: "First summary", description: "First description" })
       .mockResolvedValueOnce({ summary: "Second summary", description: "Second description" });
-    createMock.mockResolvedValue({ id: "10001", key: "COREAPI-201", url: "https://jira.example.invalid/browse/COREAPI-201" });
+    createMock.mockResolvedValue({ id: "10001", key: "DEMO-201", url: "https://jira.example.invalid/browse/DEMO-201" });
     render(<CreateTaskPage />);
 
     const submitPrompt = (value: string) => {
@@ -396,8 +427,8 @@ describe("CreateTaskPage", () => {
     const firstCard = within(taskDrafts).getAllByRole("article", { name: "Editable Jira task draft" })[0];
     fireEvent.click(within(firstCard).getByRole("button", { name: "Create" }));
 
-    await waitFor(() => expect(within(taskDrafts).getByRole("article", { name: "Created Jira task COREAPI-201" })).toBeInTheDocument());
-    expect(within(taskDrafts).getAllByRole("article")[0]).toHaveAccessibleName("Created Jira task COREAPI-201");
+    await waitFor(() => expect(within(taskDrafts).getByRole("article", { name: "Created Jira task DEMO-201" })).toBeInTheDocument());
+    expect(within(taskDrafts).getAllByRole("article")[0]).toHaveAccessibleName("Created Jira task DEMO-201");
     expect(within(taskDrafts).getAllByRole("article")[1]).toHaveAccessibleName("Editable Jira task draft");
   });
 

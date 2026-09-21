@@ -7,16 +7,27 @@ export interface DailySubtask {
   status: string;
   storyPoints?: number;
   statusTransitionAt?: string;
-  assigneeAccountId: string;
+  assigneeAccountId?: string;
+  assigneeDisplayName?: string;
+  issueType: string;
   parentIssueKey?: string;
+  url: string;
+  parentUrl?: string;
+}
+
+export interface DailySprint {
+  id: string;
+  name: string;
+  state: string;
 }
 
 export interface DailyWorkspace {
   managedProjectId: string;
   projectName: string;
   projectKey: string;
-  activeSprintId: string;
-  activeSprintName: string;
+  selectedSprintId: string;
+  selectedSprintName: string;
+  sprints: DailySprint[];
   members: TeamMember[];
   subtasks: DailySubtask[];
 }

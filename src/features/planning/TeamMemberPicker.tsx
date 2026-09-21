@@ -4,6 +4,7 @@ import type { TeamMember } from "../../shared/contracts/planning";
 import { Badge } from "../../components/ui/badge";
 import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
+import { useI18n } from "@/i18n/context";
 
 interface TeamMemberPickerProps {
   members: TeamMember[];
@@ -20,6 +21,7 @@ export function TeamMemberPicker({
   disabled = false,
   onAssign,
 }: TeamMemberPickerProps) {
+  const { t } = useI18n();
   const [query, setQuery] = useState("");
   const [open, setOpen] = useState(false);
   const [activeIndex, setActiveIndex] = useState(0);
@@ -69,10 +71,10 @@ export function TeamMemberPicker({
       <Input
         ref={inputRef}
         role="combobox"
-        aria-label="Assign team member"
+        aria-label={t("planning.assignMember")}
         aria-expanded={open}
         aria-controls="planning-member-options"
-        placeholder={selected?.displayName ?? "Assign member"}
+        placeholder={selected?.displayName ?? t("planning.assignPlaceholder")}
         value={query}
         disabled={disabled}
         onFocus={() => setOpen(true)}
@@ -87,7 +89,7 @@ export function TeamMemberPicker({
       />
       {open ? (
         <div id="planning-member-options" role="listbox" className="absolute z-10 mt-1 w-full rounded-md border bg-popover p-1 shadow-md">
-          {visibleMembers.length === 0 ? <p className="p-2 text-sm text-muted-foreground">No matching team members.</p> : null}
+          {visibleMembers.length === 0 ? <p className="p-2 text-sm text-muted-foreground">{t("planning.noMatchingMembers")}</p> : null}
           {visibleMembers.map((member, index) => {
             const outsideTeam = Boolean(normalizedCompetency) && !member.tags.some((tag) => tag.toLowerCase() === normalizedCompetency);
             return (
@@ -109,7 +111,7 @@ export function TeamMemberPicker({
                 </span>
                 <span className="ml-auto flex gap-1">
                   {member.tags.slice(0, 3).map((tag) => <Badge key={tag} variant="outline">{tag}</Badge>)}
-                  {outsideTeam ? <Badge variant="outline">Outside selected team</Badge> : null}
+                  {outsideTeam ? <Badge variant="outline">{t("planning.outsideTeam")}</Badge> : null}
                 </span>
               </Button>
             );

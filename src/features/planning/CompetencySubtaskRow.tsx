@@ -5,6 +5,8 @@ import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
 import { Label } from "../../components/ui/label";
 import { TeamMemberPicker } from "./TeamMemberPicker";
+import { useI18n } from "@/i18n/context";
+import type { TranslationKey } from "@/i18n/locales/en";
 
 interface CompetencySubtaskRowProps {
   subtask: CompetencySubtask;
@@ -15,14 +17,14 @@ interface CompetencySubtaskRowProps {
   onAssign?: (accountId: string | undefined) => void;
 }
 
-function syncLabel(state: PlanningSyncState) {
+function syncLabelKey(state: PlanningSyncState): TranslationKey {
   switch (state) {
-    case "synced": return "Synced";
-    case "pending": return "Pending sync";
-    case "conflict": return "Conflict";
-    case "error": return "Sync error";
-    case "unmapped": return "Unmapped competency";
-    default: return "Local draft";
+    case "synced": return "planning.sync.synced";
+    case "pending": return "planning.sync.pending";
+    case "conflict": return "planning.sync.conflict";
+    case "error": return "planning.sync.error";
+    case "unmapped": return "planning.sync.unmapped";
+    default: return "planning.sync.local";
   }
 }
 
@@ -34,6 +36,7 @@ export function CompetencySubtaskRow({
   onRemove,
   onAssign,
 }: CompetencySubtaskRowProps) {
+  const { t } = useI18n();
   const editable = !readOnly && Boolean(onChange);
   const handleSummary = (event: ChangeEvent<HTMLInputElement>) =>
     onChange?.({ summary: event.target.value, syncState: "local" });
@@ -47,12 +50,12 @@ export function CompetencySubtaskRow({
   return (
     <div className="flex flex-wrap items-center gap-2 border-l-2 pl-3 py-2" data-testid={`subtask-${subtask.id}`}>
       {editable ? (
-        <Label className="sr-only" htmlFor={`summary-${subtask.id}`}>Subtask summary</Label>
+        <Label className="sr-only" htmlFor={`summary-${subtask.id}`}>{t("planning.subtaskSummary")}</Label>
       ) : null}
       {editable ? (
         <Input
           id={`summary-${subtask.id}`}
-          aria-label="Subtask summary"
+          aria-label={t("planning.subtaskSummary")}
           value={subtask.summary}
           onChange={handleSummary}
           className="min-w-[13rem] flex-1"
@@ -62,12 +65,12 @@ export function CompetencySubtaskRow({
       )}
       {editable ? (
         <select
-          aria-label="Competency"
+          aria-label={t("planning.competency")}
           value={subtask.competency ?? ""}
           onChange={handleCompetency}
           className="h-9 rounded-md border bg-background px-2 text-sm"
         >
-          <option value="">Choose competency</option>
+          <option value="">{t("planning.chooseCompetency")}</option>
           <option value="Analyst">Analyst</option>
           <option value="Backend">Backend</option>
           <option value="Frontend">Frontend</option>
@@ -76,10 +79,10 @@ export function CompetencySubtaskRow({
       ) : subtask.competency ? <Badge variant="secondary">{subtask.competency}</Badge> : null}
       {editable ? (
         <>
-          <Label className="sr-only" htmlFor={`points-${subtask.id}`}>Story points</Label>
+          <Label className="sr-only" htmlFor={`points-${subtask.id}`}>{t("planning.storyPoints")}</Label>
           <Input
             id={`points-${subtask.id}`}
-            aria-label="Story points"
+            aria-label={t("planning.storyPoints")}
             type="number"
             min={0}
             max={100}
@@ -88,7 +91,7 @@ export function CompetencySubtaskRow({
             className="w-20"
           />
         </>
-      ) : subtask.storyPoints !== undefined ? <span aria-label={`${subtask.storyPoints} story points`} className="text-sm text-muted-foreground">{subtask.storyPoints} SP</span> : null}
+      ) : subtask.storyPoints !== undefined ? <span aria-label={t("planning.storyPointsCount", { count: subtask.storyPoints })} className="text-sm text-muted-foreground">{subtask.storyPoints} SP</span> : null}
       {onAssign && !readOnly ? (
         <TeamMemberPicker
           members={members}
@@ -97,17 +100,17 @@ export function CompetencySubtaskRow({
           onAssign={onAssign}
         />
       ) : subtask.assignee ? (
-        <span className="flex items-center gap-1 text-sm" aria-label={`Assigned to ${subtask.assignee.displayName}`}>
+        <span className="flex items-center gap-1 text-sm" aria-label={t("planning.assignedTo", { member: subtask.assignee.displayName })}>
           {subtask.assignee.avatarUrl ? <img src={subtask.assignee.avatarUrl} alt="" className="h-5 w-5 rounded-full" onError={(event) => { event.currentTarget.style.display = "none"; }} /> : null}
           {subtask.assignee.displayName}
         </span>
-      ) : <span className="text-sm text-muted-foreground">Unassigned</span>}
+      ) : <span className="text-sm text-muted-foreground">{t("planning.unassigned")}</span>}
       <Badge variant={subtask.syncState === "error" || subtask.syncState === "conflict" ? "destructive" : "outline"}>
-        {syncLabel(subtask.syncState)}
+        {t(syncLabelKey(subtask.syncState))}
       </Badge>
       {editable && onRemove ? (
-        <Button type="button" variant="ghost" size="sm" aria-label="Remove competency subtask" onClick={onRemove}>
-          Remove
+        <Button type="button" variant="ghost" size="sm" aria-label={t("planning.removeSubtask")} onClick={onRemove}>
+          {t("planning.remove")}
         </Button>
       ) : null}
     </div>

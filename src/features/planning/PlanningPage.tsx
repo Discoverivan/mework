@@ -7,6 +7,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from ".
 import type { ManagedProject, PlanningSprint, PlanningWorkspace as Workspace, TeamMember, TeamPreset } from "../../shared/contracts/planning";
 import { listManagedProjects, listPlanningTeamMembers, listPlanningTeamPresets, listTargetSprints, loadPlanningWorkspace } from "./api";
 import { PlanningWorkspace } from "./PlanningWorkspace";
+import { useI18n } from "@/i18n/context";
 
 function commandError(error: unknown): string {
   if (error instanceof Error) return error.message;
@@ -20,6 +21,7 @@ function commandError(error: unknown): string {
 }
 
 export function PlanningPage() {
+  const { t } = useI18n();
   const [projects, setProjects] = useState<ManagedProject[]>([]);
   const [projectId, setProjectId] = useState("");
   const [sprints, setSprints] = useState<PlanningSprint[]>([]);
@@ -96,20 +98,20 @@ export function PlanningPage() {
       {!workspace ? (
         <>
           <PageHeader
-            title="What do you want to plan?"
+            title={t("planning.title")}
             titleId="planning-entry-title"
-            description="Jira sprint planning"
+            description={t("planning.description")}
           />
           <Card>
             <CardContent className="grid max-w-2xl gap-4 pt-6 sm:grid-cols-2">
-              {loadingProjects ? <p role="status" className="sm:col-span-2">Loading managed projects…</p> : null}
-              {error === "projects" ? <Alert variant="destructive" role="alert" className="sm:col-span-2"><AlertDescription>Unable to load managed projects. Check Jira permissions in Settings.</AlertDescription></Alert> : null}
-              {!loadingProjects && !error && projects.length === 0 ? <p className="sm:col-span-2">No managed Jira projects are configured.</p> : null}
+              {loadingProjects ? <p role="status" className="sm:col-span-2">{t("planning.loadingProjects")}</p> : null}
+              {error === "projects" ? <Alert variant="destructive" role="alert" className="sm:col-span-2"><AlertDescription>{t("planning.projectsError")}</AlertDescription></Alert> : null}
+              {!loadingProjects && !error && projects.length === 0 ? <p className="sm:col-span-2">{t("planning.noProjects")}</p> : null}
               {!loadingProjects && projects.length > 0 ? (
                 <div className="space-y-2">
-                  <Label htmlFor="managed-project">Managed project</Label>
+                  <Label htmlFor="managed-project">{t("planning.project")}</Label>
                   <Select value={projectId} onValueChange={selectProject}>
-                    <SelectTrigger id="managed-project" aria-label="Managed project"><SelectValue placeholder="Choose a managed project" /></SelectTrigger>
+                    <SelectTrigger id="managed-project" aria-label={t("planning.project")}><SelectValue placeholder={t("planning.chooseProject")} /></SelectTrigger>
                     <SelectContent>
                       {projects.map((project) => <SelectItem key={project.id} value={project.id}>{project.name} ({project.jiraProjectId})</SelectItem>)}
                     </SelectContent>
@@ -118,21 +120,21 @@ export function PlanningPage() {
               ) : null}
               {projectId ? (
                 <div className="space-y-2">
-                  <Label htmlFor="target-sprint">Target sprint</Label>
-                  {loadingSprints ? <p role="status">Loading target sprints…</p> : (
+                  <Label htmlFor="target-sprint">{t("planning.targetSprint")}</Label>
+                  {loadingSprints ? <p role="status">{t("planning.loadingSprints")}</p> : (
                     <Select value={sprintId} onValueChange={selectSprint}>
-                      <SelectTrigger id="target-sprint" aria-label="Target sprint"><SelectValue placeholder="Choose an open sprint" /></SelectTrigger>
+                      <SelectTrigger id="target-sprint" aria-label={t("planning.targetSprint")}><SelectValue placeholder={t("planning.chooseSprint")} /></SelectTrigger>
                       <SelectContent>
                         {sprints.filter((sprint) => sprint.usable && sprint.state === "future").map((sprint) => <SelectItem key={sprint.id} value={sprint.id}>{sprint.name}</SelectItem>)}
                       </SelectContent>
                     </Select>
                   )}
-                  {sprints.length > 0 && sprints.every((sprint) => !sprint.usable || sprint.state !== "future") ? <p className="text-sm text-muted-foreground">No future target sprints.</p> : null}
+                  {sprints.length > 0 && sprints.every((sprint) => !sprint.usable || sprint.state !== "future") ? <p className="text-sm text-muted-foreground">{t("planning.noFutureSprints")}</p> : null}
                 </div>
               ) : null}
-              {error === "sprints" ? <Alert variant="destructive" role="alert" className="sm:col-span-2"><AlertDescription>Unable to load target sprints. {sprintError || "Check Jira board permissions."}</AlertDescription></Alert> : null}
-              {error === "workspace" ? <Alert variant="destructive" role="alert" className="sm:col-span-2"><AlertDescription>Unable to load the planning workspace. {workspaceError || "Refresh Jira data and try again."}</AlertDescription></Alert> : null}
-              {loadingWorkspace ? <p role="status" className="sm:col-span-2">Loading planning workspace…</p> : null}
+              {error === "sprints" ? <Alert variant="destructive" role="alert" className="sm:col-span-2"><AlertDescription>{t("planning.sprintsError", { error: sprintError || t("planning.sprintsErrorHint") })}</AlertDescription></Alert> : null}
+              {error === "workspace" ? <Alert variant="destructive" role="alert" className="sm:col-span-2"><AlertDescription>{t("planning.workspaceError", { error: workspaceError || t("planning.workspaceErrorHint") })}</AlertDescription></Alert> : null}
+              {loadingWorkspace ? <p role="status" className="sm:col-span-2">{t("planning.loadingWorkspace")}</p> : null}
             </CardContent>
           </Card>
         </>

@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { ArrowLeft, ArrowRight, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { useI18n } from "@/i18n/context";
 import type { DailyPresenterState, DailySubtask } from "@/shared/contracts/developer";
 import type { TeamMember } from "@/shared/contracts/planning";
 import {
@@ -39,8 +40,8 @@ function orderedMembers(members: TeamMember[]): TeamMember[] {
     });
 }
 
-function formatDate(): string {
-  return new Intl.DateTimeFormat("en-GB", {
+function formatDate(locale: string): string {
+  return new Intl.DateTimeFormat(locale, {
     weekday: "long",
     day: "2-digit",
     month: "long",
@@ -78,6 +79,7 @@ function taskTitleFontSize(summary: string, taskCount: number): number {
 }
 
 function TaskCard({ task, taskCount }: { task: DailySubtaskWithPoints; taskCount: number }) {
+  const { t } = useI18n();
   const cardRef = useRef<HTMLElement>(null);
   const titleRef = useRef<HTMLHeadingElement>(null);
   const [fontSize, setFontSize] = useState(() => taskTitleFontSize(task.summary, taskCount));
@@ -112,7 +114,7 @@ function TaskCard({ task, taskCount }: { task: DailySubtaskWithPoints; taskCount
       <div className="daily-presenter-task-meta">
         <span className="daily-presenter-ticket-id">{task.key}</span>
         <div className="daily-presenter-status-stack">
-          <span className={`daily-presenter-status daily-presenter-status-${dailyStatusTone(task.status)}`} aria-label={`Status: ${task.status}`}>
+          <span className={`daily-presenter-status daily-presenter-status-${dailyStatusTone(task.status)}`} aria-label={t("daily.status", { status: task.status })}>
             {task.status}
           </span>
           {statusTransitionDate ? (
@@ -124,7 +126,7 @@ function TaskCard({ task, taskCount }: { task: DailySubtaskWithPoints; taskCount
       </div>
       <h2 ref={titleRef} style={{ fontSize: `${fontSize}px` }}>{task.summary}</h2>
       <div className="daily-presenter-task-footer">
-        <span className="daily-presenter-points" aria-label={`${task.storyPoints ?? 0} story points`}>
+        <span className="daily-presenter-points" aria-label={t("presenter.storyPoints", { count: task.storyPoints ?? 0 })}>
           {task.storyPoints ?? 0} SP
         </span>
       </div>
@@ -133,6 +135,7 @@ function TaskCard({ task, taskCount }: { task: DailySubtaskWithPoints; taskCount
 }
 
 export function PresenterView() {
+  const { locale, t } = useI18n();
   const [state, setState] = useState<DailyPresenterState | undefined>(() => readPresenterState());
   const [refreshing, setRefreshing] = useState(false);
 
@@ -171,7 +174,7 @@ export function PresenterView() {
     if (!managedProjectId) return;
     setRefreshing(true);
     try {
-      const subtasks = await refreshDailyWorkspace(managedProjectId, state?.workspace.activeSprintId ?? "");
+      const subtasks = await refreshDailyWorkspace(managedProjectId, state?.workspace.selectedSprintId ?? "");
       setState((current) => current
         ? { ...current, workspace: { ...current.workspace, subtasks } }
         : current);
@@ -202,21 +205,21 @@ export function PresenterView() {
   const progressMetrics = useMemo(() => dailyProgressMetrics(tasks), [tasks]);
 
   return (
-    <main className="daily-presenter-view" aria-label="Daily meeting presenter view">
+    <main className="daily-presenter-view" aria-label={t("presenter.view")}>
       <header className="daily-presenter-header" data-tauri-drag-region>
         <div className="daily-presenter-brand">
           <span className="daily-presenter-live-dot" aria-hidden="true" />
-          <span>Daily</span>
+          <span>{t("presenter.daily")}</span>
         </div>
-        <div className="daily-presenter-project">{workspace?.projectName ?? "Daily meeting"}</div>
+        <div className="daily-presenter-project">{workspace?.projectName ?? t("presenter.meeting")}</div>
         <div className="daily-presenter-header-actions">
-          <div className="daily-presenter-date">{formatDate()}</div>
+          <div className="daily-presenter-date">{formatDate(locale)}</div>
           <Button type="button" variant="ghost" className="daily-presenter-refresh" onClick={() => void refreshWorkspace()} disabled={!workspace || refreshing}>
             <RefreshCw aria-hidden="true" className={refreshing ? "animate-spin" : undefined} />
-            Refresh
+            {t("presenter.refresh")}
           </Button>
           <Button type="button" variant="ghost" className="daily-presenter-close" onClick={() => void stopPresenter()}>
-            Stop
+            {t("presenter.stop")}
           </Button>
         </div>
       </header>
@@ -231,17 +234,17 @@ export function PresenterView() {
                   <h1>{memberDisplayName(member)}</h1>
                   <div
                     className="daily-presenter-progress"
-                    aria-label={`Story point progress: ${progressMetrics.completedPoints} closed, ${progressMetrics.inProgressPoints} in progress, ${progressMetrics.backlogPoints} in backlog`}
+                    aria-label={t("presenter.progressAria", { closed: progressMetrics.completedPoints, progress: progressMetrics.inProgressPoints, backlog: progressMetrics.backlogPoints })}
                   >
                     <div className="daily-presenter-progress-label">
-                      <span>Story point progress</span>
-                      <strong>{progressMetrics.totalPoints} SP total</strong>
+                      <span>{t("presenter.progress")}</span>
+                      <strong>{t("presenter.total", { count: progressMetrics.totalPoints })}</strong>
                     </div>
                     <div className="daily-presenter-progress-layout">
                       <div
                         className="daily-presenter-progress-track"
                         role="img"
-                        aria-label={`${progressMetrics.completedPercent}% closed, ${progressMetrics.inProgressPercent}% in progress, ${progressMetrics.backlogPercent}% in backlog`}
+                        aria-label={t("presenter.progressPercent", { closed: progressMetrics.completedPercent, progress: progressMetrics.inProgressPercent, backlog: progressMetrics.backlogPercent })}
                       >
                         <span
                           className="daily-presenter-progress-segment daily-presenter-progress-segment-closed"
@@ -256,17 +259,17 @@ export function PresenterView() {
                           style={{ width: `${progressMetrics.backlogPercent}%` }}
                         />
                       </div>
-                      <div className="daily-presenter-progress-badges" aria-label="Story point totals by status">
+                      <div className="daily-presenter-progress-badges" aria-label={t("presenter.totals")}>
                         <span className="daily-presenter-progress-badge daily-presenter-progress-badge-closed">
-                          <span>Closed</span>
+                          <span>{t("presenter.closed")}</span>
                           <strong>{progressMetrics.completedPoints} SP</strong>
                         </span>
                         <span className="daily-presenter-progress-badge daily-presenter-progress-badge-progress">
-                          <span>In progress</span>
+                          <span>{t("presenter.inProgress")}</span>
                           <strong>{progressMetrics.inProgressPoints} SP</strong>
                         </span>
                         <span className="daily-presenter-progress-badge daily-presenter-progress-badge-backlog">
-                          <span>In backlog</span>
+                          <span>{t("presenter.backlog")}</span>
                           <strong>{progressMetrics.backlogPoints} SP</strong>
                         </span>
                       </div>
@@ -274,12 +277,12 @@ export function PresenterView() {
                   </div>
                 </div>
               </div>
-              <div className="daily-presenter-member-navigation" aria-label="Team member navigation">
+              <div className="daily-presenter-member-navigation" aria-label={t("presenter.navigation")}>
                 <Button
                   type="button"
                   variant="ghost"
                   className="daily-presenter-member-nav-button"
-                  aria-label="Previous team member"
+                  aria-label={t("daily.previousMember")}
                   disabled={activeMembers.length < 2}
                   onClick={() => selectAdjacentMember(-1)}
                 >
@@ -289,7 +292,7 @@ export function PresenterView() {
                   type="button"
                   variant="ghost"
                   className="daily-presenter-member-nav-button"
-                  aria-label="Next team member"
+                  aria-label={t("daily.nextMember")}
                   disabled={activeMembers.length < 2}
                   onClick={() => selectAdjacentMember(1)}
                 >
@@ -304,16 +307,16 @@ export function PresenterView() {
             ) : (
               <div className="daily-presenter-empty-state">
                 <span className="daily-presenter-empty-mark" aria-hidden="true">✓</span>
-                <h2>No assigned work</h2>
-                <p>This person has no assigned work in the active sprint.</p>
+                <h2>{t("presenter.noWork")}</h2>
+                <p>{t("presenter.noWorkDescription")}</p>
               </div>
             )}
           </>
         ) : (
           <div className="daily-presenter-empty-state daily-presenter-waiting-state">
             <span className="daily-presenter-empty-mark" aria-hidden="true">✦</span>
-            <h1>Choose a team member</h1>
-            <p>Select a person in Daily to start presenting their work.</p>
+            <h1>{t("presenter.chooseMember")}</h1>
+            <p>{t("presenter.chooseMemberDescription")}</p>
           </div>
         )}
       </section>

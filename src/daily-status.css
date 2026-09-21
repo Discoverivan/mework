@@ -211,11 +211,40 @@
 }
 
 .daily-task-summary {
+  display: grid;
+  gap: 2px;
   min-width: 0;
   color: var(--foreground);
   font-size: 14px;
   line-height: 1.35;
   overflow-wrap: anywhere;
+}
+
+.daily-task-link {
+  width: fit-content;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  text-align: left;
+}
+
+.daily-task-link:hover {
+  color: var(--foreground);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.daily-task-link:focus-visible {
+  border-radius: 3px;
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+
+.daily-task-summary small {
+  color: var(--muted-foreground);
+  font-size: 11px;
+  font-weight: 500;
 }
 
 .daily-task-points {
