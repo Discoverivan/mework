@@ -45,3 +45,6 @@ Thumbs.db
 
 # Hermes task metadata is kept outside the source repository
 .hermes/
+
+# Local agent reports and workspace metadata
+.agents/

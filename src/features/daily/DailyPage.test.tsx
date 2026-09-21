@@ -38,6 +38,15 @@ const project: ManagedProject = {
   boardName: "Example Project Board",
 };
 
+const secondProject: ManagedProject = {
+  ...project,
+  id: "managed-2",
+  jiraProjectId: "10002",
+  name: "Second Project",
+  boardId: "43",
+  boardName: "Second Project Board",
+};
+
 const workspace: DailyWorkspace = {
   managedProjectId: project.id,
   projectName: project.name,
@@ -182,5 +191,46 @@ describe("DailyPage smoke test", () => {
     });
 
     await waitFor(() => expect(screen.getByRole("button", { name: /Test Author B/ })).toHaveAttribute("aria-pressed", "true"));
+  });
+
+  it("ignores a late workspace response for the previously selected project", async () => {
+    let resolveFirstWorkspace: (value: DailyWorkspace) => void = () => undefined;
+    let resolveSecondWorkspace: (value: DailyWorkspace) => void = () => undefined;
+    const firstWorkspaceRequest = new Promise<DailyWorkspace>((resolve) => {
+      resolveFirstWorkspace = resolve;
+    });
+    const secondWorkspaceRequest = new Promise<DailyWorkspace>((resolve) => {
+      resolveSecondWorkspace = resolve;
+    });
+    const secondWorkspace: DailyWorkspace = {
+      ...workspace,
+      managedProjectId: secondProject.id,
+      projectName: secondProject.name,
+      projectKey: "SECOND",
+      subtasks: [{
+        ...workspace.subtasks[0]!,
+        id: "second-task",
+        key: "SECOND-1",
+        summary: "Second project task",
+        url: "https://jira.example.invalid/browse/SECOND-1",
+      }],
+    };
+    listManagedProjectsMock.mockResolvedValue([project, secondProject]);
+    loadDailyWorkspaceMock
+      .mockReturnValueOnce(firstWorkspaceRequest)
+      .mockReturnValueOnce(secondWorkspaceRequest);
+
+    render(<DailyPage />);
+    await waitFor(() => expect(loadDailyWorkspaceMock).toHaveBeenCalledWith(project.id, undefined));
+    fireEvent.click(screen.getByRole("combobox", { name: "Team" }));
+    fireEvent.click(screen.getByRole("option", { name: secondProject.name }));
+    await waitFor(() => expect(loadDailyWorkspaceMock).toHaveBeenCalledWith(secondProject.id, undefined));
+
+    await act(async () => resolveSecondWorkspace(secondWorkspace));
+    expect(await screen.findByText("SECOND-1")).toBeInTheDocument();
+
+    await act(async () => resolveFirstWorkspace(workspace));
+    expect(screen.getByText("SECOND-1")).toBeInTheDocument();
+    expect(screen.queryByText("DEMO-2")).not.toBeInTheDocument();
   });
 });

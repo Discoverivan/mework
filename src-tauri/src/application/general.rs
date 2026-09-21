@@ -1,3 +1,5 @@
+use std::sync::OnceLock;
+
 use serde::{Deserialize, Serialize};
 use sqlx::SqlitePool;
 use tauri::{AppHandle, Runtime};
@@ -9,6 +11,11 @@ use crate::os::notifications::{self, NotificationPermission};
 
 const GENERAL_SETTINGS_KEY: &str = "general.settings";
 const GENERAL_SETTINGS_SCHEMA_VERSION: i64 = 3;
+static GENERAL_SETTINGS_WRITE_LOCK: OnceLock<tokio::sync::Mutex<()>> = OnceLock::new();
+
+fn general_settings_write_lock() -> &'static tokio::sync::Mutex<()> {
+    GENERAL_SETTINGS_WRITE_LOCK.get_or_init(|| tokio::sync::Mutex::new(()))
+}
 
 const fn enabled_by_default() -> bool {
     true
@@ -74,12 +81,16 @@ pub async fn load(pool: &SqlitePool) -> Result<GeneralSettings, String> {
     let value = repositories::get_setting(pool, GENERAL_SETTINGS_KEY)
         .await
         .map_err(|_| "failed to load general settings".to_owned())?;
-    Ok(value
-        .and_then(|raw| serde_json::from_str::<GeneralSettings>(&raw).ok())
-        .unwrap_or_default())
+    value.map_or_else(
+        || Ok(GeneralSettings::default()),
+        |raw| {
+            serde_json::from_str::<GeneralSettings>(&raw)
+                .map_err(|_| "failed to deserialize general settings".to_owned())
+        },
+    )
 }
 
-pub async fn save(pool: &SqlitePool, settings: GeneralSettings) -> Result<(), String> {
+async fn save(pool: &SqlitePool, settings: &GeneralSettings) -> Result<(), String> {
     let value = serde_json::to_string(&settings)
         .map_err(|_| "failed to serialize general settings".to_owned())?;
     repositories::upsert_setting(
@@ -90,6 +101,45 @@ pub async fn save(pool: &SqlitePool, settings: GeneralSettings) -> Result<(), St
     )
     .await
     .map_err(|_| "failed to save general settings".to_owned())
+}
+
+async fn update(
+    pool: &SqlitePool,
+    apply: impl FnOnce(&mut GeneralSettings),
+) -> Result<GeneralSettingsDto, String> {
+    {
+        let _guard = general_settings_write_lock().lock().await;
+        let mut settings = load(pool).await?;
+        apply(&mut settings);
+        save(pool, &settings).await?;
+    }
+    dto(pool).await
+}
+
+pub async fn save_notification_preferences(
+    pool: &SqlitePool,
+    notifications_enabled: bool,
+    review_notifications_enabled: bool,
+    authored_notifications_enabled: bool,
+) -> Result<GeneralSettingsDto, String> {
+    update(pool, |settings| {
+        settings.notifications_enabled = notifications_enabled;
+        settings.review_notifications_enabled = review_notifications_enabled;
+        settings.authored_notifications_enabled = authored_notifications_enabled;
+    })
+    .await
+}
+
+pub async fn save_appearance_preferences(
+    pool: &SqlitePool,
+    language: AppLanguage,
+    theme_preference: ThemePreference,
+) -> Result<GeneralSettingsDto, String> {
+    update(pool, |settings| {
+        settings.language = language;
+        settings.theme_preference = theme_preference;
+    })
+    .await
 }
 
 pub async fn dto(pool: &SqlitePool) -> Result<GeneralSettingsDto, String> {
@@ -153,7 +203,11 @@ pub fn open_notification_settings() -> Result<(), String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{AppLanguage, GeneralSettings, ThemePreference};
+    use super::{
+        load, save_appearance_preferences, save_notification_preferences, AppLanguage,
+        GeneralSettings, ThemePreference,
+    };
+    use sqlx::sqlite::SqlitePoolOptions;
 
     #[test]
     fn general_preferences_have_expected_defaults() {
@@ -163,5 +217,40 @@ mod tests {
         assert!(settings.authored_notifications_enabled);
         assert_eq!(settings.language, AppLanguage::English);
         assert_eq!(settings.theme_preference, ThemePreference::System);
+    }
+
+    #[tokio::test]
+    async fn notification_patch_preserves_appearance_preferences() {
+        let pool = SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+        sqlx::query(
+            "CREATE TABLE settings (
+                key TEXT PRIMARY KEY,
+                value_json TEXT NOT NULL,
+                schema_version INTEGER NOT NULL,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        save_appearance_preferences(&pool, AppLanguage::Russian, ThemePreference::Dark)
+            .await
+            .unwrap();
+        save_notification_preferences(&pool, false, false, true)
+            .await
+            .unwrap();
+
+        let settings = load(&pool).await.unwrap();
+        assert_eq!(settings.language, AppLanguage::Russian);
+        assert_eq!(settings.theme_preference, ThemePreference::Dark);
+        assert!(!settings.notifications_enabled);
+        assert!(!settings.review_notifications_enabled);
+        assert!(settings.authored_notifications_enabled);
     }
 }

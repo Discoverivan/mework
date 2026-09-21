@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { ArrowLeft, ArrowRight, Copy, ExternalLink, MoreHorizontal, Plus, Presentation, RefreshCw, Square } from "lucide-react";
@@ -139,6 +139,8 @@ export function DailyPage() {
   const [presenterError, setPresenterError] = useState<string>();
   const [taskActionError, setTaskActionError] = useState<string>();
   const [taskActionNotice, setTaskActionNotice] = useState<string>();
+  const workspaceRequestRevision = useRef(0);
+  const statusRefreshRevision = useRef(0);
 
   useEffect(() => {
     let active = true;
@@ -160,42 +162,54 @@ export function DailyPage() {
   }, []);
 
   const refreshWorkspace = useCallback(async (projectId: string, sprintId?: string) => {
+    const revision = workspaceRequestRevision.current + 1;
+    workspaceRequestRevision.current = revision;
+    statusRefreshRevision.current += 1;
     setLoadingWorkspace(true);
+    setRefreshingStatuses(false);
     setError(undefined);
     try {
       const loaded = await loadDailyWorkspace(projectId, sprintId);
+      if (workspaceRequestRevision.current !== revision) return;
       setWorkspace(loaded);
-      const owners = taskOwners(loaded, t("daily.otherAssignees"), t("daily.unassigned"));
-      setSelectedMemberId((current) =>
-        owners.some((owner) => owner.id === current)
-          ? current
-          : owners[0]?.id,
-      );
     } catch (reason) {
-      setError(commandError(reason));
+      if (workspaceRequestRevision.current === revision) setError(commandError(reason));
     } finally {
-      setLoadingWorkspace(false);
+      if (workspaceRequestRevision.current === revision) setLoadingWorkspace(false);
     }
-  }, [t]);
+  }, []);
 
   const refreshStatuses = useCallback(async () => {
     if (!workspace) return;
+    const managedProjectId = workspace.managedProjectId;
+    const sprintId = workspace.selectedSprintId;
+    const revision = statusRefreshRevision.current + 1;
+    statusRefreshRevision.current = revision;
     setRefreshingStatuses(true);
     setError(undefined);
     try {
-      const subtasks = await refreshDailyWorkspace(workspace.managedProjectId, workspace.selectedSprintId);
-      setWorkspace((current) => current ? { ...current, subtasks } : current);
+      const subtasks = await refreshDailyWorkspace(managedProjectId, sprintId);
+      if (statusRefreshRevision.current !== revision) return;
+      setWorkspace((current) =>
+        current?.managedProjectId === managedProjectId && current.selectedSprintId === sprintId
+          ? { ...current, subtasks }
+          : current,
+      );
     } catch (reason) {
-      setError(commandError(reason));
+      if (statusRefreshRevision.current === revision) setError(commandError(reason));
     } finally {
-      setRefreshingStatuses(false);
+      if (statusRefreshRevision.current === revision) setRefreshingStatuses(false);
     }
   }, [workspace]);
 
   useEffect(() => {
     if (!selectedProjectId) {
+      workspaceRequestRevision.current += 1;
+      statusRefreshRevision.current += 1;
       setWorkspace(undefined);
       setSelectedMemberId(undefined);
+      setLoadingWorkspace(false);
+      setRefreshingStatuses(false);
       return undefined;
     }
     setWorkspace(undefined);
@@ -208,6 +222,11 @@ export function DailyPage() {
     () => workspace ? taskOwners(workspace, t("daily.otherAssignees"), t("daily.unassigned")) : [],
     [t, workspace],
   );
+  useEffect(() => {
+    setSelectedMemberId((current) =>
+      owners.some((owner) => owner.id === current) ? current : owners[0]?.id,
+    );
+  }, [owners]);
   const selectedOwner = owners.find((owner) => owner.id === selectedMemberId);
   const selectedMember = selectedOwner?.member;
   const selectedOwnerIndex = selectedOwner ? owners.findIndex((owner) => owner.id === selectedOwner.id) : -1;

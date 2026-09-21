@@ -26,7 +26,11 @@ export const generalSettings = () =>
   invoke<GeneralSettings>("general_settings");
 
 export const saveGeneralSettings = (input: GeneralSettingsSaveInput) =>
-  invoke<GeneralSettings>("general_settings_save", { ...input });
+  invoke<GeneralSettings>("general_settings_save", {
+    notificationsEnabled: input.notificationsEnabled,
+    reviewNotificationsEnabled: input.reviewNotificationsEnabled,
+    authoredNotificationsEnabled: input.authoredNotificationsEnabled,
+  });
 
 export const saveAppearanceSettings = (language: AppLanguage, themePreference: ThemePreference) =>
   invoke<GeneralSettings>("general_appearance_save", { language, themePreference });

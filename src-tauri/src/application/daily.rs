@@ -214,66 +214,9 @@ pub async fn refresh_daily_workspace(
     if sprint_id.trim().is_empty() {
         return Err(daily_error("invalid_input", "A sprint is required", false));
     }
-    let project = planning_repositories::get_managed_project(pool, managed_project_id)
+    load_daily_workspace(pool, managed_project_id, Some(sprint_id))
         .await
-        .map_err(|_| daily_error("not_found", "managed project was not found", false))?;
-    ensure_daily_dependencies(pool, &project.integration_id).await?;
-    let keyring = planning::planning_credential_store(pool).await?;
-    let mut builder = Client::builder().timeout(Duration::from_secs(30));
-    let integration =
-        crate::infrastructure::db::repositories::get_integration(pool, &project.integration_id)
-            .await
-            .map_err(|_| daily_error("not_found", "Jira integration was not found", false))?;
-    if integration.allow_insecure_tls {
-        builder = builder.danger_accept_invalid_certs(true);
-    }
-    let http = builder.build().map_err(|_| {
-        daily_error(
-            "transport_unavailable",
-            "Jira transport is unavailable",
-            true,
-        )
-    })?;
-    let (client, _) = planning::planning_read_client(
-        pool,
-        &project,
-        keyring.as_ref(),
-        Arc::new(ReqwestPlanningTransport::new(http)),
-    )
-    .await?;
-    let issues = client
-        .list_sprint_issues_with_fields(
-            sprint_id,
-            100,
-            project
-                .story_points_field_id
-                .as_deref()
-                .or(Some(DEFAULT_STORY_POINTS_FIELD_ID)),
-        )
-        .await
-        .map_err(|_| {
-            daily_error(
-                "remote_error",
-                "Unable to refresh selected sprint issues",
-                true,
-            )
-        })?;
-    issues
-        .values
-        .into_iter()
-        .map(|issue| {
-            daily_task(
-                issue.id,
-                issue.key,
-                issue.fields,
-                project
-                    .story_points_field_id
-                    .as_deref()
-                    .or(Some(DEFAULT_STORY_POINTS_FIELD_ID)),
-                &integration.base_url,
-            )
-        })
-        .collect()
+        .map(|workspace| workspace.subtasks)
 }
 
 async fn ensure_daily_dependencies(

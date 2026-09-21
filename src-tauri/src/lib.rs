@@ -149,7 +149,7 @@ pub fn run() {
                             };
                             if crate::application::general::review_notifications_enabled(&background_pool)
                                 .await
-                                .unwrap_or(true)
+                                .unwrap_or(false)
                             {
                                 for notification in notifications {
                                     let title = match notification.activity {
@@ -245,7 +245,7 @@ pub fn run() {
                             };
                             if crate::application::general::authored_notifications_enabled(&background_pool)
                                 .await
-                                .unwrap_or(true)
+                                .unwrap_or(false)
                             {
                                 for (notification, review) in ready_notifications {
                                     let ai_verdict = review
