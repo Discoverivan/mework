@@ -1,27 +1,33 @@
 import type { Update } from "@tauri-apps/plugin-updater";
 
-import { AlertTriangle, CheckCircle2, RefreshCw } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
+import { AlertTriangle, CheckCircle2, ChevronDown, RefreshCw } from "lucide-react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { checkForAvailableUpdate } from "@/components/shared/update-check";
 import { installAvailableUpdate } from "@/components/shared/update-install";
 import { Card, CardDescription, CardHeader } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
 import {
   generalSettings,
   openNotificationSettings,
   saveGeneralSettings,
   sendNotificationTest,
   type GeneralSettings,
+  type GeneralSettingsSaveInput,
+  type ThemePreference,
 } from "./api";
+import { useI18n } from "@/i18n/context";
+import { AppLanguage } from "@/i18n/types";
 
-function errorMessage(error: unknown): string {
-  const message = error instanceof Error ? error.message : typeof error === "string" ? error : "Unknown error";
+function errorMessage(error: unknown, fallback: string): string {
+  const message = error instanceof Error ? error.message : typeof error === "string" ? error : fallback;
   return message.replace(/(?:token|pat|password|secret|authorization)[^\n]*/gi, "credential details redacted");
 }
 
 export function GeneralSettingsPage() {
+  const { appearanceSaving, language, themePreference, t, updateAppearance } = useI18n();
   const [settings, setSettings] = useState<GeneralSettings | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -35,18 +41,33 @@ export function GeneralSettingsPage() {
   const [openingSettings, setOpeningSettings] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [testResult, setTestResult] = useState<string | null>(null);
+  const savingRef = useRef(false);
+  const languageRef = useRef(language);
+  const themePreferenceRef = useRef(themePreference);
+
+  useEffect(() => {
+    languageRef.current = language;
+    themePreferenceRef.current = themePreference;
+    setSettings((current) => current ? { ...current, language, themePreference } : current);
+  }, [language, themePreference]);
 
   const loadSettings = useCallback(async () => {
+    if (savingRef.current) return;
     try {
       const loaded = await generalSettings();
-      setSettings(loaded);
+      if (savingRef.current) return;
+      setSettings({
+        ...loaded,
+        language: languageRef.current,
+        themePreference: themePreferenceRef.current,
+      });
       setError(loaded.permissionCheckError ?? null);
     } catch (loadError) {
-      setError(`Unable to load general settings: ${errorMessage(loadError)}`);
+      setError(t("general.loadError", { error: errorMessage(loadError, t("common.unknownError")) }));
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [t]);
 
   useEffect(() => {
     void loadSettings();
@@ -55,15 +76,36 @@ export function GeneralSettingsPage() {
     return () => window.removeEventListener("focus", onFocus);
   }, [loadSettings]);
 
-  async function handleEnabledChange(enabled: boolean) {
+  async function handlePreferencesChange(changes: Partial<GeneralSettingsSaveInput>) {
+    if (!settings) return;
+    const previous = settings;
+    const requested: GeneralSettingsSaveInput = {
+      notificationsEnabled: settings.notificationsEnabled,
+      reviewNotificationsEnabled: settings.reviewNotificationsEnabled,
+      authoredNotificationsEnabled: settings.authoredNotificationsEnabled,
+      language: settings.language,
+      themePreference: settings.themePreference,
+      ...changes,
+    };
+    savingRef.current = true;
     setSaving(true);
     setError(null);
     setTestResult(null);
+    setSettings({ ...settings, ...requested });
     try {
-      setSettings(await saveGeneralSettings(enabled));
+      const appearanceChanged = changes.language !== undefined || changes.themePreference !== undefined;
+      const saved = appearanceChanged
+        ? await updateAppearance({
+            language: requested.language,
+            themePreference: requested.themePreference,
+          })
+        : await saveGeneralSettings(requested);
+      setSettings(saved);
     } catch (saveError) {
-      setError(`Unable to save notification settings: ${errorMessage(saveError)}`);
+      setSettings(previous);
+      setError(t("general.saveError", { error: errorMessage(saveError, t("common.unknownError")) }));
     } finally {
+      savingRef.current = false;
       setSaving(false);
     }
   }
@@ -74,9 +116,9 @@ export function GeneralSettingsPage() {
     setTestResult(null);
     try {
       await sendNotificationTest();
-      setTestResult("Test notification sent.");
+      setTestResult(t("general.testSent"));
     } catch (testError) {
-      setError(errorMessage(testError));
+      setError(errorMessage(testError, t("common.unknownError")));
       await loadSettings();
     } finally {
       setTesting(false);
@@ -89,7 +131,7 @@ export function GeneralSettingsPage() {
     try {
       await openNotificationSettings();
     } catch (settingsError) {
-      setError(errorMessage(settingsError));
+      setError(errorMessage(settingsError, t("common.unknownError")));
     } finally {
       setOpeningSettings(false);
     }
@@ -124,7 +166,7 @@ export function GeneralSettingsPage() {
     try {
       await installAvailableUpdate(availableUpdate);
     } catch {
-      setUpdateInstallError("Unable to install the update. Try again later.");
+      setUpdateInstallError(t("general.updateInstallError"));
     } finally {
       setInstallingUpdate(false);
     }
@@ -138,22 +180,22 @@ export function GeneralSettingsPage() {
   return (
     <section className="space-y-4" aria-labelledby="general-settings-title">
       <div>
-        <h2 id="general-settings-title">Application preferences</h2>
+        <h2 id="general-settings-title">{t("general.heading")}</h2>
         <p className="text-muted-foreground">
-          Configure application-wide notification behavior.
+          {t("general.description")}
         </p>
       </div>
 
       {loading ? (
         <Alert role="status" aria-live="polite">
-          <AlertDescription>Loading general settings…</AlertDescription>
+          <AlertDescription>{t("general.loading")}</AlertDescription>
         </Alert>
       ) : null}
 
       {error ? (
         <Alert variant="destructive" role="alert" aria-live="assertive">
           <AlertTriangle className="size-4" aria-hidden="true" />
-          <AlertTitle>Notification settings unavailable</AlertTitle>
+          <AlertTitle>{t("general.unavailable")}</AlertTitle>
           <AlertDescription>{error}</AlertDescription>
         </Alert>
       ) : null}
@@ -161,16 +203,16 @@ export function GeneralSettingsPage() {
       {permissionBlocked ? (
         <Alert variant="destructive" role="alert" aria-live="polite">
           <AlertTriangle className="size-4" aria-hidden="true" />
-          <AlertTitle>Notifications are not allowed</AlertTitle>
+          <AlertTitle>{t("general.permissionTitle")}</AlertTitle>
           <AlertDescription>
-            Notifications are enabled in mework, but macOS has not granted permission. Open Notification Settings and allow mework to send notifications.
+            {t("general.permissionDescription")}
             <div className="mt-3 flex flex-wrap gap-2">
               <Button type="button" size="sm" onClick={() => void handleOpenNotificationSettings()} disabled={openingSettings}>
-                {openingSettings ? "Opening…" : "Open Notification Settings"}
+                {openingSettings ? t("general.opening") : t("general.openNotificationSettings")}
               </Button>
               <Button type="button" size="sm" variant="outline" onClick={() => void loadSettings()} disabled={loading}>
                 <RefreshCw className="mr-2 size-4" aria-hidden="true" />
-                Check again
+                {t("general.checkAgain")}
               </Button>
             </div>
           </AlertDescription>
@@ -179,28 +221,121 @@ export function GeneralSettingsPage() {
 
       <Card>
         <CardHeader className="gap-4 p-5">
+          <div className="flex flex-wrap items-center justify-between gap-4">
+            <div>
+              <Label htmlFor="general-language" className="text-lg font-semibold">
+                {t("general.language")}
+              </Label>
+              <CardDescription className="mt-1">
+                {t("general.languageDescription")}
+              </CardDescription>
+            </div>
+            <div className="relative w-full sm:w-48">
+              <select
+                id="general-language"
+                aria-label={t("general.language")}
+                value={language}
+                onChange={(event) => void handlePreferencesChange({ language: event.target.value as AppLanguage })}
+                disabled={loading || saving || appearanceSaving}
+                className="h-10 w-full appearance-none rounded-md border border-input bg-background px-3 pr-9 text-sm disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                <option value={AppLanguage.English}>English</option>
+                <option value={AppLanguage.Russian}>Русский</option>
+              </select>
+              <ChevronDown className="pointer-events-none absolute right-3 top-1/2 size-4 -translate-y-1/2 opacity-50" aria-hidden="true" />
+            </div>
+          </div>
+        </CardHeader>
+      </Card>
+
+      <Card>
+        <CardHeader className="gap-4 p-5">
+          <div className="flex flex-wrap items-center justify-between gap-4">
+            <div>
+              <Label htmlFor="general-theme" className="text-lg font-semibold">
+                {t("general.theme")}
+              </Label>
+              <CardDescription className="mt-1">
+                {t("general.themeDescription")}
+              </CardDescription>
+            </div>
+            <div className="relative w-full sm:w-48">
+              <select
+                id="general-theme"
+                aria-label={t("general.theme")}
+                value={themePreference}
+                onChange={(event) => void handlePreferencesChange({ themePreference: event.target.value as ThemePreference })}
+                disabled={loading || saving || appearanceSaving}
+                className="h-10 w-full appearance-none rounded-md border border-input bg-background px-3 pr-9 text-sm disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                <option value="system">{t("general.themeSystem")}</option>
+                <option value="light">{t("general.themeLight")}</option>
+                <option value="dark">{t("general.themeDark")}</option>
+              </select>
+              <ChevronDown className="pointer-events-none absolute right-3 top-1/2 size-4 -translate-y-1/2 opacity-50" aria-hidden="true" />
+            </div>
+          </div>
+        </CardHeader>
+      </Card>
+
+      <Card>
+        <CardHeader className="gap-4 p-5">
           <div className="flex items-start justify-between gap-4">
             <div>
               <Label htmlFor="general-notifications-enabled" className="text-lg font-semibold">
-                Notifications
+                {t("general.notifications")}
               </Label>
               <CardDescription className="mt-1">
-                Notify me when a pull request becomes NEW or UPDATED.
+                {t("general.notificationsDescription")}
               </CardDescription>
             </div>
-            <input
+            <Switch
               id="general-notifications-enabled"
-              name="notificationsEnabled"
-              type="checkbox"
               checked={settings?.notificationsEnabled ?? true}
-              onChange={(event) => void handleEnabledChange(event.target.checked)}
+              onCheckedChange={(checked) => void handlePreferencesChange({ notificationsEnabled: checked })}
               disabled={loading || saving}
-              className="mt-1 size-5 accent-primary"
+              className="mt-1"
             />
           </div>
+          <div className="grid gap-3 border-t pt-4">
+            <div className="flex items-start justify-between gap-4 pl-4">
+              <div>
+                <Label htmlFor="general-review-notifications-enabled" className="font-medium">
+                  {t("general.notificationsReview")}
+                </Label>
+                <CardDescription className="mt-1">
+                  {t("general.notificationsReviewDescription")}
+                </CardDescription>
+              </div>
+              <Switch
+                id="general-review-notifications-enabled"
+                checked={settings?.reviewNotificationsEnabled ?? true}
+                onCheckedChange={(checked) => void handlePreferencesChange({ reviewNotificationsEnabled: checked })}
+                disabled={loading || saving || !(settings?.notificationsEnabled ?? true)}
+                className="mt-1"
+              />
+            </div>
+            <div className="flex items-start justify-between gap-4 pl-4">
+              <div>
+                <Label htmlFor="general-authored-notifications-enabled" className="font-medium">
+                  {t("general.notificationsAuthored")}
+                </Label>
+                <CardDescription className="mt-1">
+                  {t("general.notificationsAuthoredDescription")}
+                </CardDescription>
+              </div>
+              <Switch
+                id="general-authored-notifications-enabled"
+                checked={settings?.authoredNotificationsEnabled ?? true}
+                onCheckedChange={(checked) => void handlePreferencesChange({ authoredNotificationsEnabled: checked })}
+                disabled={loading || saving || !(settings?.notificationsEnabled ?? true)}
+                className="mt-1"
+              />
+            </div>
+          </div>
           <div className="flex flex-wrap items-center gap-3">
-            <Button type="button" variant="outline" onClick={() => void handleTestNotification()} disabled={loading || testing}>
-              {testing ? "Sending…" : "Test notification"}
+            <Button type="button" variant="outline" onClick={() => void handleTestNotification()} disabled={loading || testing || !(settings?.notificationsEnabled ?? true)}>
+              {testing ? t("general.sending") : t("general.testNotification")}
             </Button>
             {testResult ? (
               <span className="flex items-center gap-1.5 text-sm text-success" role="status" aria-live="polite">
@@ -215,27 +350,29 @@ export function GeneralSettingsPage() {
       <Card>
         <CardHeader className="gap-4 p-5">
           <div>
-            <h3 className="text-lg font-semibold">Application updates</h3>
+            <h3 className="text-lg font-semibold">{t("general.updates")}</h3>
             <CardDescription className="mt-1">
-              Check whether a newer mework version is available.
+              {t("general.updatesDescription")}
             </CardDescription>
           </div>
           <div className="flex flex-wrap items-center gap-3">
             <Button type="button" variant="outline" onClick={() => void handleCheckForUpdates()} disabled={checkingUpdates}>
               <RefreshCw className={`mr-2 size-4 ${checkingUpdates ? "animate-spin" : ""}`} aria-hidden="true" />
-              {checkingUpdates ? "Checking…" : "Check for updates"}
+              {checkingUpdates ? t("general.checking") : t("general.checkUpdates")}
             </Button>
-            {updateStatus === "current" ? <span role="status" className="text-sm text-muted-foreground">You&apos;re up to date.</span> : null}
+            {updateStatus === "current" ? <span role="status" className="text-sm text-muted-foreground">{t("general.current")}</span> : null}
             {updateStatus === "available" ? (
               <>
-                <span role="status" className="text-sm text-primary">mework {availableUpdateVersion} is available.</span>
+                <span role="status" className="text-sm text-primary">
+                  {t("general.updateAvailable", { version: availableUpdateVersion ?? "" })}
+                </span>
                 <Button type="button" size="sm" onClick={() => void handleInstallUpdate()} disabled={installingUpdate}>
-                  {installingUpdate ? "Updating…" : "Update now"}
+                  {installingUpdate ? t("general.updating") : t("general.updateNow")}
                 </Button>
               </>
             ) : null}
             {updateInstallError ? <span role="alert" className="text-sm text-destructive">{updateInstallError}</span> : null}
-            {updateStatus === "error" ? <span role="status" className="text-sm text-destructive">Unable to check for updates.</span> : null}
+            {updateStatus === "error" ? <span role="status" className="text-sm text-destructive">{t("general.updateCheckError")}</span> : null}
           </div>
         </CardHeader>
       </Card>

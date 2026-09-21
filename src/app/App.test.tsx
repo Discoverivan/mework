@@ -4,7 +4,7 @@ import type { AiSettingsPageData, IntegrationRedacted } from "../shared/contract
 import App from "../App";
 
 vi.mock("../features/settings/SettingsPage", () => ({
-  SettingsPage: ({ section }: { section?: string }) => <h1>{section === "projects" ? "Team settings" : "Integrations"}</h1>,
+  SettingsPage: ({ section }: { section?: string }) => <h1>{section === "projects" ? "Team settings" : section === "ai" ? "AI settings" : section === "general" ? "General" : "Data integrations"}</h1>,
 }));
 
 vi.mock("../features/developer/MyPullRequestsPage", () => ({
@@ -14,7 +14,7 @@ vi.mock("../features/developer/MyPullRequestsPage", () => ({
 vi.mock("../features/developer/AuthoredPullRequestsPage", () => ({
   AuthoredPullRequestsPage: () => <h1>Pull requests authored by you</h1>,
 }));
-const { getAiSettingsMock, listAuthoredPullRequestsMock, listMyPullRequestsMock, refreshMyPullRequestsMock, refreshAllIntegrationsHealthMock } = vi.hoisted(() => ({
+const { getAiSettingsMock, listAuthoredPullRequestsMock, listMyPullRequestsMock, refreshMyPullRequestsMock, refreshAllIntegrationsHealthMock, nativeThemeMock, onThemeChangedMock } = vi.hoisted(() => ({
   getAiSettingsMock: vi.fn().mockResolvedValue({
     settings: { provider: "codex-cli", model: "gpt-5.5", reasoning: "medium", fastMode: false },
     providers: [{ id: "codex-cli", name: "Codex CLI", status: "connected", available: true, models: ["gpt-5.5"] }],
@@ -23,6 +23,12 @@ const { getAiSettingsMock, listAuthoredPullRequestsMock, listMyPullRequestsMock,
   listAuthoredPullRequestsMock: vi.fn().mockResolvedValue({ values: [], total: 0, hasMore: false }),
   refreshMyPullRequestsMock: vi.fn().mockResolvedValue({ values: [], total: 0, hasMore: false }),
   refreshAllIntegrationsHealthMock: vi.fn().mockResolvedValue([]),
+  nativeThemeMock: vi.fn().mockResolvedValue("dark"),
+  onThemeChangedMock: vi.fn().mockResolvedValue(vi.fn()),
+}));
+
+vi.mock("@tauri-apps/api/window", () => ({
+  getCurrentWindow: () => ({ theme: nativeThemeMock, onThemeChanged: onThemeChangedMock }),
 }));
 
 vi.mock("../features/developer/api", () => ({
@@ -56,7 +62,7 @@ vi.mock("../features/settings/api", () => ({
   refreshAllIntegrationsHealth: refreshAllIntegrationsHealthMock,
 }));
 
-describe("mework application shell", () => {
+describe("MeWork application shell", () => {
   beforeEach(() => {
     window.location.hash = "";
     vi.stubGlobal("matchMedia", () => ({ matches: true }));
@@ -72,6 +78,10 @@ describe("mework application shell", () => {
     refreshMyPullRequestsMock.mockClear();
     refreshMyPullRequestsMock.mockResolvedValue({ values: [], total: 0, hasMore: false });
     refreshAllIntegrationsHealthMock.mockClear();
+    nativeThemeMock.mockReset();
+    nativeThemeMock.mockResolvedValue("dark");
+    onThemeChangedMock.mockReset();
+    onThemeChangedMock.mockResolvedValue(vi.fn());
   });
 
   it("keeps the splash visible until integration and AI checks settle", async () => {
@@ -85,17 +95,17 @@ describe("mework application shell", () => {
     );
 
     render(<App />);
-    expect(screen.getByRole("status", { name: "Loading mework" })).toBeInTheDocument();
+    expect(screen.getByRole("status", { name: "Loading MeWork" })).toBeInTheDocument();
 
     resolveHealth([]);
     await Promise.resolve();
-    expect(screen.getByRole("status", { name: "Loading mework" })).toBeInTheDocument();
+    expect(screen.getByRole("status", { name: "Loading MeWork" })).toBeInTheDocument();
 
     resolveAi({
       settings: { provider: null, model: "", reasoning: "medium", fastMode: false },
       providers: [],
     });
-    await waitFor(() => expect(screen.queryByRole("status", { name: "Loading mework" })).not.toBeInTheDocument());
+    await waitFor(() => expect(screen.queryByRole("status", { name: "Loading MeWork" })).not.toBeInTheDocument());
   });
 
   it("waits for the initial Bitbucket refresh before showing the main UI", async () => {
@@ -109,9 +119,9 @@ describe("mework application shell", () => {
     );
 
     render(<App />);
-    expect(screen.getByRole("status", { name: "Loading mework" })).toBeInTheDocument();
+    expect(screen.getByRole("status", { name: "Loading MeWork" })).toBeInTheDocument();
     expect(refreshMyPullRequestsMock).not.toHaveBeenCalled();
-    expect(screen.queryByRole("main", { name: "mework" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("main", { name: "MeWork" })).not.toBeInTheDocument();
 
     resolveHealth([{
       id: "bitbucket-1",
@@ -122,10 +132,10 @@ describe("mework application shell", () => {
       capabilities: [],
     }]);
     await waitFor(() => expect(refreshMyPullRequestsMock).toHaveBeenCalledWith(0, 100));
-    expect(screen.queryByRole("main", { name: "mework" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("main", { name: "MeWork" })).not.toBeInTheDocument();
 
     resolveRefresh({ values: [], total: 0, hasMore: false });
-    expect(await screen.findByRole("main", { name: "mework" })).toBeInTheDocument();
+    expect(await screen.findByRole("main", { name: "MeWork" })).toBeInTheDocument();
   });
 
   it("opens pull requests awaiting your review by default", async () => {
@@ -134,14 +144,32 @@ describe("mework application shell", () => {
     expect(await screen.findByRole("heading", { name: "Pull requests awaiting your review" })).toBeInTheDocument();
   });
 
+  it("uses the native window theme for the system theme indicator", async () => {
+    vi.stubGlobal("matchMedia", () => ({ matches: false }));
+    render(<App />);
+
+    await screen.findByRole("main", { name: "MeWork" });
+    const themePicker = screen.getByRole("combobox", { name: "Theme" });
+    await waitFor(() => expect(themePicker.querySelector("svg.lucide-moon")).not.toBeNull());
+    expect(themePicker.querySelector("svg.lucide-sun")).toBeNull();
+    expect(document.documentElement).toHaveAttribute("data-theme", "dark");
+  });
+
   it("opens My Pull Requests from its dedicated hash route", async () => {
     render(<App />);
-    await screen.findByRole("main", { name: "mework" });
+    await screen.findByRole("main", { name: "MeWork" });
 
     window.location.hash = "#developer/my-pull-requests";
     window.dispatchEvent(new HashChangeEvent("hashchange"));
 
     expect(await screen.findByRole("heading", { name: "Pull requests authored by you" })).toBeInTheDocument();
+  });
+
+  it("opens AI settings from its dedicated hash route", async () => {
+    window.location.hash = "#settings/ai";
+    render(<App />);
+
+    expect(await screen.findByRole("heading", { name: "AI settings" })).toBeInTheDocument();
   });
 
   it("shows unread authored pull requests on the My Pull Requests navigation item", async () => {
@@ -153,7 +181,7 @@ describe("mework application shell", () => {
 
     render(<App />);
 
-    await screen.findByRole("main", { name: "mework" });
+    await screen.findByRole("main", { name: "MeWork" });
     expect(await screen.findByRole("link", { name: "Your PRs, 1 unread" })).toHaveAttribute(
       "href",
       "#developer/my-pull-requests",
@@ -164,9 +192,9 @@ describe("mework application shell", () => {
   it("runs integration health checks when the app starts", async () => {
     render(<App />);
 
-    await screen.findByRole("main", { name: "mework" });
+    await screen.findByRole("main", { name: "MeWork" });
     expect(refreshAllIntegrationsHealthMock).toHaveBeenCalledOnce();
     expect(getAiSettingsMock).toHaveBeenCalledTimes(2);
-    expect(screen.queryByRole("status", { name: "Loading mework" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("status", { name: "Loading MeWork" })).not.toBeInTheDocument();
   });
 });

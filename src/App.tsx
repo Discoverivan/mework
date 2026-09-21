@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { getVersion } from "@tauri-apps/api/app";
 import { listen } from "@tauri-apps/api/event";
-import { AppShell, type AppSection, type Theme } from "./components/layout/AppShell";
+import { AppShell, type AppSection } from "./components/layout/AppShell";
 import { SplashScreen } from "./components/shared/SplashScreen";
 import { UpdateBanner } from "./components/shared/UpdateBanner";
 import { AppRoutes, type AppRoute } from "./app/routes";
@@ -11,6 +11,8 @@ import type { MyPullRequestPage } from "./shared/contracts/developer";
 import type { IntegrationRedacted } from "./shared/contracts/settings";
 import { getAiSettings, refreshAllIntegrationsHealth } from "./features/settings/api";
 import { INTEGRATIONS_HEALTH_REFRESHED_EVENT } from "./features/settings/health-events";
+import { I18nProvider } from "@/i18n/I18nProvider";
+import { useI18n } from "@/i18n/context";
 import "./App.css";
 import "./presenter.css";
 import "./daily-status.css";
@@ -18,21 +20,15 @@ import "./daily-status.css";
 const PULL_REQUEST_REVIEW_ACTIVITY_CHANGED_EVENT = "pull_request_review_activity_changed";
 const AUTHORED_PULL_REQUESTS_UPDATED_EVENT = "my_pull_requests_updated";
 
-function systemTheme(): Theme {
-  if (typeof window !== "undefined" && window.matchMedia?.("(prefers-color-scheme: dark)").matches) {
-    return "dark";
-  }
-  return "light";
-}
-
 function routeFromHash(hash: string): AppRoute {
-  if (hash === "#product/create-task") return "product-create-task";
+  if (hash === "#product/create-task" || hash.startsWith("#product/create-task?")) return "product-create-task";
   if (hash === "#product/daily") return "product-daily";
   if (hash === "#product/daily/presenter") return "product-daily-presenter";
   if (hash === "#developer/pull-requests") return "developer-pull-requests";
   if (hash === "#developer/my-pull-requests") return "developer-my-pull-requests";
   if (hash === "#developer/command-board") return "developer-command-board";
   if (hash === "#settings/general") return "settings-general";
+  if (hash === "#settings/ai") return "settings-ai";
   if (hash === "#settings/projects") return "settings-projects";
   if (hash === "#settings" || hash === "#settings/integrations") return "settings-integrations";
   return "developer-pull-requests";
@@ -42,22 +38,21 @@ function unreadCount(page: MyPullRequestPage): number {
   return page.values.filter((pullRequest) => pullRequest.activity !== "read").length;
 }
 
-function App() {
+function AppContent() {
+  const { appearanceSaving, themePreference, updateAppearance } = useI18n();
   const initialRoute = routeFromHash(typeof window !== "undefined" ? window.location.hash : "");
-  const [theme, setTheme] = useState<Theme>(systemTheme);
-  const [appVersion, setAppVersion] = useState("0.1.0");
+  const [appVersion, setAppVersion] = useState<string | undefined>(() =>
+    import.meta.env.DEV ? "dev" : undefined
+  );
   const [route, setRoute] = useState<AppRoute>(initialRoute);
   const [ready, setReady] = useState(false);
   const [unreadPullRequestCount, setUnreadPullRequestCount] = useState(0);
   const [unreadAuthoredPullRequestCount, setUnreadAuthoredPullRequestCount] = useState(0);
 
   useEffect(() => {
-    document.documentElement.dataset.theme = theme;
-  }, [theme]);
-
-  useEffect(() => {
+    if (import.meta.env.DEV) return;
     void getVersion().then(setAppVersion).catch(() => {
-      // The browser test environment does not expose the Tauri app plugin.
+      // Leave the release version hidden when the Tauri app plugin is unavailable.
     });
   }, []);
 
@@ -194,8 +189,11 @@ function App() {
     <>
       {ready ? (
         <AppShell
-          theme={theme}
-          onThemeChange={setTheme}
+          themePreference={themePreference}
+          themeChanging={appearanceSaving}
+          onThemeChange={(theme) => {
+            void updateAppearance({ themePreference: theme }).catch(() => undefined);
+          }}
           version={appVersion}
           onNavigate={navigate}
           activeSection={route}
@@ -206,8 +204,16 @@ function App() {
         </AppShell>
       ) : null}
       <SplashScreen visible={!ready} />
-      <UpdateBanner enabled={ready} />
+      <UpdateBanner enabled={ready && !import.meta.env.DEV} />
     </>
+  );
+}
+
+function App() {
+  return (
+    <I18nProvider>
+      <AppContent />
+    </I18nProvider>
   );
 }
 

@@ -8,6 +8,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "../../components/ui/ca
 import { IssuePlanCard } from "./IssuePlanCard";
 import { TeamPresetRail } from "./TeamPresetRail";
 import { savePlanningDraft, applyAndLockPlanning, savePlanningTeamPreset, removePlanningTeamPreset } from "./api";
+import { useI18n } from "@/i18n/context";
 
 interface PlanningWorkspaceProps {
   workspace: Workspace;
@@ -75,6 +76,7 @@ export function PlanningWorkspace({
   onSavePreset,
   onDeletePreset,
 }: PlanningWorkspaceProps) {
+  const { t } = useI18n();
   const [issues, setIssues] = useState<PlanningIssue[]>(() => hydrateIssues(workspace, members));
   const [sourceIssues, setSourceIssues] = useState<PlanningIssue[]>(workspace.sourceIssues);
   const [selectedSource, setSelectedSource] = useState<string[]>([]);
@@ -126,7 +128,7 @@ export function PlanningWorkspace({
         (subtask.storyPoints !== undefined && (!Number.isFinite(subtask.storyPoints) || subtask.storyPoints < 0 || subtask.storyPoints > 100)))
     ));
     if (invalid) {
-      setDraftError("Complete each local competency subtask with a summary, competency, and 0–100 story points.");
+      setDraftError(t("planning.draftInvalid"));
       setSaveState("error");
       return;
     }
@@ -165,50 +167,50 @@ export function PlanningWorkspace({
   return (
     <section aria-labelledby="planning-workspace-title" className="space-y-4">
       <PageHeader
-        title={`${workspace.managedProject.name} planning`}
+        title={t("planning.workspaceTitle", { project: workspace.managedProject.name })}
         titleId="planning-workspace-title"
         description={(
           <>
-            {workspace.managedProject.name} · {workspace.managedProject.boardName} · Planning source: <strong>{workspace.sourceSprint.name}</strong> → Target sprint: <strong>{workspace.targetSprint.name}</strong>
+            {workspace.managedProject.name} · {workspace.managedProject.boardName} · {t("planning.source")}: <strong>{workspace.sourceSprint.name}</strong> → {t("planning.target")}: <strong>{workspace.targetSprint.name}</strong>
           </>
         )}
         actions={(
           <>
-            {!locked ? <Button type="button" variant="outline" onClick={() => void saveDrafts()} disabled={saveState === "saving"}>{saveState === "saving" ? "Saving…" : "Save draft"}</Button> : null}
-            {!locked ? <Button type="button" onClick={() => setApplyState("confirm")} disabled={applyState === "applying"}>Apply and lock</Button> : <Badge variant="secondary">Locked</Badge>}
+            {!locked ? <Button type="button" variant="outline" onClick={() => void saveDrafts()} disabled={saveState === "saving"}>{saveState === "saving" ? t("settings.common.saving") : t("planning.saveDraft")}</Button> : null}
+            {!locked ? <Button type="button" onClick={() => setApplyState("confirm")} disabled={applyState === "applying"}>{t("planning.applyLock")}</Button> : <Badge variant="secondary">{t("planning.locked")}</Badge>}
           </>
         )}
       />
-      {saveState === "saved" ? <p role="status">Draft saved locally. Jira was not changed.</p> : null}
-      {saveState === "error" ? <Alert variant="destructive"><AlertDescription>{draftError || "Unable to save the local planning draft."}</AlertDescription></Alert> : null}
-      {applyState === "error" ? <Alert variant="destructive"><AlertDescription>Apply failed; the plan remains unlocked. Review the operation errors and retry.</AlertDescription></Alert> : null}
+      {saveState === "saved" ? <p role="status">{t("planning.draftSaved")}</p> : null}
+      {saveState === "error" ? <Alert variant="destructive"><AlertDescription>{draftError || t("planning.draftError")}</AlertDescription></Alert> : null}
+      {applyState === "error" ? <Alert variant="destructive"><AlertDescription>{t("planning.applyError")}</AlertDescription></Alert> : null}
       {applyState === "confirm" ? (
-        <Alert role="dialog" aria-label="Confirm Apply and lock">
+        <Alert role="dialog" aria-label={t("planning.confirmApply")}>
           <AlertDescription className="flex flex-wrap items-center gap-2">
-            Applying changes will write to Jira and lock this plan after every operation succeeds.
-            <Button type="button" onClick={() => void confirmApply()}>Confirm Apply and lock</Button>
-            <Button type="button" variant="ghost" onClick={() => setApplyState("idle")}>Cancel</Button>
+            {t("planning.confirmDescription")}
+            <Button type="button" onClick={() => void confirmApply()}>{t("planning.confirmApply")}</Button>
+            <Button type="button" variant="ghost" onClick={() => setApplyState("idle")}>{t("settings.common.cancel")}</Button>
           </AlertDescription>
         </Alert>
       ) : null}
       <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_18rem]">
         <Card>
-          <CardHeader><CardTitle className="text-base">Planning source · {workspace.sourceSprint.name}</CardTitle></CardHeader>
+          <CardHeader><CardTitle className="text-base">{t("planning.source")} · {workspace.sourceSprint.name}</CardTitle></CardHeader>
           <CardContent className="space-y-2">
-            {sourceIssues.length === 0 ? <p className="text-sm text-muted-foreground">No eligible issues in the planning source.</p> : null}
+            {sourceIssues.length === 0 ? <p className="text-sm text-muted-foreground">{t("planning.noSourceIssues")}</p> : null}
             {sourceIssues.map((issue) => (
               <label key={issue.id} className="flex gap-2 rounded-md border p-2 text-sm">
                 <input type="checkbox" checked={selectedSource.includes(issue.id)} onChange={(event) => setSelectedSource((current) => event.target.checked ? [...current, issue.id] : current.filter((id) => id !== issue.id))} />
                 <span><strong>{issue.key}</strong> · {issue.summary}</span>
               </label>
             ))}
-            <Button type="button" variant="outline" onClick={addSelectedToTarget} disabled={selectedSource.length === 0}>Add selected to target</Button>
+            <Button type="button" variant="outline" onClick={addSelectedToTarget} disabled={selectedSource.length === 0}>{t("planning.addSelected")}</Button>
           </CardContent>
         </Card>
         <Card>
-          <CardHeader><CardTitle className="text-base">Target sprint · {workspace.targetSprint.name}</CardTitle></CardHeader>
+          <CardHeader><CardTitle className="text-base">{t("planning.target")} · {workspace.targetSprint.name}</CardTitle></CardHeader>
           <CardContent className="space-y-3">
-            {issues.length === 0 ? <p className="text-sm text-muted-foreground">No issues in this target sprint.</p> : null}
+            {issues.length === 0 ? <p className="text-sm text-muted-foreground">{t("planning.noTargetIssues")}</p> : null}
             {issues.map((issue) => (
               <IssuePlanCard
                 key={issue.id}

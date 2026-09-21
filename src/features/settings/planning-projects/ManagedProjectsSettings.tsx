@@ -1,4 +1,4 @@
-import { ChevronDown, GripVertical } from "lucide-react";
+import { ChevronDown, GripVertical, LoaderCircle, Pencil, Plus, Trash2 } from "lucide-react";
 import { createPortal } from "react-dom";
 import { Fragment, useEffect, useRef, useState, type FormEvent } from "react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -33,6 +33,8 @@ import {
 } from "../../planning/api";
 import type { ManagedProjectSaveInput } from "@/shared/contracts/settings";
 import { deleteManagedProject, listManagedProjects, saveManagedProject } from "./api";
+import { useI18n } from "@/i18n/context";
+import type { TranslationKey } from "@/i18n/locales/en";
 
 type Action = "next" | "save" | "delete" | null;
 type AddTeamStep = "details" | "board";
@@ -172,19 +174,21 @@ function replaceProject(
     : [...projects, nextProject];
 }
 
-function formErrors(form: ManagedProjectForm): string[] {
+type Translate = (key: TranslationKey, params?: Record<string, string | number>) => string;
+
+function formErrors(form: ManagedProjectForm, t: Translate): string[] {
   const errors: string[] = [];
-  if (!value(form.integrationId)) errors.push("A Jira integration is required.");
-  if (!value(form.jiraProjectName)) errors.push("Project name is required.");
-  if (!value(form.jiraProjectKey)) errors.push("Jira Project Key is required.");
-  if (!value(form.boardId)) errors.push("A Jira board must be selected.");
+  if (!value(form.integrationId)) errors.push(t("teams.integrationRequired"));
+  if (!value(form.jiraProjectName)) errors.push(t("teams.projectNameRequired"));
+  if (!value(form.jiraProjectKey)) errors.push(t("teams.projectKeyRequired"));
+  if (!value(form.boardId)) errors.push(t("teams.boardRequired"));
   return errors;
 }
 
-function addTeamDetailsErrors(form: ManagedProjectForm): string[] {
+function addTeamDetailsErrors(form: ManagedProjectForm, t: Translate): string[] {
   const errors: string[] = [];
-  if (!value(form.jiraProjectName)) errors.push("Team name is required.");
-  if (!value(form.jiraProjectKey)) errors.push("Jira Project Key is required.");
+  if (!value(form.jiraProjectName)) errors.push(t("teams.nameRequired"));
+  if (!value(form.jiraProjectKey)) errors.push(t("teams.projectKeyRequired"));
   return errors;
 }
 
@@ -204,6 +208,7 @@ export function ManagedProjectsSettings({
   jiraIntegrations,
   validateProjectKey,
 }: ManagedProjectsSettingsProps) {
+  const { t } = useI18n();
   const [projects, setProjects] = useState<ManagedProjectSettings[]>([]);
   const [form, setForm] = useState<ManagedProjectForm | null>(null);
   const [addTeamStep, setAddTeamStep] = useState<AddTeamStep>("details");
@@ -211,6 +216,7 @@ export function ManagedProjectsSettings({
   const [detailProject, setDetailProject] = useState<ManagedProjectSettings | null>(null);
   const [loading, setLoading] = useState(true);
   const [action, setAction] = useState<Action>(null);
+  const [deletingProjectId, setDeletingProjectId] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [boards, setBoards] = useState<PlanningBoard[]>([]);
@@ -228,6 +234,7 @@ export function ManagedProjectsSettings({
   const [memberSearchError, setMemberSearchError] = useState<string | null>(null);
   const [memberLoadError, setMemberLoadError] = useState<string | null>(null);
   const [teamSaving, setTeamSaving] = useState(false);
+  const [removingMemberAccountId, setRemovingMemberAccountId] = useState<string | null>(null);
   const [teamSaveError, setTeamSaveError] = useState<string | null>(null);
   const [taskSprints, setTaskSprints] = useState<PlanningSprint[]>([]);
   const [taskSprintsLoading, setTaskSprintsLoading] = useState(false);
@@ -258,7 +265,7 @@ export function ManagedProjectsSettings({
         if (active) {
           const message = commandError(error);
           setLoadError(/permission|forbidden|denied/i.test(message)
-            ? "Managed-project configuration is unavailable until Jira access is granted."
+            ? t("teams.permissionError")
             : message);
         }
       })
@@ -268,7 +275,7 @@ export function ManagedProjectsSettings({
     return () => {
       active = false;
     };
-  }, []);
+  }, [t]);
 
   useEffect(() => {
     let active = true;
@@ -369,8 +376,8 @@ export function ManagedProjectsSettings({
     };
   }, [detailProject, memberSearch]);
 
-  const errors = form ? formErrors(form) : [];
-  const addDetailsErrors = form ? addTeamDetailsErrors(form) : [];
+  const errors = form ? formErrors(form, t) : [];
+  const addDetailsErrors = form ? addTeamDetailsErrors(form, t) : [];
   const controlsDisabled = action !== null || teamSaving || boardsLoading;
 
   function updateForm(field: keyof ManagedProjectForm, nextValue: string) {
@@ -462,10 +469,10 @@ export function ManagedProjectsSettings({
           }
         : current);
       if (nextBoards.length === 0) {
-        setBoardsError("No Jira boards were found for this project.");
+        setBoardsError(t("teams.noBoards"));
       }
     } catch (error) {
-      setBoardsError(`Unable to load Jira boards. ${commandError(error)}`);
+      setBoardsError(t("teams.loadBoardsError", { error: commandError(error) }));
     } finally {
       setBoardsLoading(false);
     }
@@ -478,11 +485,11 @@ export function ManagedProjectsSettings({
       return;
     }
     if (!value(form.integrationId)) {
-      setSaveError("A Jira integration is required before adding a team.");
+      setSaveError(t("teams.integrationRequiredAdd"));
       return;
     }
     if (!validateProjectKey) {
-      setSaveError("Project-key validation is unavailable; the team cannot be added yet.");
+      setSaveError(t("teams.validationUnavailableAdd"));
       return;
     }
 
@@ -504,14 +511,14 @@ export function ManagedProjectsSettings({
       const nextBoards = Array.isArray(loaded) ? loaded : [];
       if (nextBoards.length === 0) {
         setBoards([]);
-        setSaveError("No Jira boards were found for this project.");
+        setSaveError(t("teams.noBoards"));
         return;
       }
       setBoards(nextBoards);
       setValidatedProject(validation);
       setAddTeamStep("board");
     } catch (error) {
-      setSaveError(`Unable to load Jira boards. ${commandError(error)}`);
+      setSaveError(t("teams.loadBoardsError", { error: commandError(error) }));
     } finally {
       setBoardsLoading(false);
       setAction(null);
@@ -528,19 +535,19 @@ export function ManagedProjectsSettings({
       let validation: ProjectKeyValidationResult;
       if (!form.id) {
         if (addTeamStep !== "board" || !validatedProject) {
-          setSaveError("Complete project validation before saving the team.");
+          setSaveError(t("teams.completeValidation"));
           return;
         }
         validation = validatedProject;
       } else {
         if (!validateProjectKey) {
-          setSaveError("Project-key validation is unavailable; the project cannot be saved yet.");
+          setSaveError(t("teams.validationUnavailableSave"));
           return;
         }
         try {
           validation = await validateProjectKey(value(form.jiraProjectKey), value(form.integrationId));
         } catch (error) {
-          setSaveError(`Unable to validate Jira project key. ${commandError(error)}`);
+          setSaveError(t("teams.validateError", { error: commandError(error) }));
           return;
         }
         if ("error" in validation) {
@@ -570,8 +577,8 @@ export function ManagedProjectsSettings({
     } catch (error) {
       const message = commandError(error);
       setSaveError(/permission|forbidden|denied/i.test(message)
-        ? "This project cannot be saved until the required Jira permissions are granted."
-        : "Unable to save managed project. Try again.");
+        ? t("teams.savePermissionError")
+        : t("teams.saveError"));
     } finally {
       setAction(null);
     }
@@ -606,7 +613,7 @@ export function ManagedProjectsSettings({
       setProjects((current) => replaceProject(current, saved));
       setDetailProject(saved);
     } catch (error) {
-      setTeamSaveError(`Unable to save task creation settings. ${commandError(error)}`);
+      setTeamSaveError(t("teams.saveTaskSettingsError", { error: commandError(error) }));
     } finally {
       setTeamSaving(false);
     }
@@ -616,7 +623,7 @@ export function ManagedProjectsSettings({
     if (!detailProject || epicPreviewLoading) return;
     const jql = epicLinkJql.trim();
     if (!jql) {
-      setTeamSaveError("Epic link JQL is required before checking.");
+      setTeamSaveError(t("teams.epicJqlRequired"));
       return;
     }
     setEpicPreviewLoading(true);
@@ -631,7 +638,7 @@ export function ManagedProjectsSettings({
       }
       setEpicPreviewOpen(true);
     } catch (error) {
-      setTeamSaveError(`Unable to check Epic link JQL. ${commandError(error)}`);
+      setTeamSaveError(t("teams.epicJqlError", { error: commandError(error) }));
     } finally {
       setEpicPreviewLoading(false);
     }
@@ -639,6 +646,7 @@ export function ManagedProjectsSettings({
 
   async function handleDelete(project: ManagedProjectSettings) {
     setAction("delete");
+    setDeletingProjectId(project.id);
     setSaveError(null);
     try {
       await deleteManagedProject(project.id);
@@ -648,10 +656,11 @@ export function ManagedProjectsSettings({
     } catch (error) {
       const message = commandError(error);
       setSaveError(/permission|forbidden|denied/i.test(message)
-        ? "This project cannot be deleted with the current Jira permissions."
-        : "Unable to delete managed project. Try again.");
+        ? t("teams.deletePermissionError")
+        : t("teams.deleteError"));
     } finally {
       setAction(null);
+      setDeletingProjectId(null);
     }
   }
 
@@ -680,7 +689,7 @@ export function ManagedProjectsSettings({
       setMemberDialogOpen(false);
       setEditingMemberAccountId(null);
     } catch (error) {
-      setTeamSaveError(`Unable to add the team member. ${commandError(error)}`);
+      setTeamSaveError(t("teams.addMemberError", { error: commandError(error) }));
     } finally {
       setTeamSaving(false);
     }
@@ -706,7 +715,7 @@ export function ManagedProjectsSettings({
       setConfiguredMembers((current) => current.map((member) => member.accountId === saved.accountId ? saved : member));
       closeMemberDialog();
     } catch (error) {
-      setTeamSaveError(`Unable to save the team member. ${commandError(error)}`);
+      setTeamSaveError(t("teams.saveMemberError", { error: commandError(error) }));
     } finally {
       setTeamSaving(false);
     }
@@ -715,14 +724,16 @@ export function ManagedProjectsSettings({
   async function handleRemoveTeamMember(accountId: string) {
     if (!detailProject || teamSaving) return;
     setTeamSaving(true);
+    setRemovingMemberAccountId(accountId);
     setTeamSaveError(null);
     try {
       await removePlanningTeamMember(detailProject.id, accountId);
       setConfiguredMembers((current) => current.filter((member) => member.accountId !== accountId));
     } catch (error) {
-      setTeamSaveError(`Unable to remove the team member. ${commandError(error)}`);
+      setTeamSaveError(t("teams.removeMemberError", { error: commandError(error) }));
     } finally {
       setTeamSaving(false);
+      setRemovingMemberAccountId(null);
     }
   }
 
@@ -770,7 +781,7 @@ export function ManagedProjectsSettings({
       });
       setConfiguredMembers(saved);
     } catch (error) {
-      setTeamSaveError(`Unable to reorder the team members. ${commandError(error)}`);
+      setTeamSaveError(t("teams.reorderMembersError", { error: commandError(error) }));
     } finally {
       setTeamSaving(false);
     }
@@ -779,17 +790,25 @@ export function ManagedProjectsSettings({
   const isCreatingTeam = form !== null && !form.id;
 
   return (
-    <section className="space-y-4" aria-label="Team settings">
+    <section className="space-y-4" aria-label={t("teams.section")}>
       <div className="flex flex-wrap items-start justify-end gap-3">
-        <Button type="button" onClick={startAdd} disabled={controlsDisabled}>
-          Add team
+        <Button
+          type="button"
+          size="icon"
+          className="h-9 w-9"
+          onClick={startAdd}
+          disabled={controlsDisabled}
+          aria-label={t("teams.add")}
+          title={t("teams.add")}
+        >
+          <Plus className="size-4" aria-hidden="true" />
         </Button>
       </div>
 
-      {loading ? <p role="status">Loading managed projects…</p> : null}
+      {loading ? <p role="status">{t("teams.loading")}</p> : null}
       {loadError ? (
         <Alert variant="destructive" role="alert">
-          <AlertDescription>Unable to load managed projects. {loadError}</AlertDescription>
+          <AlertDescription>{t("teams.loadError", { error: loadError })}</AlertDescription>
         </Alert>
       ) : null}
       {saveError && !form ? (
@@ -801,13 +820,13 @@ export function ManagedProjectsSettings({
       {!loading && !loadError && projects.length === 0 ? (
         <Card>
           <CardContent className="pt-6">
-            <p>No teams are configured.</p>
+            <p>{t("teams.empty")}</p>
           </CardContent>
         </Card>
       ) : null}
 
       {!loading && projects.length > 0 ? (
-        <div className="flex w-full flex-col gap-3" role="list" aria-label="Teams">
+        <div className="flex w-full flex-col gap-3" role="list" aria-label={t("teams.list")}>
           {projects.map((project) => {
             return (
               <div key={project.id} role="listitem" aria-label={project.projectName} className="w-full">
@@ -821,34 +840,42 @@ export function ManagedProjectsSettings({
                           className="h-auto justify-start p-0 text-left text-lg font-semibold"
                           onClick={() => detailProject?.id === project.id ? setDetailProject(null) : openDetail(project)}
                           disabled={controlsDisabled}
-                          aria-label={`Open ${project.projectName} project details`}
+                          aria-label={t("teams.openDetails", { team: project.projectName })}
                         >
                           <ChevronDown className={`mr-1 inline-block h-4 w-4 transition-transform ${detailProject?.id === project.id ? "rotate-180" : ""}`} aria-hidden="true" />
                           {project.projectName}
                         </Button>
                         <CardDescription>
-                          <span aria-label={`Jira project key for ${project.projectName}`}>{project.projectKey}</span>
-                          {` · ${boardNames[project.id] ?? project.boardId ?? "Jira board"}`}
+                          <span aria-label={t("teams.projectKeyFor", { team: project.projectName })}>{project.projectKey}</span>
+                          {` · ${boardNames[project.id] ?? project.boardId ?? t("teams.jiraBoard")}`}
                         </CardDescription>
                       </div>
                       <div className="ml-auto flex items-center gap-2">
                         <Button
                           type="button"
                           variant="outline"
-                          size="sm"
+                          size="icon"
+                          className="h-9 w-9"
                           onClick={() => startEdit(project)}
                           disabled={controlsDisabled}
+                          aria-label={t("teams.editTeamAction", { team: project.projectName })}
+                          title={t("teams.editTeamAction", { team: project.projectName })}
                         >
-                          Edit
+                          <Pencil className="size-4" aria-hidden="true" />
                         </Button>
                         <Button
                           type="button"
                           variant="destructive"
-                          size="sm"
+                          size="icon"
+                          className="h-9 w-9"
                           onClick={() => void handleDelete(project)}
                           disabled={controlsDisabled}
+                          aria-label={t(deletingProjectId === project.id ? "teams.deletingTeamAction" : "teams.deleteTeamAction", { team: project.projectName })}
+                          title={t(deletingProjectId === project.id ? "teams.deletingTeamAction" : "teams.deleteTeamAction", { team: project.projectName })}
                         >
-                          {action === "delete" ? "Deleting…" : "Delete"}
+                          {deletingProjectId === project.id
+                            ? <LoaderCircle className="size-4 animate-spin" aria-hidden="true" />
+                            : <Trash2 className="size-4" aria-hidden="true" />}
                         </Button>
                       </div>
                     </div>
@@ -865,11 +892,11 @@ export function ManagedProjectsSettings({
         <Dialog open onOpenChange={(open) => { if (!open && !controlsDisabled) setForm(null); }}>
           <DialogContent>
             <DialogHeader>
-              <DialogTitle>{form.id ? "Edit team" : "Add team"}</DialogTitle>
+              <DialogTitle>{form.id ? t("teams.editTitle") : t("teams.addTitle")}</DialogTitle>
               <DialogDescription>
                 {isCreatingTeam
-                  ? (addTeamStep === "details" ? "Enter the team name and Jira project key." : "Choose the Jira board for this team.")
-                  : "Connect a Jira team and choose its board."}
+                  ? (addTeamStep === "details" ? t("teams.addDetailsDescription") : t("teams.addBoardDescription"))
+                  : t("teams.editDescription")}
               </DialogDescription>
             </DialogHeader>
             <div className="grid gap-4">
@@ -883,25 +910,25 @@ export function ManagedProjectsSettings({
                   aria-busy={controlsDisabled}
                 >
                   <TextField
-                    label="Team name"
+                    label={t("teams.name")}
                     value={form.jiraProjectName}
                     onChange={(next) => updateForm("jiraProjectName", next)}
                     disabled={controlsDisabled}
                   />
                   <TextField
-                    label="Jira Project Key"
+                    label={t("teams.projectKey")}
                     value={form.jiraProjectKey}
                     onChange={(next) => updateForm("jiraProjectKey", next)}
                     disabled={controlsDisabled}
                   />
                   {!value(form.integrationId) ? (
                     <Alert variant="destructive" role="alert">
-                      <AlertDescription>A Jira integration is required before adding a team.</AlertDescription>
+                      <AlertDescription>{t("teams.integrationRequiredAdd")}</AlertDescription>
                     </Alert>
                   ) : null}
                   {addDetailsErrors.length > 0 ? (
                     <Alert variant="destructive" role="alert" aria-live="assertive">
-                      <AlertTitle>Complete the team details</AlertTitle>
+                      <AlertTitle>{t("teams.completeTeam")}</AlertTitle>
                       <AlertDescription>
                         <ul className="list-disc pl-5">
                           {addDetailsErrors.map((error) => <li key={error}>{error}</li>)}
@@ -916,10 +943,10 @@ export function ManagedProjectsSettings({
                   ) : null}
                   <div className="flex flex-wrap gap-2 pt-2">
                     <Button type="submit" disabled={controlsDisabled || addDetailsErrors.length > 0}>
-                      {action === "next" ? "Checking…" : "Next"}
+                      {action === "next" ? t("settings.common.checking") : t("teams.next")}
                     </Button>
                     <Button type="button" variant="ghost" onClick={() => setForm(null)} disabled={controlsDisabled}>
-                      Cancel
+                      {t("settings.common.cancel")}
                     </Button>
                   </div>
                 </form>
@@ -928,24 +955,24 @@ export function ManagedProjectsSettings({
                   {isCreatingTeam ? (
                     <div className="grid gap-3 rounded-md border bg-muted/20 p-3 text-sm">
                       <div>
-                        <p className="text-muted-foreground">Team name</p>
+                        <p className="text-muted-foreground">{t("teams.name")}</p>
                         <p className="font-medium">{form.jiraProjectName}</p>
                       </div>
                       <div>
-                        <p className="text-muted-foreground">Jira Project Key</p>
+                        <p className="text-muted-foreground">{t("teams.projectKey")}</p>
                         <p className="font-medium">{form.jiraProjectKey}</p>
                       </div>
                     </div>
                   ) : (
                     <>
                       <TextField
-                        label="Team name"
+                        label={t("teams.name")}
                         value={form.jiraProjectName}
                         onChange={(next) => updateForm("jiraProjectName", next)}
                         disabled={controlsDisabled}
                       />
                       <TextField
-                        label="Jira Project Key"
+                        label={t("teams.projectKey")}
                         value={form.jiraProjectKey}
                         onChange={(next) => updateForm("jiraProjectKey", next)}
                         disabled={controlsDisabled}
@@ -954,18 +981,18 @@ export function ManagedProjectsSettings({
                     </>
                   )}
                   <div className="grid gap-2">
-                    <Label htmlFor="jira-board">Jira board</Label>
+                    <Label htmlFor="jira-board">{t("teams.jiraBoard")}</Label>
                     <div className="flex flex-wrap gap-2">
                       <select
                         id="jira-board"
-                        aria-label="Jira board"
+                        aria-label={t("teams.jiraBoard")}
                         className="h-10 min-w-72 rounded-md border border-input bg-background px-3 py-2 text-sm"
                         value={form.boardId}
                         onFocus={isCreatingTeam ? undefined : () => void handleLoadBoards()}
                         onChange={(event) => updateForm("boardId", event.target.value)}
                         disabled={controlsDisabled}
                       >
-                        <option value="">{boardsLoading ? "Loading Jira boards…" : "Choose a Jira board"}</option>
+                        <option value="">{boardsLoading ? t("teams.loadingBoards") : t("teams.chooseBoard")}</option>
                         {boards.map((board) => (
                           <option key={board.id} value={board.id}>
                             {board.name} ({board.id})
@@ -973,7 +1000,7 @@ export function ManagedProjectsSettings({
                         ))}
                       </select>
                     </div>
-                    {boardsLoading ? <p role="status">Loading Jira boards for this project…</p> : null}
+                    {boardsLoading ? <p role="status">{t("teams.loadingBoardsForProject")}</p> : null}
                     {boardsError ? (
                       <Alert variant="destructive" role="alert">
                         <AlertDescription>{boardsError}</AlertDescription>
@@ -982,12 +1009,12 @@ export function ManagedProjectsSettings({
                   </div>
                   {!value(form.integrationId) && !isCreatingTeam ? (
                     <Alert variant="destructive" role="alert">
-                      <AlertDescription>A Jira integration is required before editing this team.</AlertDescription>
+                      <AlertDescription>{t("teams.integrationRequiredEdit")}</AlertDescription>
                     </Alert>
                   ) : null}
                   {errors.length > 0 ? (
                     <Alert variant="destructive" role="alert" aria-live="assertive">
-                      <AlertTitle>Complete the project details</AlertTitle>
+                      <AlertTitle>{t("teams.completeProject")}</AlertTitle>
                       <AlertDescription>
                         <ul className="list-disc pl-5">
                           {errors.filter((error) => !error.includes("integration")).map((error) => <li key={error}>{error}</li>)}
@@ -1014,14 +1041,14 @@ export function ManagedProjectsSettings({
                         }}
                         disabled={controlsDisabled}
                       >
-                        Back
+                        {t("teams.back")}
                       </Button>
                     ) : null}
                     <Button type="submit" disabled={controlsDisabled || errors.length > 0}>
-                      {action === "save" ? "Saving…" : "Save team"}
+                      {action === "save" ? t("settings.common.saving") : t("teams.save")}
                     </Button>
                     <Button type="button" variant="ghost" onClick={() => setForm(null)} disabled={controlsDisabled}>
-                      Cancel
+                      {t("settings.common.cancel")}
                     </Button>
                   </div>
                 </form>
@@ -1032,18 +1059,18 @@ export function ManagedProjectsSettings({
       ) : null}
 
       {detailProject && detailHost ? createPortal(
-        <div className="border-t px-4 pb-4 pt-4" aria-label="Team members">
+        <div className="border-t px-4 pb-4 pt-4" aria-label={t("teams.members")}>
           <CardContent className="grid gap-4">
-            <section className="grid gap-4 rounded-md border p-3" aria-label="Task creation settings">
+            <section className="grid gap-4 rounded-md border p-3" aria-label={t("teams.taskSettings")}>
               <div>
-                <h3 className="font-semibold">Task creation settings</h3>
-                <p className="text-sm text-muted-foreground">These defaults are applied to new Create task cards for this team.</p>
+                <h3 className="font-semibold">{t("teams.taskSettings")}</h3>
+                <p className="text-sm text-muted-foreground">{t("teams.taskSettingsDescription")}</p>
               </div>
               <div className="grid gap-2 sm:max-w-xl">
-                <Label htmlFor={`default-task-sprint-${detailProject.id}`}>Default sprint for task creation</Label>
+                <Label htmlFor={`default-task-sprint-${detailProject.id}`}>{t("teams.defaultSprint")}</Label>
                 <select
                   id={`default-task-sprint-${detailProject.id}`}
-                  aria-label="Default sprint for task creation"
+                  aria-label={t("teams.defaultSprint")}
                   className="h-10 rounded-md border border-input bg-background px-3 py-2 text-sm"
                   value={defaultTaskSprintId}
                   onChange={(event) => {
@@ -1053,20 +1080,20 @@ export function ManagedProjectsSettings({
                   }}
                   disabled={controlsDisabled || taskSprintsLoading}
                 >
-                  <option value="">{taskSprintsLoading ? "Loading sprints…" : "No default sprint"}</option>
+                  <option value="">{taskSprintsLoading ? t("teams.loadingSprints") : t("teams.noDefaultSprint")}</option>
                   {defaultTaskSprintId && !taskSprints.some((sprint) => sprint.id === defaultTaskSprintId) ? (
                     <option value={defaultTaskSprintId}>{defaultTaskSprintName || defaultTaskSprintId}</option>
                   ) : null}
                   {taskSprints.map((sprint) => <option key={sprint.id} value={sprint.id}>{sprint.name}</option>)}
                 </select>
-                {taskSprintsError ? <p className="text-xs text-destructive">Unable to load sprints. {taskSprintsError}</p> : null}
+                {taskSprintsError ? <p className="text-xs text-destructive">{t("teams.loadSprintsError", { error: taskSprintsError })}</p> : null}
               </div>
               <div className="grid gap-2">
-                <Label htmlFor={`epic-link-jql-${detailProject.id}`}>Epic link JQL</Label>
+                <Label htmlFor={`epic-link-jql-${detailProject.id}`}>{t("teams.epicJql")}</Label>
                 <div className="flex flex-wrap gap-2">
                   <Input
                     id={`epic-link-jql-${detailProject.id}`}
-                    aria-label="Epic link JQL"
+                    aria-label={t("teams.epicJql")}
                     value={epicLinkJql}
                     onChange={(event) => {
                       setEpicLinkJql(event.target.value);
@@ -1074,19 +1101,19 @@ export function ManagedProjectsSettings({
                       setDefaultEpicLinkKey("");
                       setDefaultEpicLinkSummary("");
                     }}
-                    placeholder="project = COREAPI AND issuetype = Epic"
+                    placeholder="project = DEMO AND issuetype = Epic"
                     disabled={controlsDisabled}
                   />
                   <Button type="button" variant="outline" onClick={() => void handleCheckEpicLinkJql()} disabled={controlsDisabled || epicPreviewLoading || !epicLinkJql.trim()}>
-                    {epicPreviewLoading ? "Checking…" : "Check"}
+                    {epicPreviewLoading ? t("settings.common.checking") : t("teams.check")}
                   </Button>
                 </div>
-                <p className="text-xs text-muted-foreground">The matching Jira issues will be available as Epic link choices when creating a task.</p>
+                <p className="text-xs text-muted-foreground">{t("teams.epicJqlDescription")}</p>
                 <div className="grid gap-2 sm:max-w-xl">
-                  <Label htmlFor={`default-epic-link-${detailProject.id}`}>Default Epic link for task creation</Label>
+                  <Label htmlFor={`default-epic-link-${detailProject.id}`}>{t("teams.defaultEpic")}</Label>
                   <select
                     id={`default-epic-link-${detailProject.id}`}
-                    aria-label="Default Epic link for task creation"
+                    aria-label={t("teams.defaultEpic")}
                     className="h-10 rounded-md border border-input bg-background px-3 py-2 text-sm"
                     value={defaultEpicLinkKey}
                     onChange={(event) => {
@@ -1097,7 +1124,7 @@ export function ManagedProjectsSettings({
                     }}
                     disabled={controlsDisabled}
                   >
-                    <option value="">No default Epic link</option>
+                    <option value="">{t("teams.noDefaultEpic")}</option>
                     {defaultEpicLinkKey && !epicPreviewIssues.some((issue) => issue.key === defaultEpicLinkKey) ? (
                       <option value={defaultEpicLinkKey}>{defaultEpicLinkSummary || defaultEpicLinkKey}</option>
                     ) : null}
@@ -1105,7 +1132,7 @@ export function ManagedProjectsSettings({
                       <option key={issue.key} value={issue.key}>{issue.key} — {issue.summary}</option>
                     ))}
                   </select>
-                  <p className="text-xs text-muted-foreground">Run Check to refresh the choices, select the default Epic, then save these task creation settings.</p>
+                  <p className="text-xs text-muted-foreground">{t("teams.epicSaveHint")}</p>
                 </div>
               </div>
               {teamSaveError ? (
@@ -1115,7 +1142,7 @@ export function ManagedProjectsSettings({
               ) : null}
               <div>
                 <Button type="button" onClick={() => void handleSaveTaskCreationSettings()} disabled={controlsDisabled}>
-                  {teamSaving ? "Saving…" : "Save task creation settings"}
+                  {teamSaving ? t("settings.common.saving") : t("teams.saveTaskSettings")}
                 </Button>
               </div>
             </section>
@@ -1123,11 +1150,11 @@ export function ManagedProjectsSettings({
             <Dialog open={epicPreviewOpen} onOpenChange={setEpicPreviewOpen}>
               <DialogContent>
                 <DialogHeader>
-                  <DialogTitle>Epic link candidates</DialogTitle>
-                  <DialogDescription>Issues returned by the configured Epic link JQL.</DialogDescription>
+                  <DialogTitle>{t("teams.epicCandidates")}</DialogTitle>
+                  <DialogDescription>{t("teams.epicCandidatesDescription")}</DialogDescription>
                 </DialogHeader>
                 {epicPreviewIssues.length > 0 ? (
-                  <div role="list" aria-label="Epic link candidates" className="grid max-h-96 gap-2 overflow-y-auto">
+                  <div role="list" aria-label={t("teams.epicCandidates")} className="grid max-h-96 gap-2 overflow-y-auto">
                     {epicPreviewIssues.map((issue) => (
                       <div key={issue.key} role="listitem" className="rounded-md border p-3">
                         <p className="font-medium">{issue.key}</p>
@@ -1135,25 +1162,25 @@ export function ManagedProjectsSettings({
                       </div>
                     ))}
                   </div>
-                ) : <p className="text-sm text-muted-foreground">No Jira issues matched this JQL.</p>}
+                ) : <p className="text-sm text-muted-foreground">{t("teams.noEpicCandidates")}</p>}
               </DialogContent>
             </Dialog>
 
             {memberLoadError ? (
               <Alert variant="destructive" role="alert">
-                <AlertDescription>Unable to load the saved project team. {memberLoadError}</AlertDescription>
+                <AlertDescription>{t("teams.loadMembersError", { error: memberLoadError })}</AlertDescription>
               </Alert>
             ) : null}
 
             <div className="flex items-center justify-between gap-3">
-              <h3 className="font-semibold">Team members</h3>
-              <Button type="button" size="sm" onClick={openAddMemberDialog} disabled={controlsDisabled}>Add team member</Button>
+              <h3 className="font-semibold">{t("teams.members")}</h3>
+              <Button type="button" size="sm" onClick={openAddMemberDialog} disabled={controlsDisabled}>{t("teams.addMember")}</Button>
             </div>
             <Dialog open={memberDialogOpen} onOpenChange={(open) => { if (open) setMemberDialogOpen(true); else closeMemberDialog(); }}>
               <DialogContent>
                 <DialogHeader>
-                  <DialogTitle>{editingMemberAccountId ? "Edit team member" : "Add team member"}</DialogTitle>
-                  <DialogDescription>{editingMemberAccountId ? "Update Alias and role for this Jira account." : "Search for a Jira account, then set its Alias and role."}</DialogDescription>
+                  <DialogTitle>{editingMemberAccountId ? t("teams.editMember") : t("teams.addMember")}</DialogTitle>
+                  <DialogDescription>{editingMemberAccountId ? t("teams.editMemberDescription") : t("teams.addMemberDescription")}</DialogDescription>
                 </DialogHeader>
             {!editingMemberAccountId ? (
               <>
@@ -1167,21 +1194,21 @@ export function ManagedProjectsSettings({
                   setMemberRole("");
                   setMemberSearchError(null);
                 }}
-                placeholder="Type at least 4 characters to search Jira"
+                placeholder={t("teams.memberSearchPlaceholder")}
                 autoComplete="off"
                 disabled={controlsDisabled}
               />
               {memberSearch.trim().length > 0 && memberSearch.trim().length < 3 ? (
-                <p className="text-sm text-muted-foreground">Enter at least 3 characters to search Jira users.</p>
+                <p className="text-sm text-muted-foreground">{t("teams.memberSearchHint")}</p>
               ) : null}
-              {memberSearchLoading ? <p role="status">Searching Jira users…</p> : null}
+              {memberSearchLoading ? <p role="status">{t("teams.memberSearching")}</p> : null}
               {memberSearchError ? (
                 <Alert variant="destructive" role="alert">
-                  <AlertDescription>Unable to search Jira team members. {memberSearchError}</AlertDescription>
+                  <AlertDescription>{t("teams.memberSearchError", { error: memberSearchError })}</AlertDescription>
                 </Alert>
               ) : null}
               {memberSearchResults.length > 0 && !selectedSearchMember ? (
-                <div role="listbox" aria-label="Jira team member search results" className="grid gap-1 rounded-md border p-1">
+                <div role="listbox" aria-label={t("teams.memberSearchResults")} className="grid gap-1 rounded-md border p-1">
                   {memberSearchResults.map((member) => (
                     <button
                       key={member.accountId}
@@ -1201,7 +1228,7 @@ export function ManagedProjectsSettings({
                 </div>
               ) : null}
               {!memberSearchLoading && memberSearch.trim().length >= 3 && !memberSearchError && memberSearchResults.length === 0 ? (
-                <p className="text-sm text-muted-foreground">No Jira users found.</p>
+                <p className="text-sm text-muted-foreground">{t("teams.noMembersFound")}</p>
               ) : null}
             </div>
               </>
@@ -1214,32 +1241,32 @@ export function ManagedProjectsSettings({
                   <p className="text-sm text-muted-foreground">{selectedSearchMember.accountId}</p>
                 </div>
                 <div className="grid gap-2 sm:max-w-xs">
-                  <Label htmlFor="team-member-role">Role</Label>
+                  <Label htmlFor="team-member-role">{t("teams.role")}</Label>
                   <select
                     id="team-member-role"
-                    aria-label={`Role for ${selectedSearchMember.displayName}`}
+                    aria-label={t("teams.roleFor", { member: selectedSearchMember.displayName })}
                     className="h-10 rounded-md border border-input bg-background px-3 py-2 text-sm"
                     value={memberRole}
                     onChange={(event) => setMemberRole(event.target.value)}
                     disabled={controlsDisabled}
                   >
-                    <option value="">Choose a role</option>
+                    <option value="">{t("teams.chooseRole")}</option>
                     {ROLE_OPTIONS.map((role) => <option key={role} value={role}>{role}</option>)}
                   </select>
                 </div>
                 <div className="grid gap-2 sm:max-w-xs">
-                  <Label htmlFor="team-member-alias">Alias (optional)</Label>
+                  <Label htmlFor="team-member-alias">{t("teams.alias")}</Label>
                   <Input
                     id="team-member-alias"
                     value={memberAlias}
                     onChange={(event) => setMemberAlias(event.target.value)}
-                    placeholder="Display name"
+                    placeholder={t("teams.displayName")}
                     disabled={controlsDisabled}
                   />
                 </div>
                 <div className="flex flex-wrap gap-2">
                   <Button type="button" onClick={() => void handleSaveMemberDialog()} disabled={!memberRole || controlsDisabled}>
-                    {teamSaving ? "Saving…" : editingMemberAccountId ? "Save" : "Add"}
+                    {teamSaving ? t("settings.common.saving") : editingMemberAccountId ? t("settings.common.save") : t("teams.addMemberAction")}
                   </Button>
                   <Button
                     type="button"
@@ -1247,7 +1274,7 @@ export function ManagedProjectsSettings({
                     onClick={closeMemberDialog}
                     disabled={controlsDisabled}
                   >
-                    Cancel
+                    {t("settings.common.cancel")}
                   </Button>
                 </div>
               </div>
@@ -1256,13 +1283,13 @@ export function ManagedProjectsSettings({
             </Dialog>
 
             {configuredMembers.length > 0 ? (
-              <div className="grid gap-3" aria-label="Configured project team">
+              <div className="grid gap-3" aria-label={t("teams.configuredMembers")}>
                 {configuredMembers.map((member, index) => {
                   const label = memberLabel(member);
                   return (
                     <Fragment key={member.accountId}>
                       {draggingMemberAccountId && pointerDropInsertionIndex === index ? (
-                        <div className="h-1 w-full rounded-full bg-primary shadow-sm" aria-label="Drop position" />
+                        <div className="h-1 w-full rounded-full bg-primary shadow-sm" aria-label={t("teams.dropPosition")} />
                       ) : null}
                       <div
                         data-team-member-id={member.accountId}
@@ -1270,8 +1297,8 @@ export function ManagedProjectsSettings({
                       >
                       <span
                         className="cursor-grab touch-none text-muted-foreground active:cursor-grabbing"
-                        aria-label={`Drag ${label} to reorder`}
-                        title="Drag to reorder"
+                        aria-label={t("teams.dragMember", { member: label })}
+                        title={t("teams.dragToReorder")}
                         onPointerDown={(event) => {
                           if (controlsDisabled || event.button !== 0) return;
                           event.preventDefault();
@@ -1307,27 +1334,47 @@ export function ManagedProjectsSettings({
                         <div className="flex min-h-5 items-center gap-2">
                           <p className="font-medium leading-5">{label}</p>
                           <Badge variant="outline" className="px-1.5 py-0 text-[10px] leading-4">
-                            {member.tags[0] || "Not selected"}
+                            {member.tags[0] || t("teams.roleNotSelected")}
                           </Badge>
                         </div>
                         <p className="text-xs leading-4 text-muted-foreground">{member.displayName}</p>
                       </div>
-                      <Button type="button" variant="outline" size="sm" onClick={() => openEditMemberDialog(member)} disabled={controlsDisabled}>
-                        Edit
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="icon"
+                        className="h-9 w-9"
+                        onClick={() => openEditMemberDialog(member)}
+                        disabled={controlsDisabled}
+                        aria-label={t("teams.editMemberAction", { member: label })}
+                        title={t("teams.editMemberAction", { member: label })}
+                      >
+                        <Pencil className="size-4" aria-hidden="true" />
                       </Button>
-                      <Button type="button" variant="ghost" onClick={() => void handleRemoveTeamMember(member.accountId)} disabled={controlsDisabled}>
-                        Delete
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className="h-9 w-9 text-destructive hover:bg-destructive/10 hover:text-destructive"
+                        onClick={() => void handleRemoveTeamMember(member.accountId)}
+                        disabled={controlsDisabled}
+                        aria-label={t(removingMemberAccountId === member.accountId ? "teams.deletingMemberAction" : "teams.deleteMemberAction", { member: label })}
+                        title={t(removingMemberAccountId === member.accountId ? "teams.deletingMemberAction" : "teams.deleteMemberAction", { member: label })}
+                      >
+                        {removingMemberAccountId === member.accountId
+                          ? <LoaderCircle className="size-4 animate-spin" aria-hidden="true" />
+                          : <Trash2 className="size-4" aria-hidden="true" />}
                       </Button>
                       </div>
                     </Fragment>
                   );
                 })}
                 {draggingMemberAccountId && pointerDropInsertionIndex === configuredMembers.length ? (
-                  <div className="h-1 w-full rounded-full bg-primary shadow-sm" aria-label="Drop position" />
+                  <div className="h-1 w-full rounded-full bg-primary shadow-sm" aria-label={t("teams.dropPosition")} />
                 ) : null}
               </div>
             ) : (
-              <p className="text-sm text-muted-foreground">No team members are configured for this project.</p>
+              <p className="text-sm text-muted-foreground">{t("teams.noMembers")}</p>
             )}
 
             {teamSaveError ? (

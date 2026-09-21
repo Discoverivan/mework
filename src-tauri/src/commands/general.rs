@@ -1,7 +1,7 @@
 use sqlx::SqlitePool;
 use tauri::{AppHandle, State};
 
-use crate::application::general::{self, GeneralSettings, GeneralSettingsDto};
+use crate::application::general::{self, AppLanguage, GeneralSettingsDto, ThemePreference};
 
 #[tauri::command]
 pub async fn general_settings(state: State<'_, SqlitePool>) -> Result<GeneralSettingsDto, String> {
@@ -12,15 +12,25 @@ pub async fn general_settings(state: State<'_, SqlitePool>) -> Result<GeneralSet
 pub async fn general_settings_save(
     state: State<'_, SqlitePool>,
     notifications_enabled: bool,
+    review_notifications_enabled: bool,
+    authored_notifications_enabled: bool,
 ) -> Result<GeneralSettingsDto, String> {
-    general::save(
+    general::save_notification_preferences(
         &state,
-        GeneralSettings {
-            notifications_enabled,
-        },
+        notifications_enabled,
+        review_notifications_enabled,
+        authored_notifications_enabled,
     )
-    .await?;
-    general::dto(&state).await
+    .await
+}
+
+#[tauri::command]
+pub async fn general_appearance_save(
+    state: State<'_, SqlitePool>,
+    language: AppLanguage,
+    theme_preference: ThemePreference,
+) -> Result<GeneralSettingsDto, String> {
+    general::save_appearance_preferences(&state, language, theme_preference).await
 }
 
 #[tauri::command]

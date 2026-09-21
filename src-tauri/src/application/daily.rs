@@ -1,8 +1,7 @@
-use std::collections::HashSet;
 use std::sync::Arc;
 use std::time::Duration;
 
-use reqwest::Client;
+use reqwest::{Client, Url};
 use serde::Serialize;
 use serde_json::Value;
 use sqlx::SqlitePool;
@@ -22,8 +21,20 @@ pub struct DailySubtaskDto {
     pub status: String,
     pub story_points: Option<i64>,
     pub status_transition_at: Option<String>,
-    pub assignee_account_id: String,
+    pub assignee_account_id: Option<String>,
+    pub assignee_display_name: Option<String>,
+    pub issue_type: String,
     pub parent_issue_key: Option<String>,
+    pub url: String,
+    pub parent_url: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct DailySprintDto {
+    pub id: String,
+    pub name: String,
+    pub state: String,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq)]
@@ -32,8 +43,9 @@ pub struct DailyWorkspaceDto {
     pub managed_project_id: String,
     pub project_name: String,
     pub project_key: String,
-    pub active_sprint_id: String,
-    pub active_sprint_name: String,
+    pub selected_sprint_id: String,
+    pub selected_sprint_name: String,
+    pub sprints: Vec<DailySprintDto>,
     pub members: Vec<TeamMemberDto>,
     pub subtasks: Vec<DailySubtaskDto>,
 }
@@ -41,6 +53,7 @@ pub struct DailyWorkspaceDto {
 pub async fn load_daily_workspace(
     pool: &SqlitePool,
     managed_project_id: &str,
+    sprint_id: Option<&str>,
 ) -> Result<DailyWorkspaceDto, PlanningCommandError> {
     let project = planning_repositories::get_managed_project(pool, managed_project_id)
         .await
@@ -52,11 +65,6 @@ pub async fn load_daily_workspace(
         .filter(|value| !value.trim().is_empty())
         .ok_or_else(|| daily_error("missing_metadata", "Jira board metadata is required", false))?;
     let members = planning::list_configured_team_members(pool, managed_project_id).await?;
-    let member_ids: HashSet<&str> = members
-        .iter()
-        .map(|member| member.account_id.as_str())
-        .collect();
-
     let keyring = planning::planning_credential_store(pool).await?;
     let mut builder = Client::builder().timeout(Duration::from_secs(30));
     let integration =
@@ -80,107 +88,66 @@ pub async fn load_daily_workspace(
         Arc::new(ReqwestPlanningTransport::new(http)),
     )
     .await?;
-    let sprints = client
-        .list_active_sprints(board_id, 100)
+    let mut sprint_page = client
+        .list_sprints(board_id, 100)
         .await
         .map_err(|_| daily_error("remote_error", "Unable to load Jira sprints", true))?;
-    let active_sprint = sprints
-        .values
-        .into_iter()
-        .find(|sprint| sprint.state.eq_ignore_ascii_case("ACTIVE"))
-        .ok_or_else(|| {
+    let active_sprint_page = client
+        .list_active_sprints(board_id, 100)
+        .await
+        .map_err(|_| {
             daily_error(
-                "not_found",
-                "An active sprint was not found on the configured Jira board",
-                false,
+                "remote_error",
+                "Unable to load the active Jira sprint",
+                true,
             )
         })?;
-    let issues = client
-        .list_sprint_issues_with_fields(
-            &active_sprint.id,
-            100,
-            project
-                .story_points_field_id
-                .as_deref()
-                .or(Some(DEFAULT_STORY_POINTS_FIELD_ID)),
-        )
-        .await
-        .map_err(|_| daily_error("remote_error", "Unable to load active sprint issues", true))?;
-    let subtasks = issues
+    let active_sprint_id = active_sprint_page
         .values
-        .into_iter()
-        .filter_map(|issue| {
-            daily_subtask(
-                issue.id,
-                issue.key,
-                issue.fields,
-                &member_ids,
-                project
-                    .story_points_field_id
-                    .as_deref()
-                    .or(Some(DEFAULT_STORY_POINTS_FIELD_ID)),
-            )
-        })
-        .collect();
-
-    Ok(DailyWorkspaceDto {
-        managed_project_id: project.id,
-        project_name: project.jira_project_name,
-        project_key: project.jira_project_key,
-        active_sprint_id: active_sprint.id,
-        active_sprint_name: active_sprint.name,
-        members,
-        subtasks,
-    })
-}
-
-pub async fn refresh_daily_workspace(
-    pool: &SqlitePool,
-    managed_project_id: &str,
-    active_sprint_id: &str,
-) -> Result<Vec<DailySubtaskDto>, PlanningCommandError> {
-    if active_sprint_id.trim().is_empty() {
-        return Err(daily_error(
-            "invalid_input",
-            "An active sprint is required",
-            false,
-        ));
+        .first()
+        .map(|sprint| sprint.id.clone());
+    for active_sprint in active_sprint_page.values {
+        if !sprint_page
+            .values
+            .iter()
+            .any(|sprint| sprint.id == active_sprint.id)
+        {
+            sprint_page.values.push(active_sprint);
+        }
     }
-    let project = planning_repositories::get_managed_project(pool, managed_project_id)
-        .await
-        .map_err(|_| daily_error("not_found", "managed project was not found", false))?;
-    ensure_daily_dependencies(pool, &project.integration_id).await?;
-    let members = planning::list_configured_team_members(pool, managed_project_id).await?;
-    let member_ids: HashSet<&str> = members
-        .iter()
-        .map(|member| member.account_id.as_str())
-        .collect();
-    let keyring = planning::planning_credential_store(pool).await?;
-    let mut builder = Client::builder().timeout(Duration::from_secs(30));
-    let integration =
-        crate::infrastructure::db::repositories::get_integration(pool, &project.integration_id)
-            .await
-            .map_err(|_| daily_error("not_found", "Jira integration was not found", false))?;
-    if integration.allow_insecure_tls {
-        builder = builder.danger_accept_invalid_certs(true);
-    }
-    let http = builder.build().map_err(|_| {
-        daily_error(
-            "transport_unavailable",
-            "Jira transport is unavailable",
-            true,
-        )
-    })?;
-    let (client, _) = planning::planning_read_client(
-        pool,
-        &project,
-        keyring.as_ref(),
-        Arc::new(ReqwestPlanningTransport::new(http)),
-    )
-    .await?;
+    let selected_sprint =
+        if let Some(requested_id) = sprint_id.filter(|value| !value.trim().is_empty()) {
+            sprint_page
+                .values
+                .iter()
+                .find(|sprint| sprint.id == requested_id)
+                .ok_or_else(|| {
+                    daily_error(
+                        "not_found",
+                        "The selected sprint was not found on the configured Jira board",
+                        false,
+                    )
+                })?
+        } else {
+            active_sprint_id
+                .as_deref()
+                .and_then(|active_id| {
+                    sprint_page
+                        .values
+                        .iter()
+                        .find(|sprint| sprint.id == active_id)
+                })
+                .ok_or_else(|| {
+                    daily_error(
+                        "not_found",
+                        "An active sprint was not found on the configured Jira board",
+                        false,
+                    )
+                })?
+        };
     let issues = client
         .list_sprint_issues_with_fields(
-            active_sprint_id,
+            &selected_sprint.id,
             100,
             project
                 .story_points_field_id
@@ -191,26 +158,65 @@ pub async fn refresh_daily_workspace(
         .map_err(|_| {
             daily_error(
                 "remote_error",
-                "Unable to refresh active sprint issues",
+                "Unable to load selected sprint issues",
                 true,
             )
         })?;
-    Ok(issues
+    let subtasks = issues
         .values
         .into_iter()
-        .filter_map(|issue| {
-            daily_subtask(
+        .map(|issue| {
+            daily_task(
                 issue.id,
                 issue.key,
                 issue.fields,
-                &member_ids,
                 project
                     .story_points_field_id
                     .as_deref()
                     .or(Some(DEFAULT_STORY_POINTS_FIELD_ID)),
+                &integration.base_url,
             )
         })
-        .collect())
+        .collect::<Result<Vec<_>, _>>()?;
+
+    let mut sprints = sprint_page
+        .values
+        .iter()
+        .map(|sprint| DailySprintDto {
+            id: sprint.id.clone(),
+            name: sprint.name.clone(),
+            state: sprint.state.to_ascii_lowercase(),
+        })
+        .collect::<Vec<_>>();
+    sprints.sort_by_key(|sprint| match sprint.state.as_str() {
+        "active" => 0,
+        "future" => 1,
+        _ => 2,
+    });
+
+    Ok(DailyWorkspaceDto {
+        managed_project_id: project.id,
+        project_name: project.jira_project_name,
+        project_key: project.jira_project_key,
+        selected_sprint_id: selected_sprint.id.clone(),
+        selected_sprint_name: selected_sprint.name.clone(),
+        sprints,
+        members,
+        subtasks,
+    })
+}
+
+pub async fn refresh_daily_workspace(
+    pool: &SqlitePool,
+    managed_project_id: &str,
+    sprint_id: &str,
+) -> Result<Vec<DailySubtaskDto>, PlanningCommandError> {
+    if sprint_id.trim().is_empty() {
+        return Err(daily_error("invalid_input", "A sprint is required", false));
+    }
+    load_daily_workspace(pool, managed_project_id, Some(sprint_id))
+        .await
+        .map(|workspace| workspace.subtasks)
 }
 
 async fn ensure_daily_dependencies(
@@ -227,36 +233,38 @@ async fn ensure_daily_dependencies(
     {
         return Err(daily_error(
             "integration_unavailable",
-            "A working Jira integration is required for Daily",
+            "A working Jira integration is required for Sprint tasks",
             false,
         ));
     }
-    crate::application::ai::ensure_review_ready(pool)
-        .await
-        .map(|_| ())
-        .map_err(|message| daily_error("ai_unavailable", &message, false))
+    Ok(())
 }
 
-fn daily_subtask(
+fn daily_task(
     id: String,
     key: String,
     fields: Value,
-    member_ids: &HashSet<&str>,
     story_points_field_id: Option<&str>,
-) -> Option<DailySubtaskDto> {
-    let issue_type = fields.get("issuetype")?;
-    if issue_type.get("subtask").and_then(Value::as_bool) != Some(true) {
-        return None;
-    }
-    let assignee = fields.get("assignee")?;
-    let assignee_account_id = first_string(assignee, &["accountId", "name", "key"])?;
-    if !member_ids.contains(assignee_account_id.as_str()) {
-        return None;
-    }
+    jira_base_url: &str,
+) -> Result<DailySubtaskDto, PlanningCommandError> {
+    let issue_type = fields
+        .get("issuetype")
+        .and_then(|value| value.get("name"))
+        .and_then(Value::as_str)
+        .unwrap_or("Task")
+        .to_owned();
+    let assignee = fields.get("assignee").filter(|value| !value.is_null());
+    let assignee_account_id =
+        assignee.and_then(|value| first_string(value, &["accountId", "name", "key"]));
+    let assignee_display_name = assignee
+        .and_then(|value| value.get("displayName"))
+        .and_then(Value::as_str)
+        .filter(|value| !value.trim().is_empty())
+        .map(str::to_owned);
     let summary = fields
         .get("summary")
         .and_then(Value::as_str)
-        .unwrap_or("Untitled sub-task")
+        .unwrap_or("Untitled task")
         .to_owned();
     let status = fields
         .get("status")
@@ -275,7 +283,13 @@ fn daily_subtask(
         .and_then(Value::as_str)
         .map(str::to_owned);
 
-    Some(DailySubtaskDto {
+    let url = jira_issue_url(jira_base_url, &key)?;
+    let parent_url = parent_issue_key
+        .as_deref()
+        .map(|parent_key| jira_issue_url(jira_base_url, parent_key))
+        .transpose()?;
+
+    Ok(DailySubtaskDto {
         id,
         key,
         summary,
@@ -283,8 +297,44 @@ fn daily_subtask(
         story_points: story_points_field_id.and_then(|field_id| field_i64(&fields, field_id)),
         status_transition_at,
         assignee_account_id,
+        assignee_display_name,
+        issue_type,
         parent_issue_key,
+        url,
+        parent_url,
     })
+}
+
+fn jira_issue_url(base_url: &str, issue_key: &str) -> Result<String, PlanningCommandError> {
+    let mut url = Url::parse(base_url)
+        .map_err(|_| daily_error("invalid_configuration", "Jira base URL is invalid", false))?;
+    if !matches!(url.scheme(), "http" | "https")
+        || url.host_str().is_none()
+        || !url.username().is_empty()
+        || url.password().is_some()
+        || issue_key.trim().is_empty()
+    {
+        return Err(daily_error(
+            "invalid_configuration",
+            "Jira issue URL could not be created",
+            false,
+        ));
+    }
+    url.set_query(None);
+    url.set_fragment(None);
+    {
+        let mut segments = url.path_segments_mut().map_err(|_| {
+            daily_error(
+                "invalid_configuration",
+                "Jira issue URL could not be created",
+                false,
+            )
+        })?;
+        segments.pop_if_empty();
+        segments.push("browse");
+        segments.push(issue_key);
+    }
+    Ok(url.to_string())
 }
 
 fn field_i64(fields: &Value, field_id: &str) -> Option<i64> {
@@ -319,59 +369,42 @@ fn daily_error(code: &str, message: &str, retryable: bool) -> PlanningCommandErr
 
 #[cfg(test)]
 mod tests {
-    use super::daily_subtask;
+    use super::daily_task;
     use serde_json::json;
-    use std::collections::HashSet;
 
     #[test]
-    fn maps_an_assigned_jira_subtask_for_daily() {
-        let subtask = daily_subtask(
+    fn maps_a_jira_issue_for_sprint_tasks() {
+        let task = daily_task(
             "10002".into(),
             "DEMO-2".into(),
             json!({
                 "summary": "Implement API",
                 "status": {"name": "In Progress"},
                 "statuscategorychangedate": "2026-09-14T16:32:10.000+0300",
-                "issuetype": {"subtask": true},
-                "assignee": {"accountId": "test-user-a"},
+                "issuetype": {"name": "Sub-task", "subtask": true},
+                "assignee": {"accountId": "test-user-a", "displayName": "Test Member A"},
                 "parent": {"key": "DEMO-1"},
                 "customfield_10016": 5.0
             }),
-            &HashSet::from(["test-user-a"]),
             Some("customfield_10016"),
+            "https://jira.example.invalid/work",
         )
-        .expect("assigned Jira subtask should map");
+        .unwrap();
 
-        assert_eq!(subtask.key, "DEMO-2");
-        assert_eq!(subtask.status, "In Progress");
-        assert_eq!(subtask.assignee_account_id, "test-user-a");
-        assert_eq!(subtask.story_points, Some(5));
+        assert_eq!(task.key, "DEMO-2");
+        assert_eq!(task.status, "In Progress");
+        assert_eq!(task.assignee_account_id.as_deref(), Some("test-user-a"));
+        assert_eq!(task.assignee_display_name.as_deref(), Some("Test Member A"));
+        assert_eq!(task.issue_type, "Sub-task");
+        assert_eq!(task.story_points, Some(5));
+        assert_eq!(task.url, "https://jira.example.invalid/work/browse/DEMO-2");
         assert_eq!(
-            subtask.status_transition_at.as_deref(),
-            Some("2026-09-14T16:32:10.000+0300")
+            task.parent_url.as_deref(),
+            Some("https://jira.example.invalid/work/browse/DEMO-1")
         );
-    }
-
-    #[test]
-    fn uses_updated_date_when_status_category_date_is_missing() {
-        let subtask = daily_subtask(
-            "10003".into(),
-            "DEMO-3".into(),
-            json!({
-                "summary": "Fallback date",
-                "status": {"name": "Closed"},
-                "updated": "2026-09-15T09:00:00.000+0300",
-                "issuetype": {"subtask": true},
-                "assignee": {"accountId": "test-user-a"}
-            }),
-            &HashSet::from(["test-user-a"]),
-            None,
-        )
-        .expect("assigned Jira subtask should map");
-
         assert_eq!(
-            subtask.status_transition_at.as_deref(),
-            Some("2026-09-15T09:00:00.000+0300")
+            task.status_transition_at.as_deref(),
+            Some("2026-09-14T16:32:10.000+0300")
         );
     }
 }

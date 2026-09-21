@@ -13,15 +13,15 @@ function parsePresenterState(raw: string | null): DailyPresenterState | undefine
     return undefined;
   }
 }
-export const loadDailyWorkspace = (managedProjectId: string) =>
-  invoke<DailyWorkspace>("daily_workspace", { managedProjectId });
+export const loadDailyWorkspace = (managedProjectId: string, sprintId?: string) =>
+  invoke<DailyWorkspace>("daily_workspace", { managedProjectId, sprintId });
 
 export const loadJiraAvatarData = (managedProjectId: string, avatarUrl: string) =>
   invoke<string | null>("jira_avatar_data", { managedProjectId, avatarUrl });
 
 
-export const refreshDailyWorkspace = (managedProjectId: string, activeSprintId: string) =>
-  invoke<DailyWorkspace["subtasks"]>("daily_workspace_refresh", { managedProjectId, activeSprintId });
+export const refreshDailyWorkspace = (managedProjectId: string, sprintId: string) =>
+  invoke<DailyWorkspace["subtasks"]>("daily_workspace_refresh", { managedProjectId, sprintId });
 
 export const openPresenterView = () => invoke<void>("open_presenter_view");
 export const closePresenterView = () => invoke<void>("close_presenter_view");

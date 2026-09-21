@@ -12,10 +12,12 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { listInbox, updateInboxState } from "./api";
 import { InboxFilters } from "./InboxFilters";
 import { InboxItemCard } from "./InboxItemCard";
+import { useI18n } from "@/i18n/context";
 
 const PAGE_SIZE = 50;
 
 export function InboxPage({ onReady }: { onReady?: () => void }) {
+  const { t } = useI18n();
   const [filter, setFilter] = useState<InboxFilter>("all");
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(0);
@@ -78,25 +80,25 @@ export function InboxPage({ onReady }: { onReady?: () => void }) {
   return (
     <section aria-labelledby="inbox-title">
       <PageHeader
-        title="Inbox"
+        title={t("inbox.title")}
         titleId="inbox-title"
         actions={<InboxFilters value={filter} onChange={changeFilter} />}
       />
 
       <div className="inbox-toolbar">
-        <Label htmlFor="inbox-search">Search inbox</Label>
+        <Label htmlFor="inbox-search">{t("inbox.search")}</Label>
         <Input
           id="inbox-search"
           type="search"
           value={search}
-          placeholder="Search title, reason, or issue"
+          placeholder={t("inbox.searchPlaceholder")}
           onChange={(event) => changeSearch(event.currentTarget.value)}
         />
       </div>
 
       {loading ? (
-        <div role="status" aria-label="Loading inbox" className="inbox-loading">
-          <span className="sr-only">Loading inbox</span>
+        <div role="status" aria-label={t("inbox.loading")} className="inbox-loading">
+          <span className="sr-only">{t("inbox.loading")}</span>
           <Skeleton data-testid="inbox-loading-skeleton" className="h-24 w-full" />
           <Skeleton className="h-24 w-full" />
         </div>
@@ -104,17 +106,17 @@ export function InboxPage({ onReady }: { onReady?: () => void }) {
 
       {error ? (
         <Alert variant="destructive" className="inbox-error">
-          <AlertTitle>Inbox unavailable</AlertTitle>
+          <AlertTitle>{t("inbox.unavailable")}</AlertTitle>
           <AlertDescription>
-            <p>Unable to load inbox. Try again.</p>
+            <p>{t("inbox.loadError")}</p>
             <Button
               type="button"
               variant="outline"
               size="sm"
-              aria-label="Retry loading inbox"
+              aria-label={t("inbox.retryAria")}
               onClick={() => setRetry((current) => current + 1)}
             >
-              Retry
+              {t("inbox.retry")}
             </Button>
           </AlertDescription>
         </Alert>
@@ -123,7 +125,7 @@ export function InboxPage({ onReady }: { onReady?: () => void }) {
       {!loading && !error && items.length === 0 ? (
         <Card className="inbox-empty">
           <CardContent>
-            <p>No inbox items.</p>
+            <p>{t("inbox.empty")}</p>
           </CardContent>
         </Card>
       ) : null}
@@ -136,7 +138,7 @@ export function InboxPage({ onReady }: { onReady?: () => void }) {
           : null}
       </div>
 
-      <nav aria-label="Inbox pagination" className="inbox-pagination">
+      <nav aria-label={t("inbox.pagination")} className="inbox-pagination">
         <Button
           type="button"
           variant="outline"
@@ -144,9 +146,9 @@ export function InboxPage({ onReady }: { onReady?: () => void }) {
           disabled={!hasPreviousPage}
           onClick={() => setPage((current) => Math.max(0, current - 1))}
         >
-          Previous page
+          {t("inbox.previous")}
         </Button>
-        <span aria-live="polite">Page {page + 1}</span>
+        <span aria-live="polite">{t("inbox.page", { page: page + 1 })}</span>
         <Button
           type="button"
           variant="outline"
@@ -154,7 +156,7 @@ export function InboxPage({ onReady }: { onReady?: () => void }) {
           disabled={!hasNextPage}
           onClick={() => setPage((current) => current + 1)}
         >
-          Next page
+          {t("inbox.next")}
         </Button>
       </nav>
     </section>

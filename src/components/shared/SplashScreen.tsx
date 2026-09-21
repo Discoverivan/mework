@@ -3,21 +3,22 @@ interface SplashScreenProps {
 }
 
 export function SplashScreen({ visible }: SplashScreenProps) {
+  const { t } = useI18n();
   if (!visible) return null;
 
   return (
-    <div className="splash-screen" role="status" aria-label="Loading mework" aria-busy="true">
+    <div className="splash-screen" role="status" aria-label={t("splash.loading")} aria-busy="true">
       <div className="splash-panel">
-        <img className="splash-logo" src="/mework-icon.png" alt="mework" />
+        <img className="splash-logo" src="/mework-icon.png" alt="MeWork" />
         <div className="splash-copy">
-          <strong>Loading mework</strong>
-          <span>Checking integrations and AI providers…</span>
+          <strong>{t("splash.loading")}</strong>
+          <span>{t("splash.checking")}</span>
         </div>
         <div
           className="splash-progress-track"
           role="progressbar"
-          aria-label="Application loading"
-          aria-valuetext="Loading application"
+          aria-label={t("splash.applicationLoading")}
+          aria-valuetext={t("splash.loadingApplication")}
         >
           <div className="splash-progress-bar" />
         </div>
@@ -25,3 +26,4 @@ export function SplashScreen({ visible }: SplashScreenProps) {
     </div>
   );
 }
+import { useI18n } from "@/i18n/context";

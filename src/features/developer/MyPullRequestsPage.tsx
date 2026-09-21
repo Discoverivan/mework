@@ -1,6 +1,6 @@
 import { listen } from "@tauri-apps/api/event";
 import { useCallback, useEffect, useState } from "react";
-import { CheckCheck, Filter, RefreshCw, Settings2, Sparkles } from "lucide-react";
+import { CheckCheck, Filter, RefreshCw, Settings2 } from "lucide-react";
 
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -16,6 +16,7 @@ import {
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Separator } from "@/components/ui/separator";
 import type { AiSettingsPageData } from "@/shared/contracts/settings";
 import type {
   BitbucketRepository,
@@ -30,10 +31,16 @@ import type {
 
 import { PullRequestListItem } from "./components/PullRequestListItem";
 import { PullRequestDisplayOptionsDialog } from "./components/PullRequestDisplayOptionsDialog";
+import { PullRequestProjectSection } from "./components/PullRequestProjectSection";
 import { PullRequestReviewDialog } from "./components/PullRequestReviewDialog";
 import { PullRequestSyncStatus } from "./components/PullRequestSyncStatus";
-import { groupPullRequestsByProject } from "./components/pull-request-projects";
+import {
+  groupPullRequestsByProject,
+  sortPullRequestsByUpdatedDate,
+  type PullRequestSortOrder,
+} from "./components/pull-request-projects";
 import { PageHeader } from "@/components/shared/PageHeader";
+import { useI18n } from "@/i18n/context";
 
 import { getAiSettings } from "../settings/api";
 import {
@@ -151,6 +158,7 @@ function sortPullRequests(values: MyPullRequest[]): MyPullRequest[] {
 }
 
 export function MyPullRequestsPage() {
+  const { t } = useI18n();
   const [pullRequests, setPullRequests] = useState<MyPullRequest[]>([]);
   const [aiSettings, setAiSettings] = useState<AiSettingsPageData | null>(null);
   const [settings, setSettings] = useState<PullRequestReviewSettings>(emptySettings);
@@ -166,6 +174,8 @@ export function MyPullRequestsPage() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [displayOptionsOpen, setDisplayOptionsOpen] = useState(false);
   const [groupByProject, setGroupByProject] = useState(true);
+  const [expandProjectsByDefault, setExpandProjectsByDefault] = useState(false);
+  const [sortOrder, setSortOrder] = useState<PullRequestSortOrder>("newest");
   const [filterTab, setFilterTab] = useState<FilterTab>("whitelist");
   const [quickFilter, setQuickFilter] = useState<QuickFilter>("all");
   const [saving, setSaving] = useState(false);
@@ -423,8 +433,11 @@ export function MyPullRequestsPage() {
     Boolean(user.displayName && equalsIgnoreCase(user.displayName, creatorInput)),
   );
   const filteredPullRequests = pullRequests.filter((pullRequest) => matchesSettings(pullRequest, settings));
-  const visiblePullRequests = filteredPullRequests.filter((pullRequest) =>
-    quickFilter === "all" || pullRequest.myDecision === "not_reviewed",
+  const visiblePullRequests = sortPullRequestsByUpdatedDate(
+    filteredPullRequests.filter((pullRequest) =>
+      quickFilter === "all" || pullRequest.myDecision === "not_reviewed",
+    ),
+    sortOrder,
   );
   const projectGroups = groupPullRequestsByProject(visiblePullRequests);
   const reviewDialogPullRequest = reviewDialogKey
@@ -499,7 +512,7 @@ export function MyPullRequestsPage() {
       setSettings(saved);
       setDraftSettings((current) => ({ ...current, autoReviewEnabled: saved.autoReviewEnabled }));
     } catch (reason) {
-      setError(`Unable to save AI auto-review setting. ${commandError(reason)}`);
+      setError(t("pr.autoReviewSaveError", { error: commandError(reason) }));
     } finally {
       setAutoReviewSaving(false);
     }
@@ -540,11 +553,11 @@ export function MyPullRequestsPage() {
   async function startReview(pullRequest: MyPullRequest) {
     const key = pullRequestKey(pullRequest);
     if (!aiReviewReady) {
-      setError("Select a connected AI provider in Settings → Integrations before starting a review.");
+      setError(t("pr.aiProviderRequired"));
       return;
     }
     if (!pullRequest.url || !pullRequest.latestCommit) {
-      setError("This pull request has no reviewable URL or latest commit.");
+      setError(t("pr.reviewSourceMissing"));
       return;
     }
     setError(undefined);
@@ -588,7 +601,7 @@ export function MyPullRequestsPage() {
 
   const activeRepositoryField = filterField(filterTab, "repository");
   const activeCreatorField = filterField(filterTab, "creator");
-  const activeTabLabel = filterTab === "blacklist" ? "Blacklist" : "Whitelist";
+  const activeTabLabel = t(filterTab === "blacklist" ? "pr.filters.blacklist" : "pr.filters.whitelist");
 
   function renderPullRequest(pullRequest: MyPullRequest, showProjectKey: boolean) {
     const itemKey = pullRequestKey(pullRequest);
@@ -614,49 +627,21 @@ export function MyPullRequestsPage() {
   return (
     <section aria-labelledby="pull-request-review-title" className="space-y-4">
       <PageHeader
-        title="Pull requests awaiting your review"
+        title={t("page.prsToReview")}
         titleId="pull-request-review-title"
         description={!loading && !error ? (
           <>
-            {total ?? pullRequests.length} review requests · {settings.repositoryBlacklist.length + settings.creatorBlacklist.length + settings.repositoryWhitelist.length + settings.creatorWhitelist.length} permanent filters · sorted by PR update date
-            {polling ? " · Checking for updates…" : ""}
+            {t("pr.summary.review", {
+              count: total ?? pullRequests.length,
+              filters: settings.repositoryBlacklist.length + settings.creatorBlacklist.length + settings.repositoryWhitelist.length + settings.creatorWhitelist.length,
+            })}
+            {polling ? ` · ${t("pr.checkingUpdates")}` : ""}
           </>
         ) : undefined}
         meta={<PullRequestSyncStatus lastSyncAt={lastSyncAt} now={now} />}
-        actions={(
-          <>
-            <label className="flex cursor-pointer items-center gap-2 rounded-md border px-3 py-2 text-sm">
-              <input
-                type="checkbox"
-                aria-label="AI auto-review"
-                checked={settings.autoReviewEnabled}
-                onChange={(event) => void toggleAutoReview(event.target.checked)}
-                disabled={loading || autoReviewSaving}
-              />
-              <Sparkles aria-hidden="true" className="size-4" />
-              AI auto-review
-            </label>
-            <Button type="button" variant="outline" size="sm" onClick={() => void syncPullRequests()} disabled={loading || polling}>
-              <RefreshCw className={polling ? "animate-spin" : undefined} aria-hidden="true" />
-              {polling ? "Updating…" : "Update now"}
-            </Button>
-            <Button
-              type="button"
-              variant="outline"
-              size="icon"
-              className="h-9 w-9"
-              aria-label="Read all"
-              title="Read all"
-              onClick={() => void markAllRead()}
-              disabled={loading || readAllPending || pullRequests.every((item) => item.activity === "read")}
-            >
-              {readAllPending ? <RefreshCw className="animate-spin" aria-hidden="true" /> : <CheckCheck aria-hidden="true" />}
-            </Button>
-          </>
-        )}
       />
 
-      <div role="tablist" aria-label="Pull request quick filters" className="flex flex-wrap items-center gap-2">
+      <div role="tablist" aria-label={t("pr.quickFilters.review")} className="flex flex-wrap items-center gap-2">
         <Button
           type="button"
           role="tab"
@@ -665,7 +650,7 @@ export function MyPullRequestsPage() {
           aria-selected={quickFilter === "all"}
           onClick={() => setQuickFilter("all")}
         >
-          All
+          {t("pr.filter.all")}
         </Button>
         <Button
           type="button"
@@ -675,7 +660,7 @@ export function MyPullRequestsPage() {
           aria-selected={quickFilter === "pending"}
           onClick={() => setQuickFilter("pending")}
         >
-          Pending your review
+          {t("pr.filter.pending")}
         </Button>
         <div className="ml-auto flex items-center gap-2">
           <Button
@@ -683,56 +668,78 @@ export function MyPullRequestsPage() {
             variant="outline"
             size="icon"
             className="h-9 w-9"
-            aria-label="Display options"
-            title="Display options"
-            onClick={() => setDisplayOptionsOpen(true)}
+            aria-label={t("pr.permanentFilters")}
+            title={t("pr.permanentFilters")}
+            onClick={openSettings}
             disabled={loading}
           >
-            <Settings2 aria-hidden="true" />
+            <Filter aria-hidden="true" />
           </Button>
           <Button
             type="button"
             variant="outline"
             size="icon"
             className="h-9 w-9"
-            aria-label="Permanent filters"
-            title="Permanent filters"
-            onClick={openSettings}
+            aria-label={t("pr.displayOptions")}
+            title={t("pr.displayOptions")}
+            onClick={() => setDisplayOptionsOpen(true)}
             disabled={loading}
           >
-            <Filter aria-hidden="true" />
+            <Settings2 aria-hidden="true" />
+          </Button>
+          <Separator orientation="vertical" className="h-6" />
+          <Button
+            type="button"
+            variant="outline"
+            size="icon"
+            className="h-9 w-9"
+            aria-label={polling ? t("pr.updating") : t("pr.updateNow")}
+            title={polling ? t("pr.updating") : t("pr.updateNow")}
+            onClick={() => void syncPullRequests()}
+            disabled={loading || polling}
+          >
+            <RefreshCw className={polling ? "animate-spin" : undefined} aria-hidden="true" />
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            size="icon"
+            className="h-9 w-9"
+            aria-label={t("pr.readAll")}
+            title={t("pr.readAll")}
+            onClick={() => void markAllRead()}
+            disabled={loading || readAllPending || pullRequests.every((item) => item.activity === "read")}
+          >
+            {readAllPending ? <RefreshCw className="animate-spin" aria-hidden="true" /> : <CheckCheck aria-hidden="true" />}
           </Button>
         </div>
       </div>
 
-      {loading ? <div role="status" aria-label="Loading pull request review">Loading pull requests…</div> : null}
+      {loading ? <div role="status" aria-label={t("pr.loadingReview")}>{t("pr.loading")}</div> : null}
       {error ? (
         <Alert variant="destructive" role="alert">
-          <AlertTitle>Pull requests awaiting your review unavailable</AlertTitle>
-          <AlertDescription>Unable to load pull request review. {error}</AlertDescription>
+          <AlertTitle>{t("pr.reviewUnavailable")}</AlertTitle>
+          <AlertDescription>{t("pr.reviewLoadError", { error })}</AlertDescription>
         </Alert>
       ) : null}
       {!loading && !error && pullRequests.length === 0 ? (
-        <Card><CardContent className="pt-6"><p>No open pull requests have you as a reviewer.</p></CardContent></Card>
+        <Card><CardContent className="pt-6"><p>{t("pr.emptyReview")}</p></CardContent></Card>
       ) : null}
       {!loading && !error && pullRequests.length > 0 && visiblePullRequests.length === 0 ? (
-        <Card><CardContent className="pt-6"><p>No pull requests match the selected filters.</p></CardContent></Card>
+        <Card><CardContent className="pt-6"><p>{t("pr.emptyFiltered")}</p></CardContent></Card>
       ) : null}
 
       <div className={groupByProject ? "space-y-5" : "inbox-list"} aria-live="polite">
         {groupByProject
           ? projectGroups.map((group) => (
-              <section key={group.key} aria-label={`${group.projectKey} project`} className="space-y-2">
-                <div className="flex items-center gap-3 border-b pb-2">
-                  <span className="text-sm font-semibold text-foreground">{group.projectKey}</span>
-                  <span className="text-xs text-muted-foreground">
-                    {group.pullRequests.length} {group.pullRequests.length === 1 ? "pull request" : "pull requests"}
-                  </span>
-                </div>
-                <div className="inbox-list">
-                  {group.pullRequests.map((pullRequest) => renderPullRequest(pullRequest, false))}
-                </div>
-              </section>
+              <PullRequestProjectSection
+                key={group.key}
+                projectKey={group.projectKey}
+                pullRequestCount={group.pullRequests.length}
+                expandedByDefault={expandProjectsByDefault}
+              >
+                {group.pullRequests.map((pullRequest) => renderPullRequest(pullRequest, false))}
+              </PullRequestProjectSection>
             ))
           : visiblePullRequests.map((pullRequest) => renderPullRequest(pullRequest, true))}
       </div>
@@ -754,20 +761,27 @@ export function MyPullRequestsPage() {
       <PullRequestDisplayOptionsDialog
         open={displayOptionsOpen}
         groupByProject={groupByProject}
+        expandProjectsByDefault={expandProjectsByDefault}
+        sortOrder={sortOrder}
+        autoReviewEnabled={settings.autoReviewEnabled}
+        autoReviewDisabled={loading || autoReviewSaving}
         onOpenChange={setDisplayOptionsOpen}
         onGroupByProjectChange={setGroupByProject}
+        onExpandProjectsByDefaultChange={setExpandProjectsByDefault}
+        onSortOrderChange={setSortOrder}
+        onAutoReviewChange={(enabled) => void toggleAutoReview(enabled)}
       />
 
       <Dialog open={settingsOpen} onOpenChange={setSettingsOpen}>
         <DialogContent className="max-w-2xl">
           <DialogHeader>
-            <DialogTitle>Permanent PR filters</DialogTitle>
+            <DialogTitle>{t("pr.filters.title")}</DialogTitle>
             <DialogDescription>
-              Configure both lists independently. Whitelist has priority over Blacklist when a pull request matches both.
+              {t("pr.filters.description")}
             </DialogDescription>
           </DialogHeader>
           <DialogBody className="space-y-6">
-            <div role="tablist" aria-label="Permanent PR filter lists" className="grid grid-cols-2 gap-1 rounded-lg bg-muted p-1">
+            <div role="tablist" aria-label={t("pr.filters.lists")} className="grid grid-cols-2 gap-1 rounded-lg bg-muted p-1">
               <Button
                 type="button"
                 role="tab"
@@ -775,7 +789,7 @@ export function MyPullRequestsPage() {
                 aria-selected={filterTab === "blacklist"}
                 onClick={() => setFilterTab("blacklist")}
               >
-                Blacklist
+                {t("pr.filters.blacklist")}
               </Button>
               <Button
                 type="button"
@@ -784,18 +798,16 @@ export function MyPullRequestsPage() {
                 aria-selected={filterTab === "whitelist"}
                 onClick={() => setFilterTab("whitelist")}
               >
-                Whitelist
+                {t("pr.filters.whitelist")}
               </Button>
             </div>
             <p className="text-sm text-muted-foreground">
-              {activeTabLabel === "Blacklist"
-                ? "Matching repositories or creators are hidden unless they also match a whitelist filter."
-                : "When Whitelist contains entries, only matching repositories or creators are shown."}
+              {t(filterTab === "blacklist" ? "pr.filters.blacklistDescription" : "pr.filters.whitelistDescription")}
             </p>
 
             <div className="space-y-3">
-              <Label htmlFor={`${filterTab}-repository-input`}>Repository filters</Label>
-              <p className="text-sm text-muted-foreground">Search by project or repository name and select a result.</p>
+              <Label htmlFor={`${filterTab}-repository-input`}>{t("pr.filters.repositories")}</Label>
+              <p className="text-sm text-muted-foreground">{t("pr.filters.repositoriesDescription")}</p>
               <div className="flex gap-2">
                 <Input
                   id={`${filterTab}-repository-input`}
@@ -807,16 +819,16 @@ export function MyPullRequestsPage() {
                       addValue("repository", repositoryOptionKey(repositorySearchMatch));
                     }
                   }}
-                  placeholder="Search Bitbucket project or repository"
+                  placeholder={t("pr.filters.repositoryPlaceholder")}
                 />
                 <Button type="button" variant="outline" onClick={() => repositorySearchMatch && addValue("repository", repositoryOptionKey(repositorySearchMatch))} disabled={!repositorySearchMatch}>
-                  Add
+                  {t("pr.filters.add")}
                 </Button>
               </div>
-              {repositorySearchLoading ? <p role="status" className="text-sm text-muted-foreground">Searching repositories…</p> : null}
+              {repositorySearchLoading ? <p role="status" className="text-sm text-muted-foreground">{t("pr.filters.searchingRepositories")}</p> : null}
               {repositorySearchError ? <p role="alert" className="text-sm text-destructive">{repositorySearchError}</p> : null}
               {repositorySearchResults.length > 0 ? (
-                <ul aria-label="Bitbucket repository search results" className="space-y-1">
+                <ul aria-label={t("pr.filters.repositoryResults")} className="space-y-1">
                   {repositorySearchResults.map((repository) => (
                     <li key={repositoryOptionKey(repository)}>
                       <button type="button" aria-label={repositoryOptionLabel(repository)} className="w-full rounded-md border px-3 py-2 text-left text-sm hover:bg-muted" onClick={() => addValue("repository", repositoryOptionKey(repository))}>
@@ -827,19 +839,19 @@ export function MyPullRequestsPage() {
                   ))}
                 </ul>
               ) : null}
-              <ul aria-label={`${activeTabLabel} repository filters`} className="flex flex-wrap gap-2">
+              <ul aria-label={t("pr.filters.repositoryList", { list: activeTabLabel })} className="flex flex-wrap gap-2">
                 {draftSettings[activeRepositoryField].map((value) => (
                   <li key={value} className="flex items-center gap-2 rounded-md border px-2 py-1 text-sm">
                     <span>{value}</span>
-                    <button type="button" aria-label={`Remove ${activeTabLabel.toLowerCase()} repository filter ${value}`} onClick={() => removeValue("repository", value)}>×</button>
+                    <button type="button" aria-label={t("pr.filters.removeRepository", { list: activeTabLabel, value })} onClick={() => removeValue("repository", value)}>×</button>
                   </li>
                 ))}
               </ul>
             </div>
 
             <div className="space-y-3">
-              <Label htmlFor={`${filterTab}-creator-input`}>Creator filters</Label>
-              <p className="text-sm text-muted-foreground">Search and select a Bitbucket display name.</p>
+              <Label htmlFor={`${filterTab}-creator-input`}>{t("pr.filters.creators")}</Label>
+              <p className="text-sm text-muted-foreground">{t("pr.filters.creatorsDescription")}</p>
               <div className="flex gap-2">
                 <Input
                   id={`${filterTab}-creator-input`}
@@ -851,16 +863,16 @@ export function MyPullRequestsPage() {
                       addValue("creator", creatorSearchMatch.displayName);
                     }
                   }}
-                  placeholder="Search Bitbucket display name"
+                  placeholder={t("pr.filters.creatorPlaceholder")}
                 />
                 <Button type="button" variant="outline" onClick={() => creatorSearchMatch?.displayName && addValue("creator", creatorSearchMatch.displayName)} disabled={!creatorSearchMatch?.displayName}>
-                  Add
+                  {t("pr.filters.add")}
                 </Button>
               </div>
-              {creatorSearchLoading ? <p role="status" className="text-sm text-muted-foreground">Searching creators…</p> : null}
+              {creatorSearchLoading ? <p role="status" className="text-sm text-muted-foreground">{t("pr.filters.searchingCreators")}</p> : null}
               {creatorSearchError ? <p role="alert" className="text-sm text-destructive">{creatorSearchError}</p> : null}
               {creatorSearchResults.length > 0 ? (
-                <ul aria-label="Bitbucket creator search results" className="space-y-1">
+                <ul aria-label={t("pr.filters.creatorResults")} className="space-y-1">
                   {creatorSearchResults.map((user) => {
                     const displayName = user.displayName ?? user.name ?? user.slug;
                     if (!displayName) return null;
@@ -876,25 +888,25 @@ export function MyPullRequestsPage() {
                   })}
                 </ul>
               ) : null}
-              <ul aria-label={`${activeTabLabel} creator filters`} className="flex flex-wrap gap-2">
+              <ul aria-label={t("pr.filters.creatorList", { list: activeTabLabel })} className="flex flex-wrap gap-2">
                 {draftSettings[activeCreatorField].map((value) => (
                   <li key={value} className="flex items-center gap-2 rounded-md border px-2 py-1 text-sm">
                     <span>{value}</span>
-                    <button type="button" aria-label={`Remove ${activeTabLabel.toLowerCase()} creator filter ${value}`} onClick={() => removeValue("creator", value)}>×</button>
+                    <button type="button" aria-label={t("pr.filters.removeCreator", { list: activeTabLabel, value })} onClick={() => removeValue("creator", value)}>×</button>
                   </li>
                 ))}
               </ul>
             </div>
             {settingsError ? (
               <Alert variant="destructive" role="alert">
-                <AlertTitle>Unable to save permanent filters</AlertTitle>
+                <AlertTitle>{t("pr.filters.saveError")}</AlertTitle>
                 <AlertDescription>{settingsError}</AlertDescription>
               </Alert>
             ) : null}
           </DialogBody>
           <DialogFooter>
-            <Button type="button" variant="outline" onClick={() => setSettingsOpen(false)} disabled={saving}>Cancel</Button>
-            <Button type="button" onClick={() => void saveSettings()} disabled={saving}>{saving ? "Saving…" : "Save filters"}</Button>
+            <Button type="button" variant="outline" onClick={() => setSettingsOpen(false)} disabled={saving}>{t("settings.common.cancel")}</Button>
+            <Button type="button" onClick={() => void saveSettings()} disabled={saving}>{saving ? t("settings.common.saving") : t("pr.filters.save")}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

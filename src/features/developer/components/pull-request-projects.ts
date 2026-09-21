@@ -6,6 +6,21 @@ export interface PullRequestProjectGroup {
   pullRequests: MyPullRequest[];
 }
 
+export type PullRequestSortOrder = "newest" | "oldest";
+
+export function sortPullRequestsByUpdatedDate(
+  values: MyPullRequest[],
+  order: PullRequestSortOrder,
+): MyPullRequest[] {
+  const direction = order === "newest" ? -1 : 1;
+  return [...values].sort((left, right) => {
+    if (left.updatedDate == null) return right.updatedDate == null ? 0 : 1;
+    if (right.updatedDate == null) return -1;
+    return direction * (left.updatedDate - right.updatedDate)
+      || left.pullRequestId.localeCompare(right.pullRequestId);
+  });
+}
+
 export function groupPullRequestsByProject(values: MyPullRequest[]): PullRequestProjectGroup[] {
   const groups = new Map<string, PullRequestProjectGroup>();
   values.forEach((pullRequest) => {

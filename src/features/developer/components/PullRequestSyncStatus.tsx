@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 
 import { formatRelativeDate } from "./PullRequestListItem";
+import { useI18n } from "@/i18n/context";
 
 const POLL_INTERVAL_MS = 300_000;
 
@@ -27,16 +28,22 @@ export function PullRequestSyncStatus({
   now?: number;
   children?: ReactNode;
 }) {
+  const { t } = useI18n();
   if (lastSyncAt == null) return null;
-  const nextUpdate = nextSyncLabel(lastSyncAt, now);
+  const remaining = Math.max(0, lastSyncAt + POLL_INTERVAL_MS - (now ?? Date.now()));
+  const nextUpdate = remaining === 0
+    ? t("pr.sync.now")
+    : t("pr.sync.inMinutes", { count: Math.ceil(remaining / 60_000) });
+  const formattedLastSync = formatSyncTimestamp(lastSyncAt);
+  const relativeLastSync = formatRelativeDate(lastSyncAt, t);
   return (
     <p className="text-xs text-muted-foreground">
       <time
         dateTime={new Date(lastSyncAt).toISOString()}
-        title={`Next update: ${nextUpdate}`}
-        aria-label={`Last updated ${formatSyncTimestamp(lastSyncAt)}. Next update: ${nextUpdate}`}
+        title={t("pr.sync.next", { next: nextUpdate })}
+        aria-label={t("pr.sync.aria", { last: formattedLastSync, next: nextUpdate })}
       >
-        Last updated: {formatRelativeDate(lastSyncAt)} · Next update: {nextUpdate}
+        {t("pr.sync.label", { last: relativeLastSync, next: nextUpdate })}
       </time>
       {children}
     </p>

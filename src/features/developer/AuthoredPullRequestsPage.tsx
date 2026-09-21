@@ -1,16 +1,23 @@
 import { listen } from "@tauri-apps/api/event";
 import { useCallback, useEffect, useState } from "react";
-import { CheckCheck, RefreshCw, Settings2, Sparkles } from "lucide-react";
+import { CheckCheck, RefreshCw, Settings2 } from "lucide-react";
 
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { PageHeader } from "@/components/shared/PageHeader";
+import { useI18n } from "@/i18n/context";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { Separator } from "@/components/ui/separator";
 import { PullRequestDisplayOptionsDialog } from "./components/PullRequestDisplayOptionsDialog";
 import { PullRequestListItem } from "./components/PullRequestListItem";
+import { PullRequestProjectSection } from "./components/PullRequestProjectSection";
 import { PullRequestReviewDialog } from "./components/PullRequestReviewDialog";
 import { PullRequestSyncStatus } from "./components/PullRequestSyncStatus";
-import { groupPullRequestsByProject } from "./components/pull-request-projects";
+import {
+  groupPullRequestsByProject,
+  sortPullRequestsByUpdatedDate,
+  type PullRequestSortOrder,
+} from "./components/pull-request-projects";
 import type { AiSettingsPageData } from "@/shared/contracts/settings";
 import type { PullRequestReviewSettings } from "@/shared/contracts/developer";
 import type {
@@ -73,6 +80,7 @@ function sortPullRequests(values: MyPullRequest[]): MyPullRequest[] {
 }
 
 export function AuthoredPullRequestsPage() {
+  const { t } = useI18n();
   const [pullRequests, setPullRequests] = useState<MyPullRequest[]>([]);
   const [aiSettings, setAiSettings] = useState<AiSettingsPageData | null>(null);
   const [reviewSettings, setReviewSettings] = useState<PullRequestReviewSettings>();
@@ -88,6 +96,8 @@ export function AuthoredPullRequestsPage() {
   const [reviewDialogKey, setReviewDialogKey] = useState<string>();
   const [displayOptionsOpen, setDisplayOptionsOpen] = useState(false);
   const [groupByProject, setGroupByProject] = useState(true);
+  const [expandProjectsByDefault, setExpandProjectsByDefault] = useState(false);
+  const [sortOrder, setSortOrder] = useState<PullRequestSortOrder>("newest");
   const [quickFilter, setQuickFilter] = useState<QuickFilter>("all");
 
   useEffect(() => {
@@ -132,7 +142,7 @@ export function AuthoredPullRequestsPage() {
     } finally {
       setPolling(false);
     }
-  }, [applyPage]);
+  }, [applyPage, t]);
 
   useEffect(() => {
     let active = true;
@@ -157,7 +167,7 @@ export function AuthoredPullRequestsPage() {
         if (active) setReviewSettings(savedReviewSettings);
       })
       .catch((reason) => {
-        if (active) setError(`Unable to load AI auto-review settings. ${commandError(reason)}`);
+        if (active) setError(t("pr.autoReviewLoadError", { error: commandError(reason) }));
       });
     return () => {
       active = false;
@@ -245,7 +255,7 @@ export function AuthoredPullRequestsPage() {
     try {
       const marked = await markAuthoredPullRequestRead(pullRequest.integrationId, key, pullRequest.latestCommit ?? undefined);
       if (!marked) {
-        setError("Pull request changed before it could be marked as viewed. Refresh and try again.");
+        setError(t("pr.changedBeforeViewed"));
         return;
       }
       setPullRequests((current) => sortPullRequests(current.map((item) =>
@@ -303,7 +313,7 @@ export function AuthoredPullRequestsPage() {
       });
       setReviewSettings(saved);
     } catch (reason) {
-      setError(`Unable to save AI auto-review setting. ${commandError(reason)}`);
+      setError(t("pr.autoReviewSaveError", { error: commandError(reason) }));
     } finally {
       setAutoReviewSaving(false);
     }
@@ -312,10 +322,13 @@ export function AuthoredPullRequestsPage() {
   const reviewDialogPullRequest = reviewDialogKey
     ? pullRequests.find((item) => pullRequestKey(item) === reviewDialogKey)
     : undefined;
-  const visiblePullRequests = pullRequests.filter((pullRequest) =>
-    quickFilter === "all"
-      || pullRequest.needsAction
-      || (pullRequest.reviewSummary?.needsWork ?? 0) > 0,
+  const visiblePullRequests = sortPullRequestsByUpdatedDate(
+    pullRequests.filter((pullRequest) =>
+      quickFilter === "all"
+        || pullRequest.needsAction
+        || (pullRequest.reviewSummary?.needsWork ?? 0) > 0,
+    ),
+    sortOrder,
   );
   const projectGroups = groupPullRequestsByProject(visiblePullRequests);
 
@@ -328,7 +341,7 @@ export function AuthoredPullRequestsPage() {
         mode="author"
         aiReviewReady={aiReviewReady}
         reviewStarting={reviewStartingKeys.has(key)}
-        completedLabel="View results"
+        completedLabel={t("pr.viewResults")}
         showProjectKey={showProjectKey}
         onOpenPullRequest={(item) => void markRead(item)}
         onMarkViewed={(item) => void markRead(item)}
@@ -344,49 +357,18 @@ export function AuthoredPullRequestsPage() {
   return (
     <section aria-labelledby="my-pull-requests-title" className="space-y-4">
       <PageHeader
-        title="Pull requests authored by you"
+        title={t("page.yourPrs")}
         titleId="my-pull-requests-title"
         description={!loading && !error ? (
           <>
-            {total ?? pullRequests.length} authored pull requests · sorted by PR update date
-            {polling ? " · Checking for updates…" : ""}
+            {t("pr.summary.authored", { count: total ?? pullRequests.length })}
+            {polling ? ` · ${t("pr.checkingUpdates")}` : ""}
           </>
         ) : undefined}
         meta={<PullRequestSyncStatus lastSyncAt={lastSyncAt} now={now} />}
-        actions={(
-          <>
-            <label className="flex cursor-pointer items-center gap-2 rounded-md border px-3 py-2 text-sm">
-              <input
-                type="checkbox"
-                aria-label="AI auto-review authored pull requests"
-                checked={reviewSettings?.authoredAutoReviewEnabled ?? false}
-                onChange={(event) => void toggleAuthoredAutoReview(event.target.checked)}
-                disabled={loading || reviewSettings == null || autoReviewSaving}
-              />
-              <Sparkles aria-hidden="true" className="size-4" />
-              AI auto-review
-            </label>
-            <Button type="button" variant="outline" size="sm" onClick={() => void syncPullRequests()} disabled={loading || polling}>
-              <RefreshCw className={polling ? "animate-spin" : undefined} aria-hidden="true" />
-              {polling ? "Updating…" : "Update now"}
-            </Button>
-            <Button
-              type="button"
-              variant="outline"
-              size="icon"
-              className="h-9 w-9"
-              aria-label="Read all"
-              title="Read all"
-              onClick={() => void markAllRead()}
-              disabled={loading || readAllPending || pullRequests.every((item) => item.activity === "read")}
-            >
-              {readAllPending ? <RefreshCw className="animate-spin" aria-hidden="true" /> : <CheckCheck aria-hidden="true" />}
-            </Button>
-          </>
-        )}
       />
 
-      <div role="tablist" aria-label="My pull request quick filters" className="flex flex-wrap items-center gap-2">
+      <div role="tablist" aria-label={t("pr.quickFilters.authored")} className="flex flex-wrap items-center gap-2">
         <Button
           type="button"
           role="tab"
@@ -395,7 +377,7 @@ export function AuthoredPullRequestsPage() {
           aria-selected={quickFilter === "all"}
           onClick={() => setQuickFilter("all")}
         >
-          All
+          {t("pr.filter.all")}
         </Button>
         <Button
           type="button"
@@ -405,7 +387,7 @@ export function AuthoredPullRequestsPage() {
           aria-selected={quickFilter === "needs_action"}
           onClick={() => setQuickFilter("needs_action")}
         >
-          Needs action
+          {t("pr.filter.needsAction")}
         </Button>
         <div className="ml-auto flex items-center gap-2">
           <Button
@@ -413,44 +395,66 @@ export function AuthoredPullRequestsPage() {
             variant="outline"
             size="icon"
             className="h-9 w-9"
-            aria-label="Display options"
-            title="Display options"
+            aria-label={t("pr.displayOptions")}
+            title={t("pr.displayOptions")}
             onClick={() => setDisplayOptionsOpen(true)}
             disabled={loading}
           >
             <Settings2 aria-hidden="true" />
           </Button>
+          <Separator orientation="vertical" className="h-6" />
+          <Button
+            type="button"
+            variant="outline"
+            size="icon"
+            className="h-9 w-9"
+            aria-label={polling ? t("pr.updating") : t("pr.updateNow")}
+            title={polling ? t("pr.updating") : t("pr.updateNow")}
+            onClick={() => void syncPullRequests()}
+            disabled={loading || polling}
+          >
+            <RefreshCw className={polling ? "animate-spin" : undefined} aria-hidden="true" />
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            size="icon"
+            className="h-9 w-9"
+            aria-label={t("pr.readAll")}
+            title={t("pr.readAll")}
+            onClick={() => void markAllRead()}
+            disabled={loading || readAllPending || pullRequests.every((item) => item.activity === "read")}
+          >
+            {readAllPending ? <RefreshCw className="animate-spin" aria-hidden="true" /> : <CheckCheck aria-hidden="true" />}
+          </Button>
         </div>
       </div>
 
-      {loading ? <div role="status" aria-label="Loading my pull requests">Loading pull requests…</div> : null}
+      {loading ? <div role="status" aria-label={t("pr.loadingAuthored")}>{t("pr.loading")}</div> : null}
       {error ? (
         <Alert variant="destructive" role="alert">
-          <AlertTitle>Pull requests authored by you unavailable</AlertTitle>
-          <AlertDescription>Unable to load your pull requests. {error}</AlertDescription>
+          <AlertTitle>{t("pr.authoredUnavailable")}</AlertTitle>
+          <AlertDescription>{t("pr.authoredLoadError", { error })}</AlertDescription>
         </Alert>
       ) : null}
       {!loading && !error && pullRequests.length === 0 ? (
-        <Card><CardContent className="pt-6"><p>No open pull requests authored by you.</p></CardContent></Card>
+        <Card><CardContent className="pt-6"><p>{t("pr.emptyAuthored")}</p></CardContent></Card>
       ) : null}
       {!loading && !error && pullRequests.length > 0 && visiblePullRequests.length === 0 ? (
-        <Card><CardContent className="pt-6"><p>No pull requests match the selected filters.</p></CardContent></Card>
+        <Card><CardContent className="pt-6"><p>{t("pr.emptyFiltered")}</p></CardContent></Card>
       ) : null}
 
       <div className={groupByProject ? "space-y-5" : "inbox-list"} aria-live="polite">
         {groupByProject
           ? projectGroups.map((group) => (
-              <section key={group.key} aria-label={`${group.projectKey} project`} className="space-y-2">
-                <div className="flex items-center gap-3 border-b pb-2">
-                  <span className="text-sm font-semibold text-foreground">{group.projectKey}</span>
-                  <span className="text-xs text-muted-foreground">
-                    {group.pullRequests.length} {group.pullRequests.length === 1 ? "pull request" : "pull requests"}
-                  </span>
-                </div>
-                <div className="inbox-list">
-                  {group.pullRequests.map((pullRequest) => renderPullRequest(pullRequest, false))}
-                </div>
-              </section>
+              <PullRequestProjectSection
+                key={group.key}
+                projectKey={group.projectKey}
+                pullRequestCount={group.pullRequests.length}
+                expandedByDefault={expandProjectsByDefault}
+              >
+                {group.pullRequests.map((pullRequest) => renderPullRequest(pullRequest, false))}
+              </PullRequestProjectSection>
             ))
           : visiblePullRequests.map((pullRequest) => renderPullRequest(pullRequest, true))}
       </div>
@@ -470,8 +474,15 @@ export function AuthoredPullRequestsPage() {
       <PullRequestDisplayOptionsDialog
         open={displayOptionsOpen}
         groupByProject={groupByProject}
+        expandProjectsByDefault={expandProjectsByDefault}
+        sortOrder={sortOrder}
+        autoReviewEnabled={reviewSettings?.authoredAutoReviewEnabled ?? false}
+        autoReviewDisabled={loading || reviewSettings == null || autoReviewSaving}
         onOpenChange={setDisplayOptionsOpen}
         onGroupByProjectChange={setGroupByProject}
+        onExpandProjectsByDefaultChange={setExpandProjectsByDefault}
+        onSortOrderChange={setSortOrder}
+        onAutoReviewChange={(enabled) => void toggleAuthoredAutoReview(enabled)}
       />
     </section>
   );

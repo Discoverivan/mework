@@ -11,6 +11,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { useI18n } from "@/i18n/context";
 
 interface InboxItemCardProps {
   item: InboxItem;
@@ -24,6 +25,7 @@ function severityVariant(severity: string) {
 }
 
 export function InboxItemCard({ item, onMarkDone }: InboxItemCardProps) {
+  const { t } = useI18n();
   const [markingDone, setMarkingDone] = useState(false);
   const titleId = `inbox-item-title-${item.id}`;
 
@@ -52,7 +54,7 @@ export function InboxItemCard({ item, onMarkDone }: InboxItemCardProps) {
       </CardHeader>
       <CardContent>
         <p>{item.reason}</p>
-        <div className="item-badges" aria-label="Item details">
+        <div className="item-badges" aria-label={t("inbox.itemDetails")}>
           <Badge variant={severityVariant(item.severity)}>{item.severity}</Badge>
           <Badge variant="outline">{item.actionKind}</Badge>
         </div>
@@ -60,7 +62,7 @@ export function InboxItemCard({ item, onMarkDone }: InboxItemCardProps) {
       <CardFooter className="item-actions">
         <Button asChild variant="link" size="sm">
           <a href={item.sourceUrl} target="_blank" rel="noreferrer">
-            Open source
+            {t("inbox.openSource")}
           </a>
         </Button>
         {!item.done ? (
@@ -72,10 +74,10 @@ export function InboxItemCard({ item, onMarkDone }: InboxItemCardProps) {
             aria-busy={markingDone}
             onClick={() => void handleMarkDone()}
           >
-            {markingDone ? "Marking done…" : "Mark done"}
+            {markingDone ? t("inbox.markingDone") : t("inbox.markDone")}
           </Button>
         ) : (
-          <Badge variant="secondary">Done</Badge>
+          <Badge variant="secondary">{t("inbox.done")}</Badge>
         )}
       </CardFooter>
     </Card>

@@ -9,6 +9,9 @@ import type {
   MyPullRequestDecision,
   PullRequestReviewSeverity,
 } from "@/shared/contracts/developer";
+import { useI18n } from "@/i18n/context";
+import type { TranslationKey } from "@/i18n/locales/en";
+import type { TranslationParams } from "@/i18n/types";
 
 export type PullRequestListMode = "reviewer" | "author";
 
@@ -21,23 +24,25 @@ export const reviewSeverityBadgeClasses: Record<PullRequestReviewSeverity, strin
 
 export const reviewSeveritySections: Array<{
   key: PullRequestReviewSeverity;
-  label: string;
+  labelKey: TranslationKey;
 }> = [
-  { key: "blocker", label: "Blocker" },
-  { key: "high", label: "High" },
-  { key: "medium", label: "Medium" },
-  { key: "low", label: "Low" },
+  { key: "blocker", labelKey: "pr.severity.blocker" },
+  { key: "high", labelKey: "pr.severity.high" },
+  { key: "medium", labelKey: "pr.severity.medium" },
+  { key: "low", labelKey: "pr.severity.low" },
 ];
 
-export function formatRelativeDate(timestamp?: number): string {
-  if (timestamp == null || !Number.isFinite(timestamp)) return "Unknown update";
+type Translator = (key: TranslationKey, params?: TranslationParams) => string;
+
+export function formatRelativeDate(timestamp?: number, t?: Translator): string {
+  if (timestamp == null || !Number.isFinite(timestamp)) return t ? t("pr.relative.unknown") : "Unknown update";
   const seconds = Math.max(0, Math.floor((Date.now() - timestamp) / 1000));
-  if (seconds < 60) return "just now";
-  if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`;
-  if (seconds < 86_400) return `${Math.floor(seconds / 3600)}h ago`;
-  if (seconds < 2_592_000) return `${Math.floor(seconds / 86_400)}d ago`;
-  if (seconds < 31_536_000) return `${Math.floor(seconds / 2_592_000)}mo ago`;
-  return `${Math.floor(seconds / 31_536_000)}y ago`;
+  if (seconds < 60) return t ? t("pr.relative.justNow") : "just now";
+  if (seconds < 3600) return t ? t("pr.relative.minutes", { count: Math.floor(seconds / 60) }) : `${Math.floor(seconds / 60)}m ago`;
+  if (seconds < 86_400) return t ? t("pr.relative.hours", { count: Math.floor(seconds / 3600) }) : `${Math.floor(seconds / 3600)}h ago`;
+  if (seconds < 2_592_000) return t ? t("pr.relative.days", { count: Math.floor(seconds / 86_400) }) : `${Math.floor(seconds / 86_400)}d ago`;
+  if (seconds < 31_536_000) return t ? t("pr.relative.months", { count: Math.floor(seconds / 2_592_000) }) : `${Math.floor(seconds / 2_592_000)}mo ago`;
+  return t ? t("pr.relative.years", { count: Math.floor(seconds / 31_536_000) }) : `${Math.floor(seconds / 31_536_000)}y ago`;
 }
 
 function creatorInitials(displayName: string): string {
@@ -66,45 +71,57 @@ export function CreatorAvatar({ pullRequest }: { pullRequest: MyPullRequest }) {
 }
 
 export function ReviewerDecisionIcon({ decision }: { decision: MyPullRequestDecision }) {
+  const { t } = useI18n();
   if (decision === "approved") {
     return (
-      <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-emerald-500/10 text-emerald-600" role="img" aria-label="Approved" title="Approved">
+      <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-emerald-500/10 text-emerald-600" role="img" aria-label={t("pr.decision.approved")} title={t("pr.decision.approved")}>
         <CheckCircle2 className="size-5" aria-hidden="true" />
       </span>
     );
   }
   if (decision === "needs_work") {
     return (
-      <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-amber-500/10 text-amber-600" role="img" aria-label="Needs work" title="Needs work">
+      <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-amber-500/10 text-amber-600" role="img" aria-label={t("pr.decision.needsWork")} title={t("pr.decision.needsWork")}>
         <CircleAlert className="size-5" aria-hidden="true" />
       </span>
     );
   }
   return (
-    <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground" role="img" aria-label="Review pending" title="Review pending">
+    <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground" role="img" aria-label={t("pr.decision.pending")} title={t("pr.decision.pending")}>
       <Clock3 className="size-5" aria-hidden="true" />
     </span>
   );
 }
 
 function ActivityBadge({ activity }: { activity: MyPullRequest["activity"] }) {
+  const { t } = useI18n();
   if (activity === "read") return null;
-  return <Badge variant={activity === "new" ? "default" : "secondary"}>{activity === "new" ? "NEW" : "UPDATED"}</Badge>;
+  const description = t(activity === "new" ? "pr.activity.newDescription" : "pr.activity.updatedDescription");
+  return (
+    <Badge
+      variant={activity === "new" ? "default" : "secondary"}
+      aria-label={description}
+      title={description}
+    >
+      {activity === "new" ? "NEW" : "UPDATED"}
+    </Badge>
+  );
 }
 
 function AiVerdictBadge({ verdict }: { verdict: "ok" | "needs_changes" }) {
+  const { t } = useI18n();
   const approved = verdict === "ok";
-  const label = approved ? "Approved" : "Needs work";
+  const label = t(approved ? "pr.decision.approved" : "pr.decision.needsWork");
   return (
     <Badge
       variant="outline"
       className={approved
         ? "gap-1.5 border-emerald-300 bg-emerald-50 px-2.5 py-1 text-emerald-800 dark:border-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300"
         : "gap-1.5 border-amber-300 bg-amber-50 px-2.5 py-1 text-amber-800 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-300"}
-      aria-label={`AI Verdict: ${label}`}
+      aria-label={t("pr.aiVerdict", { verdict: label })}
     >
       <Sparkles className="size-3" aria-hidden="true" />
-      AI Verdict · {approved ? <CheckCircle2 className="size-3.5" aria-hidden="true" /> : <CircleAlert className="size-3.5" aria-hidden="true" />}
+      {t("pr.aiVerdictLabel")} · {approved ? <CheckCircle2 className="size-3.5" aria-hidden="true" /> : <CircleAlert className="size-3.5" aria-hidden="true" />}
       {label}
     </Badge>
   );
@@ -132,9 +149,10 @@ export function PullRequestListItem({
   onMarkViewed,
   onStartReview,
   onOpenResults,
-  completedLabel = "Review Results",
+  completedLabel,
   showProjectKey = true,
 }: PullRequestListItemProps) {
+  const { t } = useI18n();
   const review = pullRequest.review;
   const reviewRunning = reviewStarting || review?.status === "running";
   const reviewCompleted = review?.status === "completed" && review.result != null;
@@ -147,7 +165,7 @@ export function PullRequestListItem({
     >
       <CardContent className="flex items-center gap-3 p-4">
         {mode === "reviewer" ? <ReviewerDecisionIcon decision={pullRequest.myDecision} /> : (
-          <span className={needsAction ? "flex size-8 shrink-0 items-center justify-center rounded-full bg-rose-500/10 text-rose-600" : "flex size-8 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground"} role="img" aria-label={needsAction ? "Needs action" : "Review activity"}>
+          <span className={needsAction ? "flex size-8 shrink-0 items-center justify-center rounded-full bg-rose-500/10 text-rose-600" : "flex size-8 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground"} role="img" aria-label={t(needsAction ? "pr.activity.needsAction" : "pr.activity.review")}>
             {needsAction ? <CircleAlert className="size-5" aria-hidden="true" /> : <Clock3 className="size-5" aria-hidden="true" />}
           </span>
         )}
@@ -179,24 +197,24 @@ export function PullRequestListItem({
               <span className="truncate font-normal text-foreground">{pullRequest.authorDisplayName}</span>
               <span aria-hidden="true">•</span>
               <time className="shrink-0" dateTime={pullRequest.updatedDate != null ? new Date(pullRequest.updatedDate).toISOString() : undefined}>
-                {formatRelativeDate(pullRequest.updatedDate)}
+                {formatRelativeDate(pullRequest.updatedDate, t)}
               </time>
             </div>
           ) : (
             <div className="flex min-w-0 flex-wrap items-center gap-3 text-xs text-muted-foreground">
               <time className="shrink-0" dateTime={pullRequest.updatedDate != null ? new Date(pullRequest.updatedDate).toISOString() : undefined}>
-                Updated {formatRelativeDate(pullRequest.updatedDate)}
+                {t("pr.updated", { date: formatRelativeDate(pullRequest.updatedDate, t) })}
               </time>
-              <span className="flex items-center gap-1 text-emerald-700 dark:text-emerald-300" aria-label={`Approved: ${reviewSummary.approved}`}>
+              <span className="flex items-center gap-1 text-emerald-700 dark:text-emerald-300" aria-label={t("pr.approvedCount", { count: reviewSummary.approved })}>
                 <CheckCircle2 className="size-3.5" aria-hidden="true" /> {reviewSummary.approved}
               </span>
-              <span className="flex items-center gap-1 text-amber-700 dark:text-amber-300" aria-label={`Needs work: ${reviewSummary.needsWork}`}>
+              <span className="flex items-center gap-1 text-amber-700 dark:text-amber-300" aria-label={t("pr.needsWorkCount", { count: reviewSummary.needsWork })}>
                 <CircleAlert className="size-3.5" aria-hidden="true" /> {reviewSummary.needsWork}
               </span>
-              <span className="flex items-center gap-1 text-sky-700 dark:text-sky-300" aria-label={`Comments: ${reviewSummary.comments}`}>
+              <span className="flex items-center gap-1 text-sky-700 dark:text-sky-300" aria-label={t("pr.commentsCount", { count: reviewSummary.comments })}>
                 <MessageSquare className="size-3.5" aria-hidden="true" /> {reviewSummary.comments}
               </span>
-              {needsAction ? <Badge variant="destructive">Needs action</Badge> : null}
+              {needsAction ? <Badge variant="destructive">{t("pr.activity.needsAction")}</Badge> : null}
             </div>
           )}
         </div>
@@ -210,8 +228,8 @@ export function PullRequestListItem({
                 size="icon"
                 className="size-8"
                 onClick={() => onMarkViewed(pullRequest)}
-                aria-label="Mark as viewed"
-                title="Mark as viewed"
+                aria-label={t("pr.markViewed")}
+                title={t("pr.markViewed")}
               >
                 <Eye aria-hidden="true" className="size-4" />
               </Button>
@@ -222,9 +240,9 @@ export function PullRequestListItem({
               size="sm"
               onClick={() => reviewCompleted ? onOpenResults(pullRequest) : onStartReview(pullRequest)}
               disabled={reviewRunning || (!reviewCompleted && !aiReviewReady)}
-              title={reviewCompleted ? undefined : !aiReviewReady ? "Select a connected AI provider in Settings → Integrations" : review?.status === "failed" ? review.error ?? undefined : undefined}
+              title={reviewCompleted ? undefined : !aiReviewReady ? t("pr.aiProviderRequired") : review?.status === "failed" ? review.error ?? undefined : undefined}
             >
-              {reviewRunning ? <><Loader2 aria-hidden="true" className="animate-spin" /> AI Review…</> : reviewCompleted ? completedLabel : <><Sparkles aria-hidden="true" /> AI Review</>}
+              {reviewRunning ? <><Loader2 aria-hidden="true" className="animate-spin" /> {t("pr.aiReviewRunning")}</> : reviewCompleted ? completedLabel ?? t("pr.reviewResults") : <><Sparkles aria-hidden="true" /> {t("pr.aiReview")}</>}
             </Button>
           </div>
         </div>

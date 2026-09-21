@@ -170,6 +170,14 @@ const completedReview: PullRequestReviewState = {
   },
 };
 
+async function renderFlatPage() {
+  render(<MyPullRequestsPage />);
+  fireEvent.click(await screen.findByRole("button", { name: "Options" }));
+  const dialog = screen.getByRole("dialog", { name: "Options" });
+  fireEvent.click(within(dialog).getByRole("switch", { name: "Group by project" }));
+  fireEvent.click(within(dialog).getByRole("button", { name: "Done" }));
+}
+
 describe("MyPullRequestsPage", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -194,28 +202,39 @@ describe("MyPullRequestsPage", () => {
   });
 
   it("loads the complete list and marks one PR read with its latest commit", async () => {
-    render(<MyPullRequestsPage />);
+    await renderFlatPage();
 
     expect(await screen.findByRole("heading", { name: "Example pull request" })).toBeInTheDocument();
     expect(screen.getByText(/Last updated: just now · Next update: in 5 min/)).toHaveAttribute("title", "Next update: in 5 min");
     expect(listMyPullRequestsMock).toHaveBeenCalledWith(0, 100);
     expect(refreshMyPullRequestsMock).not.toHaveBeenCalled();
-    expect(screen.getByText("NEW")).toBeInTheDocument();
-    expect(screen.getByText("UPDATED")).toBeInTheDocument();
-    expect(screen.getByText("sample-repository", { exact: false }).closest("p")).not.toHaveTextContent("DEMO/");
+    expect(screen.getByText("NEW")).toHaveAttribute("title", "New pull request you haven't viewed yet");
+    expect(screen.getByText("UPDATED")).toHaveAttribute("title", "Updated since you last viewed it");
+    expect(screen.getByText("sample-repository", { exact: false }).closest("p")).toHaveTextContent("DEMO/");
     expect(screen.getByText("NEW").closest(".pr-review-card-meta")).toBeInTheDocument();
     expect(screen.getByText("UPDATED").closest(".pr-review-card-meta")).toBeInTheDocument();
     const updateButton = screen.getByRole("button", { name: "Update now" });
     expect(updateButton).toHaveClass("h-9");
     expect(updateButton.querySelector("svg.lucide-refresh-cw")).not.toBeNull();
-    const readAllButton = screen.getByRole("button", { name: "Read all" });
+    expect(updateButton).not.toHaveTextContent("Update now");
+    const readAllButton = screen.getByRole("button", { name: "Mark all as read" });
     expect(readAllButton).toHaveClass("h-9");
-    expect(readAllButton).not.toHaveTextContent("Read all");
+    expect(readAllButton).not.toHaveTextContent("Mark all as read");
     expect(readAllButton.parentElement).toBe(updateButton.parentElement);
-    const permanentFiltersButton = screen.getByRole("button", { name: "Permanent filters" });
+    const permanentFiltersButton = screen.getByRole("button", { name: "Filters" });
     expect(permanentFiltersButton).toHaveClass("h-9");
-    expect(permanentFiltersButton).not.toHaveTextContent("Permanent filters");
+    expect(permanentFiltersButton).not.toHaveTextContent("Filters");
+    expect(within(permanentFiltersButton.parentElement!).getAllByRole("button")[0]).toBe(permanentFiltersButton);
     expect(permanentFiltersButton.parentElement).toHaveClass("ml-auto");
+    expect(readAllButton.parentElement).toBe(permanentFiltersButton.parentElement);
+    const toolbarButtons = within(readAllButton.parentElement!).getAllByRole("button");
+    expect(toolbarButtons).toEqual([
+      permanentFiltersButton,
+      screen.getByRole("button", { name: "Options" }),
+      updateButton,
+      readAllButton,
+    ]);
+    expect(toolbarButtons[toolbarButtons.length - 1]).toBe(readAllButton);
     expect(screen.getByText("Test Author A")).toHaveClass("font-normal");
     expect(screen.getByRole("img", { name: "Needs work" })).toBeInTheDocument();
     expect(screen.getByRole("img", { name: "Approved" })).toBeInTheDocument();
@@ -230,7 +249,7 @@ describe("MyPullRequestsPage", () => {
       values: [pendingPullRequest, pullRequests[1]],
     });
 
-    render(<MyPullRequestsPage />);
+    await renderFlatPage();
     expect(await screen.findByRole("heading", { name: "Pending example pull request" })).toBeInTheDocument();
     expect(screen.getAllByRole("heading", { level: 2 })).toHaveLength(2);
     expect(screen.getByRole("tab", { name: "All" })).toHaveAttribute("aria-selected", "true");
@@ -259,17 +278,40 @@ describe("MyPullRequestsPage", () => {
     const demoGroup = await screen.findByRole("region", { name: "DEMO project" });
     const toolsGroup = screen.getByRole("region", { name: "TOOLS project" });
     expect(within(demoGroup).getByText("2 pull requests")).toBeInTheDocument();
+    expect(within(toolsGroup).getByText("1 pull request")).toBeInTheDocument();
+    expect(within(demoGroup).queryByRole("heading", { name: "Example pull request" })).not.toBeInTheDocument();
+    expect(within(toolsGroup).queryByRole("heading", { name: "Tools project change" })).not.toBeInTheDocument();
+    expect(within(demoGroup).getByRole("button", { name: "Expand DEMO project" })).toHaveAttribute("aria-expanded", "false");
+
+    fireEvent.click(within(demoGroup).getByRole("button", { name: "Expand DEMO project" }));
     expect(within(demoGroup).getByText("sample-repository", { exact: false })).not.toHaveTextContent("DEMO/");
     expect(within(demoGroup).getByRole("heading", { name: "Example documentation change" })).toBeInTheDocument();
     expect(within(demoGroup).getByRole("heading", { name: "Example pull request" })).toBeInTheDocument();
-    expect(within(toolsGroup).getByText("1 pull request")).toBeInTheDocument();
-    expect(within(toolsGroup).getByRole("heading", { name: "Tools project change" })).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: "Display options" }));
-    const displayOptions = screen.getByRole("dialog", { name: "Display options" });
+    fireEvent.click(screen.getByRole("button", { name: "Options" }));
+    const displayOptions = screen.getByRole("dialog", { name: "Options" });
+    const sortOrder = within(displayOptions).getByRole("combobox", { name: "Sort order" });
     const groupByProject = within(displayOptions).getByRole("switch", { name: "Group by project" });
+    const expandProjects = within(displayOptions).getByRole("switch", { name: "Expand project groups by default" });
+    expect(sortOrder).toHaveValue("newest");
+    expect(within(demoGroup).getAllByRole("heading", { level: 2 }).map((heading) => heading.textContent)).toEqual([
+      "Example pull request",
+      "Example documentation change",
+    ]);
+    fireEvent.change(sortOrder, { target: { value: "oldest" } });
+    expect(within(demoGroup).getAllByRole("heading", { level: 2 }).map((heading) => heading.textContent)).toEqual([
+      "Example documentation change",
+      "Example pull request",
+    ]);
     expect(groupByProject).toBeChecked();
+    expect(expandProjects).toBeEnabled();
+    expect(expandProjects).not.toBeChecked();
+    fireEvent.click(expandProjects);
+    expect(within(screen.getByRole("region", { name: "TOOLS project" })).getByRole("heading", { name: "Tools project change" })).toBeInTheDocument();
+    fireEvent.click(expandProjects);
+    expect(within(screen.getByRole("region", { name: "DEMO project" })).queryByRole("heading", { name: "Example pull request" })).not.toBeInTheDocument();
     fireEvent.click(groupByProject);
+    expect(expandProjects).toBeDisabled();
 
     expect(screen.queryByRole("region", { name: "DEMO project" })).not.toBeInTheDocument();
     expect(screen.getByText("DEMO/sample-repository", { exact: false })).toBeInTheDocument();
@@ -277,18 +319,18 @@ describe("MyPullRequestsPage", () => {
 
   it("does not block pull requests while AI settings are pending", async () => {
     getAiSettingsMock.mockImplementation(() => new Promise(() => {}));
-    render(<MyPullRequestsPage />);
+    await renderFlatPage();
 
     expect(await screen.findByRole("heading", { name: "Example pull request" })).toBeInTheDocument();
     expect(screen.queryByRole("status", { name: "Loading pull request review" })).not.toBeInTheDocument();
   });
 
-  it("opens permanent filters and applies a creator filter after saving", async () => {
-    render(<MyPullRequestsPage />);
+  it("opens filters and applies a creator filter after saving", async () => {
+    await renderFlatPage();
     await screen.findByRole("heading", { name: "Example pull request" });
 
-    fireEvent.click(screen.getByRole("button", { name: "Permanent filters" }));
-    expect(screen.getByRole("dialog", { name: "Permanent PR filters" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Filters" }));
+    expect(screen.getByRole("dialog", { name: "Filters" })).toBeInTheDocument();
     fireEvent.change(screen.getByRole("textbox", { name: "Creator filters" }), { target: { value: "Test Author A" } });
     await waitFor(() => expect(searchUsersMock).toHaveBeenCalledWith("Test Author A"));
     fireEvent.click(screen.getByRole("button", { name: "Test Author A (test-author-a)" }));
@@ -307,10 +349,10 @@ describe("MyPullRequestsPage", () => {
   });
 
   it("supports separate blacklist and whitelist tabs at the same time", async () => {
-    render(<MyPullRequestsPage />);
+    await renderFlatPage();
     await screen.findByRole("heading", { name: "Example pull request" });
 
-    fireEvent.click(screen.getByRole("button", { name: "Permanent filters" }));
+    fireEvent.click(screen.getByRole("button", { name: "Filters" }));
     expect(screen.getByRole("tab", { name: "Blacklist" })).toHaveAttribute("aria-selected", "true");
     expect(screen.getByRole("tab", { name: "Whitelist" })).toHaveAttribute("aria-selected", "false");
     fireEvent.change(screen.getByRole("textbox", { name: "Creator filters" }), { target: { value: "Test Author A" } });
@@ -332,11 +374,12 @@ describe("MyPullRequestsPage", () => {
     }));
   });
 
-  it("persists the AI auto-review toggle from the page header", async () => {
-    render(<MyPullRequestsPage />);
+  it("persists the AI auto-review toggle from options", async () => {
+    await renderFlatPage();
     await screen.findByRole("heading", { name: "Example pull request" });
 
-    const toggle = screen.getByRole("checkbox", { name: "AI auto-review" });
+    fireEvent.click(screen.getByRole("button", { name: "Options" }));
+    const toggle = screen.getByRole("switch", { name: "AI auto-review" });
     expect(toggle).not.toBeChecked();
     fireEvent.click(toggle);
 
@@ -352,17 +395,17 @@ describe("MyPullRequestsPage", () => {
   });
 
   it("opens the PR and marks its current snapshot read", async () => {
-    render(<MyPullRequestsPage />);
+    await renderFlatPage();
     await screen.findByRole("heading", { name: "Example pull request" });
 
     expect(screen.queryByRole("link", { name: "Open in web" })).not.toBeInTheDocument();
     fireEvent.click(screen.getAllByRole("link", { name: "Example pull request" })[0]);
     await waitFor(() => expect(markPullRequestReadMock).toHaveBeenCalledWith("bitbucket-1", "DEMO", "sample-repository", "7", "commit-7"));
-    expect(screen.getAllByRole("heading", { level: 2 })[0]).toHaveTextContent("Example documentation change");
+    expect(screen.getAllByRole("heading", { level: 2 })[0]).toHaveTextContent("Example pull request");
   });
 
   it("marks a pull request viewed from the card eye action", async () => {
-    render(<MyPullRequestsPage />);
+    await renderFlatPage();
     await screen.findByRole("heading", { name: "Example pull request" });
 
     expect(screen.getAllByRole("button", { name: "Mark as viewed" })).toHaveLength(2);
@@ -379,22 +422,22 @@ describe("MyPullRequestsPage", () => {
   });
 
   it("marks all persisted PR snapshots read", async () => {
-    render(<MyPullRequestsPage />);
+    await renderFlatPage();
     await screen.findByRole("heading", { name: "Example pull request" });
 
-    fireEvent.click(screen.getByRole("button", { name: "Read all" }));
+    fireEvent.click(screen.getByRole("button", { name: "Mark all as read" }));
     await waitFor(() => expect(markAllPullRequestsReadMock).toHaveBeenCalledTimes(1));
     expect(screen.queryByText("NEW")).not.toBeInTheDocument();
     expect(screen.queryByText("UPDATED")).not.toBeInTheDocument();
   });
 
-  it("starts an AI review with the complete PR payload and shows AI Review…", async () => {
-    render(<MyPullRequestsPage />);
+  it("starts an AI review with the complete PR payload and shows AI review…", async () => {
+    await renderFlatPage();
     await screen.findByRole("heading", { name: "Example pull request" });
 
-    fireEvent.click(screen.getAllByRole("button", { name: "AI Review" })[0]);
+    fireEvent.click(screen.getAllByRole("button", { name: "AI review" })[0]);
     await waitFor(() => expect(startReviewMock).toHaveBeenCalledWith(expect.objectContaining(pullRequests[0])));
-    expect(await screen.findByRole("button", { name: "AI Review…" })).toBeDisabled();
+    expect(await screen.findByRole("button", { name: "AI review…" })).toBeDisabled();
   });
 
   it("starts three AI reviews concurrently without replacing their pending state", async () => {
@@ -408,18 +451,18 @@ describe("MyPullRequestsPage", () => {
       resolvers.push(resolve);
     }));
 
-    render(<MyPullRequestsPage />);
+    await renderFlatPage();
     await screen.findByRole("heading", { name: "Parallel review example" });
-    const reviewButtons = screen.getAllByRole("button", { name: "AI Review" });
+    const reviewButtons = screen.getAllByRole("button", { name: "AI review" });
     expect(reviewButtons).toHaveLength(3);
     reviewButtons.forEach((button) => fireEvent.click(button));
 
     await waitFor(() => expect(startReviewMock).toHaveBeenCalledTimes(3));
-    expect(screen.getAllByRole("button", { name: "AI Review…" })).toHaveLength(3);
+    expect(screen.getAllByRole("button", { name: "AI review…" })).toHaveLength(3);
     resolvers.forEach((resolve) => resolve(runningReview));
   });
 
-  it("shows a green AI Verdict badge for an approved review", async () => {
+  it("shows a green AI verdict badge for an approved review", async () => {
     const approvedReview: PullRequestReviewState = {
       ...completedReview,
       result: { ...completedReview.result!, verdict: "ok" },
@@ -429,12 +472,12 @@ describe("MyPullRequestsPage", () => {
       values: [{ ...pullRequests[0], review: approvedReview }, pullRequests[1]],
     });
 
-    render(<MyPullRequestsPage />);
+    await renderFlatPage();
 
-    expect(await screen.findByRole("button", { name: "Review Results" })).toBeInTheDocument();
-    expect(screen.getByLabelText("AI Verdict: Approved")).toHaveClass("border-emerald-300");
-    expect(screen.getByText("AI Verdict · Approved")).toBeInTheDocument();
-    const reviewResultsButton = screen.getByRole("button", { name: "Review Results" });
+    expect(await screen.findByRole("button", { name: "Review results" })).toBeInTheDocument();
+    expect(screen.getByLabelText("AI verdict: Approved")).toHaveClass("border-emerald-300");
+    expect(screen.getByText("AI verdict · Approved")).toBeInTheDocument();
+    const reviewResultsButton = screen.getByRole("button", { name: "Review results" });
     const completedCard = reviewResultsButton.closest(".rounded-lg");
     expect(completedCard).not.toBeNull();
     expect(within(completedCard as HTMLElement).getByRole("button", { name: "Mark as viewed" }).parentElement)
@@ -442,11 +485,11 @@ describe("MyPullRequestsPage", () => {
   });
   it("reconciles a completed review when the completion event was missed", async () => {
     getReviewStateMock.mockResolvedValue(completedReview);
-    render(<MyPullRequestsPage />);
+    await renderFlatPage();
     await screen.findByRole("heading", { name: "Example pull request" });
 
-    fireEvent.click(screen.getAllByRole("button", { name: "AI Review" })[0]);
-    expect(await screen.findByRole("button", { name: "Review Results" })).toBeInTheDocument();
+    fireEvent.click(screen.getAllByRole("button", { name: "AI review" })[0]);
+    expect(await screen.findByRole("button", { name: "Review results" })).toBeInTheDocument();
     expect(screen.queryByRole("dialog", { name: "Review results" })).not.toBeInTheDocument();
     expect(getReviewStateMock).toHaveBeenCalled();
   });
@@ -456,11 +499,11 @@ describe("MyPullRequestsPage", () => {
       ...firstPage,
       values: [{ ...pullRequests[0], review: completedReview }, pullRequests[1]],
     });
-    render(<MyPullRequestsPage />);
-    await screen.findByRole("button", { name: "Review Results" });
-    expect(screen.getByText("AI Verdict · Needs work")).toBeInTheDocument();
+    await renderFlatPage();
+    await screen.findByRole("button", { name: "Review results" });
+    expect(screen.getByText("AI verdict · Needs work")).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: "Review Results" }));
+    fireEvent.click(screen.getByRole("button", { name: "Review results" }));
     await waitFor(() => expect(markPullRequestReadMock).toHaveBeenCalledWith("bitbucket-1", "DEMO", "sample-repository", "7", "commit-7"));
     await waitFor(() => expect(screen.getByRole("heading", { name: "Example pull request" }).closest(".border-l-transparent")).toBeInTheDocument());
     const dialog = await screen.findByRole("dialog", { name: "Review results" });
@@ -468,10 +511,10 @@ describe("MyPullRequestsPage", () => {
     expect(dialog).toHaveTextContent("Example pull request");
     expect(dialog).toHaveTextContent("Test Author A");
     expect(dialog).toHaveTextContent("Needs work");
-    expect(dialog).toHaveTextContent("AI Summary");
+    expect(dialog).toHaveTextContent("AI summary");
     expect(screen.getByText("Coordinates an example background refresh lifecycle.")).toHaveClass("text-foreground");
     expect(screen.getByText("The change can lose data when the retry races with shutdown.")).toHaveClass("text-foreground");
-    expect(dialog).toHaveTextContent("AI Comments");
+    expect(dialog).toHaveTextContent("AI comments");
     expect(screen.getByText("Blocker (0)").closest("details")).not.toHaveAttribute("open");
     expect(screen.getByText("High (1)").closest("details")).toHaveAttribute("open");
     expect(screen.getByText("Medium (1)").closest("details")).toHaveAttribute("open");
@@ -488,7 +531,7 @@ describe("MyPullRequestsPage", () => {
     expect(publishButton.querySelector("svg")).toHaveClass("size-3.5");
     expect(publishButton.parentElement).toHaveClass("flex", "items-start", "justify-between");
     expect(screen.getAllByRole("button", { name: /Publish comment for/ })).toHaveLength(3);
-    expect(screen.getByRole("link", { name: "Open in web" })).toHaveAttribute("href", pullRequests[0].url);
+    expect(screen.getByRole("link", { name: "Open in browser" })).toHaveAttribute("href", pullRequests[0].url);
     fireEvent.click(publishButton);
     expect(publishCommentMock).not.toHaveBeenCalled();
     const commentDialog = await screen.findByRole("dialog", { name: "Edit review comment" });
@@ -505,8 +548,8 @@ describe("MyPullRequestsPage", () => {
     await waitFor(() => expect(publishButton).toHaveTextContent("Published"));
     expect(publishButton).toBeDisabled();
     expect(screen.getByRole("button", { name: "Re-run review" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Needs Work" })).not.toBeDisabled();
-    expect(screen.getByRole("button", { name: "Needs Work" }).querySelector("svg")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Needs work" })).not.toBeDisabled();
+    expect(screen.getByRole("button", { name: "Needs work" }).querySelector("svg")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Approve" })).not.toBeDisabled();
     expect(screen.getByRole("button", { name: "Approve" })).toHaveClass("bg-emerald-600");
     expect(screen.getByRole("button", { name: "Approve" }).querySelector("svg")).toBeInTheDocument();
@@ -517,11 +560,11 @@ describe("MyPullRequestsPage", () => {
     const firstCard = screen.getByRole("heading", { name: "Example pull request" }).closest("[class*='border-l-']");
     expect(firstCard?.querySelector('[aria-label="Approved"]')).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: "Review Results" }));
+    fireEvent.click(screen.getByRole("button", { name: "Review results" }));
     const reopenedDialog = await screen.findByRole("dialog", { name: "Review results" });
     fireEvent.click(within(reopenedDialog).getByRole("button", { name: "Re-run review" }));
     await waitFor(() => expect(startReviewMock).toHaveBeenCalledWith(expect.objectContaining({ pullRequestId: "7", activity: "read" })));
-    expect(await screen.findByRole("button", { name: "AI Review…" })).toBeDisabled();
+    expect(await screen.findByRole("button", { name: "AI review…" })).toBeDisabled();
   });
 
   it("updates the list decision when needs work is submitted", async () => {
@@ -532,9 +575,9 @@ describe("MyPullRequestsPage", () => {
       values: [{ ...pullRequests[0], review: completedReview }, pullRequests[1]],
     });
 
-    render(<MyPullRequestsPage />);
-    fireEvent.click(await screen.findByRole("button", { name: "Review Results" }));
-    fireEvent.click(screen.getByRole("button", { name: "Needs Work" }));
+    await renderFlatPage();
+    fireEvent.click(await screen.findByRole("button", { name: "Review results" }));
+    fireEvent.click(screen.getByRole("button", { name: "Needs work" }));
 
     await waitFor(() => expect(setDecisionMock).toHaveBeenCalledWith(expect.objectContaining({ pullRequestId: "7" }), "needs_work"));
     await waitFor(() => expect(screen.queryByRole("dialog", { name: "Review results" })).not.toBeInTheDocument());
@@ -542,15 +585,15 @@ describe("MyPullRequestsPage", () => {
     expect(firstCard?.querySelector('[aria-label="Needs work"]')).toBeInTheDocument();
   });
 
-  it("disables AI Review when no AI provider is selected", async () => {
+  it("disables AI review when no AI provider is selected", async () => {
     getAiSettingsMock.mockResolvedValueOnce({
       ...aiSettingsConnected,
       settings: { ...aiSettingsConnected.settings, provider: null },
     });
-    render(<MyPullRequestsPage />);
+    await renderFlatPage();
     await screen.findByRole("heading", { name: "Example pull request" });
 
-    expect(screen.getAllByRole("button", { name: "AI Review" })[0]).toBeDisabled();
+    expect(screen.getAllByRole("button", { name: "AI review" })[0]).toBeDisabled();
   });
 
   it("does not keep a saved review result after the PR commit changes", async () => {
@@ -562,12 +605,12 @@ describe("MyPullRequestsPage", () => {
       ...firstPage,
       values: [{ ...pullRequests[0], latestCommit: "commit-9" }, pullRequests[1]],
     });
-    render(<MyPullRequestsPage />);
-    await screen.findByRole("button", { name: "Review Results" });
+    await renderFlatPage();
+    await screen.findByRole("button", { name: "Review results" });
 
     fireEvent.click(screen.getByRole("button", { name: "Update now" }));
-    await waitFor(() => expect(screen.getAllByRole("button", { name: "AI Review" })[0]).toBeInTheDocument());
-    expect(screen.queryByRole("button", { name: "Review Results" })).not.toBeInTheDocument();
-    expect(screen.getAllByRole("button", { name: "AI Review" })[0]).not.toBeDisabled();
+    await waitFor(() => expect(screen.getAllByRole("button", { name: "AI review" })[0]).toBeInTheDocument());
+    expect(screen.queryByRole("button", { name: "Review results" })).not.toBeInTheDocument();
+    expect(screen.getAllByRole("button", { name: "AI review" })[0]).not.toBeDisabled();
   });
 });

@@ -40,7 +40,8 @@
 }
 
 /* Semantic tokens preserve the current white/dark palette for new primitives. */
-:root {
+:root,
+:root[data-theme="light"] {
   --radius: 0.5rem;
   --background: #f7f8fb;
   --foreground: #1b2430;

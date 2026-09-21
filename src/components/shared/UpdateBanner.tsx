@@ -6,6 +6,7 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { checkForAvailableUpdate } from "./update-check";
 import { installAvailableUpdate } from "./update-install";
+import { useI18n } from "@/i18n/context";
 
 type AvailableUpdate = Update;
 
@@ -14,6 +15,7 @@ interface UpdateBannerProps {
 }
 
 export function UpdateBanner({ enabled }: UpdateBannerProps) {
+  const { t } = useI18n();
   const [update, setUpdate] = useState<AvailableUpdate | null>(null);
   const [dismissed, setDismissed] = useState(false);
   const [installing, setInstalling] = useState(false);
@@ -45,7 +47,7 @@ export function UpdateBanner({ enabled }: UpdateBannerProps) {
     try {
       await installAvailableUpdate(currentUpdate);
     } catch {
-      setError("The update could not be installed. Try again later.");
+      setError(t("update.installError"));
       setInstalling(false);
     }
   }
@@ -53,15 +55,15 @@ export function UpdateBanner({ enabled }: UpdateBannerProps) {
   return (
     <div className="fixed inset-x-4 bottom-4 z-50 mx-auto max-w-2xl">
       <Alert role="status" className="border-primary/40 bg-background shadow-lg">
-        <AlertTitle>mework {update.version} is available</AlertTitle>
+        <AlertTitle>{t("update.available", { version: update.version })}</AlertTitle>
         <AlertDescription className="flex flex-wrap items-center justify-between gap-3">
-          <span>{error ?? "A new version is ready to install."}</span>
+          <span>{error ?? t("update.ready")}</span>
           <span className="flex shrink-0 gap-2">
             <Button type="button" variant="ghost" size="sm" onClick={() => setDismissed(true)} disabled={installing}>
-              Later
+              {t("update.later")}
             </Button>
             <Button type="button" size="sm" onClick={() => void installUpdate()} disabled={installing}>
-              {installing ? "Updating…" : "Update now"}
+              {installing ? t("update.updating") : t("update.now")}
             </Button>
           </span>
         </AlertDescription>

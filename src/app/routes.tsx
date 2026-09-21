@@ -14,6 +14,7 @@ export type AppRoute =
   | "developer-my-pull-requests"
   | "developer-command-board"
   | "settings-general"
+  | "settings-ai"
   | "settings-integrations"
   | "settings-projects";
 
@@ -56,8 +57,8 @@ export function AppRoutes({ route }: AppRoutesProps) {
   if (route === "developer-command-board") {
     return <CommandBoardPage />;
   }
-  if (route === "settings-general" || route === "settings-integrations" || route === "settings-projects") {
-    const section = route === "settings-general" ? "general" : route === "settings-projects" ? "projects" : "integrations";
+  if (route === "settings-general" || route === "settings-ai" || route === "settings-integrations" || route === "settings-projects") {
+    const section = route === "settings-general" ? "general" : route === "settings-ai" ? "ai" : route === "settings-projects" ? "projects" : "integrations";
     return <SettingsPage section={section} />;
   }
 

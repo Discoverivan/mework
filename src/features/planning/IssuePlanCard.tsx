@@ -4,6 +4,7 @@ import { Badge } from "../../components/ui/badge";
 import { Button } from "../../components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "../../components/ui/card";
 import { CompetencySubtaskRow } from "./CompetencySubtaskRow";
+import { useI18n } from "@/i18n/context";
 
 interface IssuePlanCardProps {
   issue: PlanningIssue;
@@ -24,6 +25,7 @@ export function IssuePlanCard({
   onRemoveSubtask,
   onAssign,
 }: IssuePlanCardProps) {
+  const { t } = useI18n();
   const [expanded, setExpanded] = useState(true);
   return (
     <Card>
@@ -34,22 +36,22 @@ export function IssuePlanCard({
             <p className="text-sm text-muted-foreground">{issue.status}{issue.storyPoints !== undefined ? ` · ${issue.storyPoints} SP` : ""}</p>
           </div>
           <div className="flex shrink-0 items-center gap-2">
-            {issue.assignee ? <span className="text-sm text-muted-foreground">{issue.assignee.displayName}</span> : <Badge variant="outline">Unassigned</Badge>}
+            {issue.assignee ? <span className="text-sm text-muted-foreground">{issue.assignee.displayName}</span> : <Badge variant="outline">{t("planning.unassigned")}</Badge>}
             <Button
               type="button"
               size="sm"
               variant="ghost"
               aria-expanded={expanded}
-              aria-label={`${expanded ? "Collapse" : "Expand"} ${issue.key}`}
+              aria-label={t(expanded ? "planning.collapseIssue" : "planning.expandIssue", { issue: issue.key })}
               onClick={() => setExpanded((value) => !value)}
             >
-              {expanded ? "Hide" : "Show"}
+              {expanded ? t("planning.hide") : t("planning.show")}
             </Button>
           </div>
         </CardHeader>
         {expanded ? (
           <CardContent className="space-y-1">
-            {issue.subtasks.length === 0 ? <p className="text-sm text-muted-foreground">No competency subtasks yet.</p> : null}
+            {issue.subtasks.length === 0 ? <p className="text-sm text-muted-foreground">{t("planning.noSubtasks")}</p> : null}
             {issue.subtasks.map((subtask) => (
               <CompetencySubtaskRow
                 key={subtask.id}
@@ -61,7 +63,7 @@ export function IssuePlanCard({
                 onAssign={onAssign ? (accountId) => onAssign(subtask.id, accountId) : undefined}
               />
             ))}
-            {!readOnly ? <Button type="button" size="sm" variant="outline" onClick={onAddSubtask}>Add competency subtask</Button> : null}
+            {!readOnly ? <Button type="button" size="sm" variant="outline" onClick={onAddSubtask}>{t("planning.addSubtask")}</Button> : null}
           </CardContent>
         ) : null}
       </article>

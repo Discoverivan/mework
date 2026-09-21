@@ -80,10 +80,7 @@ describe("SettingsPage integrations smoke tests", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     getAiSettingsMock.mockResolvedValue(codexAiSettings);
-    saveAiSettingsMock.mockResolvedValue({
-      ...codexAiSettings,
-      settings: { ...codexAiSettings.settings, provider: "codex-cli" },
-    });
+    saveAiSettingsMock.mockImplementation(async (settings) => ({ ...codexAiSettings, settings }));
     listIntegrationsMock.mockResolvedValue([]);
     saveIntegrationMock.mockResolvedValue({ status: "saved", integration: jiraIntegration });
   });
@@ -92,14 +89,14 @@ describe("SettingsPage integrations smoke tests", () => {
     getAiSettingsMock.mockImplementation(() => new Promise(() => {}));
     render(<SettingsPage />);
 
-    expect(screen.getByRole("group", { name: "Codex CLI AI provider" })).toHaveTextContent("Loading…");
-    expect(await screen.findByRole("heading", { name: "Data Integrations" })).toBeInTheDocument();
+    expect(screen.queryByRole("group", { name: "Codex CLI AI provider" })).not.toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Data integrations" })).toBeInTheDocument();
     expect(screen.queryByText("Loading integrations…")).not.toBeInTheDocument();
   });
 
   it("opens a provider form with URL and write-only personal access token", async () => {
     render(<SettingsPage />);
-    await screen.findByRole("heading", { name: "Integrations" });
+    await screen.findByRole("heading", { name: "Data integrations" });
     expect(screen.queryByText("Settings", { exact: true })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Jira" }));
 
@@ -110,7 +107,7 @@ describe("SettingsPage integrations smoke tests", () => {
 
   it("saves a new integration without returning the secret to the UI", async () => {
     render(<SettingsPage />);
-    await screen.findByRole("heading", { name: "Integrations" });
+    await screen.findByRole("heading", { name: "Data integrations" });
     expect(screen.queryByText("Settings", { exact: true })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Jira" }));
     fireEvent.change(screen.getByLabelText("Base URL"), {
@@ -132,12 +129,12 @@ describe("SettingsPage integrations smoke tests", () => {
     expect(screen.queryByText("test-jira-token")).not.toBeInTheDocument();
   });
 
-  it("shows AI controls above AI and data integration cards and saves Codex settings", async () => {
-    render(<SettingsPage />);
+  it("shows AI controls above integration cards and saves Codex settings automatically", async () => {
+    render(<SettingsPage section="ai" />);
 
-    expect(await screen.findByRole("heading", { name: "AI" })).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "AI Providers" })).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "Data Integrations" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "AI settings" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "AI providers" })).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Data integrations" })).not.toBeInTheDocument();
     expect(screen.getByRole("group", { name: "Codex CLI AI provider" })).toHaveTextContent("Connected");
 
     fireEvent.change(screen.getByRole("combobox", { name: "AI provider" }), {
@@ -150,7 +147,7 @@ describe("SettingsPage integrations smoke tests", () => {
       target: { value: "high" },
     });
     fireEvent.click(screen.getByRole("checkbox", { name: "Fast mode" }));
-    fireEvent.click(screen.getByRole("button", { name: "Save AI settings" }));
+    expect(screen.queryByRole("button", { name: "Save AI settings" })).not.toBeInTheDocument();
 
     await waitFor(() => expect(saveAiSettingsMock).toHaveBeenCalledWith({
       provider: "codex-cli",
@@ -179,16 +176,21 @@ describe("SettingsPage integrations smoke tests", () => {
         },
       ],
     });
-    render(<SettingsPage />);
+    render(<SettingsPage section="ai" />);
 
-    await screen.findByRole("heading", { name: "AI" });
+    await screen.findByRole("heading", { name: "AI settings" });
     fireEvent.change(screen.getByRole("combobox", { name: "AI provider" }), {
       target: { value: "openai-compatible" },
     });
 
     expect(screen.getByRole("combobox", { name: "Model" })).toHaveValue("example-model");
     expect(screen.queryByText("No available model selected.")).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Save AI settings" })).toBeEnabled();
+    await waitFor(() => expect(saveAiSettingsMock).toHaveBeenCalledWith({
+      provider: "openai-compatible",
+      model: "example-model",
+      reasoning: "medium",
+      fastMode: false,
+    }));
   });
 
   it("configures the OpenAI-compatible API and exposes API models for selection", async () => {
@@ -206,7 +208,7 @@ describe("SettingsPage integrations smoke tests", () => {
       ],
     });
     saveOpenAiCompatibleProviderMock.mockResolvedValue(openAiAiSettings);
-    render(<SettingsPage />);
+    render(<SettingsPage section="ai" />);
 
     expect(await screen.findByRole("group", { name: "OpenAI-compatible API AI provider" })).toHaveTextContent("Not configured");
     fireEvent.click(screen.getByRole("button", { name: "OpenAI-compatible API" }));
@@ -250,7 +252,7 @@ describe("SettingsPage integrations smoke tests", () => {
     saveOpenAiCompatibleProviderMock.mockRejectedValue(
       new Error("OpenAI-compatible API authorization failed"),
     );
-    render(<SettingsPage />);
+    render(<SettingsPage section="ai" />);
 
     await screen.findByRole("group", { name: "OpenAI-compatible API AI provider" });
     fireEvent.click(screen.getByRole("button", { name: "OpenAI-compatible API" }));
