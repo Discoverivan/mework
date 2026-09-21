@@ -436,7 +436,7 @@ export function MyPullRequestsPage() {
       autoReviewEnabled: settings.autoReviewEnabled,
       authoredAutoReviewEnabled: settings.authoredAutoReviewEnabled,
     });
-    setFilterTab("whitelist");
+    setFilterTab("blacklist");
     setRepositoryInput("");
     setRepositorySearchResults([]);
     setRepositorySearchError(undefined);

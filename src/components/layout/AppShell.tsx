@@ -38,6 +38,7 @@ interface AppShellProps {
   children: ReactNode;
   theme: Theme;
   onThemeChange: (theme: Theme) => void;
+  version?: string;
   onNavigate?: (section: AppSection) => void;
   activeSection?: AppSection;
   unreadPullRequestCount?: number;
@@ -65,6 +66,7 @@ export function AppShell({
   children,
   theme,
   onThemeChange,
+  version = "0.1.0",
   onNavigate,
   activeSection,
   unreadPullRequestCount = 0,
@@ -135,22 +137,38 @@ export function AppShell({
             </div>
           </div>
         </nav>
-        <div className="theme-picker">
+        <div className="sidebar-footer">
           <Button
-            type="button"
+            asChild
             variant="ghost"
-            size="icon"
-            className="theme-toggle size-8"
-            aria-label={theme === "light" ? "Switch to dark theme" : "Switch to light theme"}
-            title={theme === "light" ? "Switch to dark theme" : "Switch to light theme"}
-            onClick={() => onThemeChange(theme === "light" ? "dark" : "light")}
+            className="sidebar-version"
           >
-            {theme === "light" ? (
-              <Moon className="size-4" aria-hidden="true" />
-            ) : (
-              <Sun className="size-4" aria-hidden="true" />
-            )}
+            <a
+              href="#settings/general"
+              aria-label={`mework v${version}, open General settings`}
+              title="Open General settings"
+              onClick={() => onNavigate?.("settings-general")}
+            >
+              mework v{version}
+            </a>
           </Button>
+          <div className="theme-picker">
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="theme-toggle size-8"
+              aria-label={theme === "light" ? "Switch to dark theme" : "Switch to light theme"}
+              title={theme === "light" ? "Switch to dark theme" : "Switch to light theme"}
+              onClick={() => onThemeChange(theme === "light" ? "dark" : "light")}
+            >
+              {theme === "light" ? (
+                <Moon className="size-4" aria-hidden="true" />
+              ) : (
+                <Sun className="size-4" aria-hidden="true" />
+              )}
+            </Button>
+          </div>
         </div>
       </aside>
       <main aria-label="mework" className="app-content">

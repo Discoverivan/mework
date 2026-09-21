@@ -5,7 +5,7 @@ import { AppShell } from "./AppShell";
 describe("AppShell product navigation", () => {
   it("renders the available destinations with icons and no removed sections", () => {
     render(
-      <AppShell theme="light" onThemeChange={vi.fn()} activeSection="developer-pull-requests" unreadPullRequestCount={3} unreadAuthoredPullRequestCount={5}>
+      <AppShell theme="light" onThemeChange={vi.fn()} version="0.1.9" activeSection="developer-pull-requests" unreadPullRequestCount={3} unreadAuthoredPullRequestCount={5}>
         <div>Content</div>
       </AppShell>,
     );
@@ -29,6 +29,19 @@ describe("AppShell product navigation", () => {
     expect(screen.getByText("5")).toBeInTheDocument();
     expect(screen.queryByRole("link", { name: "Inbox" })).not.toBeInTheDocument();
     expect(screen.queryByRole("link", { name: "Planning" })).not.toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "mework v0.1.9, open General settings" })).toHaveAttribute("href", "#settings/general");
+  });
+
+  it("opens General settings from the sidebar version link", () => {
+    const onNavigate = vi.fn();
+    render(
+      <AppShell theme="light" onThemeChange={vi.fn()} version="0.1.9" onNavigate={onNavigate}>
+        <div>Content</div>
+      </AppShell>,
+    );
+
+    fireEvent.click(screen.getByRole("link", { name: "mework v0.1.9, open General settings" }));
+    expect(onNavigate).toHaveBeenCalledWith("settings-general");
   });
 
   it("uses an icon-only theme toggle with an accessible action label", () => {

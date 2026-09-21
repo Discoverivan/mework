@@ -1,4 +1,5 @@
 pub mod autostart;
+pub mod menu;
 pub mod notifications;
 pub mod single_instance;
 pub mod tray;

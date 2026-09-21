@@ -3,7 +3,9 @@ use sqlx::SqlitePool;
 use tauri::{AppHandle, Runtime};
 
 use crate::infrastructure::db::repositories;
-use crate::os::notifications::{self, NotificationAdapter, NotificationPermission};
+#[cfg(not(target_os = "macos"))]
+use crate::os::notifications::NotificationAdapter;
+use crate::os::notifications::{self, NotificationPermission};
 
 const GENERAL_SETTINGS_KEY: &str = "general.settings";
 const GENERAL_SETTINGS_SCHEMA_VERSION: i64 = 1;
@@ -81,12 +83,21 @@ pub fn send_test_notification<R: Runtime>(app: &AppHandle<R>) -> Result<(), Stri
         }
     }
 
-    let adapter = notifications::NativeNotificationAdapter::new(app.clone());
-    adapter.notify(
-        "mework notification test",
-        "Notifications are enabled and working.",
-        "general-test",
-    )
+    #[cfg(target_os = "macos")]
+    {
+        let _ = app;
+        notifications::send_test_notification()
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    {
+        let adapter = notifications::NativeNotificationAdapter::new(app.clone());
+        adapter.notify(
+            "mework notification test",
+            "Notifications are enabled and working.",
+            "general-test",
+        )
+    }
 }
 
 pub fn open_notification_settings() -> Result<(), String> {
