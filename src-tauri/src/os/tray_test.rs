@@ -3,9 +3,9 @@ use super::tray::{application_name, tray_command_for_menu_id, TrayCommand};
 #[test]
 fn uses_profile_specific_application_name() {
     let expected = if cfg!(debug_assertions) {
-        "MeWork Dev"
+        "mework-dev"
     } else {
-        "MeWork"
+        "mework"
     };
     assert_eq!(application_name(), expected);
 }

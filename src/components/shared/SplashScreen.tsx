@@ -9,7 +9,7 @@ export function SplashScreen({ visible }: SplashScreenProps) {
   return (
     <div className="splash-screen" role="status" aria-label={t("splash.loading")} aria-busy="true">
       <div className="splash-panel">
-        <img className="splash-logo" src="/mework-icon.png" alt="MeWork" />
+        <img className="splash-logo" src="/mework-icon.png" alt="mework" />
         <div className="splash-copy">
           <strong>{t("splash.loading")}</strong>
           <span>{t("splash.checking")}</span>

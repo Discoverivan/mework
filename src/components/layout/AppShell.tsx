@@ -130,7 +130,7 @@ export function AppShell({
       <aside aria-label={t("nav.primary")}>
         <div className="app-brand">
           <img src="/mework-icon.png" alt="" aria-hidden="true" />
-          <strong>MeWork</strong>
+          <strong>mework</strong>
         </div>
         <nav>
           <div className="settings-nav-group" aria-labelledby="developer-nav-title">
@@ -209,7 +209,7 @@ export function AppShell({
           ) : null}
         </div>
       </aside>
-      <main aria-label="MeWork" className="app-content">
+      <main aria-label="mework" className="app-content">
         {children}
       </main>
     </div>
