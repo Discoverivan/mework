@@ -94,7 +94,7 @@ export function ConfluenceSearchPage() {
                 ))}
                 <option value="">{t("confluence.allSpaces")}</option>
               </select>
-              <ChevronDown className="pointer-events-none absolute right-3 top-1/2 size-4 -translate-y-1/2 opacity-50" aria-hidden="true" />
+              <ChevronDown className="pointer-events-none absolute right-2 top-1/2 size-4 -translate-y-1/2 opacity-50" aria-hidden="true" />
             </div>
           </div>
         ) : null}

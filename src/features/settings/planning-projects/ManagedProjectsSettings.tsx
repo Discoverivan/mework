@@ -1065,22 +1065,25 @@ export function ManagedProjectsSettings({
                   <div className="grid gap-2">
                     <Label htmlFor="jira-board">{t("teams.jiraBoard")}</Label>
                     <div className="flex flex-wrap gap-2">
-                      <select
-                        id="jira-board"
-                        aria-label={t("teams.jiraBoard")}
-                        className="h-10 min-w-72 rounded-md border border-input bg-background px-3 py-2 text-sm"
-                        value={form.boardId}
-                        onFocus={isCreatingTeam ? undefined : () => void handleLoadBoards()}
-                        onChange={(event) => updateForm("boardId", event.target.value)}
-                        disabled={controlsDisabled}
-                      >
-                        <option value="">{boardsLoading ? t("teams.loadingBoards") : t("teams.chooseBoard")}</option>
-                        {boards.map((board) => (
-                          <option key={board.id} value={board.id}>
-                            {board.name} ({board.id})
-                          </option>
-                        ))}
-                      </select>
+                      <div className="relative min-w-72">
+                        <select
+                          id="jira-board"
+                          aria-label={t("teams.jiraBoard")}
+                          className="h-10 w-full appearance-none rounded-md border border-input bg-background py-2 pl-3 pr-8 text-sm"
+                          value={form.boardId}
+                          onFocus={isCreatingTeam ? undefined : () => void handleLoadBoards()}
+                          onChange={(event) => updateForm("boardId", event.target.value)}
+                          disabled={controlsDisabled}
+                        >
+                          <option value="">{boardsLoading ? t("teams.loadingBoards") : t("teams.chooseBoard")}</option>
+                          {boards.map((board) => (
+                            <option key={board.id} value={board.id}>
+                              {board.name} ({board.id})
+                            </option>
+                          ))}
+                        </select>
+                        <ChevronDown className="pointer-events-none absolute right-2 top-1/2 size-4 -translate-y-1/2 opacity-50" aria-hidden="true" />
+                      </div>
                     </div>
                     {boardsLoading ? <p role="status">{t("teams.loadingBoardsForProject")}</p> : null}
                     {boardsError ? (
@@ -1151,24 +1154,27 @@ export function ManagedProjectsSettings({
               </div>
               <div className="grid gap-2 sm:max-w-xl">
                 <Label htmlFor={`default-task-sprint-${detailProject.id}`}>{t("teams.defaultSprint")}</Label>
-                <select
-                  id={`default-task-sprint-${detailProject.id}`}
-                  aria-label={t("teams.defaultSprint")}
-                  className="h-10 rounded-md border border-input bg-background px-3 py-2 text-sm"
-                  value={defaultTaskSprintId}
-                  onChange={(event) => {
-                    const nextId = event.target.value;
-                    setDefaultTaskSprintId(nextId);
-                    setDefaultTaskSprintName(taskSprints.find((sprint) => sprint.id === nextId)?.name ?? "");
-                  }}
-                  disabled={controlsDisabled || taskSprintsLoading}
-                >
-                  <option value="">{taskSprintsLoading ? t("teams.loadingSprints") : t("teams.noDefaultSprint")}</option>
-                  {defaultTaskSprintId && !taskSprints.some((sprint) => sprint.id === defaultTaskSprintId) ? (
-                    <option value={defaultTaskSprintId}>{defaultTaskSprintName || defaultTaskSprintId}</option>
-                  ) : null}
-                  {taskSprints.map((sprint) => <option key={sprint.id} value={sprint.id}>{sprint.name}</option>)}
-                </select>
+                <div className="relative">
+                  <select
+                    id={`default-task-sprint-${detailProject.id}`}
+                    aria-label={t("teams.defaultSprint")}
+                    className="h-10 w-full appearance-none rounded-md border border-input bg-background py-2 pl-3 pr-8 text-sm"
+                    value={defaultTaskSprintId}
+                    onChange={(event) => {
+                      const nextId = event.target.value;
+                      setDefaultTaskSprintId(nextId);
+                      setDefaultTaskSprintName(taskSprints.find((sprint) => sprint.id === nextId)?.name ?? "");
+                    }}
+                    disabled={controlsDisabled || taskSprintsLoading}
+                  >
+                    <option value="">{taskSprintsLoading ? t("teams.loadingSprints") : t("teams.noDefaultSprint")}</option>
+                    {defaultTaskSprintId && !taskSprints.some((sprint) => sprint.id === defaultTaskSprintId) ? (
+                      <option value={defaultTaskSprintId}>{defaultTaskSprintName || defaultTaskSprintId}</option>
+                    ) : null}
+                    {taskSprints.map((sprint) => <option key={sprint.id} value={sprint.id}>{sprint.name}</option>)}
+                  </select>
+                  <ChevronDown className="pointer-events-none absolute right-2 top-1/2 size-4 -translate-y-1/2 opacity-50" aria-hidden="true" />
+                </div>
                 {taskSprintsError ? <p className="text-xs text-destructive">{t("teams.loadSprintsError", { error: taskSprintsError })}</p> : null}
               </div>
               <div className="grid gap-2">
@@ -1194,27 +1200,30 @@ export function ManagedProjectsSettings({
                 <p className="text-xs text-muted-foreground">{t("teams.epicJqlDescription")}</p>
                 <div className="grid gap-2 sm:max-w-xl">
                   <Label htmlFor={`default-epic-link-${detailProject.id}`}>{t("teams.defaultEpic")}</Label>
-                  <select
-                    id={`default-epic-link-${detailProject.id}`}
-                    aria-label={t("teams.defaultEpic")}
-                    className="h-10 rounded-md border border-input bg-background px-3 py-2 text-sm"
-                    value={defaultEpicLinkKey}
-                    onChange={(event) => {
-                      const nextKey = event.target.value;
-                      const selected = epicPreviewIssues.find((issue) => issue.key === nextKey);
-                      setDefaultEpicLinkKey(nextKey);
-                      setDefaultEpicLinkSummary(selected?.summary ?? (nextKey ? defaultEpicLinkSummary : ""));
-                    }}
-                    disabled={controlsDisabled}
-                  >
-                    <option value="">{t("teams.noDefaultEpic")}</option>
-                    {defaultEpicLinkKey && !epicPreviewIssues.some((issue) => issue.key === defaultEpicLinkKey) ? (
-                      <option value={defaultEpicLinkKey}>{defaultEpicLinkSummary || defaultEpicLinkKey}</option>
-                    ) : null}
-                    {epicPreviewIssues.map((issue) => (
-                      <option key={issue.key} value={issue.key}>{issue.key} — {issue.summary}</option>
-                    ))}
-                  </select>
+                  <div className="relative">
+                    <select
+                      id={`default-epic-link-${detailProject.id}`}
+                      aria-label={t("teams.defaultEpic")}
+                      className="h-10 w-full appearance-none rounded-md border border-input bg-background py-2 pl-3 pr-8 text-sm"
+                      value={defaultEpicLinkKey}
+                      onChange={(event) => {
+                        const nextKey = event.target.value;
+                        const selected = epicPreviewIssues.find((issue) => issue.key === nextKey);
+                        setDefaultEpicLinkKey(nextKey);
+                        setDefaultEpicLinkSummary(selected?.summary ?? (nextKey ? defaultEpicLinkSummary : ""));
+                      }}
+                      disabled={controlsDisabled}
+                    >
+                      <option value="">{t("teams.noDefaultEpic")}</option>
+                      {defaultEpicLinkKey && !epicPreviewIssues.some((issue) => issue.key === defaultEpicLinkKey) ? (
+                        <option value={defaultEpicLinkKey}>{defaultEpicLinkSummary || defaultEpicLinkKey}</option>
+                      ) : null}
+                      {epicPreviewIssues.map((issue) => (
+                        <option key={issue.key} value={issue.key}>{issue.key} — {issue.summary}</option>
+                      ))}
+                    </select>
+                    <ChevronDown className="pointer-events-none absolute right-2 top-1/2 size-4 -translate-y-1/2 opacity-50" aria-hidden="true" />
+                  </div>
                   <p className="text-xs text-muted-foreground">{t("teams.epicSaveHint")}</p>
                 </div>
               </div>
@@ -1325,17 +1334,20 @@ export function ManagedProjectsSettings({
                 </div>
                 <div className="grid gap-2 sm:max-w-xs">
                   <Label htmlFor="team-member-role">{t("teams.role")}</Label>
-                  <select
-                    id="team-member-role"
-                    aria-label={t("teams.roleFor", { member: selectedSearchMember.displayName })}
-                    className="h-10 rounded-md border border-input bg-background px-3 py-2 text-sm"
-                    value={memberRole}
-                    onChange={(event) => setMemberRole(event.target.value)}
-                    disabled={controlsDisabled}
-                  >
-                    <option value="">{t("teams.chooseRole")}</option>
-                    {ROLE_OPTIONS.map((role) => <option key={role} value={role}>{role}</option>)}
-                  </select>
+                  <div className="relative">
+                    <select
+                      id="team-member-role"
+                      aria-label={t("teams.roleFor", { member: selectedSearchMember.displayName })}
+                      className="h-10 w-full appearance-none rounded-md border border-input bg-background py-2 pl-3 pr-8 text-sm"
+                      value={memberRole}
+                      onChange={(event) => setMemberRole(event.target.value)}
+                      disabled={controlsDisabled}
+                    >
+                      <option value="">{t("teams.chooseRole")}</option>
+                      {ROLE_OPTIONS.map((role) => <option key={role} value={role}>{role}</option>)}
+                    </select>
+                    <ChevronDown className="pointer-events-none absolute right-2 top-1/2 size-4 -translate-y-1/2 opacity-50" aria-hidden="true" />
+                  </div>
                 </div>
                 <div className="grid gap-2 sm:max-w-xs">
                   <Label htmlFor="team-member-alias">{t("teams.alias")}</Label>
