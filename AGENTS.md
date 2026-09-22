@@ -6,6 +6,7 @@
 - The Rust core is the only component allowed to access SQLite, providers, credentials, Hermes, notifications, and external writes.
 - The React renderer uses typed Tauri commands/events and must not hold secrets or call providers directly.
 - Route application-wide and background Tauri events through the typed native event bridge in `src/app/native-event-bridge.ts` and the typed app event bus in `src/app/app-events.ts`. Feature components should subscribe to app events instead of registering duplicate native listeners; keep direct Tauri listeners only for feature-local, window-specific transports such as the Daily Presenter.
+- Treat app events as change or invalidation notifications, not as commands that make every subscriber repeat the same external request. Give each refreshable resource one owner that deduplicates refresh work and publishes the resulting state; explicitly revalidate durable caches during startup because the in-memory event bus does not replay events across process restarts.
 - Every external object is scoped by `(integration_id, object_type, external_id)`.
 - Inbox state is a rebuildable read model; user state is persisted separately.
 - Workflow runs, Hermes sessions/runs, approvals, and external actions are isolated and durable.

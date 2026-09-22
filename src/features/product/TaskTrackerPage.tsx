@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { Check, CheckCheck, ChevronDown, ChevronUp, Copy, ExternalLink, Pencil, Plus, RefreshCw, SlidersHorizontal, Trash2, X } from "lucide-react";
 
@@ -170,6 +170,7 @@ export function TaskTrackerPage() {
   const [jqlCopied, setJqlCopied] = useState(false);
   const [sortKey, setSortKey] = useState<SortKey>("issue");
   const [sortDirection, setSortDirection] = useState<SortDirection>("asc");
+  const monitorsRevision = useRef(0);
 
   const activeMonitor = monitors.find((monitor) => monitor.id === activeId) ?? monitors[0];
 
@@ -184,25 +185,33 @@ export function TaskTrackerPage() {
   }, [activeMonitor?.id, activeMonitor?.lastSuccessAt]);
 
   async function loadMonitors(showSpinner = true) {
+    const revision = monitorsRevision.current + 1;
+    monitorsRevision.current = revision;
     if (showSpinner) setRefreshing(true);
     try {
       const next = await listTaskTrackerMonitors();
+      if (monitorsRevision.current !== revision) return;
       setMonitors(next);
       setActiveId((current) => current && next.some((monitor) => monitor.id === current) ? current : next[0]?.id);
       setPageError(undefined);
     } catch (reason) {
-      setPageError(errorMessage(reason));
+      if (monitorsRevision.current === revision) setPageError(errorMessage(reason));
     } finally {
-      setLoading(false);
-      setRefreshing(false);
+      if (monitorsRevision.current === revision) {
+        setLoading(false);
+        setRefreshing(false);
+      }
     }
   }
 
   useEffect(() => {
     void loadMonitors();
     return subscribeAppEvent(APP_EVENT.taskTrackerUpdated, (updatedMonitors) => {
+      monitorsRevision.current += 1;
       setMonitors(updatedMonitors);
       setActiveId((current) => current && updatedMonitors.some((monitor) => monitor.id === current) ? current : updatedMonitors[0]?.id);
+      setLoading(false);
+      setRefreshing(false);
     });
   }, []);
 

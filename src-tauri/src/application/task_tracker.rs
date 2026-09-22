@@ -246,16 +246,6 @@ pub async fn save_monitor(
     let integration = jira_integration(pool, None).await?;
     let now = now_iso();
     let effective_enabled = request.id.is_none() || request.enabled;
-    let next_check_at_ms = if effective_enabled {
-        Some(next_check_at(
-            request.schedule_kind,
-            &request.schedule_value,
-            now_ms(),
-        )?)
-    } else {
-        None
-    };
-
     let monitor_id = request.id.unwrap_or_else(|| Uuid::now_v7().to_string());
     let existing = sqlx::query(
         "SELECT id, integration_id, name, jql, schedule_kind, schedule_value,
@@ -269,9 +259,24 @@ pub async fn save_monitor(
     .map_err(|_| "Task Tracker monitor could not be loaded".to_owned())?
     .map(row_to_monitor)
     .transpose()?;
+    let reset_snapshot = existing
+        .as_ref()
+        .is_some_and(|previous| previous.jql != jql || previous.integration_id != integration.id);
+    let needs_baseline = existing
+        .as_ref()
+        .is_none_or(|previous| previous.last_success_at.is_none() || !previous.enabled)
+        || reset_snapshot;
+    let next_check_at_ms = if effective_enabled {
+        Some(if needs_baseline {
+            now_ms()
+        } else {
+            next_check_at(request.schedule_kind, &request.schedule_value, now_ms())?
+        })
+    } else {
+        None
+    };
 
-    if let Some(previous) = existing.as_ref() {
-        let reset_snapshot = previous.jql != jql || previous.integration_id != integration.id;
+    if existing.is_some() {
         if reset_snapshot {
             sqlx::query("DELETE FROM task_monitor_issues WHERE monitor_id = ?")
                 .bind(&monitor_id)
