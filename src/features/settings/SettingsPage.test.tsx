@@ -98,7 +98,9 @@ describe("SettingsPage integrations smoke tests", () => {
     render(<SettingsPage />);
     await screen.findByRole("heading", { name: "Data integrations" });
     expect(screen.queryByText("Settings", { exact: true })).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Jira" }));
+    const jiraButton = screen.getByRole("button", { name: "Jira" });
+    expect(jiraButton).toHaveClass("cursor-pointer", "hover:bg-accent/50");
+    fireEvent.click(jiraButton);
 
     expect(screen.getByRole("textbox", { name: "Base URL" })).toBeInTheDocument();
     expect(screen.getByLabelText("Personal access token")).toBeInTheDocument();

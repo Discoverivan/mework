@@ -930,7 +930,7 @@ export function SettingsPage({ section = "integrations" }: SettingsPageProps) {
                 <CardHeader className="flex-row items-center justify-between space-y-0 gap-4 px-4 pb-4 pt-3.5">
                   <button
                     type="button"
-                    className="grid min-w-0 flex-1 gap-1.5 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    className="-m-2 grid min-w-0 flex-1 cursor-pointer gap-1.5 rounded-md p-2 text-left transition-colors hover:bg-accent/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                     aria-label={candidate.label}
                     aria-pressed={selected}
                     onClick={() => {
