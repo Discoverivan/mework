@@ -989,12 +989,10 @@ export function ManagedProjectsSettings({
                     onChange={(next) => updateForm("confluenceInput", next)}
                     disabled={controlsDisabled || confluenceIntegrations.every((integration) => !integration.enabled)}
                     placeholder={t("teams.confluenceSpacePlaceholder")}
-                  />
-                  <p className="text-sm text-muted-foreground">
-                    {t(confluenceIntegrations.some((integration) => integration.enabled)
+                    hint={t(confluenceIntegrations.some((integration) => integration.enabled)
                       ? "teams.confluenceSpaceHint"
                       : "teams.confluenceSpaceUnavailable")}
-                  </p>
+                  />
                   {!value(form.integrationId) ? (
                     <Alert variant="destructive" role="alert">
                       <AlertDescription>{t("teams.integrationRequiredAdd")}</AlertDescription>
@@ -1058,6 +1056,9 @@ export function ManagedProjectsSettings({
                         onChange={(next) => updateForm("confluenceInput", next)}
                         disabled={controlsDisabled || confluenceIntegrations.every((integration) => !integration.enabled)}
                         placeholder={t("teams.confluenceSpacePlaceholder")}
+                        hint={t(confluenceIntegrations.some((integration) => integration.enabled)
+                          ? "teams.confluenceSpaceHint"
+                          : "teams.confluenceSpaceUnavailable")}
                       />
                     </>
                   )}
@@ -1475,16 +1476,19 @@ interface TextFieldProps {
   value: string;
   onChange: (value: string) => void;
   disabled: boolean;
+  hint?: string;
   onBlur?: () => void;
   placeholder?: string;
 }
 
-function TextField({ label, value, onChange, disabled, onBlur, placeholder }: TextFieldProps) {
+function TextField({ label, value, onChange, disabled, hint, onBlur, placeholder }: TextFieldProps) {
   const id = `managed-project-${label.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`;
+  const hintId = `${id}-hint`;
   return (
     <div className="grid gap-2">
       <Label htmlFor={id}>{label}</Label>
-      <Input id={id} value={value} placeholder={placeholder} onChange={(event) => onChange(event.target.value)} onBlur={onBlur} disabled={disabled} />
+      <Input id={id} aria-describedby={hint ? hintId : undefined} value={value} placeholder={placeholder} onChange={(event) => onChange(event.target.value)} onBlur={onBlur} disabled={disabled} />
+      {hint ? <p id={hintId} className="text-sm text-muted-foreground">{hint}</p> : null}
     </div>
   );
 }
