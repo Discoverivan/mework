@@ -77,6 +77,28 @@ beforeEach(() => {
 });
 
 describe("ManagedProjectsSettings task creation settings", () => {
+  it("explains why the Confluence field is unavailable while editing a team", async () => {
+    render(
+      <ManagedProjectsSettings
+        jiraIntegrations={[{
+          id: "jira-1",
+          kind: "jira",
+          baseUrl: "https://jira.example.invalid",
+          enabled: true,
+          capabilities: {},
+        }]}
+        validateProjectKey={vi.fn()}
+      />,
+    );
+
+    fireEvent.click(await screen.findByRole("button", { name: "Edit Platform team" }));
+
+    const confluenceField = screen.getByRole("textbox", { name: "Confluence space" });
+    const hint = screen.getByText("Configure and enable Confluence to select a team space.");
+    expect(confluenceField).toBeDisabled();
+    expect(confluenceField).toHaveAttribute("aria-describedby", hint.id);
+  });
+
   it("creates a team through project validation and board selection steps", async () => {
     const validateProjectKey = vi.fn().mockResolvedValue({
       projectId: "10001",

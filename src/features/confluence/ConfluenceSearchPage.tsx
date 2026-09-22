@@ -1,5 +1,5 @@
 import { openUrl } from "@tauri-apps/plugin-opener";
-import { ExternalLink, Search } from "lucide-react";
+import { ChevronDown, ExternalLink, Search } from "lucide-react";
 import { useEffect, useState, type FormEvent } from "react";
 
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -77,26 +77,29 @@ export function ConfluenceSearchPage() {
       <form className="flex flex-wrap items-end gap-3" onSubmit={submit}>
         {teamSpaces.length > 0 ? (
           <div className="grid min-w-64 gap-2">
-            <Label htmlFor="confluence-search-space">{t("confluence.scope")}</Label>
-            <select
-              id="confluence-search-space"
-              aria-label={t("confluence.scope")}
-              className="h-10 rounded-md border border-input bg-background px-3 py-2 text-sm"
-              value={spaceKey}
-              onChange={(event) => setSpaceKey(event.target.value)}
-              disabled={searching}
-            >
-              {teamSpaces.map((project) => (
-                <option key={project.id} value={project.confluenceSpace?.spaceKey}>
-                  {project.projectName} · {project.confluenceSpace?.spaceName}
-                </option>
-              ))}
-              <option value="">{t("confluence.allSpaces")}</option>
-            </select>
+            <Label htmlFor="confluence-search-space" className="pl-1">{t("confluence.scope")}</Label>
+            <div className="relative">
+              <select
+                id="confluence-search-space"
+                aria-label={t("confluence.scope")}
+                className="h-10 w-full appearance-none rounded-md border border-input bg-background py-2 pl-3 pr-9 text-sm"
+                value={spaceKey}
+                onChange={(event) => setSpaceKey(event.target.value)}
+                disabled={searching}
+              >
+                {teamSpaces.map((project) => (
+                  <option key={project.id} value={project.confluenceSpace?.spaceKey}>
+                    {project.projectName} · {project.confluenceSpace?.spaceName}
+                  </option>
+                ))}
+                <option value="">{t("confluence.allSpaces")}</option>
+              </select>
+              <ChevronDown className="pointer-events-none absolute right-2 top-1/2 size-4 -translate-y-1/2 opacity-50" aria-hidden="true" />
+            </div>
           </div>
         ) : null}
         <div className="grid min-w-0 flex-1 gap-2">
-          <Label htmlFor="confluence-search-query">{t("confluence.query")}</Label>
+          <Label htmlFor="confluence-search-query" className="pl-1">{t("confluence.query")}</Label>
           <Input
             id="confluence-search-query"
             value={query}

@@ -82,7 +82,9 @@ describe("CreateTaskPage", () => {
     expect(createTaskButton).toHaveClass("h-9", "w-9");
     expect(createTaskButton.querySelector("svg.lucide-plus")).not.toBeNull();
     expect(createTaskButton).not.toHaveTextContent("Create task");
-    expect(await screen.findByLabelText("Team")).toBeInTheDocument();
+    const teamSelect = await screen.findByLabelText("Team");
+    expect(teamSelect).toBeInTheDocument();
+    expect(teamSelect.querySelector("svg.lucide-chevron-down")).toHaveClass("-mr-1");
     expect(await screen.findByLabelText("Sprint for new tasks")).toBeInTheDocument();
     await waitFor(() => expect(listMembersMock).toHaveBeenCalledWith("team-1"));
     expect(screen.queryByText("Product", { exact: true })).not.toBeInTheDocument();
