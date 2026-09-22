@@ -151,6 +151,7 @@ describe("GeneralSettingsPage", () => {
     expect(button.querySelector("svg.lucide-refresh-cw")).not.toBeNull();
     fireEvent.click(button);
     await waitFor(() => expect(updaterCheckMock).toHaveBeenCalledWith({ timeout: 10_000 }));
-    expect(await screen.findByText("You're up to date.")).toBeInTheDocument();
+    const currentStatus = (await screen.findByText("You're up to date.")).closest('[role="status"]');
+    expect(currentStatus).toHaveClass("fixed");
   });
 });

@@ -6,6 +6,7 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { checkForAvailableUpdate } from "@/components/shared/update-check";
 import { installAvailableUpdate } from "@/components/shared/update-install";
+import { StatusToast } from "@/components/shared/StatusToast";
 import { Card, CardDescription, CardHeader } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
@@ -224,7 +225,7 @@ export function GeneralSettingsPage() {
       <Card>
         <CardHeader className="space-y-4 px-4 py-3.5">
           <div className="flex flex-wrap items-center justify-between gap-4">
-            <div>
+            <div className="-translate-y-px">
               <Label htmlFor="general-language" className="text-base font-semibold leading-tight">
                 {t("general.language")}
               </Label>
@@ -253,7 +254,7 @@ export function GeneralSettingsPage() {
       <Card>
         <CardHeader className="space-y-4 px-4 py-3.5">
           <div className="flex flex-wrap items-center justify-between gap-4">
-            <div>
+            <div className="-translate-y-px">
               <Label htmlFor="general-theme" className="text-base font-semibold leading-tight">
                 {t("general.theme")}
               </Label>
@@ -283,7 +284,7 @@ export function GeneralSettingsPage() {
       <Card>
         <CardHeader className="space-y-4 px-4 py-3.5">
           <div className="flex items-center justify-between gap-4">
-            <div>
+            <div className="-translate-y-px">
               <Label htmlFor="general-notifications-enabled" className="text-base font-semibold leading-tight">
                 {t("general.notifications")}
               </Label>
@@ -383,7 +384,7 @@ export function GeneralSettingsPage() {
       <Card>
         <CardHeader className="space-y-4 px-4 py-3.5">
           <div className="flex items-center justify-between gap-4">
-            <div>
+            <div className="-translate-y-px">
               <h3 className="text-base font-semibold leading-tight">{t("general.updates")}</h3>
               <CardDescription className="mt-1 leading-snug">
                 {t("general.updatesDescription")}
@@ -423,15 +424,18 @@ export function GeneralSettingsPage() {
               </Button>
             </div>
           </div>
-          {updateStatus === "current" || updateStatus === "error" || updateInstallError ? (
+          {updateStatus === "error" || updateInstallError ? (
             <div className="flex flex-wrap items-center gap-3">
-              {updateStatus === "current" ? <span role="status" className="text-sm text-muted-foreground">{t("general.current")}</span> : null}
               {updateInstallError ? <span role="alert" className="text-sm text-destructive">{updateInstallError}</span> : null}
               {updateStatus === "error" ? <span role="status" className="text-sm text-destructive">{t("general.updateCheckError")}</span> : null}
             </div>
           ) : null}
         </CardHeader>
       </Card>
+      <StatusToast
+        message={updateStatus === "current" ? t("general.current") : undefined}
+        onDismiss={() => setUpdateStatus((current) => current === "current" ? "idle" : current)}
+      />
     </section>
   );
 }

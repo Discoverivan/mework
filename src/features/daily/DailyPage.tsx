@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import { ArrowLeft, ArrowRight, Check, Copy, ExternalLink, MoreHorizontal, Plus, Presentation, RefreshCw, Square } from "lucide-react";
+import { ArrowLeft, ArrowRight, Copy, ExternalLink, MoreHorizontal, Plus, Presentation, RefreshCw, Square } from "lucide-react";
 import { PageHeader } from "@/components/shared/PageHeader";
+import { StatusToast } from "@/components/shared/StatusToast";
 import { useI18n } from "@/i18n/context";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -140,11 +141,6 @@ export function DailyPage() {
   const [taskActionError, setTaskActionError] = useState<string>();
   const [taskActionNotice, setTaskActionNotice] = useState<string>();
 
-  useEffect(() => {
-    if (!taskActionNotice) return;
-    const timeoutId = window.setTimeout(() => setTaskActionNotice(undefined), 2_400);
-    return () => window.clearTimeout(timeoutId);
-  }, [taskActionNotice]);
   const workspaceRequestRevision = useRef(0);
   const statusRefreshRevision = useRef(0);
 
@@ -425,16 +421,7 @@ export function DailyPage() {
           <AlertDescription>{taskActionError}</AlertDescription>
         </Alert>
       ) : null}
-      {taskActionNotice ? (
-        <div
-          className="fixed bottom-4 right-4 z-50 flex max-w-sm items-center gap-2 rounded-md border bg-popover px-3 py-2 text-sm text-popover-foreground shadow-lg"
-          role="status"
-          aria-live="polite"
-        >
-          <Check aria-hidden="true" className="size-4 shrink-0 text-primary" />
-          <span>{taskActionNotice}</span>
-        </div>
-      ) : null}
+      <StatusToast message={taskActionNotice} onDismiss={() => setTaskActionNotice(undefined)} />
 
       {loadingProjects ? <div role="status" aria-label={t("daily.loadingTeams")}>{t("daily.loadingTeams")}</div> : null}
       {error ? (
