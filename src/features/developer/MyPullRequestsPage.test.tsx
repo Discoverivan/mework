@@ -241,14 +241,14 @@ describe("MyPullRequestsPage", () => {
     expect(screen.getByText("sample-repository", { exact: false }).closest("p")).toHaveTextContent("DEMO/");
     expect(screen.getByText("NEW").closest(".pr-review-card-meta")).toBeInTheDocument();
     expect(screen.getByText("UPDATED").closest(".pr-review-card-meta")).toBeInTheDocument();
-    const updateButton = screen.getByRole("button", { name: "Update now" });
-    expect(updateButton).toHaveClass("h-9");
-    expect(updateButton.querySelector("svg.lucide-refresh-cw")).not.toBeNull();
-    expect(updateButton).not.toHaveTextContent("Update now");
+    const refreshButton = screen.getByRole("button", { name: "Refresh" });
+    expect(refreshButton).toHaveClass("h-9");
+    expect(refreshButton.querySelector("svg.lucide-refresh-cw")).not.toBeNull();
+    expect(refreshButton).not.toHaveTextContent("Refresh");
     const readAllButton = screen.getByRole("button", { name: "Mark all as read" });
     expect(readAllButton).toHaveClass("h-9");
     expect(readAllButton).not.toHaveTextContent("Mark all as read");
-    expect(readAllButton.parentElement).toBe(updateButton.parentElement);
+    expect(readAllButton.parentElement).toBe(refreshButton.parentElement);
     const permanentFiltersButton = screen.getByRole("button", { name: "Filters" });
     expect(permanentFiltersButton).toHaveClass("h-9");
     expect(permanentFiltersButton).not.toHaveTextContent("Filters");
@@ -259,7 +259,7 @@ describe("MyPullRequestsPage", () => {
     expect(toolbarButtons).toEqual([
       permanentFiltersButton,
       screen.getByRole("button", { name: "Options" }),
-      updateButton,
+      refreshButton,
       readAllButton,
     ]);
     expect(toolbarButtons[toolbarButtons.length - 1]).toBe(readAllButton);
@@ -636,7 +636,7 @@ describe("MyPullRequestsPage", () => {
     await renderFlatPage();
     await screen.findByRole("button", { name: "Review results" });
 
-    fireEvent.click(screen.getByRole("button", { name: "Update now" }));
+    fireEvent.click(screen.getByRole("button", { name: "Refresh" }));
     await waitFor(() => expect(screen.getAllByRole("button", { name: "AI review" })[0]).toBeInTheDocument());
     expect(screen.queryByRole("button", { name: "Review results" })).not.toBeInTheDocument();
     expect(screen.getAllByRole("button", { name: "AI review" })[0]).not.toBeDisabled();

@@ -151,12 +151,12 @@ describe("AuthoredPullRequestsPage", () => {
     expect(screen.getByText("Needs action", { selector: "div" })).toBeInTheDocument();
     expect(screen.getByText("AI verdict · Needs work")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Mark as viewed" })).toBeInTheDocument();
-    const updateButton = screen.getByRole("button", { name: "Update now" });
-    expect(updateButton).toHaveClass("h-9");
-    expect(updateButton).not.toHaveTextContent("Update now");
+    const refreshButton = screen.getByRole("button", { name: "Refresh" });
+    expect(refreshButton).toHaveClass("h-9");
+    expect(refreshButton).not.toHaveTextContent("Refresh");
     expect(screen.getByRole("button", { name: "Mark all as read" })).toHaveClass("h-9");
     expect(screen.getByRole("button", { name: "Mark all as read" })).not.toHaveTextContent("Mark all as read");
-    expect(screen.getByRole("button", { name: "Mark all as read" }).parentElement).toBe(updateButton.parentElement);
+    expect(screen.getByRole("button", { name: "Mark all as read" }).parentElement).toBe(refreshButton.parentElement);
     const status = screen.getByText("1 authored pull request").closest<HTMLElement>(".page-header-description");
     expect(status).not.toBeNull();
     expect(within(status!).getByText("Updated just now")).toBeInTheDocument();
@@ -165,6 +165,20 @@ describe("AuthoredPullRequestsPage", () => {
     expect(screen.getByText("Every 5 minutes")).toBeInTheDocument();
     expect(listAuthoredPullRequestsMock).toHaveBeenCalledWith(0, 100);
     expect(refreshAuthoredPullRequestsMock).not.toHaveBeenCalled();
+  });
+
+  it("refreshes authored PRs when the local cache has never been synchronized", async () => {
+    listAuthoredPullRequestsMock.mockResolvedValueOnce({
+      values: [],
+      total: 0,
+      hasMore: false,
+    });
+
+    await renderFlatPage();
+
+    expect(await screen.findByRole("heading", { name: "Owned pull request" })).toBeInTheDocument();
+    expect(refreshAuthoredPullRequestsMock).toHaveBeenCalledWith(0, 100);
+    expect(screen.queryByText("No open pull requests authored by you.")).not.toBeInTheDocument();
   });
 
   it("groups authored pull requests by project and can show the flat list", async () => {
@@ -252,7 +266,7 @@ describe("AuthoredPullRequestsPage", () => {
     await screen.findByRole("heading", { name: "Owned pull request" });
     expect(screen.queryByRole("button", { name: "Mark as viewed" })).not.toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: "Update now" }));
+    fireEvent.click(screen.getByRole("button", { name: "Refresh" }));
 
     expect(await screen.findByRole("button", { name: "Mark as viewed" })).toBeInTheDocument();
     expect(screen.getByText("UPDATED")).toBeInTheDocument();
@@ -277,7 +291,7 @@ describe("AuthoredPullRequestsPage", () => {
   it("refreshes authored PRs from the toolbar", async () => {
     await renderFlatPage();
     await screen.findByRole("heading", { name: "Owned pull request" });
-    fireEvent.click(screen.getByRole("button", { name: "Update now" }));
+    fireEvent.click(screen.getByRole("button", { name: "Refresh" }));
     await waitFor(() => expect(refreshAuthoredPullRequestsMock).toHaveBeenCalledWith(0, 100));
   });
 });
