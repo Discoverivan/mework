@@ -6,12 +6,16 @@ use crate::application::general::{
 };
 
 #[tauri::command]
-pub async fn general_settings(state: State<'_, SqlitePool>) -> Result<GeneralSettingsDto, String> {
-    general::dto(&state).await
+pub async fn general_settings(
+    app: AppHandle,
+    state: State<'_, SqlitePool>,
+) -> Result<GeneralSettingsDto, String> {
+    general::dto(&state, &app).await
 }
 
 #[tauri::command]
 pub async fn general_settings_save(
+    app: AppHandle,
     state: State<'_, SqlitePool>,
     notifications_enabled: bool,
     review_notifications_enabled: bool,
@@ -23,16 +27,19 @@ pub async fn general_settings_save(
         review_notifications_enabled,
         authored_notifications_enabled,
     )
-    .await
+    .await?;
+    general::dto(&state, &app).await
 }
 
 #[tauri::command]
 pub async fn general_appearance_save(
+    app: AppHandle,
     state: State<'_, SqlitePool>,
     language: AppLanguage,
     theme_preference: ThemePreference,
 ) -> Result<GeneralSettingsDto, String> {
-    general::save_appearance_preferences(&state, language, theme_preference).await
+    general::save_appearance_preferences(&state, language, theme_preference).await?;
+    general::dto(&state, &app).await
 }
 
 #[tauri::command]
