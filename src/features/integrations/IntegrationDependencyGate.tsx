@@ -1,11 +1,11 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import type { AiSettingsPageData, IntegrationKind, IntegrationRedacted } from "@/shared/contracts/settings";
-import { INTEGRATIONS_HEALTH_REFRESHED_EVENT } from "../settings/health-events";
 import { getAiSettings, listIntegrations } from "../settings/api";
 import { useI18n } from "@/i18n/context";
+import { APP_EVENT, subscribeAppEvent } from "@/app/app-events";
 
 type IntegrationRequirement = IntegrationKind | "any";
 type GateState = "loading" | "ready" | "blocked" | "error";
@@ -63,19 +63,32 @@ export function IntegrationDependencyGate({
 }: IntegrationDependencyGateProps) {
   const { t } = useI18n();
   const [state, setState] = useState<GateState>("loading");
+  const stateRef = useRef<GateState>("loading");
   const [blockedReasons, setBlockedReasons] = useState<string[]>([]);
   const [retry, setRetry] = useState(0);
 
   useEffect(() => {
-    const onHealthRefreshed = () => setRetry((current) => current + 1);
-    window.addEventListener(INTEGRATIONS_HEALTH_REFRESHED_EVENT, onHealthRefreshed);
-    return () => window.removeEventListener(INTEGRATIONS_HEALTH_REFRESHED_EVENT, onHealthRefreshed);
-  }, []);
+    stateRef.current = state;
+  }, [state]);
+
+  useEffect(() => {
+    const refresh = () => setRetry((current) => current + 1);
+    const unsubscribeHealth = subscribeAppEvent(APP_EVENT.integrationsHealthRefreshed, (integrations) => {
+      if (stateRef.current !== "ready" || !satisfiesIntegration(requirement, integrations)) refresh();
+    });
+    const unsubscribeIntegrations = subscribeAppEvent(APP_EVENT.integrationsChanged, refresh);
+    const unsubscribeAi = subscribeAppEvent(APP_EVENT.aiSettingsChanged, refresh);
+    return () => {
+      unsubscribeHealth();
+      unsubscribeIntegrations();
+      unsubscribeAi();
+    };
+  }, [requirement]);
 
   useEffect(() => {
     let active = true;
-    setState("loading");
-    setBlockedReasons([]);
+    setState((current) => current === "ready" ? current : "loading");
+    if (stateRef.current !== "ready") setBlockedReasons([]);
 
     void (async () => {
       const aiCheck = requireAiProvider ? getAiSettings() : Promise.resolve(null);

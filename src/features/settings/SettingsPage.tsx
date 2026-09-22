@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
+import { APP_EVENT, emitAppEvent, subscribeAppEvent } from "@/app/app-events";
 import {
   Dialog,
   DialogBody,
@@ -47,7 +48,6 @@ import { ManagedProjectsSettings } from "./planning-projects/ManagedProjectsSett
 import { GeneralSettingsPage } from "./general/GeneralSettingsPage";
 import { useI18n } from "@/i18n/context";
 import type { TranslationKey } from "@/i18n/locales/en";
-import { INTEGRATIONS_HEALTH_REFRESHED_EVENT } from "./health-events";
 
 type IntegrationForm = {
   baseUrl: string;
@@ -326,8 +326,7 @@ export function SettingsPage({ section = "integrations" }: SettingsPageProps) {
   }, [retry, section, t]);
 
   useEffect(() => {
-    const onHealthRefreshed = (event: Event) => {
-      const loadedIntegrations = (event as CustomEvent<IntegrationRedacted[]>).detail;
+    return subscribeAppEvent(APP_EVENT.integrationsHealthRefreshed, (loadedIntegrations) => {
       if (!Array.isArray(loadedIntegrations)) return;
       setIntegrations(loadedIntegrations);
       setForms((current) => {
@@ -337,9 +336,7 @@ export function SettingsPage({ section = "integrations" }: SettingsPageProps) {
         }
         return next;
       });
-    };
-    window.addEventListener(INTEGRATIONS_HEALTH_REFRESHED_EVENT, onHealthRefreshed);
-    return () => window.removeEventListener(INTEGRATIONS_HEALTH_REFRESHED_EVENT, onHealthRefreshed);
+    });
   }, []);
 
   const selectedIntegration = useMemo(
@@ -407,6 +404,7 @@ export function SettingsPage({ section = "integrations" }: SettingsPageProps) {
         if (aiSaveRevisionRef.current !== revision) return;
         setAiData(saved);
         setAiDraft(saved.settings);
+        emitAppEvent(APP_EVENT.aiSettingsChanged, saved);
         setAiSaved(true);
         setAiSaving(false);
       }).catch((saveError) => {
@@ -456,6 +454,7 @@ export function SettingsPage({ section = "integrations" }: SettingsPageProps) {
       });
       setAiData(saved);
       setAiDraft(saved.settings);
+      emitAppEvent(APP_EVENT.aiSettingsChanged, saved);
       setOpenAiForm((current) => ({ ...current, token: "" }));
       setOpenAiDialogOpen(false);
     } catch (saveError) {
@@ -507,6 +506,7 @@ export function SettingsPage({ section = "integrations" }: SettingsPageProps) {
       },
     }));
     setSelectedKind(null);
+    emitAppEvent(APP_EVENT.integrationsChanged);
   }
 
   async function handleHealthCheck(kind: IntegrationKind) {
@@ -519,6 +519,7 @@ export function SettingsPage({ section = "integrations" }: SettingsPageProps) {
     try {
       const refreshed = await refreshIntegrationHealth({ id: integration.id });
       setIntegrations((current) => replaceIntegration(current, refreshed));
+      emitAppEvent(APP_EVENT.integrationsChanged);
       if (refreshed.healthStatus === "unavailable") {
         setHealthConfirmation({
           kind,
@@ -631,6 +632,7 @@ export function SettingsPage({ section = "integrations" }: SettingsPageProps) {
       );
       setForms((current) => ({ ...current, [kind]: emptyForm() }));
       setSelectedKind(null);
+      emitAppEvent(APP_EVENT.integrationsChanged);
     } catch (error) {
       setError(t("settings.error.deleteIntegration", { provider: provider.label, error: errorMessage(error, t("common.unknownError")) }));
     } finally {
