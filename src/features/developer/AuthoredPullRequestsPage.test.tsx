@@ -14,6 +14,7 @@ import {
   savePullRequestReviewSettings,
   startPullRequestReview,
 } from "./api";
+import { clearPullRequestDisplayPreferencesForTests } from "./display-options";
 import { AuthoredPullRequestsPage } from "./AuthoredPullRequestsPage";
 
 vi.mock("../settings/api", () => ({ getAiSettings: vi.fn() }));
@@ -106,6 +107,7 @@ async function renderFlatPage() {
 describe("AuthoredPullRequestsPage", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    clearPullRequestDisplayPreferencesForTests();
     getAiSettingsMock.mockResolvedValue(aiSettings);
     getReviewSettingsMock.mockResolvedValue(reviewSettings);
     saveReviewSettingsMock.mockImplementation(async (settings) => settings);
@@ -115,6 +117,27 @@ describe("AuthoredPullRequestsPage", () => {
     markAuthoredPullRequestReadMock.mockResolvedValue(true);
     getReviewStateMock.mockResolvedValue(null);
     startReviewMock.mockResolvedValue(completedReview);
+  });
+
+  it("persists display options across remounts", async () => {
+    const firstRender = render(<AuthoredPullRequestsPage />);
+    await screen.findByRole("region", { name: "DEMO project" });
+
+    fireEvent.click(screen.getByRole("button", { name: "Options" }));
+    const firstDialog = screen.getByRole("dialog", { name: "Options" });
+    fireEvent.change(within(firstDialog).getByRole("combobox", { name: "Sort order" }), { target: { value: "oldest" } });
+    fireEvent.click(within(firstDialog).getByRole("switch", { name: "Expand project groups by default" }));
+    fireEvent.click(within(firstDialog).getByRole("switch", { name: "Group by project" }));
+    fireEvent.click(within(firstDialog).getByRole("button", { name: "Done" }));
+    firstRender.unmount();
+
+    render(<AuthoredPullRequestsPage />);
+    await screen.findByRole("heading", { name: "Owned pull request" });
+    fireEvent.click(screen.getByRole("button", { name: "Options" }));
+    const secondDialog = screen.getByRole("dialog", { name: "Options" });
+    expect(within(secondDialog).getByRole("combobox", { name: "Sort order" })).toHaveValue("oldest");
+    expect(within(secondDialog).getByRole("switch", { name: "Group by project" })).not.toBeChecked();
+    expect(within(secondDialog).getByRole("switch", { name: "Expand project groups by default" })).toBeChecked();
   });
 
   it("loads authored open PRs and shows review counters/action state", async () => {

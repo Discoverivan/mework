@@ -28,6 +28,7 @@ import type { DailyWorkspace } from "@/shared/contracts/developer";
 import type { ManagedProject, TeamMember } from "@/shared/contracts/planning";
 import { listManagedProjects } from "../planning/api";
 import { closePresenterView, loadDailyWorkspace, loadJiraAvatarData, openPresenterView, publishPresenterState, refreshDailyWorkspace, subscribePresenterState } from "./api";
+import { readDailyWorkspaceCache, readManagedProjectsCache, writeDailyWorkspaceCache, writeManagedProjectsCache } from "./cache";
 import { dailyStatusTone } from "./status";
 
 function commandError(error: unknown): string {
@@ -128,11 +129,11 @@ function memberStats(subtasks: DailyWorkspace["subtasks"]): { total: number; pro
 
 export function DailyPage() {
   const { t } = useI18n();
-  const [projects, setProjects] = useState<ManagedProject[]>([]);
-  const [selectedProjectId, setSelectedProjectId] = useState<string>();
+  const [projects, setProjects] = useState<ManagedProject[]>(() => readManagedProjectsCache() ?? []);
+  const [selectedProjectId, setSelectedProjectId] = useState<string | undefined>(() => readManagedProjectsCache()?.[0]?.id);
   const [workspace, setWorkspace] = useState<DailyWorkspace>();
   const [selectedMemberId, setSelectedMemberId] = useState<string>();
-  const [loadingProjects, setLoadingProjects] = useState(true);
+  const [loadingProjects, setLoadingProjects] = useState(() => readManagedProjectsCache() == null);
   const [loadingWorkspace, setLoadingWorkspace] = useState(false);
   const [refreshingStatuses, setRefreshingStatuses] = useState(false);
   const [error, setError] = useState<string>();
@@ -146,11 +147,15 @@ export function DailyPage() {
 
   useEffect(() => {
     let active = true;
+    setLoadingProjects(readManagedProjectsCache() == null);
     listManagedProjects()
       .then((loaded) => {
         if (!active) return;
+        writeManagedProjectsCache(loaded);
         setProjects(loaded);
-        setSelectedProjectId((current) => current ?? loaded[0]?.id);
+        setSelectedProjectId((current) =>
+          current && loaded.some((project) => project.id === current) ? current : loaded[0]?.id,
+        );
       })
       .catch((reason) => {
         if (active) setError(commandError(reason));
@@ -167,17 +172,23 @@ export function DailyPage() {
     const revision = workspaceRequestRevision.current + 1;
     workspaceRequestRevision.current = revision;
     statusRefreshRevision.current += 1;
-    setLoadingWorkspace(true);
-    setRefreshingStatuses(false);
+    const cachedWorkspace = readDailyWorkspaceCache(projectId, sprintId);
+    setWorkspace(cachedWorkspace);
+    setLoadingWorkspace(cachedWorkspace == null);
+    setRefreshingStatuses(cachedWorkspace != null);
     setError(undefined);
     try {
       const loaded = await loadDailyWorkspace(projectId, sprintId);
       if (workspaceRequestRevision.current !== revision) return;
+      writeDailyWorkspaceCache(loaded);
       setWorkspace(loaded);
     } catch (reason) {
       if (workspaceRequestRevision.current === revision) setError(commandError(reason));
     } finally {
-      if (workspaceRequestRevision.current === revision) setLoadingWorkspace(false);
+      if (workspaceRequestRevision.current === revision) {
+        setLoadingWorkspace(false);
+        setRefreshingStatuses(false);
+      }
     }
   }, []);
 
@@ -192,11 +203,11 @@ export function DailyPage() {
     try {
       const subtasks = await refreshDailyWorkspace(managedProjectId, sprintId);
       if (statusRefreshRevision.current !== revision) return;
-      setWorkspace((current) =>
-        current?.managedProjectId === managedProjectId && current.selectedSprintId === sprintId
-          ? { ...current, subtasks }
-          : current,
-      );
+      if (workspace.managedProjectId === managedProjectId && workspace.selectedSprintId === sprintId) {
+        const nextWorkspace = { ...workspace, subtasks };
+        writeDailyWorkspaceCache(nextWorkspace);
+        setWorkspace(nextWorkspace);
+      }
     } catch (reason) {
       if (statusRefreshRevision.current === revision) setError(commandError(reason));
     } finally {
@@ -214,7 +225,6 @@ export function DailyPage() {
       setRefreshingStatuses(false);
       return undefined;
     }
-    setWorkspace(undefined);
     setSelectedMemberId(undefined);
     void refreshWorkspace(selectedProjectId);
     return undefined;
@@ -436,7 +446,23 @@ export function DailyPage() {
         </Card>
       ) : null}
 
-      {loadingWorkspace ? <div role="status" aria-label={t("daily.loadingTasks")}>{t("daily.loadingTasks")}</div> : null}
+      {loadingWorkspace ? (
+        <Card role="status" aria-label={t("daily.loadingTasks")} className="overflow-hidden">
+          <CardContent className="flex items-center gap-4 py-8">
+            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-primary/10 text-primary">
+              <RefreshCw className="size-6 animate-spin" aria-hidden="true" />
+            </div>
+            <div className="min-w-0 flex-1">
+              <p className="font-medium">{t("daily.loadingTasks")}</p>
+              <p className="mt-1 text-sm text-muted-foreground">{t("daily.loadingTasksDescription")}</p>
+              <div className="mt-4 grid gap-2" aria-hidden="true">
+                <span className="h-2 w-3/4 animate-pulse rounded bg-muted" />
+                <span className="h-2 w-1/2 animate-pulse rounded bg-muted" />
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      ) : null}
       {workspace && !loadingWorkspace ? (
         <div className="daily-workspace-layout">
           <Card className="daily-members-card">

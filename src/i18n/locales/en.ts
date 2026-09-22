@@ -147,6 +147,7 @@ export const en = {
   "daily.loadError": "Unable to load sprint tasks. {error}",
   "daily.configureTeam": "Configure a managed Jira team and its members in Team settings first.",
   "daily.loadingTasks": "Loading sprint tasks…",
+  "daily.loadingTasksDescription": "Fetching the selected sprint and assigned subtasks.",
   "daily.assignees": "Assignees",
   "daily.noSprintTasks": "No tasks were found in this sprint.",
   "daily.otherAssignees": "Other assignees",

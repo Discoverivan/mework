@@ -149,6 +149,7 @@ export const ru: Record<TranslationKey, string> = {
   "daily.loadError": "Не удалось загрузить задачи спринта. {error}",
   "daily.configureTeam": "Сначала настройте команду Jira и её участников в настройках команды.",
   "daily.loadingTasks": "Загрузка задач спринта…",
+  "daily.loadingTasksDescription": "Загружаем выбранный спринт и назначенные сабтаски.",
   "daily.assignees": "Исполнители",
   "daily.noSprintTasks": "В этом спринте задачи не найдены.",
   "daily.otherAssignees": "Другие исполнители",

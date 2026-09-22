@@ -22,6 +22,7 @@ import {
   setPullRequestDecision,
   startPullRequestReview,
 } from "./api";
+import { clearPullRequestDisplayPreferencesForTests } from "./display-options";
 import { MyPullRequestsPage } from "./MyPullRequestsPage";
 
 vi.mock("../settings/api", () => ({
@@ -181,6 +182,7 @@ async function renderFlatPage() {
 describe("MyPullRequestsPage", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    clearPullRequestDisplayPreferencesForTests();
     listMyPullRequestsMock.mockResolvedValue(firstPage);
     refreshMyPullRequestsMock.mockResolvedValue(firstPage);
     getAiSettingsMock.mockResolvedValue(aiSettingsConnected);
@@ -199,6 +201,27 @@ describe("MyPullRequestsPage", () => {
       repositoryName: "Sample Repository",
     }]);
     searchUsersMock.mockResolvedValue([{ name: "test-author-a", displayName: "Test Author A", slug: "test-author-a" }]);
+  });
+
+  it("persists display options across remounts", async () => {
+    const firstRender = render(<MyPullRequestsPage />);
+    await screen.findByRole("region", { name: "DEMO project" });
+
+    fireEvent.click(screen.getByRole("button", { name: "Options" }));
+    const firstDialog = screen.getByRole("dialog", { name: "Options" });
+    fireEvent.change(within(firstDialog).getByRole("combobox", { name: "Sort order" }), { target: { value: "oldest" } });
+    fireEvent.click(within(firstDialog).getByRole("switch", { name: "Expand project groups by default" }));
+    fireEvent.click(within(firstDialog).getByRole("switch", { name: "Group by project" }));
+    fireEvent.click(within(firstDialog).getByRole("button", { name: "Done" }));
+    firstRender.unmount();
+
+    render(<MyPullRequestsPage />);
+    await screen.findByRole("heading", { name: "Example pull request" });
+    fireEvent.click(screen.getByRole("button", { name: "Options" }));
+    const secondDialog = screen.getByRole("dialog", { name: "Options" });
+    expect(within(secondDialog).getByRole("combobox", { name: "Sort order" })).toHaveValue("oldest");
+    expect(within(secondDialog).getByRole("switch", { name: "Group by project" })).not.toBeChecked();
+    expect(within(secondDialog).getByRole("switch", { name: "Expand project groups by default" })).toBeChecked();
   });
 
   it("loads the complete list and marks one PR read with its latest commit", async () => {

@@ -34,10 +34,10 @@ import { PullRequestDisplayOptionsDialog } from "./components/PullRequestDisplay
 import { PullRequestProjectSection } from "./components/PullRequestProjectSection";
 import { PullRequestReviewDialog } from "./components/PullRequestReviewDialog";
 import { PullRequestStatus } from "./components/PullRequestStatus";
+import { usePullRequestDisplayPreferences } from "./display-options";
 import {
   groupPullRequestsByProject,
   sortPullRequestsByUpdatedDate,
-  type PullRequestSortOrder,
 } from "./components/pull-request-projects";
 import { PageHeader } from "@/components/shared/PageHeader";
 import { useI18n } from "@/i18n/context";
@@ -173,9 +173,7 @@ export function MyPullRequestsPage() {
   const [creatorSearchError, setCreatorSearchError] = useState<string>();
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [displayOptionsOpen, setDisplayOptionsOpen] = useState(false);
-  const [groupByProject, setGroupByProject] = useState(true);
-  const [expandProjectsByDefault, setExpandProjectsByDefault] = useState(false);
-  const [sortOrder, setSortOrder] = useState<PullRequestSortOrder>("newest");
+  const [displayPreferences, updateDisplayPreferences] = usePullRequestDisplayPreferences("reviewer");
   const [filterTab, setFilterTab] = useState<FilterTab>("whitelist");
   const [quickFilter, setQuickFilter] = useState<QuickFilter>("all");
   const [saving, setSaving] = useState(false);
@@ -437,7 +435,7 @@ export function MyPullRequestsPage() {
     filteredPullRequests.filter((pullRequest) =>
       quickFilter === "all" || pullRequest.myDecision === "not_reviewed",
     ),
-    sortOrder,
+    displayPreferences.sortOrder,
   );
   const projectGroups = groupPullRequestsByProject(visiblePullRequests);
   const reviewDialogPullRequest = reviewDialogKey
@@ -634,7 +632,7 @@ export function MyPullRequestsPage() {
             kind="review"
             count={total ?? pullRequests.length}
             activeFilterCount={settings.repositoryBlacklist.length + settings.creatorBlacklist.length + settings.repositoryWhitelist.length + settings.creatorWhitelist.length}
-            sortOrder={sortOrder}
+            sortOrder={displayPreferences.sortOrder}
             lastSyncAt={lastSyncAt}
             now={now}
             polling={polling}
@@ -730,14 +728,14 @@ export function MyPullRequestsPage() {
         <Card><CardContent className="pt-6"><p>{t("pr.emptyFiltered")}</p></CardContent></Card>
       ) : null}
 
-      <div className={`${groupByProject ? "space-y-5" : "inbox-list"} pt-1`} aria-live="polite">
-        {groupByProject
+      <div className={`${displayPreferences.groupByProject ? "space-y-5" : "inbox-list"} pt-1`} aria-live="polite">
+        {displayPreferences.groupByProject
           ? projectGroups.map((group) => (
               <PullRequestProjectSection
                 key={group.key}
                 projectKey={group.projectKey}
                 pullRequestCount={group.pullRequests.length}
-                expandedByDefault={expandProjectsByDefault}
+                expandedByDefault={displayPreferences.expandProjectsByDefault}
               >
                 {group.pullRequests.map((pullRequest) => renderPullRequest(pullRequest, false))}
               </PullRequestProjectSection>
@@ -761,15 +759,15 @@ export function MyPullRequestsPage() {
 
       <PullRequestDisplayOptionsDialog
         open={displayOptionsOpen}
-        groupByProject={groupByProject}
-        expandProjectsByDefault={expandProjectsByDefault}
-        sortOrder={sortOrder}
+        groupByProject={displayPreferences.groupByProject}
+        expandProjectsByDefault={displayPreferences.expandProjectsByDefault}
+        sortOrder={displayPreferences.sortOrder}
         autoReviewEnabled={settings.autoReviewEnabled}
         autoReviewDisabled={loading || autoReviewSaving}
         onOpenChange={setDisplayOptionsOpen}
-        onGroupByProjectChange={setGroupByProject}
-        onExpandProjectsByDefaultChange={setExpandProjectsByDefault}
-        onSortOrderChange={setSortOrder}
+        onGroupByProjectChange={(enabled) => updateDisplayPreferences({ groupByProject: enabled })}
+        onExpandProjectsByDefaultChange={(enabled) => updateDisplayPreferences({ expandProjectsByDefault: enabled })}
+        onSortOrderChange={(order) => updateDisplayPreferences({ sortOrder: order })}
         onAutoReviewChange={(enabled) => void toggleAutoReview(enabled)}
       />
 
