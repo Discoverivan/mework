@@ -222,7 +222,7 @@ export function GeneralSettingsPage() {
       ) : null}
 
       <Card>
-        <CardHeader className="space-y-4 px-4 pb-4 pt-3.5">
+        <CardHeader className="space-y-4 px-4 py-3.5">
           <div className="flex flex-wrap items-center justify-between gap-4">
             <div>
               <Label htmlFor="general-language" className="text-base font-semibold leading-tight">
@@ -251,7 +251,7 @@ export function GeneralSettingsPage() {
       </Card>
 
       <Card>
-        <CardHeader className="space-y-4 px-4 pb-4 pt-3.5">
+        <CardHeader className="space-y-4 px-4 py-3.5">
           <div className="flex flex-wrap items-center justify-between gap-4">
             <div>
               <Label htmlFor="general-theme" className="text-base font-semibold leading-tight">
@@ -281,7 +281,7 @@ export function GeneralSettingsPage() {
       </Card>
 
       <Card>
-        <CardHeader className="space-y-4 px-4 pb-4 pt-3.5">
+        <CardHeader className="space-y-4 px-4 py-3.5">
           <div className="flex items-center justify-between gap-4">
             <div>
               <Label htmlFor="general-notifications-enabled" className="text-base font-semibold leading-tight">
@@ -374,14 +374,14 @@ export function GeneralSettingsPage() {
               />
             </div>
           </div>
-          <span className="sr-only" role="status" aria-live="polite">
-            {testedNotification ? t("general.testSent") : ""}
-          </span>
         </CardHeader>
+        <span className="sr-only" role="status" aria-live="polite">
+          {testedNotification ? t("general.testSent") : ""}
+        </span>
       </Card>
 
       <Card>
-        <CardHeader className="space-y-4 px-4 pb-4 pt-3.5">
+        <CardHeader className="space-y-4 px-4 py-3.5">
           <div className="flex items-center justify-between gap-4">
             <div>
               <h3 className="text-base font-semibold leading-tight">{t("general.updates")}</h3>
