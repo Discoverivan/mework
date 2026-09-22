@@ -130,7 +130,7 @@ describe("GeneralSettingsPage", () => {
 
     fireEvent.click(await screen.findByRole("button", { name: "Check for updates" }));
     const updateButton = await screen.findByRole("button", { name: "Update to 0.1.5" });
-    expect(screen.queryByText("MeWork 0.1.5 is available.")).not.toBeInTheDocument();
+    expect(screen.queryByText("mework 0.1.5 is available.")).not.toBeInTheDocument();
 
     expect(updateButton).toHaveAttribute("title", "Update to 0.1.5");
     expect(updateButton).not.toHaveTextContent("Update to 0.1.5");

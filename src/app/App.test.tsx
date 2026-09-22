@@ -62,7 +62,7 @@ vi.mock("../features/settings/api", () => ({
   refreshAllIntegrationsHealth: refreshAllIntegrationsHealthMock,
 }));
 
-describe("MeWork application shell", () => {
+describe("mework application shell", () => {
   beforeEach(() => {
     window.location.hash = "";
     vi.stubGlobal("matchMedia", () => ({ matches: true }));
@@ -91,10 +91,10 @@ describe("MeWork application shell", () => {
     );
 
     render(<App />);
-    expect(screen.getByRole("status", { name: "Loading MeWork" })).toBeInTheDocument();
+    expect(screen.getByRole("status", { name: "Loading mework" })).toBeInTheDocument();
 
     resolveHealth([]);
-    await waitFor(() => expect(screen.queryByRole("status", { name: "Loading MeWork" })).not.toBeInTheDocument());
+    await waitFor(() => expect(screen.queryByRole("status", { name: "Loading mework" })).not.toBeInTheDocument());
   });
 
   it("waits for the initial Bitbucket refresh before showing the main UI", async () => {
@@ -108,9 +108,9 @@ describe("MeWork application shell", () => {
     );
 
     render(<App />);
-    expect(screen.getByRole("status", { name: "Loading MeWork" })).toBeInTheDocument();
+    expect(screen.getByRole("status", { name: "Loading mework" })).toBeInTheDocument();
     expect(refreshMyPullRequestsMock).not.toHaveBeenCalled();
-    expect(screen.queryByRole("main", { name: "MeWork" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("main", { name: "mework" })).not.toBeInTheDocument();
 
     resolveHealth([{
       id: "bitbucket-1",
@@ -121,10 +121,10 @@ describe("MeWork application shell", () => {
       capabilities: [],
     }]);
     await waitFor(() => expect(refreshMyPullRequestsMock).toHaveBeenCalledWith(0, 100));
-    expect(screen.queryByRole("main", { name: "MeWork" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("main", { name: "mework" })).not.toBeInTheDocument();
 
     resolveRefresh({ values: [], total: 0, hasMore: false });
-    expect(await screen.findByRole("main", { name: "MeWork" })).toBeInTheDocument();
+    expect(await screen.findByRole("main", { name: "mework" })).toBeInTheDocument();
   });
 
   it("opens pull requests awaiting your review by default", async () => {
@@ -137,7 +137,7 @@ describe("MeWork application shell", () => {
     vi.stubGlobal("matchMedia", () => ({ matches: false }));
     render(<App />);
 
-    await screen.findByRole("main", { name: "MeWork" });
+    await screen.findByRole("main", { name: "mework" });
     const themePicker = screen.getByRole("combobox", { name: "Theme" });
     await waitFor(() => expect(themePicker.querySelector("svg.lucide-moon")).not.toBeNull());
     expect(themePicker.querySelector("svg.lucide-sun")).toBeNull();
@@ -146,7 +146,7 @@ describe("MeWork application shell", () => {
 
   it("opens My Pull Requests from its dedicated hash route", async () => {
     render(<App />);
-    await screen.findByRole("main", { name: "MeWork" });
+    await screen.findByRole("main", { name: "mework" });
 
     window.location.hash = "#developer/my-pull-requests";
     window.dispatchEvent(new HashChangeEvent("hashchange"));
@@ -170,7 +170,7 @@ describe("MeWork application shell", () => {
 
     render(<App />);
 
-    await screen.findByRole("main", { name: "MeWork" });
+    await screen.findByRole("main", { name: "mework" });
     expect(await screen.findByRole("link", { name: "Your PRs, 1 unread" })).toHaveAttribute(
       "href",
       "#developer/my-pull-requests",
@@ -181,9 +181,9 @@ describe("MeWork application shell", () => {
   it("runs integration health checks when the app starts", async () => {
     render(<App />);
 
-    await screen.findByRole("main", { name: "MeWork" });
+    await screen.findByRole("main", { name: "mework" });
     expect(refreshAllIntegrationsHealthMock).toHaveBeenCalledOnce();
     expect(getAiSettingsMock).toHaveBeenCalledOnce();
-    expect(screen.queryByRole("status", { name: "Loading MeWork" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("status", { name: "Loading mework" })).not.toBeInTheDocument();
   });
 });

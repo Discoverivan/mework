@@ -162,9 +162,13 @@ pub async fn load_daily_workspace(
                 true,
             )
         })?;
+    // Jira returns every issue in the sprint. Keep only real subtasks assigned to
+    // a person; the `issuetype.subtask` flag is the wire-level source of truth,
+    // not the localized issue type name or the presence of a parent field.
     let subtasks = issues
         .values
         .into_iter()
+        .filter(|issue| is_assigned_subtask(&issue.fields))
         .map(|issue| {
             daily_task(
                 issue.id,
@@ -238,6 +242,21 @@ async fn ensure_daily_dependencies(
         ));
     }
     Ok(())
+}
+
+fn is_assigned_subtask(fields: &Value) -> bool {
+    let is_subtask = fields
+        .get("issuetype")
+        .and_then(|value| value.get("subtask"))
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    let has_assignee = fields
+        .get("assignee")
+        .filter(|value| !value.is_null())
+        .and_then(|value| first_string(value, &["accountId", "name", "key"]))
+        .is_some();
+
+    is_subtask && has_assignee
 }
 
 fn daily_task(
@@ -369,7 +388,7 @@ fn daily_error(code: &str, message: &str, retryable: bool) -> PlanningCommandErr
 
 #[cfg(test)]
 mod tests {
-    use super::daily_task;
+    use super::{daily_task, is_assigned_subtask};
     use serde_json::json;
 
     #[test]
@@ -406,5 +425,25 @@ mod tests {
             task.status_transition_at.as_deref(),
             Some("2026-09-14T16:32:10.000+0300")
         );
+    }
+
+    #[test]
+    fn accepts_only_assigned_subtasks_from_jira_wire_metadata() {
+        let assigned_subtask = json!({
+            "issuetype": {"name": "Sub-task", "subtask": true},
+            "assignee": {"accountId": "test-user-a"},
+        });
+        let parent_task = json!({
+            "issuetype": {"name": "Story", "subtask": false},
+            "assignee": {"accountId": "test-user-a"},
+        });
+        let unassigned_subtask = json!({
+            "issuetype": {"name": "Sub-task", "subtask": true},
+            "assignee": null,
+        });
+
+        assert!(is_assigned_subtask(&assigned_subtask));
+        assert!(!is_assigned_subtask(&parent_task));
+        assert!(!is_assigned_subtask(&unassigned_subtask));
     }
 }
