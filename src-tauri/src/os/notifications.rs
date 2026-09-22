@@ -99,19 +99,19 @@ pub fn open_notification_settings() -> Result<(), String> {
 }
 
 #[cfg(target_os = "macos")]
-pub fn send_test_notification() -> Result<(), String> {
+pub fn send_test_notification(title: &str, body: &str, identifier: &str) -> Result<(), String> {
     use std::sync::mpsc;
 
     let center = UNUserNotificationCenter::currentNotificationCenter();
     let content = UNMutableNotificationContent::new();
-    let title = NSString::from_str("mework notification test");
-    let body = NSString::from_str("Notifications are enabled and working.");
+    let title = NSString::from_str(title);
+    let body = NSString::from_str(body);
     content.setTitle(&title);
     content.setBody(&body);
     let sound = UNNotificationSound::defaultSound();
     content.setSound(Some(&sound));
 
-    let identifier = NSString::from_str(&format!("mework-test-{}", uuid::Uuid::now_v7()));
+    let identifier = NSString::from_str(&format!("{identifier}-{}", uuid::Uuid::now_v7()));
     let request =
         UNNotificationRequest::requestWithIdentifier_content_trigger(&identifier, &content, None);
     let (sender, receiver) = mpsc::sync_channel(1);
@@ -127,11 +127,6 @@ pub fn send_test_notification() -> Result<(), String> {
     receiver
         .recv_timeout(Duration::from_secs(2))
         .map_err(|_| "macOS notification request timed out".to_owned())?
-}
-
-#[cfg(not(target_os = "macos"))]
-pub fn send_test_notification() -> Result<(), String> {
-    Err("native test notifications are only available on macOS".to_owned())
 }
 
 pub trait NotificationAdapter: Send + Sync {

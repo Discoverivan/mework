@@ -205,10 +205,10 @@ const AI_STATUS_LABEL_KEYS: Record<AiProviderStatus, TranslationKey> = {
 };
 
 function aiStatusIcon(status: AiProviderStatus) {
-  if (status === "loading") return <Loader2 className="size-5 animate-spin" aria-hidden="true" />;
-  if (status === "connected") return <CheckCircle2 className="size-5 text-success" aria-hidden="true" />;
-  if (status === "not_configured" || status === "not_found") return <Circle className="size-5" aria-hidden="true" />;
-  return <AlertTriangle className="size-5 text-warning" aria-hidden="true" />;
+  if (status === "loading") return <Loader2 className="size-4 animate-spin" aria-hidden="true" />;
+  if (status === "connected") return <CheckCircle2 className="size-4 text-success" aria-hidden="true" />;
+  if (status === "not_configured" || status === "not_found") return <Circle className="size-4" aria-hidden="true" />;
+  return <AlertTriangle className="size-4 text-warning" aria-hidden="true" />;
 }
 
 function modelForAiProvider(provider: AiProvider | null | undefined, currentModel: string): string {
@@ -666,7 +666,7 @@ export function SettingsPage({ section = "integrations" }: SettingsPageProps) {
                       value={aiDraft.provider ?? ""}
                       onChange={(event) => updateAiProvider(event.target.value)}
                       disabled={aiData === null || aiLoading || aiSaving}
-                      className="h-9 w-full appearance-none rounded-md border border-input bg-background px-3 pr-9 text-sm disabled:cursor-not-allowed disabled:opacity-50"
+                      className="h-9 w-full appearance-none rounded-md border border-input bg-background px-3 pb-px pr-9 text-sm disabled:cursor-not-allowed disabled:opacity-50"
                     >
                       <option value="">{t("settings.ai.notSelected")}</option>
                       {aiData?.providers.map((candidate) => (
@@ -687,7 +687,7 @@ export function SettingsPage({ section = "integrations" }: SettingsPageProps) {
                       value={aiDraft.model}
                       onChange={(event) => updateAiSetting("model", event.target.value)}
                       disabled={!aiDraft.provider || !selectedAiProvider || aiSaving}
-                      className="h-9 w-full appearance-none rounded-md border border-input bg-background px-3 pr-9 text-sm disabled:cursor-not-allowed disabled:opacity-50"
+                      className="h-9 w-full appearance-none rounded-md border border-input bg-background px-3 pb-px pr-9 text-sm disabled:cursor-not-allowed disabled:opacity-50"
                     >
                       {(selectedAiProvider?.models ?? []).length === 0 ? (
                         <option value="">
@@ -711,7 +711,7 @@ export function SettingsPage({ section = "integrations" }: SettingsPageProps) {
                       value={aiDraft.reasoning}
                       onChange={(event) => updateAiReasoning(event.target.value)}
                       disabled={!aiDraft.provider || aiSaving}
-                      className="h-9 w-full appearance-none rounded-md border border-input bg-background px-3 pr-9 text-sm disabled:cursor-not-allowed disabled:opacity-50"
+                      className="h-9 w-full appearance-none rounded-md border border-input bg-background px-3 pb-px pr-9 text-sm disabled:cursor-not-allowed disabled:opacity-50"
                     >
                       {AI_REASONING_OPTIONS.map((reasoning) => (
                         <option key={reasoning} value={reasoning}>{reasoning}</option>
@@ -752,8 +752,8 @@ export function SettingsPage({ section = "integrations" }: SettingsPageProps) {
 
         <section className="space-y-4" aria-labelledby="ai-providers-title">
           <div>
-            <h2 id="ai-providers-title">{t("settings.aiProviders.title")}</h2>
-            <p className="text-muted-foreground">
+            <h2 id="ai-providers-title" className="text-lg font-semibold leading-tight">{t("settings.aiProviders.title")}</h2>
+            <p className="mt-1 text-sm text-muted-foreground">
               {t("settings.aiProviders.description")}
             </p>
           </div>
@@ -768,7 +768,7 @@ export function SettingsPage({ section = "integrations" }: SettingsPageProps) {
                     disabled={candidate.id !== "openai-compatible" || openAiSaving}
                     onClick={candidate.id === "openai-compatible" ? openOpenAiCompatibleDialog : undefined}
                   >
-                    <p className="text-lg font-semibold leading-tight">{candidate.name}</p>
+                    <p className="text-base font-semibold leading-tight">{candidate.name}</p>
                     <CardDescription className="leading-snug">
                       {candidate.id === "openai-compatible"
                         ? t("settings.aiProviders.openAiDescription")
@@ -911,7 +911,7 @@ export function SettingsPage({ section = "integrations" }: SettingsPageProps) {
                       setError(null);
                     }}
                   >
-                    <p className="text-lg font-semibold leading-tight">{candidate.label}</p>
+                    <p className="text-base font-semibold leading-tight">{candidate.label}</p>
                     <CardDescription className="leading-snug">
                       {t(candidate.kind === "jira" ? "settings.data.jiraDescription" : "settings.data.bitbucketDescription")}
                     </CardDescription>
@@ -920,13 +920,13 @@ export function SettingsPage({ section = "integrations" }: SettingsPageProps) {
                     <div className="flex min-w-0 flex-col items-end gap-0.5">
                       <span className="flex items-center gap-1.5">
                         {!configured ? (
-                          <Circle className="size-5" aria-hidden="true" />
+                          <Circle className="size-4" aria-hidden="true" />
                         ) : healthStatus === "working" ? (
-                          <CheckCircle2 className="size-5 text-success" aria-hidden="true" />
+                          <CheckCircle2 className="size-4 text-success" aria-hidden="true" />
                         ) : healthStatus === "unavailable" ? (
-                          <AlertTriangle className="size-5 text-warning" aria-hidden="true" />
+                          <AlertTriangle className="size-4 text-warning" aria-hidden="true" />
                         ) : (
-                          <CircleHelp className="size-5 text-muted-foreground" aria-hidden="true" />
+                          <CircleHelp className="size-4 text-muted-foreground" aria-hidden="true" />
                         )}
                         <span>{configured ? t(HEALTH_LABEL_KEYS[healthStatus]) : t("settings.health.notConfigured")}</span>
                       </span>

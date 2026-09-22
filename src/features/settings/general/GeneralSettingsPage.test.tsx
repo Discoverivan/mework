@@ -82,8 +82,19 @@ describe("GeneralSettingsPage", () => {
     fireEvent.click(screen.getByRole("button", { name: "Open notification settings" }));
     await waitFor(() => expect(openNotificationSettingsMock).toHaveBeenCalledOnce());
 
-    fireEvent.click(screen.getByRole("button", { name: "Test notification" }));
-    await waitFor(() => expect(sendNotificationTestMock).toHaveBeenCalledOnce());
+    const reviewTestButton = screen.getByRole("button", { name: "Test review notification" });
+    expect(reviewTestButton).toHaveAttribute("title", "Test review notification");
+    expect(reviewTestButton).not.toHaveTextContent("Test review notification");
+    expect(reviewTestButton.querySelector("svg.lucide-bell-ring")).not.toBeNull();
+    fireEvent.click(reviewTestButton);
+    await waitFor(() => expect(sendNotificationTestMock).toHaveBeenCalledWith("review"));
+
+    const authoredTestButton = screen.getByRole("button", { name: "Test authored pull request notification" });
+    expect(authoredTestButton).toHaveAttribute("title", "Test authored pull request notification");
+    expect(authoredTestButton.querySelector("svg.lucide-bell-ring")).not.toBeNull();
+    fireEvent.click(authoredTestButton);
+    await waitFor(() => expect(sendNotificationTestMock).toHaveBeenLastCalledWith("authored"));
+    expect(sendNotificationTestMock).toHaveBeenCalledTimes(2);
 
     fireEvent.click(screen.getByRole("switch", { name: "Pull requests awaiting your review" }));
     await waitFor(() => expect(saveGeneralSettingsMock).toHaveBeenLastCalledWith({
@@ -108,7 +119,7 @@ describe("GeneralSettingsPage", () => {
     expect(await screen.findByRole("heading", { name: "Application preferences" })).toBeInTheDocument();
   });
 
-  it("offers Update now when a newer application version is available", async () => {
+  it("offers a stable install action when a newer application version is available", async () => {
     const update = {
       version: "0.1.5",
       body: "Release notes should not be rendered here.",
@@ -118,9 +129,16 @@ describe("GeneralSettingsPage", () => {
     render(<GeneralSettingsPage />);
 
     fireEvent.click(await screen.findByRole("button", { name: "Check for updates" }));
-    expect(await screen.findByText("MeWork 0.1.5 is available.")).toBeInTheDocument();
+    const updateButton = await screen.findByRole("button", { name: "Update to 0.1.5" });
+    expect(screen.queryByText("MeWork 0.1.5 is available.")).not.toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: "Update now" }));
+    expect(updateButton).toHaveAttribute("title", "Update to 0.1.5");
+    expect(updateButton).not.toHaveTextContent("Update to 0.1.5");
+    expect(updateButton.querySelector("svg.lucide-download")).not.toBeNull();
+    const checkButton = screen.getByRole("button", { name: "Check for updates" });
+    expect(updateButton.parentElement).toContainElement(checkButton);
+    expect(updateButton.nextElementSibling).toBe(checkButton);
+    fireEvent.click(updateButton);
     await waitFor(() => expect(installAvailableUpdateMock).toHaveBeenCalledWith(update));
   });
 
@@ -128,6 +146,9 @@ describe("GeneralSettingsPage", () => {
     render(<GeneralSettingsPage />);
 
     const button = await screen.findByRole("button", { name: "Check for updates" });
+    expect(button).toHaveAttribute("title", "Check for updates");
+    expect(button).not.toHaveTextContent("Check for updates");
+    expect(button.querySelector("svg.lucide-refresh-cw")).not.toBeNull();
     fireEvent.click(button);
     await waitFor(() => expect(updaterCheckMock).toHaveBeenCalledWith({ timeout: 10_000 }));
     expect(await screen.findByText("You're up to date.")).toBeInTheDocument();

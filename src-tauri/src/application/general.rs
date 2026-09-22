@@ -29,6 +29,13 @@ pub enum AppLanguage {
     Russian,
 }
 
+#[derive(Debug, Clone, Copy, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum NotificationTestKind {
+    Review,
+    Authored,
+}
+
 #[derive(Debug, Clone, Copy, Default, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum ThemePreference {
@@ -170,7 +177,10 @@ pub async fn authored_notifications_enabled(pool: &SqlitePool) -> Result<bool, S
     Ok(settings.notifications_enabled && settings.authored_notifications_enabled)
 }
 
-pub fn send_test_notification<R: Runtime>(app: &AppHandle<R>) -> Result<(), String> {
+pub fn send_test_notification<R: Runtime>(
+    app: &AppHandle<R>,
+    notification_kind: NotificationTestKind,
+) -> Result<(), String> {
     match notifications::permission_status()? {
         NotificationPermission::Granted => {}
         NotificationPermission::Denied | NotificationPermission::NotDetermined => {
@@ -180,20 +190,29 @@ pub fn send_test_notification<R: Runtime>(app: &AppHandle<R>) -> Result<(), Stri
         }
     }
 
+    let (title, body, identifier) = match notification_kind {
+        NotificationTestKind::Review => (
+            "New pull request for review",
+            "EXAMPLE/sample-repository #42 — Example review request",
+            "general-review-test",
+        ),
+        NotificationTestKind::Authored => (
+            "Changes requested on your pull request",
+            "EXAMPLE/sample-repository #42 — Example authored pull request",
+            "general-authored-test",
+        ),
+    };
+
     #[cfg(target_os = "macos")]
     {
         let _ = app;
-        notifications::send_test_notification()
+        notifications::send_test_notification(title, body, identifier)
     }
 
     #[cfg(not(target_os = "macos"))]
     {
         let adapter = notifications::NativeNotificationAdapter::new(app.clone());
-        adapter.notify(
-            "mework notification test",
-            "Notifications are enabled and working.",
-            "general-test",
-        )
+        adapter.notify(title, body, identifier)
     }
 }
 

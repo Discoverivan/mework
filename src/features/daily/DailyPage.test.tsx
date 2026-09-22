@@ -165,10 +165,17 @@ describe("DailyPage smoke test", () => {
       button: 0,
       ctrlKey: false,
     });
-    expect(await screen.findByRole("menuitem", { name: "Open parent DEMO-1" })).toBeInTheDocument();
+    const openParentItem = await screen.findByRole("menuitem", { name: "Open parent DEMO-1" });
+    expect(openParentItem).toHaveTextContent("Open parentDEMO-1");
+    expect(openParentItem.querySelector(".flex-col")).toBeInTheDocument();
+    const menuSeparators = openParentItem.parentElement?.querySelectorAll('[role="separator"]');
+    expect(menuSeparators).toHaveLength(2);
+    expect(menuSeparators?.[0]).toHaveClass("mx-2", "bg-border");
+    expect(menuSeparators?.[1]).toHaveClass("mx-2", "bg-border");
     fireEvent.click(screen.getByRole("menuitem", { name: "Copy key" }));
     await waitFor(() => expect(writeTextMock).toHaveBeenCalledWith("DEMO-2"));
     expect(screen.getByRole("status")).toHaveTextContent("Copied DEMO-2 to the clipboard.");
+    expect(screen.getByRole("status")).toHaveClass("fixed");
     expect(screen.getByRole("button", { name: /Other assignees/ })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Unassigned/ })).toBeInTheDocument();
 

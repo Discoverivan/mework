@@ -34,7 +34,14 @@ describe("IntegrationDependencyGate smoke test", () => {
     getAiSettingsMock.mockResolvedValue(connectedAi);
   });
 
-  it("renders protected content only when integration and selected AI model are working", async () => {
+  it("retries a transient AI availability failure before rendering protected content", async () => {
+    getAiSettingsMock
+      .mockResolvedValueOnce({
+        ...connectedAi,
+        providers: [{ ...connectedAi.providers[0], status: "unavailable" as const, available: false, models: [] }],
+      })
+      .mockResolvedValueOnce(connectedAi);
+
     render(
       <IntegrationDependencyGate requirement="bitbucket" requireAiProvider>
         <p>Pull Request Review</p>
@@ -42,7 +49,7 @@ describe("IntegrationDependencyGate smoke test", () => {
     );
 
     expect(await screen.findByText("Pull Request Review")).toBeInTheDocument();
-    expect(getAiSettingsMock).toHaveBeenCalledOnce();
+    expect(getAiSettingsMock).toHaveBeenCalledTimes(2);
   });
 
   it("blocks protected content when the selected AI provider is unavailable", async () => {

@@ -843,7 +843,7 @@ export function ManagedProjectsSettings({
                         <Button
                           type="button"
                           variant="ghost"
-                          className="h-auto justify-start p-0 text-left text-lg font-semibold leading-tight"
+                          className="h-auto justify-start p-0 text-left text-base font-semibold leading-tight"
                           onClick={() => detailProject?.id === project.id ? setDetailProject(null) : openDetail(project)}
                           disabled={controlsDisabled}
                           aria-label={t("teams.openDetails", { team: project.projectName })}
