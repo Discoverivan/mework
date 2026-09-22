@@ -2,6 +2,7 @@ import { listen } from "@tauri-apps/api/event";
 
 import type { MyPullRequestPage, PullRequestReviewChangedEvent } from "@/shared/contracts/developer";
 import type { IntegrationRedacted } from "@/shared/contracts/settings";
+import type { TaskTrackerMonitor } from "@/shared/contracts/task-tracker";
 import { APP_EVENT, emitAppEvent } from "./app-events";
 
 type Cleanup = () => void;
@@ -11,6 +12,7 @@ interface NativeEventMap {
   pull_request_review_updated: MyPullRequestPage;
   my_pull_requests_updated: MyPullRequestPage;
   pull_request_review_changed: PullRequestReviewChangedEvent;
+  task_tracker_updated: TaskTrackerMonitor[];
 }
 
 async function listenSafely<Name extends keyof NativeEventMap>(
@@ -37,6 +39,8 @@ export async function startNativeEventBridge(): Promise<Cleanup> {
       emitAppEvent(APP_EVENT.authoredPullRequestsUpdated, payload)),
     listenSafely("pull_request_review_changed", (payload) =>
       emitAppEvent(APP_EVENT.pullRequestReviewChanged, payload)),
+    listenSafely("task_tracker_updated", (payload) =>
+      emitAppEvent(APP_EVENT.taskTrackerUpdated, payload)),
   ]);
 
   return () => cleanups.forEach((cleanup) => cleanup?.());

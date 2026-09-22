@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
-import { listen } from "@tauri-apps/api/event";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { Check, CheckCheck, ChevronDown, ChevronUp, Copy, ExternalLink, Pencil, Plus, RefreshCw, SlidersHorizontal, Trash2, X } from "lucide-react";
 
+import { APP_EVENT, subscribeAppEvent } from "@/app/app-events";
 import { PageHeader } from "@/components/shared/PageHeader";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
@@ -200,14 +200,10 @@ export function TaskTrackerPage() {
 
   useEffect(() => {
     void loadMonitors();
-    let unlisten: (() => void) | undefined;
-    void listen<TaskTrackerMonitor[]>("task_tracker_updated", (event) => {
-      setMonitors(event.payload);
-      setActiveId((current) => current && event.payload.some((monitor) => monitor.id === current) ? current : event.payload[0]?.id);
-    }).then((dispose) => {
-      unlisten = dispose;
+    return subscribeAppEvent(APP_EVENT.taskTrackerUpdated, (updatedMonitors) => {
+      setMonitors(updatedMonitors);
+      setActiveId((current) => current && updatedMonitors.some((monitor) => monitor.id === current) ? current : updatedMonitors[0]?.id);
     });
-    return () => unlisten?.();
   }, []);
 
   const filteredIssues = useMemo(() => {

@@ -2,7 +2,6 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { TaskTrackerPage } from "./TaskTrackerPage";
-import { listen } from "@tauri-apps/api/event";
 import {
   listTaskTrackerMonitors,
   saveTaskTrackerMonitor,
@@ -10,7 +9,6 @@ import {
 } from "@/shared/contracts/task-tracker";
 import type { TaskTrackerMonitor } from "@/shared/contracts/task-tracker";
 
-vi.mock("@tauri-apps/api/event", () => ({ listen: vi.fn() }));
 vi.mock("@tauri-apps/plugin-opener", () => ({ openUrl: vi.fn() }));
 vi.mock("@/shared/contracts/task-tracker", () => ({
   checkTaskTrackerNow: vi.fn(),
@@ -50,7 +48,6 @@ const monitor: TaskTrackerMonitor = {
 beforeEach(() => {
   vi.clearAllMocks();
   vi.mocked(listTaskTrackerMonitors).mockResolvedValue([monitor]);
-  vi.mocked(listen).mockResolvedValue(() => undefined);
   vi.mocked(validateTaskTrackerJql).mockResolvedValue({ issueCount: 1, truncated: false, issues: monitor.issues });
   vi.mocked(saveTaskTrackerMonitor).mockResolvedValue(monitor);
 });
