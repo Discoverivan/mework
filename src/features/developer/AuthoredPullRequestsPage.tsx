@@ -1,4 +1,3 @@
-import { listen } from "@tauri-apps/api/event";
 import { useCallback, useEffect, useState } from "react";
 import { CheckCheck, RefreshCw, Settings2 } from "lucide-react";
 
@@ -23,11 +22,12 @@ import type { PullRequestReviewSettings } from "@/shared/contracts/developer";
 import type {
   MyPullRequest,
   MyPullRequestPage,
-  PullRequestReviewChangedEvent,
   PullRequestReviewState,
 } from "@/shared/contracts/developer";
 
 import { getAiSettings } from "../settings/api";
+import { APP_EVENT, emitAppEvent, subscribeAppEvent } from "@/app/app-events";
+import { shouldRefreshPullRequestCache } from "./pull-request-cache";
 import {
   getPullRequestReviewSettings,
   getPullRequestReviewState,
@@ -39,9 +39,6 @@ import {
   startPullRequestReview,
 } from "./api";
 
-const AUTHOR_ACTIVITY_CHANGED_EVENT = "my_pull_requests_updated";
-const LOCAL_ACTIVITY_CHANGED_EVENT = "pull_request_review_activity_changed";
-const REVIEW_CHANGED_EVENT = "pull_request_review_changed";
 
 type AuthoredPullRequestEvent = MyPullRequestPage;
 type QuickFilter = "all" | "needs_action";
@@ -99,6 +96,10 @@ export function AuthoredPullRequestsPage() {
   const [quickFilter, setQuickFilter] = useState<QuickFilter>("all");
 
   useEffect(() => {
+    return subscribeAppEvent(APP_EVENT.aiSettingsChanged, setAiSettings);
+  }, []);
+
+  useEffect(() => {
     const timer = window.setInterval(() => setNow(Date.now()), 30_000);
     return () => window.clearInterval(timer);
   }, []);
@@ -147,7 +148,9 @@ export function AuthoredPullRequestsPage() {
     setLoading(true);
     setError(undefined);
     const pagePromise = listAuthoredPullRequests(0, 100).then((page) =>
-      page.lastUpdatedAt == null ? refreshAuthoredPullRequests(0, 100) : page,
+      shouldRefreshPullRequestCache(page.lastUpdatedAt)
+        ? refreshAuthoredPullRequests(0, 100)
+        : page,
     );
     void Promise.all([pagePromise, getAiSettings()])
       .then(([page, savedAiSettings]) => {
@@ -176,26 +179,11 @@ export function AuthoredPullRequestsPage() {
   }, [applyPage]);
 
   useEffect(() => {
-    let active = true;
-    let unlisten: (() => void) | undefined;
-    void listen<AuthoredPullRequestEvent>(AUTHOR_ACTIVITY_CHANGED_EVENT, (event) => {
-      if (active) applyPage(event.payload);
-    }).then((cleanup) => {
-      if (active) unlisten = cleanup;
-      else cleanup();
-    }).catch(() => undefined);
-    return () => {
-      active = false;
-      unlisten?.();
-    };
+    return subscribeAppEvent(APP_EVENT.authoredPullRequestsUpdated, applyPage);
   }, [applyPage]);
 
   useEffect(() => {
-    let active = true;
-    let unlisten: (() => void) | undefined;
-    void listen<PullRequestReviewChangedEvent>(REVIEW_CHANGED_EVENT, (event) => {
-      if (!active) return;
-      const { key, review } = event.payload;
+    return subscribeAppEvent(APP_EVENT.pullRequestReviewChanged, ({ key, review }) => {
       setReviewStartingKeys((current) => {
         if (!current.has(key)) return current;
         const next = new Set(current);
@@ -205,14 +193,7 @@ export function AuthoredPullRequestsPage() {
       setPullRequests((current) => sortPullRequests(current.map((item) =>
         pullRequestKey(item) === key ? { ...item, review } : item,
       )));
-    }).then((cleanup) => {
-      if (active) unlisten = cleanup;
-      else cleanup();
-    }).catch(() => undefined);
-    return () => {
-      active = false;
-      unlisten?.();
-    };
+    });
   }, []);
 
   useEffect(() => {
@@ -264,7 +245,7 @@ export function AuthoredPullRequestsPage() {
           ? { ...item, activity: "read" as const }
           : item,
       )));
-      window.dispatchEvent(new Event(LOCAL_ACTIVITY_CHANGED_EVENT));
+      emitAppEvent(APP_EVENT.pullRequestActivityChanged);
     } catch (reason) {
       setError(commandError(reason));
     }
@@ -276,7 +257,7 @@ export function AuthoredPullRequestsPage() {
     try {
       await markAllAuthoredPullRequestsRead();
       setPullRequests((current) => sortPullRequests(current.map((item) => ({ ...item, activity: "read" as const }))));
-      window.dispatchEvent(new Event(LOCAL_ACTIVITY_CHANGED_EVENT));
+      emitAppEvent(APP_EVENT.pullRequestActivityChanged);
     } catch (reason) {
       setError(commandError(reason));
     } finally {
