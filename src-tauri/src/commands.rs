@@ -9,3 +9,4 @@ pub mod integrations;
 pub mod planning;
 pub mod presenter;
 pub mod settings;
+pub mod task_tracker;

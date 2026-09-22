@@ -16,9 +16,10 @@ describe("AppShell product navigation", () => {
     );
 
     expect(document.querySelector(".app-brand img")).toHaveAttribute("src", "/mework-icon.png");
-    expect(document.querySelectorAll("nav a svg")).toHaveLength(9);
+    expect(document.querySelectorAll("nav a svg")).toHaveLength(10);
     expect(screen.getByText("Product")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Create task" })).toHaveAttribute("href", "#product/create-task");
+    expect(screen.getByRole("link", { name: "Task Tracker" })).toHaveAttribute("href", "#product/task-tracker");
     expect(screen.getByRole("link", { name: "Sprint tasks" })).toHaveAttribute("href", "#product/daily");
     expect(screen.getByRole("link", { name: "PRs to review, 3 unread" })).toHaveAttribute("href", "#developer/pull-requests");
     expect(screen.getByRole("link", { name: "PRs to review, 3 unread" })).toHaveAttribute("aria-current", "page");
@@ -29,6 +30,7 @@ describe("AppShell product navigation", () => {
     expect(screen.getByRole("link", { name: "Command board" })).toHaveAttribute("href", "#developer/command-board");
     expect(screen.getByRole("link", { name: "Command board" }).querySelector("svg")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Create task" }).querySelector("svg")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Task Tracker" }).querySelector("svg")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Sprint tasks" }).querySelector("svg")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "AI settings" })).toHaveAttribute("href", "#settings/ai");
     expect(screen.getByRole("link", { name: "Data integrations" })).toHaveAttribute("href", "#settings/integrations");

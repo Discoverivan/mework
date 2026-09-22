@@ -177,6 +177,10 @@ pub async fn authored_notifications_enabled(pool: &SqlitePool) -> Result<bool, S
     Ok(settings.notifications_enabled && settings.authored_notifications_enabled)
 }
 
+pub async fn notifications_enabled(pool: &SqlitePool) -> Result<bool, String> {
+    Ok(load(pool).await?.notifications_enabled)
+}
+
 pub fn send_test_notification<R: Runtime>(
     app: &AppHandle<R>,
     notification_kind: NotificationTestKind,

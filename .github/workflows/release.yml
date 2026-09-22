@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "Optional explicit SemVer; leave empty for the next patch version"
+        description: "Optional explicit SemVer; leave empty for the next minor version"
         required: false
         type: string
   push:
@@ -76,8 +76,8 @@ jobs:
           if not versions:
               print(base)
           else:
-              major, minor, patch = max(versions)
-              print(f"{major}.{minor}.{patch + 1}")
+              major, minor, _patch = max(versions)
+              print(f"{major}.{minor + 1}.0")
           PY
             )
           fi

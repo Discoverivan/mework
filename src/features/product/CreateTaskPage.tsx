@@ -623,15 +623,18 @@ export function CreateTaskPage() {
         {card.error ? <p className="mb-4 text-sm text-destructive" role="alert">{card.error}</p> : null}
         <div className="grid gap-3">
           <div className="grid gap-3 sm:grid-cols-[7.25rem_minmax(0,1fr)] sm:items-end">
-            <Select value={card.issueType} onValueChange={(value) => updateCard(card.id, { issueType: issueTypeValue(value) })} disabled={card.status === "creating"}>
-              <SelectTrigger id={`draft-issue-type-${card.id}`} aria-label={t("task.issueType")} className="h-10 w-[7.25rem] px-2.5 text-xs">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="Task">{t("task.task")}</SelectItem>
-                <SelectItem value="Spike">{t("task.spike")}</SelectItem>
-              </SelectContent>
-            </Select>
+            <div className="grid gap-2">
+              <Label htmlFor={`draft-issue-type-${card.id}`}>{t("task.type")}</Label>
+              <Select value={card.issueType} onValueChange={(value) => updateCard(card.id, { issueType: issueTypeValue(value) })} disabled={card.status === "creating"}>
+                <SelectTrigger id={`draft-issue-type-${card.id}`} aria-label={t("task.issueType")} className="h-10 w-[7.25rem] px-2.5 text-xs">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="Task">{t("task.task")}</SelectItem>
+                  <SelectItem value="Spike">{t("task.spike")}</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
             <div className="grid gap-2">
               <Label htmlFor={`draft-summary-${card.id}`}>{t("task.summary")}</Label>
               <Input id={`draft-summary-${card.id}`} value={card.summary} disabled={card.status === "creating"} onChange={(event) => updateCard(card.id, { summary: event.target.value })} />

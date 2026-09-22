@@ -23,6 +23,7 @@ import type { ThemePreference } from "@/features/settings/general/api";
 
 export type AppSection =
   | "product-create-task"
+  | "product-task-tracker"
   | "product-daily"
   | "developer-pull-requests"
   | "developer-my-pull-requests"
@@ -34,7 +35,7 @@ export type AppSection =
 
 type NavigationItem = {
   section: AppSection;
-  labelKey: "nav.createTask" | "nav.sprintTasks" | "nav.prsToReview" | "nav.yourPrs" | "nav.commandBoard" | "nav.general" | "nav.aiSettings" | "nav.dataIntegrations" | "nav.teamSettings";
+  labelKey: "nav.createTask" | "nav.taskTracker" | "nav.sprintTasks" | "nav.prsToReview" | "nav.yourPrs" | "nav.commandBoard" | "nav.general" | "nav.aiSettings" | "nav.dataIntegrations" | "nav.teamSettings";
   href: string;
   icon: LucideIcon;
 };
@@ -53,6 +54,7 @@ interface AppShellProps {
 
 const productNavigation: NavigationItem[] = [
   { section: "product-create-task", labelKey: "nav.createTask", href: "#product/create-task", icon: SquarePen },
+  { section: "product-task-tracker", labelKey: "nav.taskTracker", href: "#product/task-tracker", icon: Monitor },
   { section: "product-daily", labelKey: "nav.sprintTasks", href: "#product/daily", icon: CalendarDays },
 ];
 

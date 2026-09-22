@@ -69,7 +69,7 @@ pub fn run() {
             app.manage(crate::commands::presenter::PresenterState::default());
             let background_pool = pool.clone();
             let background_app = app.handle().clone();
-            app.manage(pool);
+            app.manage(pool.clone());
             tauri::async_runtime::spawn(async move {
                 let notifier = crate::os::notifications::NativeNotificationAdapter::new(background_app.clone());
                 // App initialization owns the first health/snapshot pass. Starting the
@@ -303,6 +303,22 @@ pub fn run() {
                     tokio::time::sleep(Duration::from_secs(300)).await;
                 }
             });
+            let task_tracker_pool = pool.clone();
+            let task_tracker_app = app.handle().clone();
+            tauri::async_runtime::spawn(async move {
+                tokio::time::sleep(Duration::from_secs(30)).await;
+                loop {
+                    if let Err(error) = crate::application::task_tracker::poll_due_monitors(
+                        &task_tracker_pool,
+                        &task_tracker_app,
+                    )
+                    .await
+                    {
+                        eprintln!("Task Tracker background polling failed: {error}");
+                    }
+                    tokio::time::sleep(Duration::from_secs(30)).await;
+                }
+            });
             Ok(())
         })
         .on_window_event(|window, event| {
@@ -379,6 +395,12 @@ pub fn run() {
             commands::planning::planning_team_member_remove,
             commands::planning::planning_team_member_reorder,
             commands::planning::planning_apply_and_lock,
+            commands::task_tracker::task_tracker_list,
+            commands::task_tracker::task_tracker_save,
+            commands::task_tracker::task_tracker_delete,
+            commands::task_tracker::task_tracker_set_enabled,
+            commands::task_tracker::task_tracker_validate_jql,
+            commands::task_tracker::task_tracker_check_now,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

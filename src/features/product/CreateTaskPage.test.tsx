@@ -116,6 +116,7 @@ describe("CreateTaskPage", () => {
     expect(screen.getByLabelText("Summary")).toHaveValue("Add audit filters");
     expect(screen.getByLabelText("Description")).toHaveValue("Allow filtering by actor and date.");
     expect(screen.getByLabelText("Issue type")).toBeEnabled();
+    expect(screen.getByText("Type")).toBeInTheDocument();
     expect(screen.getByLabelText("Issue type")).toHaveClass("h-10");
     expect(screen.getByLabelText("Epic link")).toBeDisabled();
     expect(screen.getByLabelText("Epic link")).toHaveClass("h-10", "px-2");

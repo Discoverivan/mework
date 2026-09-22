@@ -22,6 +22,7 @@ const AUTHORED_PULL_REQUESTS_UPDATED_EVENT = "my_pull_requests_updated";
 
 function routeFromHash(hash: string): AppRoute {
   if (hash === "#product/create-task" || hash.startsWith("#product/create-task?")) return "product-create-task";
+  if (hash === "#product/task-tracker") return "product-task-tracker";
   if (hash === "#product/daily") return "product-daily";
   if (hash === "#product/daily/presenter") return "product-daily-presenter";
   if (hash === "#developer/pull-requests") return "developer-pull-requests";
