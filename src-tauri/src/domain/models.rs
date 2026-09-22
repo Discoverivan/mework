@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 pub enum IntegrationKind {
     Jira,
     Bitbucket,
+    Confluence,
 }
 
 impl IntegrationKind {
@@ -12,6 +13,7 @@ impl IntegrationKind {
         match self {
             Self::Jira => "jira",
             Self::Bitbucket => "bitbucket",
+            Self::Confluence => "confluence",
         }
     }
 }

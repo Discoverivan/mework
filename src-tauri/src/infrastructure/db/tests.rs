@@ -26,3 +26,30 @@ async fn migration_creates_settings_table() {
         Some("settings".into())
     );
 }
+
+#[tokio::test]
+async fn migration_allows_a_confluence_integration() {
+    let (_temp_dir, pool) = test_database().await;
+
+    sqlx::query(
+        "INSERT INTO integrations (
+            id, kind, base_url, account_key, credential_ref, enabled,
+            capabilities_json, created_at, updated_at
+         ) VALUES (?, 'confluence', ?, '', ?, 1, '{}', ?, ?)",
+    )
+    .bind("confluence-1")
+    .bind("https://confluence.example.invalid")
+    .bind("keyring://mework/integration/confluence-1")
+    .bind("2026-09-22T00:00:00Z")
+    .bind("2026-09-22T00:00:00Z")
+    .execute(&pool)
+    .await
+    .expect("Confluence integration should be accepted by the current schema");
+
+    let kind: String = sqlx::query_scalar("SELECT kind FROM integrations WHERE id = ?")
+        .bind("confluence-1")
+        .fetch_one(&pool)
+        .await
+        .expect("inserted integration should be readable");
+    assert_eq!(kind, "confluence");
+}

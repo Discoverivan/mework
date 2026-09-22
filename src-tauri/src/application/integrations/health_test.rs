@@ -50,6 +50,22 @@ async fn bitbucket_health_check_reports_authenticated_username_when_server_retur
         .expect(1)
         .mount(&server)
         .await;
+    Mock::given(method("GET"))
+        .and(path("/rest/api/1.0/users"))
+        .and(query_param("filter", "test.user"))
+        .and(query_param("limit", "25"))
+        .and(header("authorization", "Bearer bb-pat"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "values": [{
+                "name": "test.user",
+                "slug": "test.user",
+                "displayName": "Test User"
+            }],
+            "isLastPage": true
+        })))
+        .expect(1)
+        .mount(&server)
+        .await;
 
     let result = ReqwestHealthChecker::new()
         .check(
@@ -62,5 +78,34 @@ async fn bitbucket_health_check_reports_authenticated_username_when_server_retur
         .await;
 
     assert_eq!(result.status, HealthStatus::Working);
-    assert_eq!(result.account_display_name.as_deref(), Some("test.user"));
+    assert_eq!(result.account_display_name.as_deref(), Some("Test User"));
+}
+
+#[tokio::test]
+async fn confluence_health_check_reports_the_current_user_display_name() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/rest/api/user/current"))
+        .and(header("authorization", "Bearer confluence-pat"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "type": "known",
+            "username": "test.user",
+            "displayName": "Test User"
+        })))
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    let result = ReqwestHealthChecker::new()
+        .check(
+            IntegrationKind::Confluence,
+            &server.uri(),
+            "",
+            false,
+            Some("confluence-pat"),
+        )
+        .await;
+
+    assert_eq!(result.status, HealthStatus::Working);
+    assert_eq!(result.account_display_name.as_deref(), Some("Test User"));
 }

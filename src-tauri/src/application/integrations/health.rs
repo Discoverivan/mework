@@ -81,6 +81,7 @@ impl ReqwestHealthChecker {
         let endpoint = match kind {
             IntegrationKind::Jira => "GET /rest/api/2/myself",
             IntegrationKind::Bitbucket => "GET /rest/api/1.0/repos?limit=1",
+            IntegrationKind::Confluence => "GET /rest/api/user/current",
         };
         let Some(secret) = secret.filter(|value| !value.trim().is_empty()) else {
             let credential_message = "Personal access token is missing. Add it in Settings.";
@@ -120,6 +121,7 @@ impl ReqwestHealthChecker {
         let endpoint = match kind {
             IntegrationKind::Jira => base_url.join("rest/api/2/myself"),
             IntegrationKind::Bitbucket => base_url.join("rest/api/1.0/repos"),
+            IntegrationKind::Confluence => base_url.join("rest/api/user/current"),
         };
         let endpoint = match endpoint {
             Ok(value) => value,
@@ -137,13 +139,16 @@ impl ReqwestHealthChecker {
         } else {
             "certificate verification enabled"
         };
-        let mut request = if allow_insecure_tls {
-            self.insecure_client.get(endpoint)
+        let client = if allow_insecure_tls {
+            &self.insecure_client
         } else {
-            self.secure_client.get(endpoint)
+            &self.secure_client
         };
+        let mut request = client.get(endpoint);
         if kind == IntegrationKind::Bitbucket {
             request = request.query(&[("limit", "1")]);
+            request = request.bearer_auth(secret);
+        } else if kind == IntegrationKind::Confluence {
             request = request.bearer_auth(secret);
         } else if !account_key.trim().is_empty() {
             request = request.basic_auth(account_key, Some(secret));
@@ -164,11 +169,31 @@ impl ReqwestHealthChecker {
                                 .and_then(Value::as_str)
                                 .and_then(safe_display_name)
                         }),
-                    IntegrationKind::Bitbucket => response
-                        .headers()
-                        .get("x-ausername")
-                        .and_then(|value| value.to_str().ok())
-                        .and_then(safe_display_name),
+                    IntegrationKind::Bitbucket => {
+                        let username = response
+                            .headers()
+                            .get("x-ausername")
+                            .and_then(|value| value.to_str().ok())
+                            .and_then(safe_display_name);
+                        match username {
+                            Some(username) => {
+                                bitbucket_display_name(client, &base_url, secret, &username)
+                                    .await
+                                    .or(Some(username))
+                            }
+                            None => None,
+                        }
+                    }
+                    IntegrationKind::Confluence => response
+                        .json::<Value>()
+                        .await
+                        .ok()
+                        .and_then(|body| {
+                            body.get("displayName")
+                                .or_else(|| body.get("username"))
+                                .and_then(Value::as_str)
+                                .and_then(safe_display_name)
+                        }),
                 };
                 HealthCheckResult::working(account_display_name)
             }
@@ -181,6 +206,38 @@ impl ReqwestHealthChecker {
             ),
         }
     }
+}
+
+async fn bitbucket_display_name(
+    client: &Client,
+    base_url: &Url,
+    secret: &str,
+    username: &str,
+) -> Option<String> {
+    let endpoint = base_url.join("rest/api/1.0/users").ok()?;
+    let response = client
+        .get(endpoint)
+        .bearer_auth(secret)
+        .query(&[("filter", username), ("limit", "25")])
+        .send()
+        .await
+        .ok()?;
+    if !response.status().is_success() {
+        return None;
+    }
+    let body = response.json::<Value>().await.ok()?;
+    body.get("values")?
+        .as_array()?
+        .iter()
+        .find(|user| {
+            user.get("name")
+                .or_else(|| user.get("slug"))
+                .and_then(Value::as_str)
+                .is_some_and(|value| value.eq_ignore_ascii_case(username))
+        })
+        .and_then(|user| user.get("displayName"))
+        .and_then(Value::as_str)
+        .and_then(safe_display_name)
 }
 
 impl Default for ReqwestHealthChecker {
@@ -241,6 +298,7 @@ async fn unavailable_http(
     let endpoint = match kind {
         IntegrationKind::Jira => "GET /rest/api/2/myself",
         IntegrationKind::Bitbucket => "GET /rest/api/1.0/repos?limit=1",
+        IntegrationKind::Confluence => "GET /rest/api/user/current",
     };
     let (message, explanation) = match status {
         401 => (

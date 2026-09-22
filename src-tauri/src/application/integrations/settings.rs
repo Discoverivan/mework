@@ -183,6 +183,14 @@ async fn save_integration_with_health<S: CredentialStore + ?Sized>(
     {
         capabilities["deployment"] = Value::String("data_center".into());
     }
+    if request.kind == IntegrationKind::Confluence
+        && capabilities
+            .get("deployment")
+            .and_then(Value::as_str)
+            .is_none()
+    {
+        capabilities["deployment"] = Value::String("data_center".into());
+    }
 
     let health_status = if health.status == IntegrationHealthStatus::Unknown {
         existing

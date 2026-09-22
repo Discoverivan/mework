@@ -24,6 +24,7 @@ function routeFromHash(hash: string): AppRoute {
   if (hash === "#product/create-task" || hash.startsWith("#product/create-task?")) return "product-create-task";
   if (hash === "#product/daily") return "product-daily";
   if (hash === "#product/daily/presenter") return "product-daily-presenter";
+  if (hash === "#product/confluence-search") return "product-confluence-search";
   if (hash === "#developer/pull-requests") return "developer-pull-requests";
   if (hash === "#developer/my-pull-requests") return "developer-my-pull-requests";
   if (hash === "#developer/command-board") return "developer-command-board";
