@@ -146,7 +146,10 @@ export function AuthoredPullRequestsPage() {
     let active = true;
     setLoading(true);
     setError(undefined);
-    void Promise.all([listAuthoredPullRequests(0, 100), getAiSettings()])
+    const pagePromise = listAuthoredPullRequests(0, 100).then((page) =>
+      page.lastUpdatedAt == null ? refreshAuthoredPullRequests(0, 100) : page,
+    );
+    void Promise.all([pagePromise, getAiSettings()])
       .then(([page, savedAiSettings]) => {
         if (!active) return;
         applyPage(page);
@@ -409,8 +412,8 @@ export function AuthoredPullRequestsPage() {
             variant="outline"
             size="icon"
             className="h-9 w-9"
-            aria-label={polling ? t("pr.updating") : t("pr.updateNow")}
-            title={polling ? t("pr.updating") : t("pr.updateNow")}
+            aria-label={polling ? t("pr.refreshing") : t("pr.refresh")}
+            title={polling ? t("pr.refreshing") : t("pr.refresh")}
             onClick={() => void syncPullRequests()}
             disabled={loading || polling}
           >
