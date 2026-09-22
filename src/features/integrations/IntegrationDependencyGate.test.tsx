@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { getAiSettings, listIntegrations } from "../settings/api";
 import { IntegrationDependencyGate } from "./IntegrationDependencyGate";
+import { APP_EVENT, emitAppEvent } from "@/app/app-events";
 
 vi.mock("../settings/api", () => ({
   getAiSettings: vi.fn(),
@@ -67,6 +68,11 @@ describe("IntegrationDependencyGate smoke test", () => {
     expect(await screen.findByText("Dependencies required")).toBeInTheDocument();
     expect(screen.getByText(/connected AI provider with an available model/)).toBeInTheDocument();
     expect(screen.queryByText("Pull Request Review")).not.toBeInTheDocument();
+
+    getAiSettingsMock.mockResolvedValue(connectedAi);
+    emitAppEvent(APP_EVENT.aiSettingsChanged, connectedAi);
+
+    expect(await screen.findByText("Pull Request Review")).toBeInTheDocument();
   });
 
   it("rechecks blocked content after a background health refresh event", async () => {
@@ -81,7 +87,7 @@ describe("IntegrationDependencyGate smoke test", () => {
     );
 
     expect(await screen.findByText("Dependencies required")).toBeInTheDocument();
-    window.dispatchEvent(new Event("mework:integrations-health-refreshed"));
+    emitAppEvent(APP_EVENT.integrationsHealthRefreshed, [bitbucket]);
     expect(await screen.findByText("Pull Request Review")).toBeInTheDocument();
     expect(listIntegrationsMock).toHaveBeenCalledTimes(2);
   });

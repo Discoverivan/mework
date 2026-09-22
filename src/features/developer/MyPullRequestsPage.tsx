@@ -1,4 +1,3 @@
-import { listen } from "@tauri-apps/api/event";
 import { useCallback, useEffect, useState } from "react";
 import { CheckCheck, Filter, RefreshCw, Settings2 } from "lucide-react";
 
@@ -23,7 +22,6 @@ import type {
   BitbucketUser,
   MyPullRequest,
   MyPullRequestPage,
-  PullRequestReviewChangedEvent,
   PullRequestReviewComment,
   PullRequestReviewSettings,
   PullRequestReviewState,
@@ -41,6 +39,8 @@ import {
 } from "./components/pull-request-projects";
 import { PageHeader } from "@/components/shared/PageHeader";
 import { useI18n } from "@/i18n/context";
+import { APP_EVENT, emitAppEvent, subscribeAppEvent } from "@/app/app-events";
+import { shouldRefreshPullRequestCache } from "./pull-request-cache";
 
 import { getAiSettings } from "../settings/api";
 import {
@@ -58,7 +58,6 @@ import {
   startPullRequestReview,
 } from "./api";
 
-const PULL_REQUEST_REVIEW_ACTIVITY_CHANGED_EVENT = "pull_request_review_activity_changed";
 
 type FilterTab = "blacklist" | "whitelist";
 type QuickFilter = "all" | "pending";
@@ -221,6 +220,10 @@ export function MyPullRequestsPage() {
   ) === true;
 
   useEffect(() => {
+    return subscribeAppEvent(APP_EVENT.aiSettingsChanged, setAiSettings);
+  }, []);
+
+  useEffect(() => {
     const timer = window.setInterval(() => setNow(Date.now()), 30_000);
     return () => window.clearInterval(timer);
   }, []);
@@ -230,7 +233,12 @@ export function MyPullRequestsPage() {
     setLoading(true);
     setError(undefined);
     setAiSettings(null);
-    void Promise.all([listMyPullRequests(0, 100), getPullRequestReviewSettings()])
+    const pagePromise = listMyPullRequests(0, 100).then((page) =>
+      shouldRefreshPullRequestCache(page.lastUpdatedAt)
+        ? refreshMyPullRequests(0, 100)
+        : page,
+    );
+    void Promise.all([pagePromise, getPullRequestReviewSettings()])
       .then(([page, savedSettings]) => {
         if (!active) return;
         applyPage(page);
@@ -263,7 +271,7 @@ export function MyPullRequestsPage() {
     try {
       const page = await refreshMyPullRequests(0, 100);
       applyPage(page);
-      window.dispatchEvent(new Event(PULL_REQUEST_REVIEW_ACTIVITY_CHANGED_EVENT));
+      emitAppEvent(APP_EVENT.pullRequestActivityChanged);
     } catch (reason) {
       setError(commandError(reason));
     } finally {
@@ -272,28 +280,11 @@ export function MyPullRequestsPage() {
   }, [applyPage]);
 
   useEffect(() => {
-    let active = true;
-    let unlisten: (() => void) | undefined;
-    void listen<MyPullRequestPage>("pull_request_review_updated", (event) => {
-      if (active) applyPage(event.payload);
-    }).then((cleanup) => {
-      if (active) unlisten = cleanup;
-      else cleanup();
-    }).catch(() => {
-      // The event bridge is unavailable in non-Tauri test environments.
-    });
-    return () => {
-      active = false;
-      unlisten?.();
-    };
+    return subscribeAppEvent(APP_EVENT.reviewerPullRequestsUpdated, applyPage);
   }, [applyPage]);
 
   useEffect(() => {
-    let active = true;
-    let unlisten: (() => void) | undefined;
-    void listen<PullRequestReviewChangedEvent>("pull_request_review_changed", (event) => {
-      if (!active) return;
-      const { key, review } = event.payload;
+    return subscribeAppEvent(APP_EVENT.pullRequestReviewChanged, ({ key, review }) => {
       setReviewStartingKeys((current) => {
         if (!current.has(key)) return current;
         const next = new Set(current);
@@ -303,16 +294,7 @@ export function MyPullRequestsPage() {
       setPullRequests((current) => sortPullRequests(current.map((item) =>
         pullRequestKey(item) === key ? { ...item, review } : item,
       )));
-    }).then((cleanup) => {
-      if (active) unlisten = cleanup;
-      else cleanup();
-    }).catch(() => {
-      // The event bridge is unavailable in non-Tauri test environments.
     });
-    return () => {
-      active = false;
-      unlisten?.();
-    };
   }, []);
 
   useEffect(() => {
@@ -528,7 +510,7 @@ export function MyPullRequestsPage() {
         pullRequest.latestCommit,
       );
       setPullRequests((current) => sortPullRequests(current.map((item) => pullRequestKey(item) === key ? { ...item, activity: readState.activity } : item)));
-      window.dispatchEvent(new Event(PULL_REQUEST_REVIEW_ACTIVITY_CHANGED_EVENT));
+      emitAppEvent(APP_EVENT.pullRequestActivityChanged);
     } catch (reason) {
       setError(commandError(reason));
     }
@@ -540,7 +522,7 @@ export function MyPullRequestsPage() {
     try {
       await markAllPullRequestsRead();
       setPullRequests((current) => sortPullRequests(current.map((item) => ({ ...item, activity: "read" }))));
-      window.dispatchEvent(new Event(PULL_REQUEST_REVIEW_ACTIVITY_CHANGED_EVENT));
+      emitAppEvent(APP_EVENT.pullRequestActivityChanged);
     } catch (reason) {
       setError(commandError(reason));
     } finally {
@@ -692,8 +674,8 @@ export function MyPullRequestsPage() {
             variant="outline"
             size="icon"
             className="h-9 w-9"
-            aria-label={polling ? t("pr.updating") : t("pr.updateNow")}
-            title={polling ? t("pr.updating") : t("pr.updateNow")}
+            aria-label={polling ? t("pr.refreshing") : t("pr.refresh")}
+            title={polling ? t("pr.refreshing") : t("pr.refresh")}
             onClick={() => void syncPullRequests()}
             disabled={loading || polling}
           >
