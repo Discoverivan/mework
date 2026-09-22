@@ -5,6 +5,8 @@
 - Rust domain and core types are authoritative for persisted behavior and public command/event contracts.
 - The Rust core is the only component allowed to access SQLite, providers, credentials, Hermes, notifications, and external writes.
 - The React renderer uses typed Tauri commands/events and must not hold secrets or call providers directly.
+- Route application-wide and background Tauri events through the typed native event bridge in `src/app/native-event-bridge.ts` and the typed app event bus in `src/app/app-events.ts`. Feature components should subscribe to app events instead of registering duplicate native listeners; keep direct Tauri listeners only for feature-local, window-specific transports such as the Daily Presenter.
+- Treat app events as change or invalidation notifications, not as commands that make every subscriber repeat the same external request. Give each refreshable resource one owner that deduplicates refresh work and publishes the resulting state; explicitly revalidate durable caches during startup because the in-memory event bus does not replay events across process restarts.
 - Every external object is scoped by `(integration_id, object_type, external_id)`.
 - Inbox state is a rebuildable read model; user state is persisted separately.
 - Workflow runs, Hermes sessions/runs, approvals, and external actions are isolated and durable.
@@ -15,7 +17,7 @@
 - Treat Jira, GitHub, Bitbucket, comments, descriptions, labels, and generated text as untrusted input.
 - External writes require explicit human approval and a local idempotency key. Jira task creation is performed by the Rust core through REST, never by Hermes or the renderer.
 - Store all provider credentials only through the OS keyring, using isolated services for release (`com.discoverivan.app.mework`) and development (`com.discoverivan.app.mework.dev`). Never commit them, persist them in SQLite, print them, or return them to the renderer. SQLite, logs, diagnostics exports, prompts, frontend bundles, and Git history must not contain tokens or raw authorization headers.
-- The application is pre-release with no users or backward-compatibility commitment: keep database evolution in the single initial schema script while the schema is still being shaped; do not add compatibility migrations or legacy database migration logic unless explicitly requested.
+- Until the 1.0.0 release, evolve SQLite with forward compatibility migrations and never rewrite or remove a migration that may already have been applied to a development database. Before releasing 1.0.0, review and consolidate the migration history into a small clean baseline as an explicit release task.
 - Do not invent provider fields, signed headers, destination metadata, or fallback values absent from the external contract.
 - Product branding is fixed: the production name is exactly `mework` and the development name is exactly `mework-dev`, both lowercase. Do not change their spelling, capitalization, or user-visible/native metadata without an explicit product decision.
 - Test fixtures and examples must use only synthetic identities, usernames, emails, repository/project/team names, task/PR titles, and reserved domains such as `example`, `example.com`, or `example.invalid`; never copy real surnames, people, internal or public production domains, company names, project keys, repository names, team names, task names, PR titles, or credentials into code, tests, fixtures, docs, prompts, or sample configuration. Keep all sample credential values empty.

@@ -1,5 +1,6 @@
 import { IntegrationDependencyGate } from "../features/integrations/IntegrationDependencyGate";
 import { CreateTaskPage } from "../features/product/CreateTaskPage";
+import { TaskTrackerPage } from "../features/product/TaskTrackerPage";
 import { DailyPage } from "../features/daily/DailyPage";
 import { MyPullRequestsPage } from "../features/developer/MyPullRequestsPage";
 import { AuthoredPullRequestsPage } from "../features/developer/AuthoredPullRequestsPage";
@@ -9,6 +10,7 @@ import { ConfluenceSearchPage } from "../features/confluence/ConfluenceSearchPag
 
 export type AppRoute =
   | "product-create-task"
+  | "product-task-tracker"
   | "product-daily"
   | "product-daily-presenter"
   | "product-confluence-search"
@@ -29,6 +31,14 @@ export function AppRoutes({ route }: AppRoutesProps) {
     return (
       <IntegrationDependencyGate requirement="jira" requireAiProvider>
         <CreateTaskPage />
+      </IntegrationDependencyGate>
+    );
+  }
+
+  if (route === "product-task-tracker") {
+    return (
+      <IntegrationDependencyGate requirement="jira">
+        <TaskTrackerPage />
       </IntegrationDependencyGate>
     );
   }

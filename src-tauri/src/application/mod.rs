@@ -13,4 +13,5 @@ pub mod integrations;
 pub mod notifications;
 pub mod planning;
 pub mod polling;
+pub mod task_tracker;
 pub mod workflow;

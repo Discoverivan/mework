@@ -3,8 +3,16 @@ name: Publish mework
 on:
   workflow_dispatch:
     inputs:
+      bump:
+        description: "Version bump type for automatic calculation"
+        required: false
+        default: patch
+        type: choice
+        options:
+          - patch
+          - minor
       version:
-        description: "Optional explicit SemVer; leave empty for the next patch version"
+        description: "Optional explicit SemVer; overrides automatic version calculation"
         required: false
         type: string
   push:
@@ -56,18 +64,20 @@ jobs:
         shell: bash
         env:
           REQUESTED_VERSION: ${{ inputs.version }}
+          BUMP_KIND: ${{ inputs.bump || 'patch' }}
         run: |
           git fetch --tags --force
           BASE_VERSION=$(node -p "require('./package.json').version")
           if [ -n "$REQUESTED_VERSION" ]; then
             VERSION="$REQUESTED_VERSION"
           else
-            VERSION=$(python - "$BASE_VERSION" <<'PY'
+            VERSION=$(python - "$BASE_VERSION" "$BUMP_KIND" <<'PY'
           import re
           import subprocess
           import sys
 
           base = sys.argv[1]
+          bump_kind = sys.argv[2]
           versions = []
           for tag in subprocess.check_output(["git", "tag", "--list", "mework-v*"], text=True).splitlines():
               match = re.fullmatch(r"mework-v(\d+)\.(\d+)\.(\d+)", tag)
@@ -77,7 +87,10 @@ jobs:
               print(base)
           else:
               major, minor, patch = max(versions)
-              print(f"{major}.{minor}.{patch + 1}")
+              if bump_kind == "minor":
+                  print(f"{major}.{minor + 1}.0")
+              else:
+                  print(f"{major}.{minor}.{patch + 1}")
           PY
             )
           fi

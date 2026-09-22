@@ -14,13 +14,14 @@ vi.mock("../features/developer/MyPullRequestsPage", () => ({
 vi.mock("../features/developer/AuthoredPullRequestsPage", () => ({
   AuthoredPullRequestsPage: () => <h1>Pull requests authored by you</h1>,
 }));
-const { getAiSettingsMock, listAuthoredPullRequestsMock, listMyPullRequestsMock, refreshMyPullRequestsMock, refreshAllIntegrationsHealthMock, nativeThemeMock, onThemeChangedMock } = vi.hoisted(() => ({
+const { getAiSettingsMock, listAuthoredPullRequestsMock, listMyPullRequestsMock, refreshAuthoredPullRequestsMock, refreshMyPullRequestsMock, refreshAllIntegrationsHealthMock, nativeThemeMock, onThemeChangedMock } = vi.hoisted(() => ({
   getAiSettingsMock: vi.fn().mockResolvedValue({
     settings: { provider: "codex-cli", model: "gpt-5.5", reasoning: "medium", fastMode: false },
     providers: [{ id: "codex-cli", name: "Codex CLI", status: "connected", available: true, models: ["gpt-5.5"] }],
   }),
   listMyPullRequestsMock: vi.fn().mockResolvedValue({ values: [], total: 0, hasMore: false }),
   listAuthoredPullRequestsMock: vi.fn().mockResolvedValue({ values: [], total: 0, hasMore: false }),
+  refreshAuthoredPullRequestsMock: vi.fn().mockResolvedValue({ values: [], total: 0, hasMore: false }),
   refreshMyPullRequestsMock: vi.fn().mockResolvedValue({ values: [], total: 0, hasMore: false }),
   refreshAllIntegrationsHealthMock: vi.fn().mockResolvedValue([]),
   nativeThemeMock: vi.fn().mockResolvedValue("dark"),
@@ -33,6 +34,7 @@ vi.mock("@tauri-apps/api/window", () => ({
 
 vi.mock("../features/developer/api", () => ({
   listAuthoredPullRequests: listAuthoredPullRequestsMock,
+  refreshAuthoredPullRequests: refreshAuthoredPullRequestsMock,
   listMyPullRequests: listMyPullRequestsMock,
   refreshMyPullRequests: refreshMyPullRequestsMock,
 }));
@@ -75,6 +77,8 @@ describe("mework application shell", () => {
     listMyPullRequestsMock.mockResolvedValue({ values: [], total: 0, hasMore: false });
     listAuthoredPullRequestsMock.mockClear();
     listAuthoredPullRequestsMock.mockResolvedValue({ values: [], total: 0, hasMore: false });
+    refreshAuthoredPullRequestsMock.mockClear();
+    refreshAuthoredPullRequestsMock.mockResolvedValue({ values: [], total: 0, hasMore: false });
     refreshMyPullRequestsMock.mockClear();
     refreshMyPullRequestsMock.mockResolvedValue({ values: [], total: 0, hasMore: false });
     refreshAllIntegrationsHealthMock.mockClear();
@@ -121,6 +125,7 @@ describe("mework application shell", () => {
       capabilities: [],
     }]);
     await waitFor(() => expect(refreshMyPullRequestsMock).toHaveBeenCalledWith(0, 100));
+    expect(refreshAuthoredPullRequestsMock).toHaveBeenCalledWith(0, 100);
     expect(screen.queryByRole("main", { name: "mework" })).not.toBeInTheDocument();
 
     resolveRefresh({ values: [], total: 0, hasMore: false });
@@ -162,7 +167,15 @@ describe("mework application shell", () => {
   });
 
   it("shows unread authored pull requests on the My Pull Requests navigation item", async () => {
-    listAuthoredPullRequestsMock.mockResolvedValueOnce({
+    refreshAllIntegrationsHealthMock.mockResolvedValueOnce([{
+      id: "bitbucket-1",
+      kind: "bitbucket",
+      baseUrl: "https://bitbucket.example.com",
+      enabled: true,
+      healthStatus: "working",
+      capabilities: [],
+    }]);
+    refreshAuthoredPullRequestsMock.mockResolvedValueOnce({
       values: [{ activity: "updated" }],
       total: 1,
       hasMore: false,
@@ -175,7 +188,7 @@ describe("mework application shell", () => {
       "href",
       "#developer/my-pull-requests",
     );
-    expect(refreshMyPullRequestsMock).not.toHaveBeenCalled();
+    expect(refreshAuthoredPullRequestsMock).toHaveBeenCalledWith(0, 100);
   });
 
   it("runs integration health checks when the app starts", async () => {

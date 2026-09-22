@@ -47,6 +47,17 @@ pub fn open_notification_settings() -> Result<(), String> {
 
 pub trait NotificationAdapter: Send + Sync {
     fn notify(&self, title: &str, body: &str, inbox_item_id: &str) -> Result<(), String>;
+
+    fn notify_with_url(
+        &self,
+        title: &str,
+        body: &str,
+        inbox_item_id: &str,
+        url: &str,
+    ) -> Result<(), String> {
+        let _ = url;
+        self.notify(title, body, inbox_item_id)
+    }
 }
 
 pub struct NativeNotificationAdapter<R: Runtime> {
@@ -68,6 +79,25 @@ impl<R: Runtime> NotificationAdapter for NativeNotificationAdapter<R> {
             .body(body)
             .sound("default")
             .extra("inbox_item_id", inbox_item_id)
+            .show()
+            .map_err(|_| "failed to send native notification".to_owned())
+    }
+
+    fn notify_with_url(
+        &self,
+        title: &str,
+        body: &str,
+        inbox_item_id: &str,
+        url: &str,
+    ) -> Result<(), String> {
+        self.app
+            .notification()
+            .builder()
+            .title(title)
+            .body(body)
+            .sound("default")
+            .extra("inbox_item_id", inbox_item_id)
+            .extra("issue_url", url)
             .show()
             .map_err(|_| "failed to send native notification".to_owned())
     }

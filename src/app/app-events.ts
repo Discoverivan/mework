@@ -1,5 +1,6 @@
 import type { AiSettingsPageData, IntegrationRedacted } from "@/shared/contracts/settings";
 import type { MyPullRequestPage, PullRequestReviewChangedEvent } from "@/shared/contracts/developer";
+import type { TaskTrackerMonitor } from "@/shared/contracts/task-tracker";
 
 export const APP_EVENT = {
   integrationsChanged: "integrations:changed",
@@ -9,6 +10,7 @@ export const APP_EVENT = {
   pullRequestReviewChanged: "pull-requests:review-changed",
   reviewerPullRequestsUpdated: "pull-requests:reviewer-updated",
   authoredPullRequestsUpdated: "pull-requests:authored-updated",
+  taskTrackerUpdated: "task-tracker:updated",
 } as const;
 
 interface AppEventMap {
@@ -19,6 +21,7 @@ interface AppEventMap {
   [APP_EVENT.pullRequestReviewChanged]: PullRequestReviewChangedEvent;
   [APP_EVENT.reviewerPullRequestsUpdated]: MyPullRequestPage;
   [APP_EVENT.authoredPullRequestsUpdated]: MyPullRequestPage;
+  [APP_EVENT.taskTrackerUpdated]: TaskTrackerMonitor[];
 }
 
 type AppEventName = keyof AppEventMap;

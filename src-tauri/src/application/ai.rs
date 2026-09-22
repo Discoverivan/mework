@@ -255,7 +255,7 @@ pub async fn ensure_review_ready(pool: &SqlitePool) -> Result<AiSettings, String
 }
 
 pub fn inspect_codex_cli() -> AiProviderDto {
-    let Some(path) = resolve_codex_binary() else {
+    let Some(path) = resolve_codex_binary_with_startup_retry() else {
         return AiProviderDto {
             id: AiProviderId::CodexCli,
             name: "Codex CLI".to_owned(),
@@ -334,6 +334,26 @@ pub fn inspect_codex_cli() -> AiProviderDto {
         allow_insecure_tls: None,
         message: Some("Codex CLI is installed, but it is not signed in".to_owned()),
     }
+}
+
+fn resolve_codex_binary_with_startup_retry() -> Option<PathBuf> {
+    resolve_codex_binary_with_retry(resolve_codex_binary, &[100, 400])
+}
+
+fn resolve_codex_binary_with_retry(
+    mut resolve: impl FnMut() -> Option<PathBuf>,
+    delays_ms: &[u64],
+) -> Option<PathBuf> {
+    if let Some(path) = resolve() {
+        return Some(path);
+    }
+    for delay_ms in delays_ms {
+        thread::sleep(Duration::from_millis(*delay_ms));
+        if let Some(path) = resolve() {
+            return Some(path);
+        }
+    }
+    None
 }
 
 pub fn available_codex_models() -> Vec<String> {
@@ -1238,6 +1258,23 @@ mod tests {
             super::codex_executable_names(true),
             &["codex.exe", "codex.cmd", "codex"]
         );
+    }
+
+    #[test]
+    fn retries_transient_codex_binary_discovery() {
+        let expected = std::path::PathBuf::from("synthetic-codex");
+        let mut attempts = 0;
+
+        let resolved = super::resolve_codex_binary_with_retry(
+            || {
+                attempts += 1;
+                (attempts == 2).then(|| expected.clone())
+            },
+            &[0],
+        );
+
+        assert_eq!(resolved, Some(expected));
+        assert_eq!(attempts, 2);
     }
 
     #[cfg(unix)]

@@ -5,7 +5,7 @@ import { SplashScreen } from "./components/shared/SplashScreen";
 import { UpdateBanner } from "./components/shared/UpdateBanner";
 import { AppRoutes, type AppRoute } from "./app/routes";
 import { PresenterView } from "./features/daily/PresenterView";
-import { listAuthoredPullRequests, listMyPullRequests, refreshMyPullRequests } from "./features/developer/api";
+import { listAuthoredPullRequests, listMyPullRequests, refreshAuthoredPullRequests, refreshMyPullRequests } from "./features/developer/api";
 import type { MyPullRequestPage } from "./shared/contracts/developer";
 import { refreshAllIntegrationsHealth } from "./features/settings/api";
 import { I18nProvider } from "@/i18n/I18nProvider";
@@ -18,6 +18,7 @@ import "./daily-status.css";
 
 function routeFromHash(hash: string): AppRoute {
   if (hash === "#product/create-task" || hash.startsWith("#product/create-task?")) return "product-create-task";
+  if (hash === "#product/task-tracker") return "product-task-tracker";
   if (hash === "#product/daily") return "product-daily";
   if (hash === "#product/daily/presenter") return "product-daily-presenter";
   if (hash === "#product/confluence-search") return "product-confluence-search";
@@ -86,7 +87,7 @@ function AppContent() {
       )) {
         const [reviewerResult, authoredResult] = await Promise.allSettled([
           refreshMyPullRequests(0, 100),
-          listAuthoredPullRequests(0, 100),
+          refreshAuthoredPullRequests(0, 100),
         ]);
         if (!active) return;
         if (reviewerResult.status === "fulfilled") {
@@ -125,7 +126,6 @@ function AppContent() {
       if (authoredResult.status === "fulfilled") applyAuthoredPage(authoredResult.value);
     };
 
-    void refreshCachedCount();
     const unsubscribeActivity = subscribeAppEvent(
       APP_EVENT.pullRequestActivityChanged,
       () => void refreshCachedCount(),
