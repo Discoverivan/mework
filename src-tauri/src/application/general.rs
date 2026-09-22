@@ -5,9 +5,9 @@ use sqlx::SqlitePool;
 use tauri::{AppHandle, Runtime};
 
 use crate::infrastructure::db::repositories;
-#[cfg(not(target_os = "macos"))]
-use crate::os::notifications::NotificationAdapter;
-use crate::os::notifications::{self, NotificationPermission};
+use crate::os::notifications::{
+    self, NativeNotificationAdapter, NotificationAdapter, NotificationPermission,
+};
 
 const GENERAL_SETTINGS_KEY: &str = "general.settings";
 const GENERAL_SETTINGS_SCHEMA_VERSION: i64 = 3;
@@ -110,17 +110,14 @@ async fn save(pool: &SqlitePool, settings: &GeneralSettings) -> Result<(), Strin
     .map_err(|_| "failed to save general settings".to_owned())
 }
 
-async fn update(
-    pool: &SqlitePool,
-    apply: impl FnOnce(&mut GeneralSettings),
-) -> Result<GeneralSettingsDto, String> {
+async fn update(pool: &SqlitePool, apply: impl FnOnce(&mut GeneralSettings)) -> Result<(), String> {
     {
         let _guard = general_settings_write_lock().lock().await;
         let mut settings = load(pool).await?;
         apply(&mut settings);
         save(pool, &settings).await?;
     }
-    dto(pool).await
+    Ok(())
 }
 
 pub async fn save_notification_preferences(
@@ -128,7 +125,7 @@ pub async fn save_notification_preferences(
     notifications_enabled: bool,
     review_notifications_enabled: bool,
     authored_notifications_enabled: bool,
-) -> Result<GeneralSettingsDto, String> {
+) -> Result<(), String> {
     update(pool, |settings| {
         settings.notifications_enabled = notifications_enabled;
         settings.review_notifications_enabled = review_notifications_enabled;
@@ -141,7 +138,7 @@ pub async fn save_appearance_preferences(
     pool: &SqlitePool,
     language: AppLanguage,
     theme_preference: ThemePreference,
-) -> Result<GeneralSettingsDto, String> {
+) -> Result<(), String> {
     update(pool, |settings| {
         settings.language = language;
         settings.theme_preference = theme_preference;
@@ -149,13 +146,16 @@ pub async fn save_appearance_preferences(
     .await
 }
 
-pub async fn dto(pool: &SqlitePool) -> Result<GeneralSettingsDto, String> {
+pub async fn dto<R: Runtime>(
+    pool: &SqlitePool,
+    app: &AppHandle<R>,
+) -> Result<GeneralSettingsDto, String> {
     let settings = load(pool).await?;
-    let (notification_permission, permission_check_error) = match notifications::permission_status()
-    {
-        Ok(permission) => (permission, None),
-        Err(error) => (NotificationPermission::NotDetermined, Some(error)),
-    };
+    let (notification_permission, permission_check_error) =
+        match notifications::permission_status(app) {
+            Ok(permission) => (permission, None),
+            Err(error) => (NotificationPermission::NotDetermined, Some(error)),
+        };
     Ok(GeneralSettingsDto {
         notifications_enabled: settings.notifications_enabled,
         review_notifications_enabled: settings.review_notifications_enabled,
@@ -181,7 +181,7 @@ pub fn send_test_notification<R: Runtime>(
     app: &AppHandle<R>,
     notification_kind: NotificationTestKind,
 ) -> Result<(), String> {
-    match notifications::permission_status()? {
+    match notifications::permission_status(app)? {
         NotificationPermission::Granted => {}
         NotificationPermission::Denied | NotificationPermission::NotDetermined => {
             return Err(
@@ -203,17 +203,8 @@ pub fn send_test_notification<R: Runtime>(
         ),
     };
 
-    #[cfg(target_os = "macos")]
-    {
-        let _ = app;
-        notifications::send_test_notification(title, body, identifier)
-    }
-
-    #[cfg(not(target_os = "macos"))]
-    {
-        let adapter = notifications::NativeNotificationAdapter::new(app.clone());
-        adapter.notify(title, body, identifier)
-    }
+    let adapter = NativeNotificationAdapter::new(app.clone());
+    adapter.notify(title, body, identifier)
 }
 
 pub fn open_notification_settings() -> Result<(), String> {
