@@ -711,8 +711,11 @@ async fn fetch_issues_with_limit(
     if secret.trim().is_empty() {
         return Err("Jira credentials are unavailable".to_owned());
     }
-    let client = Client::builder()
-        .timeout(StdDuration::from_secs(30))
+    let mut builder = Client::builder().timeout(StdDuration::from_secs(30));
+    if integration.allow_insecure_tls {
+        builder = builder.danger_accept_invalid_certs(true);
+    }
+    let client = builder
         .build()
         .map_err(|_| "Jira transport is unavailable".to_owned())?;
     let endpoint = jira_endpoint(&integration.base_url, "rest/api/2/search")?;
