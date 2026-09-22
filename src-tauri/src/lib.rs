@@ -361,6 +361,8 @@ pub fn run() {
             commands::command_board::command_board_save,
             commands::command_board::command_board_delete,
             commands::command_board::command_board_run,
+            commands::confluence::confluence_search,
+            commands::confluence::confluence_space_resolve,
             commands::ai::ai_settings,
             commands::ai::ai_settings_save,
             commands::ai::ai_openai_compatible_save,

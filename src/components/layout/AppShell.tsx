@@ -8,6 +8,7 @@ import {
   Monitor,
   Settings2,
   Moon,
+  Search,
   SquarePen,
   Sparkles,
   Sun,
@@ -25,6 +26,7 @@ export type AppSection =
   | "product-create-task"
   | "product-task-tracker"
   | "product-daily"
+  | "product-confluence-search"
   | "developer-pull-requests"
   | "developer-my-pull-requests"
   | "developer-command-board"
@@ -35,7 +37,7 @@ export type AppSection =
 
 type NavigationItem = {
   section: AppSection;
-  labelKey: "nav.createTask" | "nav.taskTracker" | "nav.sprintTasks" | "nav.prsToReview" | "nav.yourPrs" | "nav.commandBoard" | "nav.general" | "nav.aiSettings" | "nav.dataIntegrations" | "nav.teamSettings";
+  labelKey: "nav.createTask" | "nav.taskTracker" | "nav.sprintTasks" | "nav.confluenceSearch" | "nav.prsToReview" | "nav.yourPrs" | "nav.commandBoard" | "nav.general" | "nav.aiSettings" | "nav.dataIntegrations" | "nav.teamSettings";
   href: string;
   icon: LucideIcon;
 };
@@ -56,6 +58,7 @@ const productNavigation: NavigationItem[] = [
   { section: "product-create-task", labelKey: "nav.createTask", href: "#product/create-task", icon: SquarePen },
   { section: "product-task-tracker", labelKey: "nav.taskTracker", href: "#product/task-tracker", icon: Monitor },
   { section: "product-daily", labelKey: "nav.sprintTasks", href: "#product/daily", icon: CalendarDays },
+  { section: "product-confluence-search", labelKey: "nav.confluenceSearch", href: "#product/confluence-search", icon: Search },
 ];
 
 const developerNavigation: NavigationItem[] = [

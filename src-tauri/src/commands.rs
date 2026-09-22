@@ -1,5 +1,6 @@
 pub mod ai;
 pub mod command_board;
+pub mod confluence;
 pub mod create_task;
 pub mod daily;
 pub mod developer;

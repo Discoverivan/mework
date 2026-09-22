@@ -1,8 +1,8 @@
 use sqlx::{Row, SqlitePool};
 
 use crate::domain::planning::models::{
-    AuditEvent, ManagedProject, PlanningItem, PlanningStatus, SubtaskPlan, SyncAction,
-    SyncActionStatus, TeamMember, TeamPreset, Workspace,
+    AuditEvent, ManagedProject, ManagedProjectConfluenceSpace, PlanningItem, PlanningStatus,
+    SubtaskPlan, SyncAction, SyncActionStatus, TeamMember, TeamPreset, Workspace,
 };
 
 pub async fn insert_managed_project(
@@ -58,6 +58,46 @@ pub async fn delete_managed_project(pool: &SqlitePool, id: &str) -> Result<bool,
         .await?
         .rows_affected()
         == 1)
+}
+
+pub async fn primary_confluence_space(
+    pool: &SqlitePool,
+    managed_project_id: &str,
+) -> Result<Option<ManagedProjectConfluenceSpace>, sqlx::Error> {
+    sqlx::query(
+        "SELECT * FROM managed_project_confluence_spaces WHERE managed_project_id = ? AND is_primary = 1",
+    )
+    .bind(managed_project_id)
+    .fetch_optional(pool)
+    .await?
+    .map(row_managed_project_confluence_space)
+    .transpose()
+}
+
+pub async fn replace_primary_confluence_space(
+    pool: &SqlitePool,
+    value: Option<&ManagedProjectConfluenceSpace>,
+    managed_project_id: &str,
+) -> Result<(), sqlx::Error> {
+    let mut transaction = pool.begin().await?;
+    sqlx::query(
+        "DELETE FROM managed_project_confluence_spaces WHERE managed_project_id = ? AND is_primary = 1",
+    )
+    .bind(managed_project_id)
+    .execute(&mut *transaction)
+    .await?;
+    if let Some(value) = value {
+        sqlx::query("INSERT INTO managed_project_confluence_spaces (id,managed_project_id,integration_id,space_id,space_key,space_name,is_primary,created_at,updated_at) VALUES (?,?,?,?,?,?,1,strftime('%Y-%m-%dT%H:%M:%fZ','now'),strftime('%Y-%m-%dT%H:%M:%fZ','now'))")
+            .bind(&value.id)
+            .bind(&value.managed_project_id)
+            .bind(&value.integration_id)
+            .bind(&value.space_id)
+            .bind(&value.space_key)
+            .bind(&value.space_name)
+            .execute(&mut *transaction)
+            .await?;
+    }
+    transaction.commit().await
 }
 
 pub async fn insert_workspace(pool: &SqlitePool, value: &Workspace) -> Result<(), sqlx::Error> {
@@ -386,6 +426,22 @@ fn row_managed_project(row: sqlx::sqlite::SqliteRow) -> Result<ManagedProject, s
         epic_link_jql: row.try_get("epic_link_jql")?,
         enabled: row.try_get::<i64, _>("enabled")? != 0,
         last_metadata_refresh_at: row.try_get("last_metadata_refresh_at")?,
+        created_at: row.try_get("created_at")?,
+        updated_at: row.try_get("updated_at")?,
+    })
+}
+
+fn row_managed_project_confluence_space(
+    row: sqlx::sqlite::SqliteRow,
+) -> Result<ManagedProjectConfluenceSpace, sqlx::Error> {
+    Ok(ManagedProjectConfluenceSpace {
+        id: row.try_get("id")?,
+        managed_project_id: row.try_get("managed_project_id")?,
+        integration_id: row.try_get("integration_id")?,
+        space_id: row.try_get("space_id")?,
+        space_key: row.try_get("space_key")?,
+        space_name: row.try_get("space_name")?,
+        is_primary: row.try_get::<i64, _>("is_primary")? != 0,
         created_at: row.try_get("created_at")?,
         updated_at: row.try_get("updated_at")?,
     })

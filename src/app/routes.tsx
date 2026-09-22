@@ -6,12 +6,14 @@ import { MyPullRequestsPage } from "../features/developer/MyPullRequestsPage";
 import { AuthoredPullRequestsPage } from "../features/developer/AuthoredPullRequestsPage";
 import { CommandBoardPage } from "../features/developer/CommandBoardPage";
 import { SettingsPage } from "../features/settings/SettingsPage";
+import { ConfluenceSearchPage } from "../features/confluence/ConfluenceSearchPage";
 
 export type AppRoute =
   | "product-create-task"
   | "product-task-tracker"
   | "product-daily"
   | "product-daily-presenter"
+  | "product-confluence-search"
   | "developer-pull-requests"
   | "developer-my-pull-requests"
   | "developer-command-board"
@@ -45,6 +47,14 @@ export function AppRoutes({ route }: AppRoutesProps) {
     return (
       <IntegrationDependencyGate requirement="jira" requireAiProvider>
         <DailyPage />
+      </IntegrationDependencyGate>
+    );
+  }
+
+  if (route === "product-confluence-search") {
+    return (
+      <IntegrationDependencyGate requirement="confluence">
+        <ConfluenceSearchPage />
       </IntegrationDependencyGate>
     );
   }

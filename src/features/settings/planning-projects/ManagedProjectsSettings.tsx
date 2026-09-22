@@ -17,6 +17,7 @@ import {
 } from "@/components/ui/dialog";
 import type { EpicLinkJqlIssue, PlanningBoard, PlanningSprint } from "@/shared/contracts/planning";
 import type { TeamMember } from "@/shared/contracts/planning";
+import type { ConfluenceSpace } from "@/shared/contracts/confluence";
 import type {
   IntegrationRedacted,
   ManagedProjectSettings,
@@ -93,9 +94,16 @@ export type ValidateProjectKey = (
   integrationId?: string,
 ) => ProjectKeyValidationResult | Promise<ProjectKeyValidationResult>;
 
+export type ResolveConfluenceSpace = (
+  keyOrUrl: string,
+  integrationId?: string,
+) => ConfluenceSpace | Promise<ConfluenceSpace>;
+
 export interface ManagedProjectsSettingsProps {
   jiraIntegrations: IntegrationRedacted[];
+  confluenceIntegrations?: IntegrationRedacted[];
   validateProjectKey?: ValidateProjectKey;
+  resolveConfluenceSpace?: ResolveConfluenceSpace;
 }
 
 interface ManagedProjectForm {
@@ -104,6 +112,7 @@ interface ManagedProjectForm {
   jiraProjectId: string;
   jiraProjectKey: string;
   jiraProjectName: string;
+  confluenceInput: string;
   boardId: string;
   defaultTaskSprintId: string;
   defaultTaskSprintName: string;
@@ -119,6 +128,7 @@ function emptyForm(integrationId?: string): ManagedProjectForm {
     jiraProjectId: "",
     jiraProjectKey: "",
     jiraProjectName: "",
+    confluenceInput: "",
     boardId: "",
     defaultTaskSprintId: "",
     defaultTaskSprintName: "",
@@ -136,6 +146,7 @@ function formForProject(project: ManagedProjectSettings): ManagedProjectForm {
     jiraProjectId: project.projectId,
     jiraProjectKey: project.projectKey,
     jiraProjectName: project.projectName,
+    confluenceInput: project.confluenceSpace?.spaceKey ?? "",
     boardId: project.boardId ?? "",
     defaultTaskSprintId: project.defaultTaskSprintId ?? "",
     defaultTaskSprintName: project.defaultTaskSprintName ?? "",
@@ -180,7 +191,6 @@ type Translate = (key: TranslationKey, params?: Record<string, string | number>)
 function formErrors(form: ManagedProjectForm, t: Translate): string[] {
   const errors: string[] = [];
   if (!value(form.integrationId)) errors.push(t("teams.integrationRequired"));
-  if (!value(form.jiraProjectName)) errors.push(t("teams.projectNameRequired"));
   if (!value(form.jiraProjectKey)) errors.push(t("teams.projectKeyRequired"));
   if (!value(form.boardId)) errors.push(t("teams.boardRequired"));
   return errors;
@@ -188,7 +198,6 @@ function formErrors(form: ManagedProjectForm, t: Translate): string[] {
 
 function addTeamDetailsErrors(form: ManagedProjectForm, t: Translate): string[] {
   const errors: string[] = [];
-  if (!value(form.jiraProjectName)) errors.push(t("teams.nameRequired"));
   if (!value(form.jiraProjectKey)) errors.push(t("teams.projectKeyRequired"));
   return errors;
 }
@@ -207,13 +216,16 @@ export function reorderMemberIdsAtInsertionIndex(memberIds: string[], draggedId:
 
 export function ManagedProjectsSettings({
   jiraIntegrations,
+  confluenceIntegrations = [],
   validateProjectKey,
+  resolveConfluenceSpace,
 }: ManagedProjectsSettingsProps) {
   const { t } = useI18n();
   const [projects, setProjects] = useState<ManagedProjectSettings[]>([]);
   const [form, setForm] = useState<ManagedProjectForm | null>(null);
   const [addTeamStep, setAddTeamStep] = useState<AddTeamStep>("details");
   const [validatedProject, setValidatedProject] = useState<ProjectKeyValidationSuccess | null>(null);
+  const [validatedConfluenceSpace, setValidatedConfluenceSpace] = useState<ConfluenceSpace | null>(null);
   const [detailProject, setDetailProject] = useState<ManagedProjectSettings | null>(null);
   const [loading, setLoading] = useState(true);
   const [action, setAction] = useState<Action>(null);
@@ -391,6 +403,10 @@ export function ManagedProjectsSettings({
     if (field === "jiraProjectKey") {
       setBoards([]);
       setBoardsError(null);
+      setValidatedProject(null);
+    }
+    if (field === "confluenceInput") {
+      setValidatedConfluenceSpace(null);
     }
     setSaveError(null);
   }
@@ -405,6 +421,7 @@ export function ManagedProjectsSettings({
     resetBoards();
     setAddTeamStep("details");
     setValidatedProject(null);
+    setValidatedConfluenceSpace(null);
     setSaveError(null);
     setForm(emptyForm(jiraIntegrations.find((integration) => integration.enabled)?.id));
   }
@@ -414,6 +431,7 @@ export function ManagedProjectsSettings({
     resetBoards();
     setAddTeamStep("details");
     setValidatedProject(null);
+    setValidatedConfluenceSpace(project.confluenceSpace ?? null);
     setSaveError(null);
     setForm(formForProject(project));
   }
@@ -505,6 +523,21 @@ export function ManagedProjectsSettings({
         return;
       }
 
+      let confluenceSpace: ConfluenceSpace | null = null;
+      if (value(form.confluenceInput)) {
+        const confluence = confluenceIntegrations.find((integration) => integration.enabled);
+        if (!confluence || !resolveConfluenceSpace) {
+          setSaveError(t("teams.confluenceIntegrationRequired"));
+          return;
+        }
+        try {
+          confluenceSpace = await resolveConfluenceSpace(value(form.confluenceInput), confluence.id);
+        } catch (error) {
+          setSaveError(t("teams.confluenceValidateError", { error: commandError(error) }));
+          return;
+        }
+      }
+
       const loaded = await listPlanningProjectBoards({
         integrationId: value(form.integrationId),
         projectKey: value(validation.projectKey),
@@ -517,6 +550,14 @@ export function ManagedProjectsSettings({
       }
       setBoards(nextBoards);
       setValidatedProject(validation);
+      setValidatedConfluenceSpace(confluenceSpace);
+      setForm((current) => current ? {
+        ...current,
+        jiraProjectId: validation.projectId,
+        jiraProjectKey: validation.projectKey,
+        jiraProjectName: validation.projectName,
+        confluenceInput: confluenceSpace?.spaceKey ?? "",
+      } : current);
       setAddTeamStep("board");
     } catch (error) {
       setSaveError(t("teams.loadBoardsError", { error: commandError(error) }));
@@ -534,6 +575,7 @@ export function ManagedProjectsSettings({
     setSaveError(null);
     try {
       let validation: ProjectKeyValidationResult;
+      let confluenceSpace = validatedConfluenceSpace;
       if (!form.id) {
         if (addTeamStep !== "board" || !validatedProject) {
           setSaveError(t("teams.completeValidation"));
@@ -555,6 +597,23 @@ export function ManagedProjectsSettings({
           setSaveError(validation.error);
           return;
         }
+        if (value(form.confluenceInput)) {
+          const integrationId = projects.find((project) => project.id === form.id)
+            ?.confluenceSpace?.integrationId
+            ?? confluenceIntegrations.find((integration) => integration.enabled)?.id;
+          if (!integrationId || !resolveConfluenceSpace) {
+            setSaveError(t("teams.confluenceIntegrationRequired"));
+            return;
+          }
+          try {
+            confluenceSpace = await resolveConfluenceSpace(value(form.confluenceInput), integrationId);
+          } catch (error) {
+            setSaveError(t("teams.confluenceValidateError", { error: commandError(error) }));
+            return;
+          }
+        } else {
+          confluenceSpace = null;
+        }
       }
 
       const request: ManagedProjectSaveInput = {
@@ -562,7 +621,8 @@ export function ManagedProjectsSettings({
         integrationId: value(form.integrationId),
         jiraProjectId: value(validation.projectId),
         jiraProjectKey: value(validation.projectKey),
-        jiraProjectName: value(form.jiraProjectName),
+        jiraProjectName: value(validation.projectName),
+        confluenceSpace: confluenceSpace ?? undefined,
         boardId: value(form.boardId),
         defaultTaskSprintId: value(form.defaultTaskSprintId) || undefined,
         defaultTaskSprintName: value(form.defaultTaskSprintName) || undefined,
@@ -597,6 +657,7 @@ export function ManagedProjectsSettings({
         jiraProjectId: detailProject.projectId,
         jiraProjectKey: detailProject.projectKey,
         jiraProjectName: detailProject.projectName,
+        confluenceSpace: detailProject.confluenceSpace,
         boardId: detailProject.boardId,
         sourceSprintId: detailProject.sourceSprintId,
         sourceSprintName: detailProject.sourceSprintName,
@@ -854,6 +915,7 @@ export function ManagedProjectsSettings({
                         <CardDescription className="leading-snug">
                           <span aria-label={t("teams.projectKeyFor", { team: project.projectName })}>{project.projectKey}</span>
                           {` · ${boardNames[project.id] ?? project.boardId ?? t("teams.jiraBoard")}`}
+                          {project.confluenceSpace ? ` · ${project.confluenceSpace.spaceName} (${project.confluenceSpace.spaceKey})` : ""}
                         </CardDescription>
                       </div>
                       <div className="ml-auto flex items-center gap-2">
@@ -916,17 +978,23 @@ export function ManagedProjectsSettings({
                   aria-busy={controlsDisabled}
                 >
                   <TextField
-                    label={t("teams.name")}
-                    value={form.jiraProjectName}
-                    onChange={(next) => updateForm("jiraProjectName", next)}
-                    disabled={controlsDisabled}
-                  />
-                  <TextField
                     label={t("teams.projectKey")}
                     value={form.jiraProjectKey}
                     onChange={(next) => updateForm("jiraProjectKey", next)}
                     disabled={controlsDisabled}
                   />
+                  <TextField
+                    label={t("teams.confluenceSpace")}
+                    value={form.confluenceInput}
+                    onChange={(next) => updateForm("confluenceInput", next)}
+                    disabled={controlsDisabled || confluenceIntegrations.every((integration) => !integration.enabled)}
+                    placeholder={t("teams.confluenceSpacePlaceholder")}
+                  />
+                  <p className="text-sm text-muted-foreground">
+                    {t(confluenceIntegrations.some((integration) => integration.enabled)
+                      ? "teams.confluenceSpaceHint"
+                      : "teams.confluenceSpaceUnavailable")}
+                  </p>
                   {!value(form.integrationId) ? (
                     <Alert variant="destructive" role="alert">
                       <AlertDescription>{t("teams.integrationRequiredAdd")}</AlertDescription>
@@ -968,21 +1036,28 @@ export function ManagedProjectsSettings({
                         <p className="text-muted-foreground">{t("teams.projectKey")}</p>
                         <p className="font-medium">{form.jiraProjectKey}</p>
                       </div>
+                      {validatedConfluenceSpace ? (
+                        <div>
+                          <p className="text-muted-foreground">{t("teams.confluenceSpace")}</p>
+                          <p className="font-medium">{validatedConfluenceSpace.spaceName} ({validatedConfluenceSpace.spaceKey})</p>
+                        </div>
+                      ) : null}
                     </div>
                   ) : (
                     <>
-                      <TextField
-                        label={t("teams.name")}
-                        value={form.jiraProjectName}
-                        onChange={(next) => updateForm("jiraProjectName", next)}
-                        disabled={controlsDisabled}
-                      />
                       <TextField
                         label={t("teams.projectKey")}
                         value={form.jiraProjectKey}
                         onChange={(next) => updateForm("jiraProjectKey", next)}
                         disabled={controlsDisabled}
                         onBlur={() => void handleLoadBoards()}
+                      />
+                      <TextField
+                        label={t("teams.confluenceSpace")}
+                        value={form.confluenceInput}
+                        onChange={(next) => updateForm("confluenceInput", next)}
+                        disabled={controlsDisabled || confluenceIntegrations.every((integration) => !integration.enabled)}
+                        placeholder={t("teams.confluenceSpacePlaceholder")}
                       />
                     </>
                   )}
@@ -1043,6 +1118,7 @@ export function ManagedProjectsSettings({
                           event.stopPropagation();
                           setAddTeamStep("details");
                           setValidatedProject(null);
+                          setValidatedConfluenceSpace(null);
                           resetBoards();
                         }}
                         disabled={controlsDisabled}
@@ -1400,14 +1476,15 @@ interface TextFieldProps {
   onChange: (value: string) => void;
   disabled: boolean;
   onBlur?: () => void;
+  placeholder?: string;
 }
 
-function TextField({ label, value, onChange, disabled, onBlur }: TextFieldProps) {
+function TextField({ label, value, onChange, disabled, onBlur, placeholder }: TextFieldProps) {
   const id = `managed-project-${label.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`;
   return (
     <div className="grid gap-2">
       <Label htmlFor={id}>{label}</Label>
-      <Input id={id} value={value} onChange={(event) => onChange(event.target.value)} onBlur={onBlur} disabled={disabled} />
+      <Input id={id} value={value} placeholder={placeholder} onChange={(event) => onChange(event.target.value)} onBlur={onBlur} disabled={disabled} />
     </div>
   );
 }

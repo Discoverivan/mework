@@ -16,11 +16,12 @@ describe("AppShell product navigation", () => {
     );
 
     expect(document.querySelector(".app-brand img")).toHaveAttribute("src", "/mework-icon.png");
-    expect(document.querySelectorAll("nav a svg")).toHaveLength(10);
+    expect(document.querySelectorAll("nav a svg")).toHaveLength(11);
     expect(screen.getByText("Product")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Create task" })).toHaveAttribute("href", "#product/create-task");
     expect(screen.getByRole("link", { name: "Task Tracker" })).toHaveAttribute("href", "#product/task-tracker");
     expect(screen.getByRole("link", { name: "Sprint tasks" })).toHaveAttribute("href", "#product/daily");
+    expect(screen.getByRole("link", { name: "Confluence search" })).toHaveAttribute("href", "#product/confluence-search");
     expect(screen.getByRole("link", { name: "PRs to review, 3 unread" })).toHaveAttribute("href", "#developer/pull-requests");
     expect(screen.getByRole("link", { name: "PRs to review, 3 unread" })).toHaveAttribute("aria-current", "page");
     expect(screen.getByRole("link", { name: "PRs to review, 3 unread" })).toHaveClass("bg-accent", "text-accent-foreground", "px-3");

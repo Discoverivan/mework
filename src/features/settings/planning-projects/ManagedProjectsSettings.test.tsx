@@ -83,6 +83,12 @@ describe("ManagedProjectsSettings task creation settings", () => {
       projectKey: "DEMO",
       projectName: "Jira project name",
     });
+    const resolveConfluenceSpace = vi.fn().mockResolvedValue({
+      integrationId: "confluence-1",
+      spaceId: "20001",
+      spaceKey: "DOCS",
+      spaceName: "Example team space",
+    });
     render(
       <ManagedProjectsSettings
         jiraIntegrations={[{
@@ -92,7 +98,15 @@ describe("ManagedProjectsSettings task creation settings", () => {
           enabled: true,
           capabilities: {},
         }]}
+        confluenceIntegrations={[{
+          id: "confluence-1",
+          kind: "confluence",
+          baseUrl: "https://confluence.example.invalid",
+          enabled: true,
+          capabilities: {},
+        }]}
         validateProjectKey={validateProjectKey}
+        resolveConfluenceSpace={resolveConfluenceSpace}
       />,
     );
 
@@ -106,16 +120,18 @@ describe("ManagedProjectsSettings task creation settings", () => {
     expect(addTeamButton.closest("header")).toHaveClass("page-header");
     expect(screen.getByText("Configure Jira teams, boards, members, and task creation defaults.")).toBeInTheDocument();
     fireEvent.click(addTeamButton);
-    expect(screen.getByRole("textbox", { name: "Team name" })).toBeInTheDocument();
+    expect(screen.queryByRole("textbox", { name: "Team name" })).not.toBeInTheDocument();
     expect(screen.getByRole("textbox", { name: "Jira project key" })).toBeInTheDocument();
+    expect(screen.getByRole("textbox", { name: "Confluence space" })).toBeInTheDocument();
     expect(screen.queryByRole("combobox", { name: "Jira board" })).not.toBeInTheDocument();
 
-    fireEvent.change(screen.getByRole("textbox", { name: "Team name" }), { target: { value: "Platform team" } });
     fireEvent.change(screen.getByRole("textbox", { name: "Jira project key" }), { target: { value: "DEMO" } });
+    fireEvent.change(screen.getByRole("textbox", { name: "Confluence space" }), { target: { value: "DOCS" } });
     fireEvent.click(screen.getByRole("button", { name: "Next" }));
 
     expect(await screen.findByRole("combobox", { name: "Jira board" })).toBeInTheDocument();
     await waitFor(() => expect(validateProjectKey).toHaveBeenCalledWith("DEMO", "jira-1"));
+    await waitFor(() => expect(resolveConfluenceSpace).toHaveBeenCalledWith("DOCS", "confluence-1"));
     await waitFor(() => expect(listBoardsMock).toHaveBeenCalledWith({
       integrationId: "jira-1",
       projectKey: "DEMO",
@@ -127,7 +143,13 @@ describe("ManagedProjectsSettings task creation settings", () => {
       integrationId: "jira-1",
       jiraProjectId: "10001",
       jiraProjectKey: "DEMO",
-      jiraProjectName: "Platform team",
+      jiraProjectName: "Jira project name",
+      confluenceSpace: {
+        integrationId: "confluence-1",
+        spaceId: "20001",
+        spaceKey: "DOCS",
+        spaceName: "Example team space",
+      },
       boardId: "board-1",
     })));
   });
@@ -157,7 +179,6 @@ describe("ManagedProjectsSettings task creation settings", () => {
     );
 
     fireEvent.click(await screen.findByRole("button", { name: "Add team" }));
-    fireEvent.change(screen.getByRole("textbox", { name: "Team name" }), { target: { value: "Platform team" } });
     fireEvent.change(screen.getByRole("textbox", { name: "Jira project key" }), { target: { value: "DEMO" } });
     fireEvent.click(screen.getByRole("button", { name: "Next" }));
 
@@ -170,7 +191,7 @@ describe("ManagedProjectsSettings task creation settings", () => {
     const boardRequestsBeforeBack = listBoardsMock.mock.calls.length;
     fireEvent.click(screen.getByRole("button", { name: "Back" }));
 
-    expect(screen.getByRole("textbox", { name: "Team name" })).toBeInTheDocument();
+    expect(screen.getByRole("textbox", { name: "Jira project key" })).toBeInTheDocument();
     expect(screen.queryByRole("combobox", { name: "Jira board" })).not.toBeInTheDocument();
     expect(listBoardsMock).toHaveBeenCalledTimes(boardRequestsBeforeBack);
   });

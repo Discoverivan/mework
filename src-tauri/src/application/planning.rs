@@ -11,9 +11,11 @@ use serde_json::{json, Value};
 use sqlx::SqlitePool;
 use uuid::Uuid;
 
+use crate::application::confluence::ConfluenceSpaceDto;
+use crate::domain::models::IntegrationKind;
 use crate::domain::planning::models::{
-    ManagedProject, PlanningItem, PlanningStatus, SubtaskPlan, SyncActionStatus, TeamMember,
-    TeamPreset, Workspace,
+    ManagedProject, ManagedProjectConfluenceSpace, PlanningItem, PlanningStatus, SubtaskPlan,
+    SyncActionStatus, TeamMember, TeamPreset, Workspace,
 };
 use crate::domain::planning::state_machine::PlanningStateMachine;
 use crate::infrastructure::credentials::keyring::{
@@ -41,6 +43,7 @@ pub struct ManagedProjectRequest {
     pub jira_project_id: String,
     pub jira_project_key: String,
     pub jira_project_name: String,
+    pub confluence_space: Option<ConfluenceSpaceDto>,
     pub board_id: Option<String>,
     pub source_sprint_id: Option<String>,
     pub source_sprint_name: Option<String>,
@@ -111,6 +114,7 @@ pub struct ManagedProjectDto {
     pub project_id: String,
     pub project_key: String,
     pub project_name: String,
+    pub confluence_space: Option<ConfluenceSpaceDto>,
     pub board_id: Option<String>,
     pub source_sprint_id: Option<String>,
     pub source_sprint_name: Option<String>,
@@ -401,12 +405,17 @@ pub async fn list_managed_projects(
     pool: &SqlitePool,
     integration_id: Option<&str>,
 ) -> Result<Vec<ManagedProjectDto>, PlanningError> {
-    planning_repositories::list_managed_projects(pool, integration_id)
+    let projects = planning_repositories::list_managed_projects(pool, integration_id)
         .await
-        .map_err(|_| PlanningError::Database)?
-        .into_iter()
-        .map(managed_project_dto)
-        .collect()
+        .map_err(|_| PlanningError::Database)?;
+    let mut result = Vec::with_capacity(projects.len());
+    for project in projects {
+        let space = planning_repositories::primary_confluence_space(pool, &project.id)
+            .await
+            .map_err(|_| PlanningError::Database)?;
+        result.push(managed_project_dto(project, space)?);
+    }
+    Ok(result)
 }
 
 pub async fn validate_project_key(
@@ -539,6 +548,21 @@ pub async fn save_managed_project(
     repositories::get_integration(pool, &request.integration_id)
         .await
         .map_err(|_| PlanningError::InvalidInput)?;
+    if let Some(space) = request.confluence_space.as_ref() {
+        if space.integration_id.trim().is_empty()
+            || space.space_id.trim().is_empty()
+            || space.space_key.trim().is_empty()
+            || space.space_name.trim().is_empty()
+        {
+            return Err(PlanningError::InvalidInput);
+        }
+        let integration = repositories::get_integration(pool, &space.integration_id)
+            .await
+            .map_err(|_| PlanningError::InvalidInput)?;
+        if integration.kind != IntegrationKind::Confluence || !integration.enabled {
+            return Err(PlanningError::InvalidInput);
+        }
+    }
     let id = request.id.unwrap_or_else(|| Uuid::now_v7().to_string());
     let existing = planning_repositories::get_managed_project(pool, &id)
         .await
@@ -582,10 +606,26 @@ pub async fn save_managed_project(
             .await
             .map_err(|_| PlanningError::Database)?;
     }
-    planning_repositories::get_managed_project(pool, &id)
+    let confluence_space = request
+        .confluence_space
+        .map(|space| ManagedProjectConfluenceSpace {
+            id: Uuid::now_v7().to_string(),
+            managed_project_id: id.clone(),
+            integration_id: space.integration_id,
+            space_id: space.space_id,
+            space_key: space.space_key,
+            space_name: space.space_name,
+            is_primary: true,
+            created_at: String::new(),
+            updated_at: String::new(),
+        });
+    planning_repositories::replace_primary_confluence_space(pool, confluence_space.as_ref(), &id)
         .await
-        .map_err(|_| PlanningError::Database)
-        .and_then(managed_project_dto)
+        .map_err(|_| PlanningError::Database)?;
+    let saved = planning_repositories::get_managed_project(pool, &id)
+        .await
+        .map_err(|_| PlanningError::Database)?;
+    managed_project_dto(saved, confluence_space)
 }
 
 pub async fn delete_managed_project(pool: &SqlitePool, id: &str) -> Result<(), PlanningError> {
@@ -3005,13 +3045,22 @@ fn planning_project_dto(value: ManagedProject) -> PlanningManagedProjectDto {
         availability: PlanningAvailability::Unavailable,
     }
 }
-pub fn managed_project_dto(value: ManagedProject) -> Result<ManagedProjectDto, PlanningError> {
+pub fn managed_project_dto(
+    value: ManagedProject,
+    confluence_space: Option<ManagedProjectConfluenceSpace>,
+) -> Result<ManagedProjectDto, PlanningError> {
     Ok(ManagedProjectDto {
         id: value.id,
         integration_id: value.integration_id,
         project_id: value.jira_project_id,
         project_key: value.jira_project_key,
         project_name: value.jira_project_name,
+        confluence_space: confluence_space.map(|space| ConfluenceSpaceDto {
+            integration_id: space.integration_id,
+            space_id: space.space_id,
+            space_key: space.space_key,
+            space_name: space.space_name,
+        }),
         board_id: value.board_id,
         source_sprint_id: value.source_sprint_id,
         source_sprint_name: value.source_sprint_name,
