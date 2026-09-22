@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import { ArrowLeft, ArrowRight, Copy, ExternalLink, MoreHorizontal, Plus, Presentation, RefreshCw, Square } from "lucide-react";
+import { ArrowLeft, ArrowRight, Check, Copy, ExternalLink, MoreHorizontal, Plus, Presentation, RefreshCw, Square } from "lucide-react";
 import { PageHeader } from "@/components/shared/PageHeader";
 import { useI18n } from "@/i18n/context";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -139,6 +139,12 @@ export function DailyPage() {
   const [presenterError, setPresenterError] = useState<string>();
   const [taskActionError, setTaskActionError] = useState<string>();
   const [taskActionNotice, setTaskActionNotice] = useState<string>();
+
+  useEffect(() => {
+    if (!taskActionNotice) return;
+    const timeoutId = window.setTimeout(() => setTaskActionNotice(undefined), 2_400);
+    return () => window.clearTimeout(timeoutId);
+  }, [taskActionNotice]);
   const workspaceRequestRevision = useRef(0);
   const statusRefreshRevision = useRef(0);
 
@@ -419,7 +425,16 @@ export function DailyPage() {
           <AlertDescription>{taskActionError}</AlertDescription>
         </Alert>
       ) : null}
-      {taskActionNotice ? <p className="text-sm text-muted-foreground" role="status">{taskActionNotice}</p> : null}
+      {taskActionNotice ? (
+        <div
+          className="fixed bottom-4 right-4 z-50 flex max-w-sm items-center gap-2 rounded-md border bg-popover px-3 py-2 text-sm text-popover-foreground shadow-lg"
+          role="status"
+          aria-live="polite"
+        >
+          <Check aria-hidden="true" className="size-4 shrink-0 text-primary" />
+          <span>{taskActionNotice}</span>
+        </div>
+      ) : null}
 
       {loadingProjects ? <div role="status" aria-label={t("daily.loadingTeams")}>{t("daily.loadingTeams")}</div> : null}
       {error ? (
@@ -547,17 +562,25 @@ export function DailyPage() {
                             </DropdownMenuTrigger>
                             <DropdownMenuContent align="end" className="w-56">
                               <DropdownMenuLabel>{subtask.key}</DropdownMenuLabel>
+                              <DropdownMenuSeparator className="mx-2 my-1 w-auto bg-border" />
                               <DropdownMenuItem onSelect={() => void openJiraIssue(subtask.url)}>
                                 <ExternalLink aria-hidden="true" />
                                 {t("daily.openInJira")}
                               </DropdownMenuItem>
                               {subtask.parentUrl && subtask.parentIssueKey ? (
-                                <DropdownMenuItem onSelect={() => void openJiraIssue(subtask.parentUrl!)}>
-                                  <ExternalLink aria-hidden="true" />
-                                  {t("daily.openParentInJira", { key: subtask.parentIssueKey })}
+                                <DropdownMenuItem
+                                  className="items-start"
+                                  aria-label={t("daily.openParentInJira", { key: subtask.parentIssueKey })}
+                                  onSelect={() => void openJiraIssue(subtask.parentUrl!)}
+                                >
+                                  <ExternalLink aria-hidden="true" className="mt-0.5" />
+                                  <span className="flex min-w-0 flex-col">
+                                    <span>{t("daily.openParent")}</span>
+                                    <span className="truncate text-xs text-muted-foreground">{subtask.parentIssueKey}</span>
+                                  </span>
                                 </DropdownMenuItem>
                               ) : null}
-                              <DropdownMenuSeparator />
+                              <DropdownMenuSeparator className="mx-2 my-1.5 w-auto bg-border" />
                               <DropdownMenuItem onSelect={() => void copyTaskValue(subtask.key, t("daily.keyCopied", { key: subtask.key }))}>
                                 <Copy aria-hidden="true" />
                                 {t("daily.copyKey")}

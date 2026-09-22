@@ -161,6 +161,7 @@ export const en = {
   "daily.status": "Status: {status}",
   "daily.actions": "Actions for {key}",
   "daily.openInJira": "Open in Jira",
+  "daily.openParent": "Open parent",
   "daily.openParentInJira": "Open parent {key}",
   "daily.copyKey": "Copy key",
   "daily.copyLink": "Copy link",

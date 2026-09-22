@@ -163,6 +163,7 @@ export const ru: Record<TranslationKey, string> = {
   "daily.status": "Статус: {status}",
   "daily.actions": "Действия для {key}",
   "daily.openInJira": "Открыть в Jira",
+  "daily.openParent": "Открыть родительскую задачу",
   "daily.openParentInJira": "Открыть родительскую задачу {key}",
   "daily.copyKey": "Скопировать ключ",
   "daily.copyLink": "Скопировать ссылку",
