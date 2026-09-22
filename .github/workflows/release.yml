@@ -103,6 +103,9 @@ jobs:
     runs-on: ${{ matrix.platform }}
     strategy:
       fail-fast: false
+      # tauri-action updates one shared latest.json asset. Serializing the
+      # matrix prevents concurrent delete/upload races between platforms.
+      max-parallel: 1
       matrix:
         include:
           - name: macOS Apple Silicon
@@ -257,7 +260,7 @@ jobs:
             macOS signing is selected automatically: Developer ID plus notarization when Apple certificate and App Store Connect API secrets are configured; ad-hoc only when APPLE_CERTIFICATE is empty. Incomplete signing or notarization credentials fail the macOS job.
 
             macOS DMG assets are provided for convenient installation.
-          releaseDraft: false
+          releaseDraft: true
           prerelease: false
           args: ${{ matrix.args }}
 
@@ -283,7 +286,7 @@ jobs:
             macOS signing is selected automatically: Developer ID plus notarization when Apple certificate and App Store Connect API secrets are configured; ad-hoc only when APPLE_CERTIFICATE is empty. Incomplete signing or notarization credentials fail the macOS job.
 
             macOS DMG assets are provided for convenient installation.
-          releaseDraft: false
+          releaseDraft: true
           prerelease: false
           args: ${{ matrix.args }}
 
@@ -305,16 +308,53 @@ jobs:
             macOS signing is selected automatically: Developer ID plus notarization when Apple certificate and App Store Connect API secrets are configured; ad-hoc only when APPLE_CERTIFICATE is empty. Incomplete signing or notarization credentials fail the macOS job.
 
             macOS DMG assets are provided for convenient installation.
-          releaseDraft: false
+          releaseDraft: true
           prerelease: false
           args: ${{ matrix.args }}
+
+  publish_release:
+    name: Publish complete release
+    needs:
+      - prepare_release
+      - publish_tauri
+    permissions:
+      contents: write
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      GITHUB_REPOSITORY: ${{ github.repository }}
+      RELEASE_TAG: mework-v${{ needs.prepare_release.outputs.version }}
+    steps:
+      - name: Download updater manifest
+        shell: bash
+        run: gh release download "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --pattern latest.json
+
+      - name: Verify updater manifest is complete
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+
+          manifest = json.loads(Path("latest.json").read_text())
+          platforms = manifest.get("platforms", {})
+          required = {"darwin-aarch64", "darwin-x86_64", "windows-x86_64"}
+          missing = sorted(required - platforms.keys())
+          if missing:
+              raise SystemExit(f"latest.json is missing required platforms: {', '.join(missing)}")
+          PY
+
+      - name: Publish release
+        shell: bash
+        run: gh release edit "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --draft=false
 
   cleanup_failed_release:
     name: Cleanup failed release
     needs:
       - prepare_release
       - publish_tauri
-    if: ${{ always() && needs.prepare_release.result == 'success' && needs.publish_tauri.result != 'success' }}
+      - publish_release
+    if: ${{ always() && needs.prepare_release.result == 'success' && (needs.publish_tauri.result != 'success' || needs.publish_release.result != 'success') }}
     permissions:
       contents: write
     runs-on: ubuntu-latest

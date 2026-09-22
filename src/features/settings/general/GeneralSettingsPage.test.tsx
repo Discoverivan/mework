@@ -154,4 +154,16 @@ describe("GeneralSettingsPage", () => {
     const currentStatus = (await screen.findByText("You're up to date.")).closest('[role="status"]');
     expect(currentStatus).toHaveClass("fixed");
   });
+
+  it("reports an update-check failure in a temporary toast instead of the updates card", async () => {
+    updaterCheckMock.mockRejectedValue(new Error("temporary updater failure"));
+    render(<GeneralSettingsPage />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Check for updates" }));
+
+    const errorToast = (await screen.findByText("Unable to check for updates.")).closest('[role="alert"]');
+    if (!errorToast) throw new Error("Expected update error toast");
+    expect(errorToast).toHaveClass("fixed");
+    expect(errorToast.closest(".space-y-4.px-4.py-3\\.5")).toBeNull();
+  });
 });

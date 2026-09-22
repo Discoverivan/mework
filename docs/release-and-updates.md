@@ -8,9 +8,9 @@
 - macOS Intel (ad-hoc signed `.dmg` and signed updater archive);
 - Windows x64 (`.exe` NSIS installer and signed updater artifacts).
 
-The workflow uses SemVer tags for release numbering. The first release uses the base version from `package.json`; each later automatic release increments the patch component of the highest existing `mework-vX.Y.Z` tag. A manual run may provide an explicit SemVer through the `version` input. The workflow configures the updater endpoint from `GITHUB_REPOSITORY`, then creates a release containing the bundles and the generated `latest.json`. Release jobs are serialized to avoid concurrent tag/version collisions.
+The workflow uses SemVer tags for release numbering. The first release uses the base version from `package.json`; each later automatic release increments the patch component of the highest existing `mework-vX.Y.Z` tag. A manual run may provide an explicit SemVer through the `version` input. The workflow configures the updater endpoint from `GITHUB_REPOSITORY`, serially uploads every platform bundle and the generated `latest.json` to a draft release, verifies that the updater manifest contains Windows, macOS Intel, and macOS Apple Silicon, and only then publishes the release. Release runs are also serialized to avoid tag/version collisions, so concurrent updater-manifest writes and incomplete `latest` releases are both avoided.
 
-The platform matrix publishes one normal (non-draft) release. If a build or upload step fails, `cleanup_failed_release` removes the incomplete release and tag so failed runs do not leave partial downloads.
+The platform matrix prepares one draft release and `publish_release` makes it public after validating the updater manifest. If a build, upload, validation, or publish step fails, `cleanup_failed_release` removes the incomplete release and tag so failed runs do not leave partial downloads.
 
 Before enabling the workflow, configure these repository Actions secrets:
 

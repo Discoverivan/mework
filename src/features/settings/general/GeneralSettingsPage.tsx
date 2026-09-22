@@ -245,7 +245,7 @@ export function GeneralSettingsPage() {
                 <option value={AppLanguage.English}>English</option>
                 <option value={AppLanguage.Russian}>Русский</option>
               </select>
-              <ChevronDown className="pointer-events-none absolute right-3 top-1/2 size-4 -translate-y-1/2 opacity-50" aria-hidden="true" />
+              <ChevronDown className="pointer-events-none absolute right-2 top-1/2 size-4 -translate-y-1/2 opacity-50" aria-hidden="true" />
             </div>
           </div>
         </CardHeader>
@@ -275,7 +275,7 @@ export function GeneralSettingsPage() {
                 <option value="light">{t("general.themeLight")}</option>
                 <option value="dark">{t("general.themeDark")}</option>
               </select>
-              <ChevronDown className="pointer-events-none absolute right-3 top-1/2 size-4 -translate-y-1/2 opacity-50" aria-hidden="true" />
+              <ChevronDown className="pointer-events-none absolute right-2 top-1/2 size-4 -translate-y-1/2 opacity-50" aria-hidden="true" />
             </div>
           </div>
         </CardHeader>
@@ -424,17 +424,18 @@ export function GeneralSettingsPage() {
               </Button>
             </div>
           </div>
-          {updateStatus === "error" || updateInstallError ? (
-            <div className="flex flex-wrap items-center gap-3">
-              {updateInstallError ? <span role="alert" className="text-sm text-destructive">{updateInstallError}</span> : null}
-              {updateStatus === "error" ? <span role="status" className="text-sm text-destructive">{t("general.updateCheckError")}</span> : null}
-            </div>
-          ) : null}
         </CardHeader>
       </Card>
       <StatusToast
-        message={updateStatus === "current" ? t("general.current") : undefined}
-        onDismiss={() => setUpdateStatus((current) => current === "current" ? "idle" : current)}
+        message={updateInstallError
+          ?? (updateStatus === "error"
+            ? t("general.updateCheckError")
+            : updateStatus === "current" ? t("general.current") : undefined)}
+        variant={updateInstallError || updateStatus === "error" ? "error" : "success"}
+        onDismiss={() => {
+          setUpdateStatus((current) => current === "current" || current === "error" ? "idle" : current);
+          setUpdateInstallError(null);
+        }}
       />
     </section>
   );

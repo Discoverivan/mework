@@ -1,4 +1,5 @@
 import type { ChangeEvent } from "react";
+import { ChevronDown } from "lucide-react";
 import type { CompetencySubtask, PlanningSyncState, TeamMember } from "../../shared/contracts/planning";
 import { Badge } from "../../components/ui/badge";
 import { Button } from "../../components/ui/button";
@@ -64,18 +65,21 @@ export function CompetencySubtaskRow({
         <span className="min-w-[13rem] flex-1 font-medium">{subtask.summary}</span>
       )}
       {editable ? (
-        <select
-          aria-label={t("planning.competency")}
-          value={subtask.competency ?? ""}
-          onChange={handleCompetency}
-          className="h-9 rounded-md border bg-background px-2 text-sm"
-        >
-          <option value="">{t("planning.chooseCompetency")}</option>
-          <option value="Analyst">Analyst</option>
-          <option value="Backend">Backend</option>
-          <option value="Frontend">Frontend</option>
-          <option value="QA">QA</option>
-        </select>
+        <div className="relative">
+          <select
+            aria-label={t("planning.competency")}
+            value={subtask.competency ?? ""}
+            onChange={handleCompetency}
+            className="h-9 appearance-none rounded-md border bg-background py-2 pl-3 pr-8 text-sm"
+          >
+            <option value="">{t("planning.chooseCompetency")}</option>
+            <option value="Analyst">Analyst</option>
+            <option value="Backend">Backend</option>
+            <option value="Frontend">Frontend</option>
+            <option value="QA">QA</option>
+          </select>
+          <ChevronDown className="pointer-events-none absolute right-2 top-1/2 size-4 -translate-y-1/2 opacity-50" aria-hidden="true" />
+        </div>
       ) : subtask.competency ? <Badge variant="secondary">{subtask.competency}</Badge> : null}
       {editable ? (
         <>
