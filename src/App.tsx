@@ -9,7 +9,7 @@ import { PresenterView } from "./features/daily/PresenterView";
 import { listAuthoredPullRequests, listMyPullRequests, refreshMyPullRequests } from "./features/developer/api";
 import type { MyPullRequestPage } from "./shared/contracts/developer";
 import type { IntegrationRedacted } from "./shared/contracts/settings";
-import { getAiSettings, refreshAllIntegrationsHealth } from "./features/settings/api";
+import { refreshAllIntegrationsHealth } from "./features/settings/api";
 import { INTEGRATIONS_HEALTH_REFRESHED_EVENT } from "./features/settings/health-events";
 import { I18nProvider } from "@/i18n/I18nProvider";
 import { useI18n } from "@/i18n/context";
@@ -108,11 +108,6 @@ function AppContent() {
         }
       }
 
-      try {
-        await getAiSettings();
-      } catch {
-        // AI availability is checked again by the route gate.
-      }
       if (active) setReady(true);
     };
 

@@ -1,12 +1,12 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "mework-dev",
+  "productName": "MeWork Dev",
   "mainBinaryName": "mework-dev",
   "identifier": "com.discoverivan.app.mework.dev",
   "app": {
     "windows": [
       {
-        "title": "mework-dev",
+        "title": "MeWork Dev",
         "width": 1280,
         "height": 800,
         "minWidth": 960,

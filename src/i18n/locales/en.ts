@@ -324,7 +324,7 @@ export const en = {
   "general.testAuthoredNotification": "Test authored pull request notification",
   "general.testSent": "Test notification sent.",
   "general.updates": "Application updates",
-  "general.updatesDescription": "Check for and install MeWork updates.",
+  "general.updatesDescription": "Check for new versions and install them when available.",
   "general.checking": "Checking…",
   "general.checkUpdates": "Check for updates",
   "general.current": "You're up to date.",

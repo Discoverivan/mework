@@ -9,6 +9,7 @@ import { useI18n } from "@/i18n/context";
 
 type IntegrationRequirement = IntegrationKind | "any";
 type GateState = "loading" | "ready" | "blocked" | "error";
+const TRANSIENT_AI_RETRY_DELAY_MS = 250;
 
 interface IntegrationDependencyGateProps {
   requirement: IntegrationRequirement;
@@ -36,6 +37,24 @@ function satisfiesAi(data: AiSettingsPageData): boolean {
   );
 }
 
+function hasTransientAiFailure(data: AiSettingsPageData | null): boolean {
+  if (!data?.settings.provider || !data.settings.model.trim()) return false;
+  const provider = data.providers.find((candidate) => candidate.id === data.settings.provider);
+  return provider?.status === "loading" || provider?.status === "unavailable";
+}
+
+async function settle<T>(promise: Promise<T>): Promise<PromiseSettledResult<T>> {
+  try {
+    return { status: "fulfilled", value: await promise };
+  } catch (reason) {
+    return { status: "rejected", reason };
+  }
+}
+
+function waitForTransientRetry(): Promise<void> {
+  return new Promise((resolve) => window.setTimeout(resolve, TRANSIENT_AI_RETRY_DELAY_MS));
+}
+
 export function IntegrationDependencyGate({
   requirement,
   requireAiProvider = false,
@@ -58,10 +77,29 @@ export function IntegrationDependencyGate({
     setState("loading");
     setBlockedReasons([]);
 
-    const aiCheck = requireAiProvider ? getAiSettings() : Promise.resolve(null);
-    void Promise.allSettled([listIntegrations(), aiCheck]).then(([integrationsResult, aiResult]) => {
+    void (async () => {
+      const aiCheck = requireAiProvider ? getAiSettings() : Promise.resolve(null);
+      const [integrationsResult, initialAiResult] = await Promise.all([
+        settle(listIntegrations()),
+        settle(aiCheck),
+      ]);
+      let aiResult: PromiseSettledResult<AiSettingsPageData | null> = initialAiResult;
+
+      if (requireAiProvider && (
+        aiResult.status === "rejected"
+        || hasTransientAiFailure(aiResult.value)
+      )) {
+        await waitForTransientRetry();
+        if (!active) return;
+        aiResult = await settle(getAiSettings());
+      }
+
       if (!active) return;
       if (integrationsResult.status === "rejected" || aiResult.status === "rejected") {
+        setState("error");
+        return;
+      }
+      if (requireAiProvider && hasTransientAiFailure(aiResult.value)) {
         setState("error");
         return;
       }
@@ -77,7 +115,7 @@ export function IntegrationDependencyGate({
       }
       setBlockedReasons(reasons);
       setState(reasons.length === 0 ? "ready" : "blocked");
-    }).finally(() => {
+    })().finally(() => {
       if (active) onSettled?.();
     });
 

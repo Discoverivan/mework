@@ -326,7 +326,7 @@ export const ru: Record<TranslationKey, string> = {
   "general.testAuthoredNotification": "Проверить уведомление о вашем PR",
   "general.testSent": "Тестовое уведомление отправлено.",
   "general.updates": "Обновления приложения",
-  "general.updatesDescription": "Проверяйте и устанавливайте обновления MeWork.",
+  "general.updatesDescription": "Проверяйте наличие новых версий и устанавливайте их по мере выхода.",
   "general.checking": "Проверка…",
   "general.checkUpdates": "Проверить обновления",
   "general.current": "Установлена актуальная версия.",
