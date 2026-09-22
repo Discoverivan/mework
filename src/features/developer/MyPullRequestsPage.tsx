@@ -230,7 +230,10 @@ export function MyPullRequestsPage() {
     setLoading(true);
     setError(undefined);
     setAiSettings(null);
-    void Promise.all([listMyPullRequests(0, 100), getPullRequestReviewSettings()])
+    const pagePromise = listMyPullRequests(0, 100).then((page) =>
+      page.lastUpdatedAt == null ? refreshMyPullRequests(0, 100) : page,
+    );
+    void Promise.all([pagePromise, getPullRequestReviewSettings()])
       .then(([page, savedSettings]) => {
         if (!active) return;
         applyPage(page);
@@ -692,8 +695,8 @@ export function MyPullRequestsPage() {
             variant="outline"
             size="icon"
             className="h-9 w-9"
-            aria-label={polling ? t("pr.updating") : t("pr.updateNow")}
-            title={polling ? t("pr.updating") : t("pr.updateNow")}
+            aria-label={polling ? t("pr.refreshing") : t("pr.refresh")}
+            title={polling ? t("pr.refreshing") : t("pr.refresh")}
             onClick={() => void syncPullRequests()}
             disabled={loading || polling}
           >
