@@ -208,6 +208,7 @@ fn row_to_integration(row: sqlx::sqlite::SqliteRow) -> Result<Integration, sqlx:
     let kind = match row.try_get::<String, _>("kind")?.as_str() {
         "jira" => IntegrationKind::Jira,
         "bitbucket" => IntegrationKind::Bitbucket,
+        "confluence" => IntegrationKind::Confluence,
         other => {
             return Err(sqlx::Error::Protocol(format!(
                 "unknown integration kind: {other}"

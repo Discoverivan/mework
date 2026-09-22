@@ -19,7 +19,9 @@ const KEYRING_SERVICE: &str = if cfg!(debug_assertions) {
     PRODUCTION_KEYRING_SERVICE
 };
 
-async fn credential_store(_state: &SqlitePool) -> Result<Box<dyn CredentialStore>, String> {
+pub(crate) async fn credential_store(
+    _state: &SqlitePool,
+) -> Result<Box<dyn CredentialStore>, String> {
     Ok(Box::new(OsKeyring::new(KEYRING_SERVICE)))
 }
 

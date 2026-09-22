@@ -42,6 +42,7 @@ import {
   saveOpenAiCompatibleProvider,
 } from "./api";
 import { validateJiraProjectKey } from "./planning-projects/api";
+import { resolveConfluenceSpace } from "../confluence/api";
 import { ManagedProjectsSettings } from "./planning-projects/ManagedProjectsSettings";
 import { GeneralSettingsPage } from "./general/GeneralSettingsPage";
 import { useI18n } from "@/i18n/context";
@@ -70,16 +71,28 @@ type HealthConfirmation = {
 type Provider = {
   kind: IntegrationKind;
   label: string;
+  descriptionKey: TranslationKey;
+  placeholder: string;
 };
 
 const PROVIDERS: Provider[] = [
   {
     kind: "jira",
     label: "Jira",
+    descriptionKey: "settings.data.jiraDescription",
+    placeholder: "https://jira.example.com",
   },
   {
     kind: "bitbucket",
     label: "Bitbucket",
+    descriptionKey: "settings.data.bitbucketDescription",
+    placeholder: "https://bitbucket.example.com",
+  },
+  {
+    kind: "confluence",
+    label: "Confluence",
+    descriptionKey: "settings.data.confluenceDescription",
+    placeholder: "https://confluence.example.com",
   },
 ];
 
@@ -246,6 +259,7 @@ export function SettingsPage({ section = "integrations" }: SettingsPageProps) {
   const [forms, setForms] = useState<Record<IntegrationKind, IntegrationForm>>({
     jira: emptyForm(),
     bitbucket: emptyForm(),
+    confluence: emptyForm(),
   });
   const [loading, setLoading] = useState(true);
   const [retry, setRetry] = useState(0);
@@ -358,6 +372,19 @@ export function SettingsPage({ section = "integrations" }: SettingsPageProps) {
       );
       if (!jira) return Promise.reject(new Error(t("teams.integrationRequired")));
       return validateJiraProjectKey({ integrationId: jira.id, projectKey });
+    },
+    [integrations, t],
+  );
+
+  const resolveTeamConfluenceSpace = useCallback(
+    (keyOrUrl: string, integrationId?: string) => {
+      const confluence = integrations.find(
+        (integration) => integration.kind === "confluence"
+          && integration.enabled
+          && (!integrationId || integration.id === integrationId),
+      );
+      if (!confluence) return Promise.reject(new Error(t("teams.confluenceIntegrationRequired")));
+      return resolveConfluenceSpace(confluence.id, keyOrUrl);
     },
     [integrations, t],
   );
@@ -913,7 +940,7 @@ export function SettingsPage({ section = "integrations" }: SettingsPageProps) {
                   >
                     <p className="text-base font-semibold leading-tight">{candidate.label}</p>
                     <CardDescription className="leading-snug">
-                      {t(candidate.kind === "jira" ? "settings.data.jiraDescription" : "settings.data.bitbucketDescription")}
+                      {t(candidate.descriptionKey)}
                     </CardDescription>
                   </button>
                   <div className="flex shrink-0 items-center gap-2 text-sm text-muted-foreground">
@@ -1001,7 +1028,7 @@ export function SettingsPage({ section = "integrations" }: SettingsPageProps) {
                       type="url"
                       value={form.baseUrl}
                       onChange={(event) => updateForm("baseUrl", event.target.value)}
-                      placeholder={selectedKind === "jira" ? "https://jira.example.com" : "https://bitbucket.example.com"}
+                      placeholder={provider.placeholder}
                       disabled={controlsDisabled}
                       required
                     />
@@ -1121,7 +1148,9 @@ export function SettingsPage({ section = "integrations" }: SettingsPageProps) {
         hasJiraIntegration ? (
           <ManagedProjectsSettings
             jiraIntegrations={integrations.filter((integration) => integration.kind === "jira")}
+            confluenceIntegrations={integrations.filter((integration) => integration.kind === "confluence")}
             validateProjectKey={validateProjectKey}
+            resolveConfluenceSpace={resolveTeamConfluenceSpace}
           />
         ) : (
           <>

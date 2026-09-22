@@ -32,7 +32,7 @@ export interface OpenAiCompatibleProviderSaveInput {
   token: string;
   allowInsecureTls?: boolean;
 }
-export type IntegrationKind = "jira" | "bitbucket";
+export type IntegrationKind = "jira" | "bitbucket" | "confluence";
 export type IntegrationHealthStatus = "unknown" | "working" | "unavailable";
 
 export interface IntegrationRedacted {
@@ -93,6 +93,7 @@ export interface ManagedProjectSettings {
   projectId: string;
   projectKey: string;
   projectName: string;
+  confluenceSpace?: import("./confluence").ConfluenceSpace;
   boardId?: string;
   sourceSprintId?: string;
   sourceSprintName?: string;
@@ -117,6 +118,7 @@ export interface ManagedProjectSaveInput {
   jiraProjectId: string;
   jiraProjectKey: string;
   jiraProjectName: string;
+  confluenceSpace?: import("./confluence").ConfluenceSpace;
   boardId?: string;
   sourceSprintId?: string;
   sourceSprintName?: string;

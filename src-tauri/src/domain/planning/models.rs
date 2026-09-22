@@ -82,6 +82,19 @@ pub struct ManagedProject {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ManagedProjectConfluenceSpace {
+    pub id: String,
+    pub managed_project_id: String,
+    pub integration_id: String,
+    pub space_id: String,
+    pub space_key: String,
+    pub space_name: String,
+    pub is_primary: bool,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Workspace {
     pub id: String,
     pub managed_project_id: String,
