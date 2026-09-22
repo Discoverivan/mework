@@ -4,7 +4,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { DailyPresenterState, DailyWorkspace } from "@/shared/contracts/developer";
 import type { ManagedProject } from "@/shared/contracts/planning";
 import { listManagedProjects } from "../planning/api";
-import { loadDailyWorkspace, openPresenterView, publishPresenterState, subscribePresenterState } from "./api";
+import { loadDailyWorkspace, openPresenterView, publishPresenterState, refreshDailyWorkspace, subscribePresenterState } from "./api";
+import { clearDailyWorkspaceCacheForTests } from "./cache";
 import { DailyPage } from "./DailyPage";
 
 const { openUrlMock, writeTextMock } = vi.hoisted(() => ({
@@ -16,6 +17,7 @@ vi.mock("@tauri-apps/plugin-opener", () => ({ openUrl: openUrlMock }));
 vi.mock("../planning/api", () => ({ listManagedProjects: vi.fn() }));
 vi.mock("./api", () => ({
   loadDailyWorkspace: vi.fn(),
+  refreshDailyWorkspace: vi.fn(),
   publishPresenterState: vi.fn(),
   openPresenterView: vi.fn(),
   closePresenterView: vi.fn(),
@@ -24,6 +26,7 @@ vi.mock("./api", () => ({
 
 const listManagedProjectsMock = vi.mocked(listManagedProjects);
 const loadDailyWorkspaceMock = vi.mocked(loadDailyWorkspace);
+const refreshDailyWorkspaceMock = vi.mocked(refreshDailyWorkspace);
 const openPresenterViewMock = vi.mocked(openPresenterView);
 const publishPresenterStateMock = vi.mocked(publishPresenterState);
 const subscribePresenterStateMock = vi.mocked(subscribePresenterState);
@@ -98,6 +101,7 @@ const workspace: DailyWorkspace = {
 describe("DailyPage smoke test", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    clearDailyWorkspaceCacheForTests();
     Object.defineProperty(navigator, "clipboard", {
       configurable: true,
       value: { writeText: writeTextMock },
@@ -105,6 +109,7 @@ describe("DailyPage smoke test", () => {
     window.location.hash = "";
     listManagedProjectsMock.mockResolvedValue([project]);
     loadDailyWorkspaceMock.mockResolvedValue(workspace);
+    refreshDailyWorkspaceMock.mockResolvedValue(workspace.subtasks);
     openPresenterViewMock.mockResolvedValue(undefined);
     publishPresenterStateMock.mockResolvedValue(undefined);
     openUrlMock.mockResolvedValue(undefined);
@@ -114,6 +119,39 @@ describe("DailyPage smoke test", () => {
       presenterStateListener = listener;
       return () => undefined;
     });
+  });
+
+  it("shows a styled loader on the first sprint task visit", async () => {
+    let resolveWorkspace: (value: DailyWorkspace) => void = () => undefined;
+    loadDailyWorkspaceMock.mockReturnValueOnce(new Promise<DailyWorkspace>((resolve) => {
+      resolveWorkspace = resolve;
+    }));
+
+    render(<DailyPage />);
+
+    const loader = await screen.findByRole("status", { name: "Loading sprint tasks…" });
+    expect(loader).toHaveClass("overflow-hidden");
+    expect(loader.querySelector("svg.lucide-refresh-cw")).toBeInTheDocument();
+
+    await act(async () => resolveWorkspace(workspace));
+    expect(await screen.findByText("DEMO-2")).toBeInTheDocument();
+  });
+
+  it("renders cached sprint tasks while refreshing them after remount", async () => {
+    loadDailyWorkspaceMock
+      .mockResolvedValueOnce(workspace)
+      .mockReturnValueOnce(new Promise<DailyWorkspace>(() => undefined));
+
+    const firstRender = render(<DailyPage />);
+    expect(await screen.findByText("DEMO-2")).toBeInTheDocument();
+    firstRender.unmount();
+
+    render(<DailyPage />);
+
+    expect(await screen.findByText("DEMO-2")).toBeInTheDocument();
+    await waitFor(() => expect(loadDailyWorkspaceMock).toHaveBeenCalledTimes(2));
+    expect(screen.queryByRole("status", { name: "Loading sprint tasks…" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Refreshing…" })).toBeDisabled();
   });
 
   it("loads the active sprint by default and can select another sprint", async () => {

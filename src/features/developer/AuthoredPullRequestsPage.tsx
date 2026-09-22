@@ -13,10 +13,10 @@ import { PullRequestListItem } from "./components/PullRequestListItem";
 import { PullRequestProjectSection } from "./components/PullRequestProjectSection";
 import { PullRequestReviewDialog } from "./components/PullRequestReviewDialog";
 import { PullRequestStatus } from "./components/PullRequestStatus";
+import { usePullRequestDisplayPreferences } from "./display-options";
 import {
   groupPullRequestsByProject,
   sortPullRequestsByUpdatedDate,
-  type PullRequestSortOrder,
 } from "./components/pull-request-projects";
 import type { AiSettingsPageData } from "@/shared/contracts/settings";
 import type { PullRequestReviewSettings } from "@/shared/contracts/developer";
@@ -95,9 +95,7 @@ export function AuthoredPullRequestsPage() {
   const [reviewStartingKeys, setReviewStartingKeys] = useState<Set<string>>(() => new Set());
   const [reviewDialogKey, setReviewDialogKey] = useState<string>();
   const [displayOptionsOpen, setDisplayOptionsOpen] = useState(false);
-  const [groupByProject, setGroupByProject] = useState(true);
-  const [expandProjectsByDefault, setExpandProjectsByDefault] = useState(false);
-  const [sortOrder, setSortOrder] = useState<PullRequestSortOrder>("newest");
+  const [displayPreferences, updateDisplayPreferences] = usePullRequestDisplayPreferences("authored");
   const [quickFilter, setQuickFilter] = useState<QuickFilter>("all");
 
   useEffect(() => {
@@ -328,7 +326,7 @@ export function AuthoredPullRequestsPage() {
         || pullRequest.needsAction
         || (pullRequest.reviewSummary?.needsWork ?? 0) > 0,
     ),
-    sortOrder,
+    displayPreferences.sortOrder,
   );
   const projectGroups = groupPullRequestsByProject(visiblePullRequests);
 
@@ -363,7 +361,7 @@ export function AuthoredPullRequestsPage() {
           <PullRequestStatus
             kind="authored"
             count={total ?? pullRequests.length}
-            sortOrder={sortOrder}
+            sortOrder={displayPreferences.sortOrder}
             lastSyncAt={lastSyncAt}
             now={now}
             polling={polling}
@@ -447,14 +445,14 @@ export function AuthoredPullRequestsPage() {
         <Card><CardContent className="pt-6"><p>{t("pr.emptyFiltered")}</p></CardContent></Card>
       ) : null}
 
-      <div className={`${groupByProject ? "space-y-5" : "inbox-list"} pt-1`} aria-live="polite">
-        {groupByProject
+      <div className={`${displayPreferences.groupByProject ? "space-y-5" : "inbox-list"} pt-1`} aria-live="polite">
+        {displayPreferences.groupByProject
           ? projectGroups.map((group) => (
               <PullRequestProjectSection
                 key={group.key}
                 projectKey={group.projectKey}
                 pullRequestCount={group.pullRequests.length}
-                expandedByDefault={expandProjectsByDefault}
+                expandedByDefault={displayPreferences.expandProjectsByDefault}
               >
                 {group.pullRequests.map((pullRequest) => renderPullRequest(pullRequest, false))}
               </PullRequestProjectSection>
@@ -476,15 +474,15 @@ export function AuthoredPullRequestsPage() {
 
       <PullRequestDisplayOptionsDialog
         open={displayOptionsOpen}
-        groupByProject={groupByProject}
-        expandProjectsByDefault={expandProjectsByDefault}
-        sortOrder={sortOrder}
+        groupByProject={displayPreferences.groupByProject}
+        expandProjectsByDefault={displayPreferences.expandProjectsByDefault}
+        sortOrder={displayPreferences.sortOrder}
         autoReviewEnabled={reviewSettings?.authoredAutoReviewEnabled ?? false}
         autoReviewDisabled={loading || reviewSettings == null || autoReviewSaving}
         onOpenChange={setDisplayOptionsOpen}
-        onGroupByProjectChange={setGroupByProject}
-        onExpandProjectsByDefaultChange={setExpandProjectsByDefault}
-        onSortOrderChange={setSortOrder}
+        onGroupByProjectChange={(enabled) => updateDisplayPreferences({ groupByProject: enabled })}
+        onExpandProjectsByDefaultChange={(enabled) => updateDisplayPreferences({ expandProjectsByDefault: enabled })}
+        onSortOrderChange={(order) => updateDisplayPreferences({ sortOrder: order })}
         onAutoReviewChange={(enabled) => void toggleAuthoredAutoReview(enabled)}
       />
     </section>
