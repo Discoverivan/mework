@@ -497,14 +497,20 @@ pub fn resolve_codex_binary() -> Option<PathBuf> {
             }
         }
     }
-    codex_install_paths(
+    let mut candidates = codex_install_paths(
         env::var_os("HOME").map(PathBuf::from),
         env::var_os("LOCALAPPDATA").map(PathBuf::from),
         env::var_os("USERPROFILE").map(PathBuf::from),
         windows,
-    )
-    .into_iter()
-    .find(|path| path.is_file())
+    );
+    #[cfg(windows)]
+    candidates.extend(windows_codex_install_paths());
+    candidates.into_iter().find(|path| path.is_file())
+}
+
+#[cfg(windows)]
+fn windows_codex_install_paths() -> Vec<PathBuf> {
+    codex_install_paths(None, dirs::data_local_dir(), dirs::home_dir(), true)
 }
 
 fn codex_executable_names(windows: bool) -> &'static [&'static str] {
@@ -1254,6 +1260,12 @@ mod tests {
         let expected = user_profile.join("AppData/Local/Programs/OpenAI/Codex/bin/codex.exe");
 
         assert!(candidates.iter().any(|candidate| candidate == &expected));
+        #[cfg(windows)]
+        assert!(super::windows_codex_install_paths().contains(
+            &dirs::data_local_dir()
+                .expect("Windows local app data folder")
+                .join("Programs/OpenAI/Codex/bin/codex.exe")
+        ));
         assert_eq!(
             super::codex_executable_names(true),
             &["codex.exe", "codex.cmd", "codex"]
