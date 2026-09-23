@@ -3,6 +3,8 @@ pub mod menu;
 pub mod notifications;
 pub mod single_instance;
 pub mod tray;
+#[cfg(windows)]
+pub mod update_launch;
 
 #[cfg(test)]
 mod single_instance_test;
