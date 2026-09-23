@@ -35,13 +35,11 @@ describe("IntegrationDependencyGate smoke test", () => {
     getAiSettingsMock.mockResolvedValue(connectedAi);
   });
 
-  it("retries a transient AI availability failure before rendering protected content", async () => {
-    getAiSettingsMock
-      .mockResolvedValueOnce({
-        ...connectedAi,
-        providers: [{ ...connectedAi.providers[0], status: "unavailable" as const, available: false, models: [] }],
-      })
-      .mockResolvedValueOnce(connectedAi);
+  it("links to both settings sections when an AI dependency check fails", async () => {
+    getAiSettingsMock.mockResolvedValue({
+      ...connectedAi,
+      providers: [{ ...connectedAi.providers[0], status: "unavailable" as const, available: false, models: [] }],
+    });
 
     render(
       <IntegrationDependencyGate requirement="bitbucket" requireAiProvider>
@@ -49,8 +47,14 @@ describe("IntegrationDependencyGate smoke test", () => {
       </IntegrationDependencyGate>,
     );
 
-    expect(await screen.findByText("Pull Request Review")).toBeInTheDocument();
+    expect(await screen.findByText("Unable to check dependencies")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Data integrations" })).toHaveAttribute("href", "#settings/integrations");
+    expect(screen.getByRole("link", { name: "AI settings" })).toHaveAttribute("href", "#settings/ai");
     expect(getAiSettingsMock).toHaveBeenCalledTimes(2);
+
+    getAiSettingsMock.mockResolvedValue(connectedAi);
+    emitAppEvent(APP_EVENT.aiSettingsChanged, connectedAi);
+    expect(await screen.findByText("Pull Request Review")).toBeInTheDocument();
   });
 
   it("blocks protected content when the selected AI provider is unavailable", async () => {
@@ -67,6 +71,8 @@ describe("IntegrationDependencyGate smoke test", () => {
 
     expect(await screen.findByText("Dependencies required")).toBeInTheDocument();
     expect(screen.getByText(/connected AI provider with an available model/)).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Data integrations" })).toHaveAttribute("href", "#settings/integrations");
+    expect(screen.getByRole("link", { name: "AI settings" })).toHaveAttribute("href", "#settings/ai");
     expect(screen.queryByText("Pull Request Review")).not.toBeInTheDocument();
 
     getAiSettingsMock.mockResolvedValue(connectedAi);
