@@ -35,7 +35,7 @@ describe("IntegrationDependencyGate smoke test", () => {
     getAiSettingsMock.mockResolvedValue(connectedAi);
   });
 
-  it("links to both settings sections when an AI dependency check fails", async () => {
+  it("links to AI settings when an AI dependency check fails", async () => {
     getAiSettingsMock.mockResolvedValue({
       ...connectedAi,
       providers: [{ ...connectedAi.providers[0], status: "unavailable" as const, available: false, models: [] }],
@@ -48,7 +48,7 @@ describe("IntegrationDependencyGate smoke test", () => {
     );
 
     expect(await screen.findByText("Unable to check dependencies")).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Data integrations" })).toHaveAttribute("href", "#settings/integrations");
+    expect(screen.queryByRole("link", { name: "Data integrations" })).not.toBeInTheDocument();
     expect(screen.getByRole("link", { name: "AI settings" })).toHaveAttribute("href", "#settings/ai");
     expect(getAiSettingsMock).toHaveBeenCalledTimes(2);
 
@@ -57,7 +57,8 @@ describe("IntegrationDependencyGate smoke test", () => {
     expect(await screen.findByText("Pull Request Review")).toBeInTheDocument();
   });
 
-  it("blocks protected content when the selected AI provider is unavailable", async () => {
+  it("shows both settings links when integration and AI are unavailable", async () => {
+    listIntegrationsMock.mockResolvedValue([{ ...bitbucket, healthStatus: "unavailable" as const }]);
     getAiSettingsMock.mockResolvedValue({
       settings: { provider: null, model: "", reasoning: "medium", fastMode: false },
       providers: [],
@@ -74,16 +75,11 @@ describe("IntegrationDependencyGate smoke test", () => {
     expect(screen.getByRole("link", { name: "Data integrations" })).toHaveAttribute("href", "#settings/integrations");
     expect(screen.getByRole("link", { name: "AI settings" })).toHaveAttribute("href", "#settings/ai");
     expect(screen.queryByText("Pull Request Review")).not.toBeInTheDocument();
-
-    getAiSettingsMock.mockResolvedValue(connectedAi);
-    emitAppEvent(APP_EVENT.aiSettingsChanged, connectedAi);
-
-    expect(await screen.findByText("Pull Request Review")).toBeInTheDocument();
   });
 
-  it("rechecks blocked content after a background health refresh event", async () => {
+  it("links to integrations after its check fails and rechecks on a health event", async () => {
     listIntegrationsMock
-      .mockResolvedValueOnce([{ ...bitbucket, healthStatus: "unavailable" as const }])
+      .mockRejectedValueOnce(new Error("temporary failure"))
       .mockResolvedValueOnce([bitbucket]);
 
     render(
@@ -92,7 +88,9 @@ describe("IntegrationDependencyGate smoke test", () => {
       </IntegrationDependencyGate>,
     );
 
-    expect(await screen.findByText("Dependencies required")).toBeInTheDocument();
+    expect(await screen.findByText("Unable to check dependencies")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Data integrations" })).toHaveAttribute("href", "#settings/integrations");
+    expect(screen.queryByRole("link", { name: "AI settings" })).not.toBeInTheDocument();
     emitAppEvent(APP_EVENT.integrationsHealthRefreshed, [bitbucket]);
     expect(await screen.findByText("Pull Request Review")).toBeInTheDocument();
     expect(listIntegrationsMock).toHaveBeenCalledTimes(2);

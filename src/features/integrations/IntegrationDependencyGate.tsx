@@ -65,6 +65,7 @@ export function IntegrationDependencyGate({
   const [state, setState] = useState<GateState>("loading");
   const stateRef = useRef<GateState>("loading");
   const [blockedReasons, setBlockedReasons] = useState<string[]>([]);
+  const [settingsTargets, setSettingsTargets] = useState({ integration: false, ai: false });
   const [retry, setRetry] = useState(0);
 
   useEffect(() => {
@@ -108,24 +109,31 @@ export function IntegrationDependencyGate({
       }
 
       if (!active) return;
-      if (integrationsResult.status === "rejected" || aiResult.status === "rejected") {
-        setState("error");
-        return;
-      }
-      if (requireAiProvider && hasTransientAiFailure(aiResult.value)) {
+      const integrationError = integrationsResult.status === "rejected";
+      const aiData = aiResult.status === "fulfilled" ? aiResult.value : null;
+      const aiIssue = requireAiProvider && (aiData === null || !satisfiesAi(aiData));
+      const aiError = requireAiProvider && (
+        aiResult.status === "rejected"
+        || hasTransientAiFailure(aiData)
+      );
+      if (integrationError || aiError) {
+        setSettingsTargets({ integration: integrationError, ai: aiIssue });
         setState("error");
         return;
       }
 
       const reasons: string[] = [];
-      if (!satisfiesIntegration(requirement, integrationsResult.value)) {
+      const integrationBlocked = !satisfiesIntegration(requirement, integrationsResult.value);
+      const aiBlocked = aiIssue;
+      if (integrationBlocked) {
         reasons.push(requirement === "any"
           ? t("dependencies.integration.any")
           : t("dependencies.integration.kind", { kind: requirement }));
       }
-      if (requireAiProvider && (aiResult.value === null || !satisfiesAi(aiResult.value))) {
+      if (aiBlocked) {
         reasons.push(t("dependencies.ai"));
       }
+      setSettingsTargets({ integration: integrationBlocked, ai: aiBlocked });
       setBlockedReasons(reasons);
       setState(reasons.length === 0 ? "ready" : "blocked");
     })().finally(() => {
@@ -162,10 +170,10 @@ export function IntegrationDependencyGate({
               <Button type="button" variant="outline" size="sm" onClick={() => setRetry((current) => current + 1)}>
                 {t("dependencies.retry")}
               </Button>
-              <Button asChild variant="outline" size="sm">
+              {settingsTargets.integration ? <Button asChild variant="outline" size="sm">
                 <a href="#settings/integrations">{t("nav.dataIntegrations")}</a>
-              </Button>
-              {requireAiProvider ? <Button asChild variant="outline" size="sm">
+              </Button> : null}
+              {settingsTargets.ai ? <Button asChild variant="outline" size="sm">
                 <a href="#settings/ai">{t("nav.aiSettings")}</a>
               </Button> : null}
             </div>
@@ -182,10 +190,10 @@ export function IntegrationDependencyGate({
         <AlertDescription>
           <p>{t("dependencies.configure", { reasons: blockedReasons.join(t("dependencies.and")) })}</p>
           <div className="mt-3 flex flex-wrap gap-2">
-            <Button asChild variant="outline" size="sm">
+            {settingsTargets.integration ? <Button asChild variant="outline" size="sm">
               <a href="#settings/integrations">{t("nav.dataIntegrations")}</a>
-            </Button>
-            {requireAiProvider ? <Button asChild variant="outline" size="sm">
+            </Button> : null}
+            {settingsTargets.ai ? <Button asChild variant="outline" size="sm">
               <a href="#settings/ai">{t("nav.aiSettings")}</a>
             </Button> : null}
           </div>

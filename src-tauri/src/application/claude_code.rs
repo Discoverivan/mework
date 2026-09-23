@@ -7,7 +7,9 @@ use std::{
 
 use serde_json::Value;
 
-use super::ai::{local_cli_command, AiProviderDto, AiProviderId, AiProviderStatus};
+use super::ai::{
+    is_usable_cli_file, local_cli_command, AiProviderDto, AiProviderId, AiProviderStatus,
+};
 
 const MODELS: [&str; 3] = ["sonnet", "opus", "haiku"];
 
@@ -97,51 +99,64 @@ fn provider(
 pub fn resolve_binary() -> Option<PathBuf> {
     if let Some(configured) = env::var_os("MEWORK_CLAUDE_BIN") {
         let path = PathBuf::from(configured);
-        if path.is_file() {
+        if is_usable_cli_file(&path) {
             return Some(path);
         }
     }
-    let names: &[&str] = if cfg!(windows) {
-        &["claude.exe", "claude.cmd", "claude"]
-    } else {
-        &["claude"]
-    };
     if let Some(path) = env::var_os("PATH") {
         for entry in env::split_paths(&path) {
-            for name in names {
+            for name in executable_names() {
                 let candidate = entry.join(name);
-                if candidate.is_file() {
+                if is_usable_cli_file(&candidate) {
                     return Some(candidate);
                 }
             }
         }
     }
+    diagnostic_install_paths()
+        .into_iter()
+        .map(|(_, path)| path)
+        .find(|path| is_usable_cli_file(path))
+}
+
+pub(crate) fn executable_names() -> &'static [&'static str] {
+    if cfg!(windows) {
+        &["claude.exe", "claude.cmd", "claude"]
+    } else {
+        &["claude"]
+    }
+}
+
+pub(crate) fn diagnostic_install_paths() -> Vec<(&'static str, PathBuf)> {
     let home = env::var_os("HOME")
         .or_else(|| env::var_os("USERPROFILE"))
         .map(PathBuf::from);
     let mut candidates = Vec::new();
     if let Some(home) = home.as_ref() {
-        candidates.push(home.join(if cfg!(windows) {
-            ".local/bin/claude.exe"
-        } else {
-            ".local/bin/claude"
-        }));
+        candidates.push((
+            "HOME-or-USERPROFILE",
+            home.join(if cfg!(windows) {
+                ".local/bin/claude.exe"
+            } else {
+                ".local/bin/claude"
+            }),
+        ));
     }
     #[cfg(windows)]
     {
         if let Some(home) = dirs::home_dir() {
-            candidates.push(home.join(".local/bin/claude.exe"));
+            candidates.push(("system-home", home.join(".local/bin/claude.exe")));
         }
         if let Some(roaming) = dirs::config_dir() {
-            candidates.push(roaming.join("npm/claude.cmd"));
+            candidates.push(("system-config", roaming.join("npm/claude.cmd")));
         }
     }
     #[cfg(not(windows))]
     {
-        candidates.push(PathBuf::from("/opt/homebrew/bin/claude"));
-        candidates.push(PathBuf::from("/usr/local/bin/claude"));
+        candidates.push(("homebrew", PathBuf::from("/opt/homebrew/bin/claude")));
+        candidates.push(("usr-local", PathBuf::from("/usr/local/bin/claude")));
     }
-    candidates.into_iter().find(|path| path.is_file())
+    candidates
 }
 
 pub fn run_structured(

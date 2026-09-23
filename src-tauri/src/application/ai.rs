@@ -490,7 +490,7 @@ pub fn parse_codex_model_list_response(value: &serde_json::Value) -> Option<Vec<
 pub fn resolve_codex_binary() -> Option<PathBuf> {
     if let Some(configured) = env::var_os("MEWORK_CODEX_BIN") {
         let path = PathBuf::from(configured);
-        if path.is_file() {
+        if is_usable_cli_file(&path) {
             return Some(path);
         }
     }
@@ -499,7 +499,7 @@ pub fn resolve_codex_binary() -> Option<PathBuf> {
         for entry in env::split_paths(&path) {
             for executable in codex_executable_names(windows) {
                 let candidate = entry.join(executable);
-                if candidate.is_file() {
+                if is_usable_cli_file(&candidate) {
                     return Some(candidate);
                 }
             }
@@ -516,7 +516,143 @@ pub fn resolve_codex_binary() -> Option<PathBuf> {
         .into_iter()
         .chain(windows_codex_install_paths())
         .collect::<Vec<_>>();
-    candidates.into_iter().find(|path| path.is_file())
+    candidates.into_iter().find(|path| is_usable_cli_file(path))
+}
+
+pub(crate) fn is_usable_cli_file(path: &Path) -> bool {
+    if path.is_file() {
+        return true;
+    }
+    // A direct open is an independent Windows check when metadata says the
+    // candidate is missing. The later --version call validates the binary.
+    #[cfg(windows)]
+    return fs::File::open(path).is_ok();
+    #[cfg(not(windows))]
+    false
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AiCliCandidateDiagnostic {
+    provider: AiProviderId,
+    source: String,
+    metadata_is_file: bool,
+    metadata_error_code: Option<i32>,
+    can_open: bool,
+    open_error_code: Option<i32>,
+}
+
+pub fn ai_cli_candidate_diagnostics() -> Vec<AiCliCandidateDiagnostic> {
+    let mut candidates: Vec<(AiProviderId, String, PathBuf)> = Vec::new();
+    for (provider, override_key) in [
+        (AiProviderId::CodexCli, "MEWORK_CODEX_BIN"),
+        (AiProviderId::ClaudeCodeCli, "MEWORK_CLAUDE_BIN"),
+    ] {
+        if let Some(path) = env::var_os(override_key) {
+            candidates.push((provider, override_key.to_owned(), PathBuf::from(path)));
+        }
+    }
+    if let Some(path) = env::var_os("PATH") {
+        for (index, entry) in env::split_paths(&path).enumerate() {
+            for (provider, names) in [
+                (
+                    AiProviderId::CodexCli,
+                    codex_executable_names(cfg!(windows)),
+                ),
+                (
+                    AiProviderId::ClaudeCodeCli,
+                    crate::application::claude_code::executable_names(),
+                ),
+            ] {
+                for name in names {
+                    candidates.push((provider, format!("PATH[{index}]/{name}"), entry.join(name)));
+                }
+            }
+        }
+    }
+    #[cfg(windows)]
+    {
+        if let Some(root) = env::var_os("LOCALAPPDATA") {
+            candidates.push((
+                AiProviderId::CodexCli,
+                "LOCALAPPDATA".to_owned(),
+                PathBuf::from(root).join("Programs/OpenAI/Codex/bin/codex.exe"),
+            ));
+        }
+        if let Some(root) = env::var_os("USERPROFILE") {
+            candidates.push((
+                AiProviderId::CodexCli,
+                "USERPROFILE".to_owned(),
+                PathBuf::from(root).join("AppData/Local/Programs/OpenAI/Codex/bin/codex.exe"),
+            ));
+        } else if let Some(root) = env::var_os("HOME") {
+            candidates.push((
+                AiProviderId::CodexCli,
+                "HOME-fallback".to_owned(),
+                PathBuf::from(root).join("AppData/Local/Programs/OpenAI/Codex/bin/codex.exe"),
+            ));
+        }
+        if let Some(root) = dirs::data_local_dir() {
+            candidates.push((
+                AiProviderId::CodexCli,
+                "system-local-data".to_owned(),
+                root.join("Programs/OpenAI/Codex/bin/codex.exe"),
+            ));
+        }
+        if let Some(path) = env::current_exe()
+            .ok()
+            .as_deref()
+            .and_then(codex_path_beside_installed_app)
+        {
+            candidates.push((AiProviderId::CodexCli, "beside-app".to_owned(), path));
+        }
+        if let Some(root) = dirs::home_dir() {
+            candidates.push((
+                AiProviderId::CodexCli,
+                "system-home".to_owned(),
+                root.join("AppData/Local/Programs/OpenAI/Codex/bin/codex.exe"),
+            ));
+        }
+    }
+    #[cfg(not(windows))]
+    for (source, path) in [
+        ("homebrew", PathBuf::from("/opt/homebrew/bin/codex")),
+        ("usr-local", PathBuf::from("/usr/local/bin/codex")),
+    ] {
+        candidates.push((AiProviderId::CodexCli, source.to_owned(), path));
+    }
+    #[cfg(not(windows))]
+    if let Some(root) = env::var_os("HOME") {
+        let root = PathBuf::from(root);
+        candidates.push((
+            AiProviderId::CodexCli,
+            "HOME-local".to_owned(),
+            root.join(".local/bin/codex"),
+        ));
+        candidates.push((
+            AiProviderId::CodexCli,
+            "HOME-npm-global".to_owned(),
+            root.join(".npm-global/bin/codex"),
+        ));
+    }
+    for (source, path) in crate::application::claude_code::diagnostic_install_paths() {
+        candidates.push((AiProviderId::ClaudeCodeCli, source.to_owned(), path));
+    }
+    candidates
+        .into_iter()
+        .map(|(provider, source, path)| {
+            let metadata = fs::metadata(&path);
+            let opened = fs::File::open(&path);
+            AiCliCandidateDiagnostic {
+                provider,
+                source,
+                metadata_is_file: metadata.as_ref().is_ok_and(|value| value.is_file()),
+                metadata_error_code: metadata.err().and_then(|error| error.raw_os_error()),
+                can_open: opened.is_ok(),
+                open_error_code: opened.err().and_then(|error| error.raw_os_error()),
+            }
+        })
+        .collect()
 }
 
 #[cfg(windows)]
@@ -1320,6 +1456,23 @@ mod tests {
             super::codex_executable_names(true),
             &["codex.exe", "codex.cmd", "codex"]
         );
+    }
+
+    #[test]
+    fn diagnoses_both_local_cli_providers_without_returning_paths() {
+        let diagnostics = super::ai_cli_candidate_diagnostics();
+        assert!(diagnostics
+            .iter()
+            .any(|item| item.provider == AiProviderId::CodexCli));
+        assert!(diagnostics
+            .iter()
+            .any(|item| item.provider == AiProviderId::ClaudeCodeCli));
+        let serialized = serde_json::to_value(diagnostics).unwrap();
+        assert!(serialized
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|item| item.get("path").is_none()));
     }
 
     #[test]
