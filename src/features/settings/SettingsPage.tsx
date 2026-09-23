@@ -338,6 +338,14 @@ export function SettingsPage({ section = "integrations" }: SettingsPageProps) {
   }, [retry, section, t]);
 
   useEffect(() => {
+    if (section !== "ai") return;
+    return subscribeAppEvent(APP_EVENT.aiSettingsChanged, (updated) => {
+      setAiData(updated);
+      setAiError(null);
+    });
+  }, [section]);
+
+  useEffect(() => {
     return subscribeAppEvent(APP_EVENT.integrationsHealthRefreshed, (loadedIntegrations) => {
       if (!Array.isArray(loadedIntegrations)) return;
       setIntegrations(loadedIntegrations);
