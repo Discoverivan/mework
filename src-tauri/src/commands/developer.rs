@@ -98,6 +98,7 @@ pub async fn pull_request_review_start(
             code: "review_start_failed".to_owned(),
             message,
             retryable: true,
+            details: None,
         })
 }
 
@@ -112,6 +113,7 @@ pub async fn pull_request_review_state(
             code: "review_state_failed".to_owned(),
             message,
             retryable: true,
+            details: None,
         })
 }
 

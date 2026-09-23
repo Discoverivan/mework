@@ -306,6 +306,27 @@ impl BitbucketDcClient {
         .await
     }
 
+    pub async fn authenticated_user_slug(&self) -> Result<String, BitbucketDcError> {
+        let url = self.url_with_segments(&["rest", "api", "1.0", "repos"])?;
+        let response = self
+            .authenticated_request(url)
+            .query(&[("limit", "1")])
+            .send()
+            .await
+            .map_err(|_| BitbucketDcError::Transport)?;
+        if !response.status().is_success() {
+            return Err(Self::http_error(response).await);
+        }
+        response
+            .headers()
+            .get("x-ausername")
+            .and_then(|value| value.to_str().ok())
+            .map(str::trim)
+            .filter(|value| !value.is_empty() && !value.chars().any(char::is_whitespace))
+            .map(str::to_owned)
+            .ok_or(BitbucketDcError::InvalidResponse)
+    }
+
     pub async fn get_pull_request(
         &self,
         project_key: &str,
@@ -664,11 +685,10 @@ impl BitbucketDcClient {
             .get(header::RETRY_AFTER)
             .and_then(|value| value.to_str().ok())
             .and_then(|value| value.trim().parse::<u64>().ok());
-        let detail = response
-            .text()
-            .await
-            .ok()
-            .and_then(|body| sanitize_error_detail(&body));
+        let detail =
+            crate::infrastructure::integrations::error_body::read_safe_error_body(response)
+                .await
+                .map(|body| body.to_string());
         BitbucketDcError::Http {
             status,
             kind,
@@ -676,48 +696,6 @@ impl BitbucketDcClient {
             retry_after_seconds,
             detail,
         }
-    }
-}
-
-fn sanitize_error_detail(body: &str) -> Option<String> {
-    let candidate = serde_json::from_str::<serde_json::Value>(body)
-        .ok()
-        .and_then(|value| json_error_message(&value))
-        .or_else(|| {
-            let text = body.trim();
-            (!text.is_empty() && !text.contains('<')).then_some(text.to_owned())
-        })?;
-    let compact = candidate.split_whitespace().collect::<Vec<_>>().join(" ");
-    let lower = compact.to_ascii_lowercase();
-    if compact.is_empty()
-        || [
-            "authorization",
-            "bearer",
-            "password",
-            "secret",
-            "token",
-            "pat",
-        ]
-        .iter()
-        .any(|marker| lower.contains(marker))
-    {
-        return None;
-    }
-    Some(compact.chars().take(240).collect())
-}
-
-fn json_error_message(value: &serde_json::Value) -> Option<String> {
-    match value {
-        serde_json::Value::Object(object) => {
-            for key in ["message", "error", "detail"] {
-                if let Some(serde_json::Value::String(message)) = object.get(key) {
-                    return Some(message.clone());
-                }
-            }
-            object.values().find_map(json_error_message)
-        }
-        serde_json::Value::Array(values) => values.iter().find_map(json_error_message),
-        _ => None,
     }
 }
 
