@@ -35,6 +35,10 @@ const OPENAI_COMPATIBLE_CREDENTIAL_REF: &str = "ai-openai-compatible";
 const CREATE_NO_WINDOW: u32 = 0x08000000;
 
 pub(crate) fn codex_command(path: impl AsRef<OsStr>) -> Command {
+    local_cli_command(path)
+}
+
+pub(crate) fn local_cli_command(path: impl AsRef<OsStr>) -> Command {
     let command = Command::new(path);
     #[cfg(target_os = "windows")]
     let mut command = command;
@@ -78,6 +82,7 @@ pub struct OpenAiCompatibleProviderSaveRequest {
 #[serde(rename_all = "kebab-case")]
 pub enum AiProviderId {
     CodexCli,
+    ClaudeCodeCli,
     #[serde(rename = "openai-compatible")]
     OpenAiCompatible,
 }
@@ -214,13 +219,16 @@ pub async fn save_openai_compatible_provider(
 
 pub async fn dto(pool: &SqlitePool) -> Result<AiSettingsPageDto, String> {
     let settings = load(pool).await?;
-    let provider = tokio::task::spawn_blocking(inspect_codex_cli)
-        .await
-        .map_err(|_| "failed to inspect Codex CLI".to_owned())?;
+    let (codex, claude) = tokio::join!(
+        tokio::task::spawn_blocking(inspect_codex_cli),
+        tokio::task::spawn_blocking(crate::application::claude_code::inspect),
+    );
+    let provider = codex.map_err(|_| "failed to inspect Codex CLI".to_owned())?;
+    let claude_provider = claude.map_err(|_| "failed to inspect Claude Code CLI".to_owned())?;
     let openai_provider = inspect_openai_compatible(pool).await;
     Ok(AiSettingsPageDto {
         settings,
-        providers: vec![provider, openai_provider],
+        providers: vec![provider, claude_provider, openai_provider],
     })
 }
 
@@ -497,14 +505,17 @@ pub fn resolve_codex_binary() -> Option<PathBuf> {
             }
         }
     }
-    let mut candidates = codex_install_paths(
+    let candidates = codex_install_paths(
         env::var_os("HOME").map(PathBuf::from),
         env::var_os("LOCALAPPDATA").map(PathBuf::from),
         env::var_os("USERPROFILE").map(PathBuf::from),
         windows,
     );
     #[cfg(windows)]
-    candidates.extend(windows_codex_install_paths());
+    let candidates = candidates
+        .into_iter()
+        .chain(windows_codex_install_paths())
+        .collect::<Vec<_>>();
     candidates.into_iter().find(|path| path.is_file())
 }
 
@@ -1142,11 +1153,12 @@ pub fn test_process_env_lock() -> &'static std::sync::Mutex<()> {
 
 #[cfg(test)]
 mod tests {
+    #[cfg(unix)]
+    use super::{inspect_codex_cli, query_codex_models_with_timeout, AiProviderStatus};
     use super::{
-        inspect_codex_cli, load_openai_models, normalize_openai_base_url,
-        parse_codex_model_list_response, parse_openai_model_list_response,
-        query_codex_models_with_timeout, safe_first_line, safe_openai_error_detail, AiProviderId,
-        AiProviderStatus, AiReasoning, AiSettings, OpenAiCompatibleProviderConfig,
+        load_openai_models, normalize_openai_base_url, parse_codex_model_list_response,
+        parse_openai_model_list_response, safe_first_line, safe_openai_error_detail, AiProviderId,
+        AiReasoning, AiSettings, OpenAiCompatibleProviderConfig,
     };
 
     #[test]

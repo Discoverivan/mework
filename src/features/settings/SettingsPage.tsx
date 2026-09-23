@@ -181,6 +181,12 @@ const INITIAL_AI_DATA: AiSettingsPageData = {
     models: [],
     message: "Detecting Codex CLI…",
   }, {
+    id: "claude-code-cli",
+    name: "Claude Code CLI",
+    status: "loading",
+    available: false,
+    models: [],
+  }, {
     id: "openai-compatible",
     name: "OpenAI-compatible API",
     status: "not_configured",
@@ -198,6 +204,12 @@ const UNAVAILABLE_AI_DATA: AiSettingsPageData = {
     available: false,
     models: [],
     message: "Codex CLI could not be initialized",
+  }, {
+    id: "claude-code-cli",
+    name: "Claude Code CLI",
+    status: "unavailable",
+    available: false,
+    models: [],
   }, {
     id: "openai-compatible",
     name: "OpenAI-compatible API",
@@ -731,7 +743,7 @@ export function SettingsPage({ section = "integrations" }: SettingsPageProps) {
                     <ChevronDown className="pointer-events-none absolute right-2 top-1/2 size-4 -translate-y-1/2 opacity-50" aria-hidden="true" />
                   </div>
                 </div>
-                <div className="grid gap-2.5">
+                {aiDraft.provider === "codex-cli" ? <div className="grid gap-2.5">
                   <Label htmlFor="ai-reasoning" className="pl-1">{t("settings.ai.reasoning")}</Label>
                   <div className="relative">
                     <select
@@ -748,8 +760,8 @@ export function SettingsPage({ section = "integrations" }: SettingsPageProps) {
                     </select>
                     <ChevronDown className="pointer-events-none absolute right-2 top-1/2 size-4 -translate-y-1/2 opacity-50" aria-hidden="true" />
                   </div>
-                </div>
-                <div className="flex items-center gap-2 md:pt-6">
+                </div> : null}
+                {aiDraft.provider === "codex-cli" ? <div className="flex items-center gap-2 md:pt-6">
                   <input
                     id="ai-fast-mode"
                     type="checkbox"
@@ -759,7 +771,7 @@ export function SettingsPage({ section = "integrations" }: SettingsPageProps) {
                     className="size-4 accent-primary"
                   />
                   <Label htmlFor="ai-fast-mode" className="font-medium">{t("settings.ai.fastMode")}</Label>
-                </div>
+                </div> : null}
               </div>
               {aiError || aiSaving || aiSaved || (aiDraft.provider && !aiReady) ? (
                 <div className="text-sm" aria-live="polite">
@@ -801,7 +813,9 @@ export function SettingsPage({ section = "integrations" }: SettingsPageProps) {
                     <CardDescription className="leading-snug">
                       {candidate.id === "openai-compatible"
                         ? t("settings.aiProviders.openAiDescription")
-                        : t("settings.aiProviders.codexDescription")}
+                        : candidate.id === "claude-code-cli"
+                          ? t("settings.aiProviders.claudeDescription")
+                          : t("settings.aiProviders.codexDescription")}
                       {candidate.message ? <span className="mt-1 block">{candidate.message}</span> : null}
                     </CardDescription>
                   </button>

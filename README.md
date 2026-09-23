@@ -57,7 +57,7 @@ mework keeps day-to-day engineering work in one local desktop workspace:
 - **Rust local core** owns polling, SQLite state, provider requests, AI adapters, credentials, notifications, workflows, and recovery.
 - **Jira and Bitbucket** are read through polling; the background refresh interval is five minutes. Webhooks are intentionally out of scope.
 - **Remote writes require an explicit user action** and are handled by the Rust core rather than the renderer or an AI agent.
-- **AI providers:** local Codex CLI or an OpenAI-compatible API. OpenAI-compatible models are discovered from `GET <base URL>/models`; static model metadata is not used.
+- **AI providers:** local Codex CLI, local Claude Code CLI, or an OpenAI-compatible API. Claude Code uses its existing login and supports the `sonnet`, `opus`, and `haiku` model aliases. OpenAI-compatible models are discovered from `GET <base URL>/models`; static model metadata is not used.
 - **Windows Codex CLI:** mework checks `PATH` for `codex.exe`/`codex.cmd` and the standalone installer location `%LOCALAPPDATA%\Programs\OpenAI\Codex\bin\codex.exe`; Codex keeps its own authentication and configuration under `%USERPROFILE%\.codex`.
 - **Themes:** white/light and dark, with the initial choice following the operating-system preference.
 

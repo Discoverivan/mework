@@ -663,6 +663,17 @@ fn execute_review_in_workspace(
         return execute_openai_review(runtime, &ai_settings.model, &manifest, diff);
     }
 
+    if ai_settings.provider == Some(crate::application::ai::AiProviderId::ClaudeCodeCli) {
+        let prompt = openai_review_prompt(&manifest, diff)?;
+        let output = crate::application::claude_code::run_structured(
+            &ai_settings.model,
+            review_result_schema(),
+            &prompt,
+            workdir,
+        )?;
+        return parse_review_result(&output);
+    }
+
     let codex = crate::application::ai::resolve_codex_binary()
         .ok_or_else(|| "Codex CLI executable was not found".to_owned())?;
     let reasoning = ai_settings.reasoning.as_str();
@@ -1032,12 +1043,14 @@ fn now_millis() -> i64 {
 
 #[cfg(test)]
 mod tests {
+    #[cfg(unix)]
+    use super::{execute_review_in_workspace, PullRequestReviewRequest};
     use super::{
-        execute_review_in_workspace, migrate_legacy_state, parse_review_result,
-        pull_request_review_key, request_openai_review, validate_result, PullRequestReviewComment,
-        PullRequestReviewRequest, PullRequestReviewResult, PullRequestReviewSeverity,
-        PullRequestReviewStatus, PullRequestReviewVerdict,
+        migrate_legacy_state, parse_review_result, pull_request_review_key, request_openai_review,
+        validate_result, PullRequestReviewComment, PullRequestReviewResult,
+        PullRequestReviewSeverity, PullRequestReviewStatus, PullRequestReviewVerdict,
     };
+    #[cfg(unix)]
     use crate::application::ai::{AiProviderId, AiReasoning, AiSettings};
 
     #[test]
@@ -1124,7 +1137,7 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
-    fn invokes_codex_cli_with_diff_and_parses_json() {
+    fn invokes_local_clis_with_diff_and_parses_json() {
         use std::{fs, os::unix::fs::PermissionsExt, path::PathBuf};
 
         let root =
@@ -1187,6 +1200,35 @@ mod tests {
             .unwrap()
             .contains("pull-request.diff"));
         std::env::remove_var("MEWORK_CODEX_BIN");
+
+        let claude = root.join("claude");
+        fs::write(
+            &claude,
+            "#!/bin/sh\ncat > claude-input.txt\nprintf '%s\\n' '{\"structured_output\":{\"verdict\":\"ok\",\"description\":\"Adds an example change.\",\"summary\":\"No substantial findings\",\"comments\":[]}}'\n",
+        )
+        .unwrap();
+        let mut permissions = fs::metadata(&claude).unwrap().permissions();
+        permissions.set_mode(0o755);
+        fs::set_permissions(&claude, permissions).unwrap();
+        std::env::set_var("MEWORK_CLAUDE_BIN", &claude);
+        let claude_settings = AiSettings {
+            provider: Some(AiProviderId::ClaudeCodeCli),
+            model: "sonnet".to_owned(),
+            ..ai_settings
+        };
+        let claude_result = execute_review_in_workspace(
+            &request,
+            &PathBuf::from(&root),
+            &claude_settings,
+            None,
+            "diff --git a/src/lib.rs b/src/lib.rs\n+return true;\n",
+        )
+        .unwrap();
+        std::env::remove_var("MEWORK_CLAUDE_BIN");
+        assert!(fs::read_to_string(root.join("claude-input.txt"))
+            .unwrap()
+            .contains("return true"));
+        assert_eq!(claude_result.verdict, PullRequestReviewVerdict::Ok);
         let _ = fs::remove_dir_all(&root);
         assert_eq!(result.verdict, PullRequestReviewVerdict::Ok);
         assert!(result.comments.is_empty());

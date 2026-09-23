@@ -481,6 +481,23 @@ fn execute_draft_in_workspace(
             .ok_or_else(|| "OpenAI-compatible API configuration is unavailable".to_owned())?;
         return execute_openai_task_draft(runtime, &settings.model, prompt);
     }
+    if settings.provider == Some(ai::AiProviderId::ClaudeCodeCli) {
+        let output = crate::application::claude_code::run_structured(
+            &settings.model,
+            task_draft_schema(),
+            &task_prompt(prompt),
+            workdir,
+        )?;
+        let mut draft: TaskDraftDto = serde_json::from_slice(&output)
+            .map_err(|_| "Claude Code CLI returned invalid task JSON".to_owned())?;
+        required_text(&draft.summary, "AI summary", 255)?;
+        draft.description = jira_wiki_description(&required_text(
+            &draft.description,
+            "AI description",
+            50_000,
+        )?);
+        return Ok(draft);
+    }
     let codex = ai::resolve_codex_binary()
         .ok_or_else(|| "Codex CLI executable was not found".to_owned())?;
     let reasoning = settings.reasoning.as_str();
@@ -661,6 +678,51 @@ mod tests {
         JiraTaskCreateRequest, JiraTaskIssueType, JiraTaskMemberDto,
     };
     use crate::application::ai::OpenAiCompatibleRuntimeConfig;
+
+    #[cfg(unix)]
+    #[test]
+    fn creates_task_draft_with_claude_code_cli() {
+        use crate::application::ai::{AiProviderId, AiReasoning, AiSettings};
+        use std::{fs, os::unix::fs::PermissionsExt};
+
+        let _lock = crate::application::ai::test_process_env_lock()
+            .lock()
+            .unwrap();
+        let directory = tempfile::tempdir().unwrap();
+        let binary = directory.path().join("claude");
+        fs::write(
+            &binary,
+            "#!/bin/sh\ncat > claude-input.txt\nprintf '%s\\n' '{\"structured_output\":{\"summary\":\"Add example filter\",\"description\":\"*Goal*\\n\\nAdd an example filter\"}}'\n",
+        )
+        .unwrap();
+        let mut permissions = fs::metadata(&binary).unwrap().permissions();
+        permissions.set_mode(0o755);
+        fs::set_permissions(&binary, permissions).unwrap();
+        std::env::set_var("MEWORK_CLAUDE_BIN", &binary);
+        let settings = AiSettings {
+            provider: Some(AiProviderId::ClaudeCodeCli),
+            model: "sonnet".to_owned(),
+            reasoning: AiReasoning::Medium,
+            fast_mode: false,
+        };
+
+        let draft = super::execute_draft_in_workspace(
+            &settings,
+            None,
+            "Add an example filter",
+            &directory.path().to_path_buf(),
+        )
+        .unwrap();
+
+        std::env::remove_var("MEWORK_CLAUDE_BIN");
+        assert_eq!(draft.summary, "Add example filter");
+        assert_eq!(draft.description, "*Goal*\n\nAdd an example filter");
+        assert!(
+            fs::read_to_string(directory.path().join("claude-input.txt"))
+                .unwrap()
+                .contains("Add an example filter")
+        );
+    }
 
     #[test]
     fn parses_story_points_as_a_jira_number() {
