@@ -490,7 +490,7 @@ pub fn parse_codex_model_list_response(value: &serde_json::Value) -> Option<Vec<
 pub fn resolve_codex_binary() -> Option<PathBuf> {
     if let Some(configured) = env::var_os("MEWORK_CODEX_BIN") {
         let path = PathBuf::from(configured);
-        if path.is_file() {
+        if is_usable_cli_file(&path) {
             return Some(path);
         }
     }
@@ -499,7 +499,7 @@ pub fn resolve_codex_binary() -> Option<PathBuf> {
         for entry in env::split_paths(&path) {
             for executable in codex_executable_names(windows) {
                 let candidate = entry.join(executable);
-                if candidate.is_file() {
+                if is_usable_cli_file(&candidate) {
                     return Some(candidate);
                 }
             }
@@ -516,7 +516,78 @@ pub fn resolve_codex_binary() -> Option<PathBuf> {
         .into_iter()
         .chain(windows_codex_install_paths())
         .collect::<Vec<_>>();
-    candidates.into_iter().find(|path| path.is_file())
+    candidates.into_iter().find(|path| is_usable_cli_file(path))
+}
+
+fn is_usable_cli_file(path: &Path) -> bool {
+    if path.is_file() {
+        return true;
+    }
+    // A direct open is an independent Windows check when metadata says the
+    // candidate is missing. The later --version call validates the binary.
+    #[cfg(windows)]
+    return fs::File::open(path).is_ok();
+    #[cfg(not(windows))]
+    false
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CodexCandidateDiagnostic {
+    source: &'static str,
+    metadata_is_file: bool,
+    metadata_error_code: Option<i32>,
+    can_open: bool,
+    open_error_code: Option<i32>,
+}
+
+pub fn codex_candidate_diagnostics() -> Vec<CodexCandidateDiagnostic> {
+    #[cfg(not(windows))]
+    return Vec::new();
+
+    #[cfg(windows)]
+    {
+        let mut candidates = Vec::new();
+        if let Some(root) = env::var_os("LOCALAPPDATA") {
+            candidates.push((
+                "LOCALAPPDATA",
+                PathBuf::from(root).join("Programs/OpenAI/Codex/bin/codex.exe"),
+            ));
+        }
+        if let Some(root) = env::var_os("USERPROFILE") {
+            candidates.push((
+                "USERPROFILE",
+                PathBuf::from(root).join("AppData/Local/Programs/OpenAI/Codex/bin/codex.exe"),
+            ));
+        }
+        if let Some(root) = dirs::data_local_dir() {
+            candidates.push((
+                "system-local-data",
+                root.join("Programs/OpenAI/Codex/bin/codex.exe"),
+            ));
+        }
+        if let Some(path) = env::current_exe()
+            .ok()
+            .as_deref()
+            .and_then(codex_path_beside_installed_app)
+        {
+            candidates.push(("beside-app", path));
+        }
+        candidates
+            .into_iter()
+            .map(|(source, path)| {
+                let metadata = fs::metadata(&path);
+                let opened = fs::File::open(&path);
+                CodexCandidateDiagnostic {
+                    source,
+                    metadata_is_file: metadata.as_ref().is_ok_and(|value| value.is_file()),
+                    metadata_error_code: metadata.err().and_then(|error| error.raw_os_error()),
+                    can_open: opened.is_ok(),
+                    open_error_code: opened.err().and_then(|error| error.raw_os_error()),
+                }
+            })
+            .collect()
+    }
 }
 
 #[cfg(windows)]

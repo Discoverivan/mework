@@ -11,6 +11,13 @@ pub async fn ai_settings(state: State<'_, SqlitePool>) -> Result<AiSettingsPageD
 }
 
 #[tauri::command]
+pub async fn codex_cli_diagnostics() -> Result<Vec<ai::CodexCandidateDiagnostic>, String> {
+    tokio::task::spawn_blocking(ai::codex_candidate_diagnostics)
+        .await
+        .map_err(|_| "failed to inspect local CLI paths".to_owned())
+}
+
+#[tauri::command]
 pub async fn ai_settings_save(
     state: State<'_, SqlitePool>,
     settings: AiSettings,
