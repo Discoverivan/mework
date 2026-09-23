@@ -291,6 +291,8 @@ pub struct DeveloperCommandError {
     pub code: String,
     pub message: String,
     pub retryable: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub details: Option<Box<crate::application::integration_error::IntegrationErrorDetails>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -389,7 +391,9 @@ pub async fn search_bitbucket_repositories(
         let page = client
             .search_repositories(query, 20)
             .await
-            .map_err(map_error)?;
+            .map_err(|error| {
+                map_error_at(error, "search_repositories", "GET", "/rest/api/1.0/repos")
+            })?;
         for repository in page.values {
             let key = format!("{}/{}", repository.project.key, repository.slug);
             if seen.insert(key) {
@@ -461,7 +465,10 @@ pub async fn search_bitbucket_users(
         let client =
             BitbucketDcClient::with_bearer_token_and_client(&integration.base_url, secret, http)
                 .map_err(map_error)?;
-        let page = client.search_users(query, 20).await.map_err(map_error)?;
+        let page = client
+            .search_users(query, 20)
+            .await
+            .map_err(|error| map_error_at(error, "search_users", "GET", "/rest/api/1.0/users"))?;
         for user in page.values {
             let identity = user
                 .name
@@ -556,7 +563,14 @@ pub async fn pull_request_diff(
     let current_pull_request = client
         .get_pull_request(project_key, repository_slug, pull_request_id)
         .await
-        .map_err(map_error)?;
+        .map_err(|error| {
+            map_error_at(
+                error,
+                "load_pull_request",
+                "GET",
+                "/rest/api/1.0/projects/{project}/repos/{repo}/pull-requests/{id}",
+            )
+        })?;
     if !current_pull_request.open || !current_pull_request.state.eq_ignore_ascii_case("OPEN") {
         return Err(command_error(
             "pull_request_unavailable",
@@ -574,7 +588,14 @@ pub async fn pull_request_diff(
     client
         .pull_request_diff(project_key, repository_slug, pull_request_id)
         .await
-        .map_err(map_error)
+        .map_err(|error| {
+            map_error_at(
+                error,
+                "load_pull_request_diff",
+                "GET",
+                "/rest/api/1.0/projects/{project}/repos/{repo}/pull-requests/{id}.diff",
+            )
+        })
 }
 
 pub async fn sync_my_pull_requests_with_notifications(
@@ -670,7 +691,14 @@ pub async fn sync_my_pull_requests_with_notifications(
             let page = client
                 .list_my_pull_requests_page(page_start, limit)
                 .await
-                .map_err(map_error)?;
+                .map_err(|error| {
+                    map_error_at(
+                        error,
+                        "list_review_pull_requests",
+                        "GET",
+                        "/rest/api/1.0/dashboard/pull-requests",
+                    )
+                })?;
             pull_request_values.extend(page.values.into_iter().filter(|pull_request| {
                 pull_request.open && pull_request.state.eq_ignore_ascii_case("OPEN")
             }));
@@ -892,7 +920,6 @@ pub struct PullRequestDecisionStatus {
 
 struct BitbucketActionContext {
     client: BitbucketDcClient,
-    current_user_slug: String,
 }
 
 async fn bitbucket_action_context(
@@ -921,25 +948,6 @@ async fn bitbucket_action_context(
                 false,
             )
         })?;
-    let current_user_slug = integration.account_key.trim().to_owned();
-    let current_user_slug = if current_user_slug.is_empty() {
-        integration
-            .account_display_name
-            .as_deref()
-            .unwrap_or_default()
-            .trim()
-            .to_owned()
-    } else {
-        current_user_slug
-    };
-    if current_user_slug.is_empty() {
-        return Err(command_error(
-            "missing_account_identity",
-            "Bitbucket account identity is required for pull request actions",
-            false,
-        ));
-    }
-
     let keyring = OsKeyring::new(KEYRING_SERVICE);
     let secret = keyring.load(&integration.credential_ref).map_err(|_| {
         command_error(
@@ -968,10 +976,7 @@ async fn bitbucket_action_context(
     let client =
         BitbucketDcClient::with_bearer_token_and_client(&integration.base_url, secret, http)
             .map_err(map_error)?;
-    Ok(BitbucketActionContext {
-        client,
-        current_user_slug,
-    })
+    Ok(BitbucketActionContext { client })
 }
 
 fn validate_action_request(
@@ -1019,7 +1024,14 @@ async fn validate_current_pull_request(
     let current_pull_request = client
         .get_pull_request(project_key, repository_slug, pull_request_id)
         .await
-        .map_err(map_error)?;
+        .map_err(|error| {
+            map_error_at(
+                error,
+                "load_pull_request",
+                "GET",
+                "/rest/api/1.0/projects/{project}/repos/{repo}/pull-requests/{id}",
+            )
+        })?;
     if !current_pull_request.open || !current_pull_request.state.eq_ignore_ascii_case("OPEN") {
         return Err(command_error(
             "pull_request_unavailable",
@@ -1110,7 +1122,14 @@ pub async fn publish_pull_request_comment(
             },
         )
         .await
-        .map_err(map_error)?;
+        .map_err(|error| {
+            map_error_at(
+                error,
+                "publish_pull_request_comment",
+                "POST",
+                "/rest/api/1.0/projects/{project}/repos/{repo}/pull-requests/{id}/comments",
+            )
+        })?;
     update_cached_comment_count(
         pool,
         &request.integration_id,
@@ -1151,17 +1170,29 @@ pub async fn set_pull_request_decision(
             .expect("validated latest commit"),
     )
     .await?;
+    let current_user_slug = context
+        .client
+        .authenticated_user_slug()
+        .await
+        .map_err(|error| {
+            map_error_at(
+                error,
+                "resolve_authenticated_user",
+                "GET",
+                "/rest/api/1.0/repos",
+            )
+        })?;
     context
         .client
         .set_pull_request_participant_status(
             &request.project_key,
             &request.repository_slug,
             pull_request_id,
-            &context.current_user_slug,
+            &current_user_slug,
             status,
         )
         .await
-        .map_err(map_error)?;
+        .map_err(|error| map_error_at(error, "update_pull_request_participant", "PUT", "/rest/api/1.0/projects/{project}/repos/{repo}/pull-requests/{id}/participants/{user}"))?;
     update_cached_decision(
         pool,
         &request.integration_id,
@@ -1890,7 +1921,45 @@ pub(crate) fn command_error(code: &str, message: &str, retryable: bool) -> Devel
         code: code.into(),
         message: message.into(),
         retryable,
+        details: None,
     }
+}
+
+pub(crate) fn map_error_at(
+    error: BitbucketDcError,
+    operation: &'static str,
+    method: &'static str,
+    endpoint: &'static str,
+) -> DeveloperCommandError {
+    let reason = if operation == "resolve_authenticated_user"
+        && matches!(error, BitbucketDcError::InvalidResponse)
+    {
+        Some("missing_x_ausername_header")
+    } else {
+        None
+    };
+    let http_status = match &error {
+        BitbucketDcError::Http { status, .. } => Some(*status),
+        _ => None,
+    };
+    let response_body = match &error {
+        BitbucketDcError::Http {
+            detail: Some(body), ..
+        } => crate::infrastructure::integrations::error_body::sanitize_error_body(body.as_bytes()),
+        _ => None,
+    };
+    let mut mapped = map_error(error);
+    let mut details = crate::application::integration_error::IntegrationErrorDetails::new(
+        "bitbucket",
+        operation,
+        method,
+        endpoint,
+        http_status,
+    );
+    details.reason = reason;
+    details.response_body = response_body;
+    mapped.details = Some(Box::new(details));
+    mapped
 }
 
 pub(crate) fn map_error(error: BitbucketDcError) -> DeveloperCommandError {
@@ -1942,16 +2011,10 @@ pub(crate) fn map_error(error: BitbucketDcError) -> DeveloperCommandError {
             status,
             kind: BitbucketHttpErrorKind::Client,
             retryable,
-            detail,
             ..
         } => command_error(
             "remote_error",
-            &match detail {
-                Some(detail) => {
-                    format!("Bitbucket pull request request failed (HTTP {status}): {detail}")
-                }
-                None => format!("Bitbucket pull request request failed (HTTP {status})"),
-            },
+            &format!("Bitbucket pull request request failed (HTTP {status})"),
             retryable,
         ),
         BitbucketDcError::Http {
@@ -1985,6 +2048,89 @@ mod tests {
     use crate::infrastructure::integrations::bitbucket_dc::models::{
         BitbucketLink, BitbucketLinks, BitbucketParticipant, BitbucketRef, BitbucketUser,
     };
+
+    #[test]
+    fn bitbucket_error_dto_identifies_failing_operation_without_exposing_provider_body() {
+        use crate::infrastructure::integrations::bitbucket_dc::error::{
+            BitbucketDcError, BitbucketHttpErrorKind,
+        };
+        let error = super::map_error_at(
+            BitbucketDcError::Http {
+                status: 403,
+                kind: BitbucketHttpErrorKind::PermissionDenied,
+                retryable: false,
+                retry_after_seconds: None,
+                detail: Some("Bearer private-value".into()),
+            },
+            "update_pull_request_participant",
+            "PUT",
+            "/rest/api/1.0/projects/{project}/repos/{repo}/pull-requests/{id}/participants/{user}",
+        );
+        let dto = serde_json::to_value(error).unwrap();
+        assert_eq!(dto["code"], "permission_denied");
+        assert_eq!(dto["details"]["provider"], "bitbucket");
+        assert_eq!(
+            dto["details"]["operation"],
+            "update_pull_request_participant"
+        );
+        assert_eq!(dto["details"]["method"], "PUT");
+        assert_eq!(dto["details"]["httpStatus"], 403);
+        assert_eq!(
+            dto["details"]["endpoint"],
+            "/rest/api/1.0/projects/{project}/repos/{repo}/pull-requests/{id}/participants/{user}"
+        );
+        assert!(!dto.to_string().contains("private-value"));
+        let safe_error = super::map_error_at(
+            BitbucketDcError::Http {
+                status: 403,
+                kind: BitbucketHttpErrorKind::PermissionDenied,
+                retryable: false,
+                retry_after_seconds: None,
+                detail: Some(
+                    r#"{"errors":[{"message":"Approval is not permitted","token":"hidden"}]}"#
+                        .into(),
+                ),
+            },
+            "update_pull_request_participant",
+            "PUT",
+            "/rest/api/1.0/projects/{project}/repos/{repo}/pull-requests/{id}/participants/{user}",
+        );
+        let safe_dto = serde_json::to_value(safe_error).unwrap();
+        assert_eq!(
+            safe_dto["details"]["responseBody"]["errors"][0]["message"],
+            "Approval is not permitted"
+        );
+        assert!(!safe_dto.to_string().contains("hidden"));
+
+        let client_error = super::map_error_at(
+            BitbucketDcError::Http {
+                status: 400,
+                kind: BitbucketHttpErrorKind::Client,
+                retryable: false,
+                retry_after_seconds: None,
+                detail: Some("token: private-value".into()),
+            },
+            "search_users",
+            "GET",
+            "/rest/api/1.0/users",
+        );
+        assert!(!serde_json::to_string(&client_error)
+            .unwrap()
+            .contains("private-value"));
+
+        let missing_header = super::map_error_at(
+            BitbucketDcError::InvalidResponse,
+            "resolve_authenticated_user",
+            "GET",
+            "/rest/api/1.0/repos",
+        );
+        let missing_header = serde_json::to_value(missing_header).unwrap();
+        assert_eq!(
+            missing_header["details"]["reason"],
+            "missing_x_ausername_header"
+        );
+        assert!(missing_header["details"].get("httpStatus").is_none());
+    }
 
     #[test]
     fn validates_inline_comment_text_without_injecting_location_prefix() {

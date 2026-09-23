@@ -74,4 +74,18 @@ describe("ConfluenceSearchPage smoke test", () => {
     expect(await screen.findByText("Example release notes")).toBeInTheDocument();
     expect(screen.getByText("A synthetic search result.")).toBeInTheDocument();
   });
+
+  it("shows a structured integration error message", async () => {
+    searchConfluenceMock.mockRejectedValue({
+      code: "permission_denied",
+      message: "Confluence access was denied",
+      retryable: false,
+      details: { provider: "confluence", operation: "search", method: "GET", endpoint: "/rest/api/search", httpStatus: 403 },
+    });
+    render(<ConfluenceSearchPage />);
+    await waitFor(() => expect(listIntegrationsMock).toHaveBeenCalled());
+    fireEvent.change(screen.getByRole("textbox", { name: "Search query" }), { target: { value: "release notes" } });
+    fireEvent.click(screen.getByRole("button", { name: "Search" }));
+    expect(await screen.findByText(/Unable to search Confluence: Confluence access was denied/)).toBeInTheDocument();
+  });
 });

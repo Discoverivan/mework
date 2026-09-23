@@ -380,9 +380,10 @@ fn first_string(value: &Value, keys: &[&str]) -> Option<String> {
 
 fn daily_error(code: &str, message: &str, retryable: bool) -> PlanningCommandError {
     PlanningCommandError {
-        code: code.to_owned(),
-        message: message.to_owned(),
+        code: code.into(),
+        message: message.into(),
         retryable,
+        details: None,
     }
 }
 

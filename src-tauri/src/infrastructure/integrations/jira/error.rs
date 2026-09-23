@@ -8,6 +8,7 @@ pub enum JiraError {
         status: u16,
         retryable: bool,
         retry_after_seconds: Option<u64>,
+        response_body: Option<serde_json::Value>,
     },
     InvalidResponse,
     InvalidResponseDetails(String),

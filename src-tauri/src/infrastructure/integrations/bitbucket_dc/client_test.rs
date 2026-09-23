@@ -2,7 +2,33 @@ use wiremock::matchers::{body_json, header, method, path, query_param, query_par
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
 use super::client::{BitbucketDcClient, BitbucketInlineComment};
+use super::error::BitbucketDcError;
 use super::models::BitbucketPullRequestAuthor;
+
+#[tokio::test]
+async fn error_response_retains_only_safe_provider_messages() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/rest/api/1.0/users"))
+        .respond_with(ResponseTemplate::new(403).set_body_json(serde_json::json!({
+            "errors": [{"message": "Approval is not permitted", "token": "hidden"}],
+            "credentials": "hidden"
+        })))
+        .expect(1)
+        .mount(&server)
+        .await;
+    let client = BitbucketDcClient::with_bearer_token(server.uri(), "test-token").unwrap();
+    let error = client.search_users("john", 10).await.unwrap_err();
+    let BitbucketDcError::Http { detail, .. } = error else {
+        panic!("expected HTTP error")
+    };
+    let body = detail.unwrap();
+    assert_eq!(
+        serde_json::from_str::<serde_json::Value>(&body).unwrap()["errors"][0]["message"],
+        "Approval is not permitted"
+    );
+    assert!(!body.contains("hidden"));
+}
 
 #[tokio::test]
 async fn loads_open_reviewer_pull_requests_with_display_name_author() {
@@ -368,6 +394,40 @@ async fn publishes_inline_pull_request_comment() {
 
     assert_eq!(comment.id, 11);
     assert_eq!(comment.text, "AI review: handle this edge case");
+}
+
+#[tokio::test]
+async fn resolves_authenticated_user_slug_from_bitbucket_response() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/rest/api/1.0/repos"))
+        .and(header("authorization", "Bearer test-token"))
+        .respond_with(ResponseTemplate::new(200).insert_header("x-ausername", "current-user"))
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    let client = BitbucketDcClient::with_bearer_token(server.uri(), "test-token").unwrap();
+    assert_eq!(
+        client.authenticated_user_slug().await.unwrap(),
+        "current-user"
+    );
+}
+
+#[tokio::test]
+async fn rejects_missing_authenticated_user_slug() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/rest/api/1.0/repos"))
+        .respond_with(ResponseTemplate::new(200))
+        .mount(&server)
+        .await;
+
+    let client = BitbucketDcClient::with_bearer_token(server.uri(), "test-token").unwrap();
+    assert_eq!(
+        client.authenticated_user_slug().await,
+        Err(BitbucketDcError::InvalidResponse)
+    );
 }
 
 #[tokio::test]
