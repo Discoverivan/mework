@@ -97,7 +97,9 @@ const PROVIDERS: Provider[] = [
 ];
 
 function errorMessage(error: unknown, fallback: string): string {
-  const message = error instanceof Error ? error.message : typeof error === "string" ? error : fallback;
+  const message = error && typeof error === "object" && "message" in error && typeof error.message === "string"
+    ? error.message
+    : error instanceof Error ? error.message : typeof error === "string" ? error : fallback;
   return message
     .replace(/\b(?:token|pat|password|secret)\b\s*["']?\s*[:=]\s*["']?[^\s,"'}]+["']?/gi, "credential details redacted")
     .replace(/\bauthorization\b\s*[:=]\s*[^\n]*/gi, "authorization details redacted")

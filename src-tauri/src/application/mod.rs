@@ -10,6 +10,7 @@ pub mod developer_review;
 pub mod events;
 pub mod general;
 pub mod inbox;
+pub mod integration_error;
 pub mod integrations;
 pub mod notifications;
 pub mod planning;

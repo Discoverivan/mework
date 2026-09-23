@@ -738,6 +738,10 @@ async fn check_response(response: reqwest::Response) -> Result<reqwest::Response
         status,
         retryable: status == 429 || status >= 500,
         retry_after_seconds,
+        response_body: crate::infrastructure::integrations::error_body::read_safe_error_body(
+            response,
+        )
+        .await,
     })
 }
 

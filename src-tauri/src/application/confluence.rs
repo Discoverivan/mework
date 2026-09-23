@@ -47,8 +47,7 @@ pub enum ConfluenceSearchError {
     InvalidInput,
     IntegrationUnavailable,
     CredentialUnavailable,
-    AuthenticationFailed,
-    AccessDenied,
+    RemoteHttp(u16, Option<serde_json::Value>),
     ProviderUnavailable,
     InvalidProviderResponse,
     Database,
@@ -60,8 +59,9 @@ impl std::fmt::Display for ConfluenceSearchError {
             Self::InvalidInput => "invalid Confluence search request",
             Self::IntegrationUnavailable => "Confluence integration is unavailable",
             Self::CredentialUnavailable => "Confluence credential is unavailable",
-            Self::AuthenticationFailed => "Confluence authentication failed",
-            Self::AccessDenied => "Confluence search access was denied",
+            Self::RemoteHttp(401, _) => "Confluence authentication failed",
+            Self::RemoteHttp(403, _) => "Confluence search access was denied",
+            Self::RemoteHttp(_, _) => "Confluence request failed",
             Self::ProviderUnavailable => "Confluence search is temporarily unavailable",
             Self::InvalidProviderResponse => "Confluence returned an invalid response",
             Self::Database => "Confluence integration database operation failed",
@@ -182,11 +182,8 @@ fn map_client_error(error: ConfluenceError) -> ConfluenceSearchError {
         ConfluenceError::InvalidBaseUrl | ConfluenceError::InvalidQuery => {
             ConfluenceSearchError::InvalidInput
         }
-        ConfluenceError::Http(401) => ConfluenceSearchError::AuthenticationFailed,
-        ConfluenceError::Http(403) => ConfluenceSearchError::AccessDenied,
-        ConfluenceError::Http(_) | ConfluenceError::Transport => {
-            ConfluenceSearchError::ProviderUnavailable
-        }
+        ConfluenceError::Http(status, body) => ConfluenceSearchError::RemoteHttp(status, body),
+        ConfluenceError::Transport => ConfluenceSearchError::ProviderUnavailable,
         ConfluenceError::InvalidResponse => ConfluenceSearchError::InvalidProviderResponse,
     }
 }

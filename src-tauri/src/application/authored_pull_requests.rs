@@ -145,7 +145,14 @@ pub async fn sync_authored_pull_requests_with_notifications(
             let page = client
                 .list_authored_pull_requests_page(page_start, limit)
                 .await
-                .map_err(map_error)?;
+                .map_err(|error| {
+                    developer::map_error_at(
+                        error,
+                        "list_authored_pull_requests",
+                        "GET",
+                        "/rest/api/1.0/dashboard/pull-requests",
+                    )
+                })?;
             dashboard_values.extend(page.values.into_iter().filter(|pull_request| {
                 pull_request.open
                     && pull_request.state.eq_ignore_ascii_case("OPEN")

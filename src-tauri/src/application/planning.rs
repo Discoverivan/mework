@@ -375,6 +375,8 @@ pub struct PlanningCommandError {
     pub code: String,
     pub message: String,
     pub retryable: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub details: Option<Box<crate::application::integration_error::IntegrationErrorDetails>>,
 }
 
 impl std::fmt::Display for PlanningCommandError {
@@ -531,7 +533,7 @@ pub async fn list_project_boards(
                 })
                 .collect()
         })
-        .map_err(map_read_error)
+        .map_err(|error| map_read_error_at(error, "list_project_boards", "/rest/agile/1.0/board"))
 }
 
 pub async fn save_managed_project(
@@ -758,7 +760,7 @@ pub async fn preview_epic_link_jql(
                 })
                 .collect()
         })
-        .map_err(map_read_error)
+        .map_err(|error| map_read_error_at(error, "preview_epic_link_jql", "/rest/api/2/search"))
 }
 
 pub(crate) async fn list_target_sprints_with_dependencies<S: CredentialStore + ?Sized>(
@@ -781,7 +783,13 @@ pub(crate) async fn list_target_sprints_with_dependencies<S: CredentialStore + ?
     let page = client
         .list_usable_sprints(board_id, 50)
         .await
-        .map_err(map_read_error)?;
+        .map_err(|error| {
+            map_read_error_at(
+                error,
+                "list_usable_sprints",
+                "/rest/agile/1.0/board/{board}/sprint",
+            )
+        })?;
     Ok(page
         .values
         .into_iter()
@@ -895,10 +903,13 @@ pub(crate) async fn load_planning_workspace_with_dependencies<S: CredentialStore
             command_error("missing_metadata", "Jira board metadata is required", false)
         })?;
     let (client, _) = planning_read_client(pool, &project, keyring, transport).await?;
-    let sprints = client
-        .list_sprints(board_id, 50)
-        .await
-        .map_err(map_read_error)?;
+    let sprints = client.list_sprints(board_id, 50).await.map_err(|error| {
+        map_read_error_at(
+            error,
+            "list_sprints",
+            "/rest/agile/1.0/board/{board}/sprint",
+        )
+    })?;
     let source_sprint = if request.source_sprint_id.trim().is_empty() {
         sprints
             .values
@@ -941,12 +952,24 @@ pub(crate) async fn load_planning_workspace_with_dependencies<S: CredentialStore
     let source_issues = client
         .list_sprint_issues(&source_sprint.id, 50)
         .await
-        .map_err(map_read_error)?
+        .map_err(|error| {
+            map_read_error_at(
+                error,
+                "list_source_sprint_issues",
+                "/rest/agile/1.0/sprint/{sprint}/issue",
+            )
+        })?
         .values;
     let target_issues = client
         .list_sprint_issues(&target_sprint.id, 50)
         .await
-        .map_err(map_read_error)?
+        .map_err(|error| {
+            map_read_error_at(
+                error,
+                "list_target_sprint_issues",
+                "/rest/agile/1.0/sprint/{sprint}/issue",
+            )
+        })?
         .values;
     let workspace = match planning_repositories::find_workspace_by_selection(
         pool,
@@ -1273,7 +1296,13 @@ pub async fn search_team_members(
                 })
                 .collect()
         })
-        .map_err(map_read_error)
+        .map_err(|error| {
+            map_read_error_at(
+                error,
+                "search_team_members",
+                "/rest/api/2/user/assignable/search",
+            )
+        })
 }
 
 pub async fn add_team_member(
@@ -1504,7 +1533,13 @@ pub(crate) async fn list_team_members_with_dependencies<S: CredentialStore + ?Si
     let remote = client
         .list_assignable_users(&project.jira_project_key, 50)
         .await
-        .map_err(map_read_error)?;
+        .map_err(|error| {
+            map_read_error_at(
+                error,
+                "list_team_members",
+                "/rest/api/2/user/assignable/search",
+            )
+        })?;
     let mut tags = BTreeMap::new();
     let mut aliases = BTreeMap::new();
     let mut display_orders = BTreeMap::new();
@@ -2658,7 +2693,10 @@ pub(crate) async fn list_planning_managed_projects_with_dependencies<
         let remote_project = remote_projects.values.iter().find(|value| {
             value.id == project.jira_project_id || value.key == project.jira_project_key
         });
-        let remote_boards = client.list_boards(50).await.map_err(map_read_error)?;
+        let remote_boards = client
+            .list_boards(50)
+            .await
+            .map_err(|error| map_read_error_at(error, "list_boards", "/rest/agile/1.0/board"))?;
         let remote_board = remote_boards
             .values
             .iter()
@@ -2677,6 +2715,33 @@ pub(crate) async fn list_planning_managed_projects_with_dependencies<
         result.push(dto);
     }
     Ok(result)
+}
+
+fn map_read_error_at(
+    error: JiraError,
+    operation: &'static str,
+    endpoint: &'static str,
+) -> PlanningCommandError {
+    let status = match &error {
+        JiraError::Http { status, .. } => Some(*status),
+        _ => None,
+    };
+    let response_body = match &error {
+        JiraError::Http {
+            response_body: Some(body),
+            ..
+        } => crate::infrastructure::integrations::error_body::sanitize_error_body(
+            body.to_string().as_bytes(),
+        ),
+        _ => None,
+    };
+    let mut mapped = map_read_error(error);
+    let mut details = crate::application::integration_error::IntegrationErrorDetails::new(
+        "jira", operation, "GET", endpoint, status,
+    );
+    details.response_body = response_body;
+    mapped.details = Some(Box::new(details));
+    mapped
 }
 
 fn map_read_error(error: JiraError) -> PlanningCommandError {
@@ -2726,9 +2791,9 @@ fn map_read_error(error: JiraError) -> PlanningCommandError {
         JiraError::InvalidBaseUrl => {
             command_error("invalid_metadata", "Jira base URL is invalid", false)
         }
-        JiraError::InvalidResponseDetails(details) => command_error(
+        JiraError::InvalidResponseDetails(_) => command_error(
             "invalid_response",
-            &format!("Jira returned an invalid response: {details}"),
+            "Jira returned an invalid response",
             false,
         ),
         JiraError::InvalidResponse => command_error(
@@ -3113,6 +3178,7 @@ fn command_error(code: &str, message: &str, retryable: bool) -> PlanningCommandE
         code: code.into(),
         message: message.into(),
         retryable,
+        details: None,
     }
 }
 fn default_enabled() -> bool {
@@ -3126,4 +3192,40 @@ fn timestamp() -> String {
             .map(|value| value.as_secs())
             .unwrap_or_default()
     )
+}
+
+#[cfg(test)]
+mod integration_error_tests {
+    use super::*;
+
+    #[test]
+    fn jira_http_error_dto_contains_operation_and_status() {
+        let error = map_read_error_at(
+            JiraError::Http {
+                status: 403,
+                retryable: false,
+                retry_after_seconds: None,
+                response_body: Some(
+                    serde_json::json!({"errorMessages": ["You are not permitted"], "password": "hidden"}),
+                ),
+            },
+            "list_usable_sprints",
+            "/rest/agile/1.0/board/{board}/sprint",
+        );
+        let dto = serde_json::to_value(error).unwrap();
+        assert_eq!(dto["code"], "permission_denied");
+        assert_eq!(dto["details"]["provider"], "jira");
+        assert_eq!(dto["details"]["method"], "GET");
+        assert_eq!(dto["details"]["httpStatus"], 403);
+        assert_eq!(dto["details"]["operation"], "list_usable_sprints");
+        assert_eq!(
+            dto["details"]["responseBody"]["errorMessages"][0],
+            "You are not permitted"
+        );
+        assert!(!dto.to_string().contains("hidden"));
+        assert_eq!(
+            dto["details"]["endpoint"],
+            "/rest/agile/1.0/board/{board}/sprint"
+        );
+    }
 }

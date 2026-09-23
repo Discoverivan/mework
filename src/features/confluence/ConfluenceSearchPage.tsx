@@ -59,7 +59,10 @@ export function ConfluenceSearchPage() {
       setResults(response.results);
       setSearched(true);
     } catch (searchError) {
-      const message = searchError instanceof Error ? searchError.message : String(searchError);
+      const message = searchError && typeof searchError === "object" && "message" in searchError
+        && typeof searchError.message === "string"
+        ? searchError.message
+        : searchError instanceof Error ? searchError.message : String(searchError);
       setError(message);
     } finally {
       setSearching(false);

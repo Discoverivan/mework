@@ -10,7 +10,7 @@ pub enum ConfluenceError {
     InvalidBaseUrl,
     InvalidQuery,
     Transport,
-    Http(u16),
+    Http(u16, Option<serde_json::Value>),
     InvalidResponse,
 }
 
@@ -154,7 +154,11 @@ impl ConfluenceClient {
             .await
             .map_err(|_| ConfluenceError::Transport)?;
         if !response.status().is_success() {
-            return Err(ConfluenceError::Http(response.status().as_u16()));
+            let status = response.status().as_u16();
+            let body =
+                crate::infrastructure::integrations::error_body::read_safe_error_body(response)
+                    .await;
+            return Err(ConfluenceError::Http(status, body));
         }
         let response = response
             .json::<SearchResponse>()
@@ -188,7 +192,11 @@ impl ConfluenceClient {
             .await
             .map_err(|_| ConfluenceError::Transport)?;
         if !response.status().is_success() {
-            return Err(ConfluenceError::Http(response.status().as_u16()));
+            let status = response.status().as_u16();
+            let body =
+                crate::infrastructure::integrations::error_body::read_safe_error_body(response)
+                    .await;
+            return Err(ConfluenceError::Http(status, body));
         }
         let space = response
             .json::<Space>()
