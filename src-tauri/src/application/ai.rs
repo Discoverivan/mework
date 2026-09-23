@@ -533,7 +533,7 @@ pub(crate) fn is_usable_cli_file(path: &Path) -> bool {
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct CliCandidateDiagnostic {
+pub struct AiCliCandidateDiagnostic {
     provider: AiProviderId,
     source: String,
     metadata_is_file: bool,
@@ -542,7 +542,7 @@ pub struct CliCandidateDiagnostic {
     open_error_code: Option<i32>,
 }
 
-pub fn cli_candidate_diagnostics() -> Vec<CliCandidateDiagnostic> {
+pub fn ai_cli_candidate_diagnostics() -> Vec<AiCliCandidateDiagnostic> {
     let mut candidates: Vec<(AiProviderId, String, PathBuf)> = Vec::new();
     for (provider, override_key) in [
         (AiProviderId::CodexCli, "MEWORK_CODEX_BIN"),
@@ -585,6 +585,12 @@ pub fn cli_candidate_diagnostics() -> Vec<CliCandidateDiagnostic> {
                 "USERPROFILE".to_owned(),
                 PathBuf::from(root).join("AppData/Local/Programs/OpenAI/Codex/bin/codex.exe"),
             ));
+        } else if let Some(root) = env::var_os("HOME") {
+            candidates.push((
+                AiProviderId::CodexCli,
+                "HOME-fallback".to_owned(),
+                PathBuf::from(root).join("AppData/Local/Programs/OpenAI/Codex/bin/codex.exe"),
+            ));
         }
         if let Some(root) = dirs::data_local_dir() {
             candidates.push((
@@ -600,6 +606,34 @@ pub fn cli_candidate_diagnostics() -> Vec<CliCandidateDiagnostic> {
         {
             candidates.push((AiProviderId::CodexCli, "beside-app".to_owned(), path));
         }
+        if let Some(root) = dirs::home_dir() {
+            candidates.push((
+                AiProviderId::CodexCli,
+                "system-home".to_owned(),
+                root.join("AppData/Local/Programs/OpenAI/Codex/bin/codex.exe"),
+            ));
+        }
+    }
+    #[cfg(not(windows))]
+    for (source, path) in [
+        ("homebrew", PathBuf::from("/opt/homebrew/bin/codex")),
+        ("usr-local", PathBuf::from("/usr/local/bin/codex")),
+    ] {
+        candidates.push((AiProviderId::CodexCli, source.to_owned(), path));
+    }
+    #[cfg(not(windows))]
+    if let Some(root) = env::var_os("HOME") {
+        let root = PathBuf::from(root);
+        candidates.push((
+            AiProviderId::CodexCli,
+            "HOME-local".to_owned(),
+            root.join(".local/bin/codex"),
+        ));
+        candidates.push((
+            AiProviderId::CodexCli,
+            "HOME-npm-global".to_owned(),
+            root.join(".npm-global/bin/codex"),
+        ));
     }
     for (source, path) in crate::application::claude_code::diagnostic_install_paths() {
         candidates.push((AiProviderId::ClaudeCodeCli, source.to_owned(), path));
@@ -609,7 +643,7 @@ pub fn cli_candidate_diagnostics() -> Vec<CliCandidateDiagnostic> {
         .map(|(provider, source, path)| {
             let metadata = fs::metadata(&path);
             let opened = fs::File::open(&path);
-            CliCandidateDiagnostic {
+            AiCliCandidateDiagnostic {
                 provider,
                 source,
                 metadata_is_file: metadata.as_ref().is_ok_and(|value| value.is_file()),
@@ -1426,7 +1460,7 @@ mod tests {
 
     #[test]
     fn diagnoses_both_local_cli_providers_without_returning_paths() {
-        let diagnostics = super::cli_candidate_diagnostics();
+        let diagnostics = super::ai_cli_candidate_diagnostics();
         assert!(diagnostics
             .iter()
             .any(|item| item.provider == AiProviderId::CodexCli));
