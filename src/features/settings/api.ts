@@ -27,23 +27,30 @@ function scheduleAiCliRecovery(missingProvider: NonNullable<AiSettings["provider
     void getAiSettings().then((rechecked) => {
       if (rechecked.settings.provider !== missingProvider) return;
       const provider = rechecked.providers.find((candidate) => candidate.id === missingProvider);
-      if (provider?.status !== "not_found") emitAppEvent(APP_EVENT.aiSettingsChanged, rechecked);
+      if (provider && !isTransientCliStatus(provider.status)) {
+        emitAppEvent(APP_EVENT.aiSettingsChanged, rechecked);
+      }
     }).catch(() => scheduleAiCliRecovery(missingProvider));
   }, AI_CLI_RECOVERY_DELAY_MS);
 }
 
+function isTransientCliStatus(status: string): boolean {
+  return status === "loading" || status === "unavailable" || status === "not_found";
+}
+
 function cacheStableAiSettings(value: AiSettingsPageData): AiSettingsPageData {
   const selectedProvider = value.providers.find((provider) => provider.id === value.settings.provider);
-  const cliMissing = selectedProvider?.status === "not_found";
+  const cliNeedsRecovery = (value.settings.provider === "codex-cli" || value.settings.provider === "claude-code-cli")
+    && selectedProvider !== undefined && isTransientCliStatus(selectedProvider.status);
   const transient = value.providers.some((provider) =>
     provider.status === "loading" || provider.status === "unavailable"
   );
-  if (!transient && !cliMissing) {
+  if (!transient && !cliNeedsRecovery) {
     aiSettingsCache = { value, expiresAt: Date.now() + AI_SETTINGS_CACHE_TTL_MS };
   } else {
     aiSettingsCache = null;
   }
-  if (cliMissing && value.settings.provider) {
+  if (cliNeedsRecovery && value.settings.provider) {
     scheduleAiCliRecovery(value.settings.provider);
   } else if (aiCliRecoveryTimer !== null) {
     clearTimeout(aiCliRecoveryTimer);

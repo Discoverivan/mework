@@ -44,7 +44,7 @@ describe("settings integration API smoke test", () => {
       settings,
       providers: [{ ...missing.providers[0], status: "connected" as const, available: true, models: ["sample-model"] }],
     };
-    invokeMock.mockResolvedValueOnce(missing).mockResolvedValueOnce(connected);
+    invokeMock.mockResolvedValueOnce(missing).mockResolvedValueOnce(missing).mockResolvedValueOnce(connected);
     const recovered = vi.fn();
     const unsubscribe = subscribeAppEvent(APP_EVENT.aiSettingsChanged, recovered);
 
@@ -52,6 +52,9 @@ describe("settings integration API smoke test", () => {
       expect(await getAiSettings()).toEqual(missing);
       await vi.advanceTimersByTimeAsync(5_000);
       expect(invokeMock).toHaveBeenCalledTimes(2);
+      expect(recovered).not.toHaveBeenCalled();
+      await vi.advanceTimersByTimeAsync(5_000);
+      expect(invokeMock).toHaveBeenCalledTimes(3);
       expect(recovered).toHaveBeenCalledWith(connected);
     } finally {
       unsubscribe();
