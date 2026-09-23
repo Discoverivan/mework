@@ -89,6 +89,7 @@ export function GeneralSettingsPage() {
       notificationsEnabled: settings.notificationsEnabled,
       reviewNotificationsEnabled: settings.reviewNotificationsEnabled,
       authoredNotificationsEnabled: settings.authoredNotificationsEnabled,
+      taskTrackerNotificationsEnabled: settings.taskTrackerNotificationsEnabled,
       language: settings.language,
       themePreference: settings.themePreference,
       ...changes,
@@ -333,6 +334,20 @@ export function GeneralSettingsPage() {
           <div className="grid gap-3 border-t pt-4">
             <div className="flex items-center justify-between gap-4 pl-4">
               <div>
+                <Label htmlFor="general-task-tracker-notifications-enabled" className="font-medium">Task tracker</Label>
+                <CardDescription className="mt-1">Notifications from Task tracker monitors.</CardDescription>
+              </div>
+              <Switch
+                id="general-task-tracker-notifications-enabled"
+                size="sm"
+                checked={settings?.taskTrackerNotificationsEnabled ?? true}
+                onCheckedChange={(checked) => void handlePreferencesChange({ taskTrackerNotificationsEnabled: checked })}
+                disabled={loading || saving || !(settings?.notificationsEnabled ?? true)}
+              />
+            </div>
+            <div className="pl-4"><Separator /></div>
+            <div className="flex items-center justify-between gap-4 pl-4">
+              <div>
                 <div className="flex items-center gap-1.5">
                   <Label htmlFor="general-review-notifications-enabled" className="font-medium">
                     {t("general.notificationsReview")}
@@ -421,6 +436,7 @@ export function GeneralSettingsPage() {
               </CardDescription>
             </div>
             <div className="flex shrink-0 items-center gap-2">
+              {updateStatus === "available" ? <span className="text-sm text-muted-foreground">{t("general.updateAvailable", { version: availableUpdateVersion ?? "" })}</span> : null}
               {updateStatus === "available" ? (
                 <Button
                   type="button"

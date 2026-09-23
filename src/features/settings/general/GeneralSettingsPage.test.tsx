@@ -38,20 +38,21 @@ describe("GeneralSettingsPage", () => {
       notificationsEnabled: true,
       reviewNotificationsEnabled: true,
       authoredNotificationsEnabled: true,
+      taskTrackerNotificationsEnabled: true,
       notificationPermission: "denied",
     };
     generalSettingsMock.mockResolvedValue(initialSettings);
     openNotificationSettingsMock.mockResolvedValue(undefined);
     requestNotificationPermissionMock.mockResolvedValue("granted");
-    saveGeneralSettingsMock.mockImplementation(async (input) => ({
-      ...initialSettings,
-      ...input,
-    }));
-    saveAppearanceSettingsMock.mockImplementation(async (language, themePreference) => ({
-      ...initialSettings,
-      language,
-      themePreference,
-    }));
+    let persistedSettings = initialSettings;
+    saveGeneralSettingsMock.mockImplementation(async (input) => {
+      persistedSettings = { ...persistedSettings, ...input };
+      return persistedSettings;
+    });
+    saveAppearanceSettingsMock.mockImplementation(async (language, themePreference) => {
+      persistedSettings = { ...persistedSettings, language, themePreference };
+      return persistedSettings;
+    });
     sendNotificationTestMock.mockResolvedValue(undefined);
     updaterCheckMock.mockResolvedValue(null);
     installAvailableUpdateMock.mockResolvedValue(undefined);
@@ -69,6 +70,17 @@ describe("GeneralSettingsPage", () => {
     expect(screen.getByRole("combobox", { name: "Appearance" })).toHaveValue("system");
     expect(screen.getByRole("switch", { name: "Pull requests awaiting your review" })).toBeChecked();
     expect(screen.getByRole("switch", { name: "Pull requests authored by you" })).toBeChecked();
+    const taskTrackerNotifications = screen.getByRole("switch", { name: "Task tracker" });
+    expect(taskTrackerNotifications).toBeChecked();
+    fireEvent.click(taskTrackerNotifications);
+    await waitFor(() => expect(saveGeneralSettingsMock).toHaveBeenLastCalledWith({
+      notificationsEnabled: true,
+      reviewNotificationsEnabled: true,
+      authoredNotificationsEnabled: true,
+      taskTrackerNotificationsEnabled: false,
+      language: "english",
+      themePreference: "system",
+    }));
     const notificationsCard = screen.getByRole("switch", { name: "Notifications" }).closest(".rounded-lg.border.bg-card");
     expect(notificationsCard).toContainElement(await screen.findByRole("heading", { name: "Notifications are not allowed" }));
 
@@ -105,6 +117,7 @@ describe("GeneralSettingsPage", () => {
       notificationsEnabled: true,
       reviewNotificationsEnabled: false,
       authoredNotificationsEnabled: true,
+      taskTrackerNotificationsEnabled: false,
       language: "english",
       themePreference: "light",
     }));
@@ -149,6 +162,7 @@ describe("GeneralSettingsPage", () => {
 
     fireEvent.click(await screen.findByRole("button", { name: "Check for updates" }));
     const updateButton = await screen.findByRole("button", { name: "Update to 0.1.5" });
+    expect(screen.getByText("New version 0.1.5 found")).toBeInTheDocument();
     expect(screen.queryByText("mework 0.1.5 is available.")).not.toBeInTheDocument();
 
     expect(updateButton).toHaveAttribute("title", "Update to 0.1.5");

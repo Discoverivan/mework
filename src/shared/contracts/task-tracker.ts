@@ -34,6 +34,8 @@ export interface TaskTrackerMonitor {
   nextCheckAt?: number | null;
   currentIssueCount: number;
   changesAfterLastCheck: number;
+  maxTrackedIssues: number;
+  exceedsLimit: boolean;
   lastError?: string | null;
   issues: TaskTrackerIssue[];
 }
@@ -46,6 +48,7 @@ export interface TaskTrackerMonitorInput {
   scheduleValue: string;
   trackedEvents: TaskTrackerEventKind[];
   enabled: boolean;
+  maxTrackedIssues: number;
 }
 
 export interface TaskTrackerJqlPreview {
@@ -59,6 +62,11 @@ export const listTaskTrackerMonitors = () =>
 
 export const saveTaskTrackerMonitor = (request: TaskTrackerMonitorInput) =>
   invoke<TaskTrackerMonitor>("task_tracker_save", { request });
+
+export const saveTaskTrackerMonitorExport = (
+  filePath: string,
+  request: Omit<TaskTrackerMonitorInput, "id">,
+) => invoke<void>("task_tracker_save_export", { filePath, request });
 
 export const deleteTaskTrackerMonitor = (id: string) =>
   invoke<boolean>("task_tracker_delete", { id });

@@ -3,7 +3,7 @@ use tauri::{AppHandle, State};
 
 use crate::application::task_tracker::{
     self, TaskTrackerJqlPreviewDto, TaskTrackerJqlRequest, TaskTrackerMonitorDto,
-    TaskTrackerMonitorRequest,
+    TaskTrackerMonitorExportRequest, TaskTrackerMonitorRequest,
 };
 
 #[tauri::command]
@@ -19,6 +19,14 @@ pub async fn task_tracker_save(
     request: TaskTrackerMonitorRequest,
 ) -> Result<TaskTrackerMonitorDto, String> {
     task_tracker::save_monitor(&state, request).await
+}
+
+#[tauri::command]
+pub fn task_tracker_save_export(
+    file_path: String,
+    request: TaskTrackerMonitorExportRequest,
+) -> Result<(), String> {
+    task_tracker::save_monitor_export(&file_path, request)
 }
 
 #[tauri::command]

@@ -10,7 +10,9 @@ use crate::os::notifications::{self, NotificationPermission};
 pub async fn general_settings(
     app: AppHandle,
     state: State<'_, SqlitePool>,
+    system_language: AppLanguage,
 ) -> Result<GeneralSettingsDto, String> {
+    general::initialize_if_missing(&state, system_language).await?;
     general::dto(&state, &app).await
 }
 
@@ -21,12 +23,14 @@ pub async fn general_settings_save(
     notifications_enabled: bool,
     review_notifications_enabled: bool,
     authored_notifications_enabled: bool,
+    task_tracker_notifications_enabled: bool,
 ) -> Result<GeneralSettingsDto, String> {
     general::save_notification_preferences(
         &state,
         notifications_enabled,
         review_notifications_enabled,
         authored_notifications_enabled,
+        task_tracker_notifications_enabled,
     )
     .await?;
     general::dto(&state, &app).await
