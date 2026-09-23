@@ -373,7 +373,7 @@ pub fn run() {
             commands::confluence::confluence_search,
             commands::confluence::confluence_space_resolve,
             commands::ai::ai_settings,
-            commands::ai::codex_cli_diagnostics,
+            commands::ai::cli_diagnostics,
             commands::ai::ai_settings_save,
             commands::ai::ai_openai_compatible_save,
             commands::inbox::inbox_list,
