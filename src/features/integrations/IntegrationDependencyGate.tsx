@@ -40,7 +40,7 @@ function satisfiesAi(data: AiSettingsPageData): boolean {
 function hasTransientAiFailure(data: AiSettingsPageData | null): boolean {
   if (!data?.settings.provider || !data.settings.model.trim()) return false;
   const provider = data.providers.find((candidate) => candidate.id === data.settings.provider);
-  return provider?.status === "loading" || provider?.status === "unavailable";
+  return provider?.status === "loading" || provider?.status === "unavailable" || provider?.status === "not_found";
 }
 
 async function settle<T>(promise: Promise<T>): Promise<PromiseSettledResult<T>> {

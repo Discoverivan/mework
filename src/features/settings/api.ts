@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import { APP_EVENT, emitAppEvent } from "@/app/app-events";
 import type {
   AiSettings,
   AiSettingsPageData,
@@ -12,19 +13,41 @@ import type {
 } from "../../shared/contracts/settings";
 
 const AI_SETTINGS_CACHE_TTL_MS = 5_000;
+const AI_CLI_RECOVERY_DELAY_MS = 5_000;
 
 let aiSettingsRequest: Promise<AiSettingsPageData> | null = null;
 let aiSettingsCache: { value: AiSettingsPageData; expiresAt: number } | null = null;
+let aiCliRecoveryTimer: ReturnType<typeof setTimeout> | null = null;
 let integrationHealthRequest: Promise<IntegrationRedacted[]> | null = null;
 
+function scheduleAiCliRecovery(missingProvider: NonNullable<AiSettings["provider"]>): void {
+  if (aiCliRecoveryTimer !== null) return;
+  aiCliRecoveryTimer = setTimeout(() => {
+    aiCliRecoveryTimer = null;
+    void getAiSettings().then((rechecked) => {
+      if (rechecked.settings.provider !== missingProvider) return;
+      const provider = rechecked.providers.find((candidate) => candidate.id === missingProvider);
+      if (provider?.status !== "not_found") emitAppEvent(APP_EVENT.aiSettingsChanged, rechecked);
+    }).catch(() => scheduleAiCliRecovery(missingProvider));
+  }, AI_CLI_RECOVERY_DELAY_MS);
+}
+
 function cacheStableAiSettings(value: AiSettingsPageData): AiSettingsPageData {
+  const selectedProvider = value.providers.find((provider) => provider.id === value.settings.provider);
+  const cliMissing = selectedProvider?.status === "not_found";
   const transient = value.providers.some((provider) =>
     provider.status === "loading" || provider.status === "unavailable"
   );
-  if (!transient) {
+  if (!transient && !cliMissing) {
     aiSettingsCache = { value, expiresAt: Date.now() + AI_SETTINGS_CACHE_TTL_MS };
   } else {
     aiSettingsCache = null;
+  }
+  if (cliMissing && value.settings.provider) {
+    scheduleAiCliRecovery(value.settings.provider);
+  } else if (aiCliRecoveryTimer !== null) {
+    clearTimeout(aiCliRecoveryTimer);
+    aiCliRecoveryTimer = null;
   }
   return value;
 }

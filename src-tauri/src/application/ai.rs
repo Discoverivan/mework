@@ -521,7 +521,38 @@ pub fn resolve_codex_binary() -> Option<PathBuf> {
 
 #[cfg(windows)]
 fn windows_codex_install_paths() -> Vec<PathBuf> {
-    codex_install_paths(None, dirs::data_local_dir(), dirs::home_dir(), true)
+    let mut paths = codex_install_paths(None, dirs::data_local_dir(), dirs::home_dir(), true);
+    if let Some(path) = env::current_exe()
+        .ok()
+        .as_deref()
+        .and_then(codex_path_beside_installed_app)
+    {
+        paths.push(path);
+    }
+    paths
+}
+
+#[cfg(windows)]
+fn codex_path_beside_installed_app(executable: &Path) -> Option<PathBuf> {
+    let app_dir = executable.parent()?;
+    let local_app_data = app_dir.parent()?;
+    let app_data = local_app_data.parent()?;
+    if !app_dir
+        .file_name()?
+        .to_string_lossy()
+        .eq_ignore_ascii_case("mework")
+        || !local_app_data
+            .file_name()?
+            .to_string_lossy()
+            .eq_ignore_ascii_case("Local")
+        || !app_data
+            .file_name()?
+            .to_string_lossy()
+            .eq_ignore_ascii_case("AppData")
+    {
+        return None;
+    }
+    Some(local_app_data.join("Programs/OpenAI/Codex/bin/codex.exe"))
 }
 
 fn codex_executable_names(windows: bool) -> &'static [&'static str] {
@@ -1278,6 +1309,13 @@ mod tests {
                 .expect("Windows local app data folder")
                 .join("Programs/OpenAI/Codex/bin/codex.exe")
         ));
+        #[cfg(windows)]
+        assert_eq!(
+            super::codex_path_beside_installed_app(
+                &user_profile.join("AppData/Local/mework/mework.exe")
+            ),
+            Some(expected)
+        );
         assert_eq!(
             super::codex_executable_names(true),
             &["codex.exe", "codex.cmd", "codex"]
