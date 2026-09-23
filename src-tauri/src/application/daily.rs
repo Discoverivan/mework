@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -45,6 +46,8 @@ pub struct DailyWorkspaceDto {
     pub project_key: String,
     pub selected_sprint_id: String,
     pub selected_sprint_name: String,
+    pub sprint_board_url: String,
+    pub sprint_board_urls_by_assignee: HashMap<String, String>,
     pub sprints: Vec<DailySprintDto>,
     pub members: Vec<TeamMemberDto>,
     pub subtasks: Vec<DailySubtaskDto>,
@@ -198,12 +201,36 @@ pub async fn load_daily_workspace(
         _ => 2,
     });
 
+    let sprint_board_url = jira_sprint_board_url(
+        &integration.base_url,
+        board_id,
+        &project.jira_project_key,
+        &selected_sprint.id,
+    )?;
+    let sprint_board_urls_by_assignee = client
+        .list_board_quick_filters(board_id)
+        .await
+        .unwrap_or_default()
+        .into_iter()
+        .filter_map(|filter| {
+            let assignee = quick_filter_assignee(&filter.jql)?;
+            let member = members
+                .iter()
+                .find(|member| member.account_id.eq_ignore_ascii_case(assignee))?;
+            let mut url = Url::parse(&sprint_board_url).ok()?;
+            url.query_pairs_mut().append_pair("quickFilter", &filter.id);
+            Some((member.account_id.clone(), url.to_string()))
+        })
+        .collect();
+
     Ok(DailyWorkspaceDto {
         managed_project_id: project.id,
         project_name: project.jira_project_name,
-        project_key: project.jira_project_key,
+        project_key: project.jira_project_key.clone(),
         selected_sprint_id: selected_sprint.id.clone(),
         selected_sprint_name: selected_sprint.name.clone(),
+        sprint_board_url,
+        sprint_board_urls_by_assignee,
         sprints,
         members,
         subtasks,
@@ -356,6 +383,61 @@ fn jira_issue_url(base_url: &str, issue_key: &str) -> Result<String, PlanningCom
     Ok(url.to_string())
 }
 
+fn jira_sprint_board_url(
+    base_url: &str,
+    board_id: &str,
+    project_key: &str,
+    sprint_id: &str,
+) -> Result<String, PlanningCommandError> {
+    let mut url = Url::parse(base_url)
+        .map_err(|_| daily_error("invalid_configuration", "Jira base URL is invalid", false))?;
+    if !matches!(url.scheme(), "http" | "https")
+        || url.host_str().is_none()
+        || !url.username().is_empty()
+        || url.password().is_some()
+        || board_id.trim().is_empty()
+        || project_key.trim().is_empty()
+        || sprint_id.trim().is_empty()
+    {
+        return Err(daily_error(
+            "invalid_configuration",
+            "Jira sprint board URL could not be created",
+            false,
+        ));
+    }
+    url.set_query(None);
+    url.set_fragment(None);
+    {
+        let mut segments = url.path_segments_mut().map_err(|_| {
+            daily_error(
+                "invalid_configuration",
+                "Jira sprint board URL could not be created",
+                false,
+            )
+        })?;
+        segments.pop_if_empty();
+        segments.push("secure");
+        segments.push("RapidBoard.jspa");
+    }
+    url.query_pairs_mut()
+        .append_pair("rapidView", board_id)
+        .append_pair("projectKey", project_key)
+        .append_pair("sprint", sprint_id);
+    Ok(url.to_string())
+}
+
+fn quick_filter_assignee(jql: &str) -> Option<&str> {
+    let (field, value) = jql.trim().split_once('=')?;
+    if !field.trim().eq_ignore_ascii_case("assignee") {
+        return None;
+    }
+    let value = value.trim().trim_matches('"').trim_matches('\'');
+    if value.is_empty() || value.chars().any(char::is_whitespace) {
+        return None;
+    }
+    Some(value)
+}
+
 fn field_i64(fields: &Value, field_id: &str) -> Option<i64> {
     fields.get(field_id).and_then(|value| {
         value
@@ -389,8 +471,30 @@ fn daily_error(code: &str, message: &str, retryable: bool) -> PlanningCommandErr
 
 #[cfg(test)]
 mod tests {
-    use super::{daily_task, is_assigned_subtask};
+    use super::{daily_task, is_assigned_subtask, jira_sprint_board_url, quick_filter_assignee};
     use serde_json::json;
+
+    #[test]
+    fn sprint_board_url_keeps_jira_context_and_selected_sprint() {
+        let url = jira_sprint_board_url("https://jira.example.invalid/jira/", "42", "DEMO", "101")
+            .unwrap();
+        assert_eq!(
+            url,
+            "https://jira.example.invalid/jira/secure/RapidBoard.jspa?rapidView=42&projectKey=DEMO&sprint=101"
+        );
+    }
+
+    #[test]
+    fn recognizes_single_assignee_quick_filter() {
+        assert_eq!(
+            quick_filter_assignee("assignee = test-user-a"),
+            Some("test-user-a")
+        );
+        assert_eq!(
+            quick_filter_assignee("assignee = test-user-a AND status = Open"),
+            None
+        );
+    }
 
     #[test]
     fn maps_a_jira_issue_for_sprint_tasks() {

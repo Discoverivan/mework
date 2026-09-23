@@ -74,9 +74,11 @@ describe("TaskTrackerPage", () => {
     expect(screen.getByText(/Last update /)).toBeInTheDocument();
     expect(screen.getAllByText("In Progress").length).toBeGreaterThanOrEqual(1);
     expect(screen.getByText(monitor.jql)).toBeInTheDocument();
-    const newMonitorButton = screen.getByRole("button", { name: "New monitor" });
-    expect(newMonitorButton).not.toHaveTextContent("New monitor");
-    expect(newMonitorButton).toHaveAttribute("title", "New monitor");
+    const newMonitorButton = screen.getByRole("button", { name: "Create monitor" });
+    expect(newMonitorButton).not.toHaveTextContent("Create monitor");
+    expect(newMonitorButton).toHaveAttribute("title", "Create monitor");
+    expect(newMonitorButton.closest("header")).toBeInTheDocument();
+    expect(newMonitorButton).toHaveClass("h-9", "w-9", "bg-primary");
     const headerActionLabels = ["Export monitor settings", "Check now", "Edit monitor"];
     const headerActionButtons = headerActionLabels.map((label) => screen.getByRole("button", { name: label }));
     headerActionButtons.forEach((button, index) => {
@@ -97,10 +99,12 @@ describe("TaskTrackerPage", () => {
     expect(screen.getByText("JQL is valid. Issues found: 10+")).toBeInTheDocument();
     expect(screen.getByRole("dialog")).not.toHaveTextContent("Example task");
     fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
-    fireEvent.click(screen.getByRole("button", { name: "New monitor" }));
+    fireEvent.click(screen.getByRole("button", { name: "Create monitor" }));
     const createDialog = screen.getByRole("dialog");
     expect(screen.getByLabelText("Name")).toBeInTheDocument();
     expect(createDialog.textContent).toContain("Enabled");
+    expect(screen.getByRole("button", { name: "Create" })).toBeInTheDocument();
+    expect(screen.getByLabelText("Name").closest("[class*='overflow-y-auto']")).toHaveClass("pr-3");
     fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
     fireEvent.click(screen.getByRole("button", { name: /Filters/ }));
     fireEvent.click(screen.getByRole("checkbox", { name: "Only changed" }));
@@ -278,7 +282,7 @@ describe("TaskTrackerPage", () => {
     );
 
     expect(await screen.findByRole("heading", { name: title })).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Новый монитор" }));
+    fireEvent.click(screen.getByRole("button", { name: "Создать монитор" }));
     expect(screen.getByRole("heading", { name: "Создать монитор" })).toBeInTheDocument();
     expect(screen.getByLabelText("Название")).toBeInTheDocument();
   });
@@ -288,7 +292,9 @@ describe("TaskTrackerPage", () => {
     render(<TaskTrackerPage />);
 
     expect(await screen.findByRole("heading", { name: "No monitors yet" })).toBeInTheDocument();
+    expect(screen.getByRole("status")).toHaveClass("min-h-72", "border-dashed", "bg-card");
+    expect(screen.getByRole("status").querySelector("svg.lucide-radar")).toBeInTheDocument();
     expect(screen.queryByRole("tablist", { name: "Task tracker monitors" })).not.toBeInTheDocument();
-    expect(screen.getAllByRole("button", { name: "Create monitor" })).toHaveLength(1);
+    expect(screen.getByRole("button", { name: "Create monitor" }).closest("header")).toBeInTheDocument();
   });
 });

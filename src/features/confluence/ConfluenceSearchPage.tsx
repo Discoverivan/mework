@@ -80,7 +80,7 @@ export function ConfluenceSearchPage() {
       <form className="flex flex-wrap items-end gap-3" onSubmit={submit}>
         {teamSpaces.length > 0 ? (
           <div className="grid min-w-64 gap-2">
-            <Label htmlFor="confluence-search-space" className="pl-1">{t("confluence.scope")}</Label>
+            <Label htmlFor="confluence-search-space">{t("confluence.scope")}</Label>
             <div className="relative">
               <select
                 id="confluence-search-space"
@@ -102,7 +102,7 @@ export function ConfluenceSearchPage() {
           </div>
         ) : null}
         <div className="grid min-w-0 flex-1 gap-2">
-          <Label htmlFor="confluence-search-query" className="pl-1">{t("confluence.query")}</Label>
+          <Label htmlFor="confluence-search-query">{t("confluence.query")}</Label>
           <Input
             id="confluence-search-query"
             value={query}

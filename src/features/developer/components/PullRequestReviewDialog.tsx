@@ -3,6 +3,7 @@ import { CheckCircle2, CircleAlert, ExternalLink, Loader2, RefreshCw, Send } fro
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Label } from "@/components/ui/label";
 import {
   Dialog,
   DialogBody,
@@ -288,7 +289,7 @@ export function PullRequestReviewDialog({
               {editingComment?.comment.file}{editingComment?.comment.line != null ? `:${editingComment.comment.line}` : ""}
             </div>
             <div className="grid gap-2">
-              <label htmlFor="review-comment-editor" className="text-sm font-medium">{t("pr.dialog.comment")}</label>
+              <Label htmlFor="review-comment-editor">{t("pr.dialog.comment")}</Label>
               <textarea
                 id="review-comment-editor"
                 aria-label={t("pr.dialog.reviewComment")}

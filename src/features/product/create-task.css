@@ -338,49 +338,12 @@
   font-size: 0.75rem;
 }
 
-.create-task-empty {
-  display: grid;
-  min-height: 21rem;
-  place-items: center;
-  overflow: hidden;
-  border: 1px dashed color-mix(in srgb, var(--primary) 28%, var(--border));
-  border-radius: 1rem;
-  background: linear-gradient(135deg, color-mix(in srgb, var(--primary) 5%, var(--card)), var(--card) 58%);
-  text-align: center;
-}
-
-.create-task-empty > div {
-  display: grid;
-  max-width: 32rem;
-  place-items: center;
-  gap: 0.7rem;
-  padding: 3.5rem 1.5rem;
-}
-
-.create-task-empty-icon,
 .create-task-dialog-icon {
   display: grid;
   place-items: center;
   border-radius: 0.75rem;
   color: var(--primary);
   background: color-mix(in srgb, var(--primary) 10%, var(--card));
-}
-
-.create-task-empty-icon {
-  width: 2.8rem;
-  height: 2.8rem;
-}
-
-.create-task-empty h2 {
-  margin: 0;
-  font-size: 1.1rem;
-}
-
-.create-task-empty p {
-  max-width: 25rem;
-  margin: 0 0 0.6rem;
-  color: var(--muted-foreground);
-  font-size: 0.85rem;
 }
 
 .create-task-dialog {

@@ -709,7 +709,7 @@ export function SettingsPage({ section = "integrations" }: SettingsPageProps) {
             <CardHeader className="space-y-4 px-4 pb-4 pt-3.5">
               <div className="grid gap-4 md:grid-cols-4">
                 <div className="grid gap-2.5">
-                  <Label htmlFor="ai-provider" className="pl-1">{t("settings.ai.provider")}</Label>
+                  <Label htmlFor="ai-provider">{t("settings.ai.provider")}</Label>
                   <div className="relative">
                     <select
                       id="ai-provider"
@@ -730,7 +730,7 @@ export function SettingsPage({ section = "integrations" }: SettingsPageProps) {
                   </div>
                 </div>
                 <div className="grid gap-2.5">
-                  <Label htmlFor="ai-model" className="pl-1">{t("settings.ai.model")}</Label>
+                  <Label htmlFor="ai-model">{t("settings.ai.model")}</Label>
                   <div className="relative">
                     <select
                       id="ai-model"
@@ -754,7 +754,7 @@ export function SettingsPage({ section = "integrations" }: SettingsPageProps) {
                   </div>
                 </div>
                 {aiDraft.provider === "codex-cli" ? <div className="grid gap-2.5">
-                  <Label htmlFor="ai-reasoning" className="pl-1">{t("settings.ai.reasoning")}</Label>
+                  <Label htmlFor="ai-reasoning">{t("settings.ai.reasoning")}</Label>
                   <div className="relative">
                     <select
                       id="ai-reasoning"
@@ -780,7 +780,7 @@ export function SettingsPage({ section = "integrations" }: SettingsPageProps) {
                     disabled={!aiDraft.provider || aiSaving}
                     className="size-4 accent-primary"
                   />
-                  <Label htmlFor="ai-fast-mode" className="font-medium">{t("settings.ai.fastMode")}</Label>
+                  <Label htmlFor="ai-fast-mode" alignment="inline" className="font-medium">{t("settings.ai.fastMode")}</Label>
                 </div> : null}
               </div>
               {aiError || aiSaving || aiSaved || (aiDraft.provider && !aiReady) ? (
@@ -1085,7 +1085,7 @@ export function SettingsPage({ section = "integrations" }: SettingsPageProps) {
                       className="mt-1 size-4 accent-primary"
                     />
                     <div>
-                      <Label htmlFor="settings-allow-insecure-tls" className="font-medium">
+                      <Label htmlFor="settings-allow-insecure-tls" alignment="inline" className="font-medium">
                         {t("settings.integration.allowInsecureTls")}
                       </Label>
                       <p className="text-sm text-muted-foreground">

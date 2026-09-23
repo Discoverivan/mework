@@ -56,6 +56,10 @@ const workspace: DailyWorkspace = {
   projectKey: "DEMO",
   selectedSprintId: "sprint-1",
   selectedSprintName: "Sprint 42",
+  sprintBoardUrl: "https://jira.example.invalid/secure/RapidBoard.jspa?rapidView=42&projectKey=DEMO&sprint=sprint-1",
+  sprintBoardUrlsByAssignee: {
+    "test-user-a": "https://jira.example.invalid/secure/RapidBoard.jspa?rapidView=42&projectKey=DEMO&sprint=sprint-1&quickFilter=7",
+  },
   sprints: [
     { id: "sprint-1", name: "Sprint 42", state: "active" },
     { id: "sprint-0", name: "Sprint 41", state: "closed" },
@@ -163,9 +167,12 @@ describe("DailyPage smoke test", () => {
     expect(screen.queryByText("Unavailable")).not.toBeInTheDocument();
     expect(screen.queryByText("Active sprint: Sprint 42")).not.toBeInTheDocument();
     const refreshButton = screen.getByRole("button", { name: "Refresh" });
+    const sprintBoardButton = screen.getByRole("button", { name: "Open sprint board in Jira" });
     const presenterButton = screen.getByRole("button", { name: "Presenter view" });
     const createTaskButton = screen.getByRole("button", { name: "Create task for this sprint" });
     expect(createTaskButton.querySelector("svg.lucide-plus")).toBeInTheDocument();
+    fireEvent.click(sprintBoardButton);
+    await waitFor(() => expect(openUrlMock).toHaveBeenCalledWith(workspace.sprintBoardUrlsByAssignee["test-user-a"]));
     fireEvent.click(createTaskButton);
     expect(window.location.hash).toBe("#product/create-task?team=managed-1&sprint=sprint-1");
     expect(refreshButton).toHaveClass("h-9", "w-9");
@@ -185,6 +192,7 @@ describe("DailyPage smoke test", () => {
     }
     const actionItems = Array.from(actionGroup.children);
     expect(actionItems).toEqual([
+      sprintBoardButton,
       presenterButton,
       actionSeparator,
       refreshButton,
@@ -217,9 +225,18 @@ describe("DailyPage smoke test", () => {
     expect(screen.getByRole("button", { name: /Other assignees/ })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Unassigned/ })).toBeInTheDocument();
 
+    loadDailyWorkspaceMock.mockResolvedValueOnce({
+      ...workspace,
+      selectedSprintId: "sprint-0",
+      selectedSprintName: "Sprint 41",
+      sprintBoardUrl: "https://jira.example.invalid/secure/RapidBoard.jspa?rapidView=42&projectKey=DEMO&sprint=sprint-0",
+      sprintBoardUrlsByAssignee: {},
+    });
     fireEvent.click(screen.getByRole("combobox", { name: "Sprint" }));
     fireEvent.click(screen.getByRole("option", { name: "Sprint 41 (Closed)" }));
     await waitFor(() => expect(loadDailyWorkspaceMock).toHaveBeenLastCalledWith("managed-1", "sprint-0"));
+    fireEvent.click(sprintBoardButton);
+    await waitFor(() => expect(openUrlMock).toHaveBeenLastCalledWith("https://jira.example.invalid/secure/RapidBoard.jspa?rapidView=42&projectKey=DEMO&sprint=sprint-0"));
 
     fireEvent.click(presenterButton);
     await waitFor(() => expect(openPresenterViewMock).toHaveBeenCalledTimes(1));

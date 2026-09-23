@@ -267,6 +267,7 @@ fn same_origin_url(base_url: &Url, value: &str) -> Option<String> {
 }
 
 fn plain_text(value: &str, max_chars: usize) -> String {
+    let value = value.replace("@@@hl@@@", "").replace("@@@endhl@@@", "");
     let mut output = String::new();
     let mut in_tag = false;
     for character in value.chars() {

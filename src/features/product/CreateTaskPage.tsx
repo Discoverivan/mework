@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type FormEvent } from "react";
 import { Check, ClipboardList, ExternalLink, LoaderCircle, Pencil, Plus, RefreshCw, Sparkles, Trash2 } from "lucide-react";
 
 import { PageHeader } from "@/components/shared/PageHeader";
+import { EmptyState } from "@/components/shared/EmptyState";
 import { useI18n } from "@/i18n/context";
 import type { TranslationKey } from "@/i18n/locales/en";
 import type { TranslationParams } from "@/i18n/types";
@@ -792,7 +793,7 @@ export function CreateTaskPage() {
           <Button
             type="button"
             size="icon"
-            className="h-9 w-9 shadow-[0_10px_24px_color-mix(in_srgb,var(--primary)_20%,transparent)]"
+            className="h-9 w-9"
             onClick={() => setDialogOpen(true)}
             aria-label={t("task.new")}
             title={t("task.new")}
@@ -814,20 +815,13 @@ export function CreateTaskPage() {
           ))}
         </div>
       ) : (
-        <div className="create-task-empty" role="status" aria-labelledby="create-task-empty-title">
-          <div>
-            <div className="create-task-empty-icon">
-              <ClipboardList className="h-6 w-6" aria-hidden="true" />
-            </div>
-            <h2 id="create-task-empty-title">{t("task.empty")}</h2>
-            <p>{t("task.emptyDescription")}</p>
-            <p>{t("task.emptyHint")}</p>
-            <Button type="button" onClick={() => setDialogOpen(true)}>
-              <Plus aria-hidden="true" />
-              {t("task.createFirst")}
-            </Button>
-          </div>
-        </div>
+        <EmptyState
+          titleId="create-task-empty-title"
+          title={t("task.empty")}
+          description={t("task.emptyDescription")}
+          hint={t("task.emptyHint")}
+          icon={<ClipboardList className="size-6" />}
+        />
       )}
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
         <DialogContent className="create-task-dialog">

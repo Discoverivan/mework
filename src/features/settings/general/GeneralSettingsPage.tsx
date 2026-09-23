@@ -225,7 +225,7 @@ export function GeneralSettingsPage() {
         <CardHeader className="space-y-4 px-4 py-3.5">
           <div className="flex flex-wrap items-center justify-between gap-4">
             <div className="-translate-y-px">
-              <Label htmlFor="general-language" className="text-base font-semibold leading-tight">
+              <Label htmlFor="general-language" alignment="inline" className="text-base font-semibold leading-tight">
                 {t("general.language")}
               </Label>
               <CardDescription className="mt-1 leading-snug">
@@ -254,7 +254,7 @@ export function GeneralSettingsPage() {
         <CardHeader className="space-y-4 px-4 py-3.5">
           <div className="flex flex-wrap items-center justify-between gap-4">
             <div className="-translate-y-px">
-              <Label htmlFor="general-theme" className="text-base font-semibold leading-tight">
+              <Label htmlFor="general-theme" alignment="inline" className="text-base font-semibold leading-tight">
                 {t("general.theme")}
               </Label>
               <CardDescription className="mt-1 leading-snug">
@@ -284,7 +284,7 @@ export function GeneralSettingsPage() {
         <CardHeader className="space-y-4 px-4 py-3.5">
           <div className="flex items-center justify-between gap-4">
             <div className="-translate-y-px">
-              <Label htmlFor="general-notifications-enabled" className="text-base font-semibold leading-tight">
+              <Label htmlFor="general-notifications-enabled" alignment="inline" className="text-base font-semibold leading-tight">
                 {t("general.notifications")}
               </Label>
               <CardDescription className="mt-1 leading-snug">
@@ -334,7 +334,7 @@ export function GeneralSettingsPage() {
           <div className="grid gap-3 border-t pt-4">
             <div className="flex items-center justify-between gap-4 pl-4">
               <div>
-                <Label htmlFor="general-task-tracker-notifications-enabled" className="font-medium">Task tracker</Label>
+                <Label htmlFor="general-task-tracker-notifications-enabled" alignment="inline" className="font-medium">Task tracker</Label>
                 <CardDescription className="mt-1">Notifications from Task tracker monitors.</CardDescription>
               </div>
               <Switch
@@ -349,7 +349,7 @@ export function GeneralSettingsPage() {
             <div className="flex items-center justify-between gap-4 pl-4">
               <div>
                 <div className="flex items-center gap-1.5">
-                  <Label htmlFor="general-review-notifications-enabled" className="font-medium">
+                  <Label htmlFor="general-review-notifications-enabled" alignment="inline" className="font-medium">
                     {t("general.notificationsReview")}
                   </Label>
                   <Button
@@ -387,7 +387,7 @@ export function GeneralSettingsPage() {
             <div className="flex items-center justify-between gap-4 pl-4">
               <div>
                 <div className="flex items-center gap-1.5">
-                  <Label htmlFor="general-authored-notifications-enabled" className="font-medium">
+                  <Label htmlFor="general-authored-notifications-enabled" alignment="inline" className="font-medium">
                     {t("general.notificationsAuthored")}
                   </Label>
                   <Button

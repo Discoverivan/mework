@@ -375,6 +375,22 @@ export function DailyPage() {
         <div className="ml-auto flex items-center gap-2">
           <Button
             type="button"
+            variant="outline"
+            size="icon"
+            className="h-9 w-9"
+            aria-label={t("daily.openSprintBoard")}
+            title={t("daily.openSprintBoard")}
+            disabled={!workspace || loadingWorkspace}
+            onClick={() => {
+              if (workspace) void openJiraIssue(
+                (selectedMember && workspace.sprintBoardUrlsByAssignee?.[selectedMember.accountId]) || workspace.sprintBoardUrl,
+              );
+            }}
+          >
+            <ExternalLink aria-hidden="true" />
+          </Button>
+          <Button
+            type="button"
             variant={presenterOpen ? "secondary" : "default"}
             size="icon"
             className="h-9 w-9"

@@ -55,7 +55,7 @@ export function PullRequestDisplayOptionsDialog({
             <h3 id="pull-request-automation-options" className="text-sm font-semibold">{t("pr.options.automation")}</h3>
             <div className="flex items-center justify-between gap-6 rounded-lg border p-4">
               <div className="space-y-1">
-                <Label htmlFor="pull-request-auto-review">{t("pr.aiAutoReview")}</Label>
+                <Label htmlFor="pull-request-auto-review" alignment="inline">{t("pr.aiAutoReview")}</Label>
                 <p className="text-sm text-muted-foreground">{t("pr.options.autoReviewDescription")}</p>
               </div>
               <Switch
@@ -88,7 +88,7 @@ export function PullRequestDisplayOptionsDialog({
             </div>
             <div className="flex items-center justify-between gap-6 rounded-lg border p-4">
               <div className="space-y-1">
-                <Label htmlFor="group-pull-requests-by-project">{t("pr.options.groupByProject")}</Label>
+                <Label htmlFor="group-pull-requests-by-project" alignment="inline">{t("pr.options.groupByProject")}</Label>
                 <p className="text-sm text-muted-foreground">{t("pr.options.groupByProjectDescription")}</p>
               </div>
               <Switch
@@ -99,7 +99,7 @@ export function PullRequestDisplayOptionsDialog({
             </div>
             <div className="ml-6 flex items-center justify-between gap-6 rounded-lg border p-4">
               <div className="space-y-1">
-                <Label htmlFor="expand-pull-request-projects-by-default">{t("pr.options.expandProjects")}</Label>
+                <Label htmlFor="expand-pull-request-projects-by-default" alignment="inline">{t("pr.options.expandProjects")}</Label>
                 <p className="text-sm text-muted-foreground">{t("pr.options.expandProjectsDescription")}</p>
               </div>
               <Switch
