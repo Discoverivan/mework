@@ -360,6 +360,7 @@ export const en = {
   "settings.aiProviders.aria": "AI providers",
   "settings.aiProviders.openAiDescription": "Connect an OpenAI-compatible API for AI-assisted workflows.",
   "settings.aiProviders.codexDescription": "Use the local Codex installation with its existing authentication.",
+  "settings.aiProviders.claudeDescription": "Use the local Claude Code installation with its existing authentication.",
   "settings.status.loading": "Loading…",
   "settings.status.connected": "Connected",
   "settings.status.notConfigured": "Not configured",

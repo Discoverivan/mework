@@ -195,6 +195,39 @@ describe("SettingsPage integrations smoke tests", () => {
     }));
   });
 
+  it("selects Claude Code CLI without Codex-only controls", async () => {
+    getAiSettingsMock.mockResolvedValue({
+      ...codexAiSettings,
+      providers: [
+        ...codexAiSettings.providers,
+        {
+          id: "claude-code-cli",
+          name: "Claude Code CLI",
+          status: "connected",
+          available: true,
+          models: ["sonnet", "opus", "haiku"],
+        },
+      ],
+    });
+    render(<SettingsPage section="ai" />);
+
+    await screen.findByRole("group", { name: "Claude Code CLI AI provider" });
+    fireEvent.change(screen.getByRole("combobox", { name: "AI provider" }), {
+      target: { value: "claude-code-cli" },
+    });
+    expect(screen.queryByRole("combobox", { name: "Reasoning" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("checkbox", { name: "Fast mode" })).not.toBeInTheDocument();
+    fireEvent.change(screen.getByRole("combobox", { name: "Model" }), {
+      target: { value: "sonnet" },
+    });
+    await waitFor(() => expect(saveAiSettingsMock).toHaveBeenCalledWith({
+      provider: "claude-code-cli",
+      model: "sonnet",
+      reasoning: "medium",
+      fastMode: false,
+    }));
+  });
+
   it("configures the OpenAI-compatible API and exposes API models for selection", async () => {
     getAiSettingsMock.mockResolvedValue({
       ...codexAiSettings,

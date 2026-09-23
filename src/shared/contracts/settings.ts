@@ -1,4 +1,4 @@
-export type AiProviderId = "codex-cli" | "openai-compatible";
+export type AiProviderId = "codex-cli" | "claude-code-cli" | "openai-compatible";
 export type AiProviderStatus = "loading" | "connected" | "not_configured" | "not_found" | "not_authenticated" | "unavailable";
 export type AiReasoning = "minimal" | "low" | "medium" | "high" | "xhigh";
 

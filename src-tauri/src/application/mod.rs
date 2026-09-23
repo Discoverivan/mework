@@ -1,5 +1,6 @@
 pub mod ai;
 pub mod authored_pull_requests;
+pub mod claude_code;
 pub mod command_board;
 pub mod confluence;
 pub mod create_task;

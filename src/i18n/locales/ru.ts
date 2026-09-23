@@ -362,6 +362,7 @@ export const ru: Record<TranslationKey, string> = {
   "settings.aiProviders.aria": "Провайдеры ИИ",
   "settings.aiProviders.openAiDescription": "Подключите OpenAI-совместимый API для сценариев с использованием ИИ.",
   "settings.aiProviders.codexDescription": "Используйте локальную установку Codex с уже настроенной авторизацией.",
+  "settings.aiProviders.claudeDescription": "Используйте локальную установку Claude Code с уже настроенной авторизацией.",
   "settings.status.loading": "Загрузка…",
   "settings.status.connected": "Подключено",
   "settings.status.notConfigured": "Не настроено",
