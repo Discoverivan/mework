@@ -27,6 +27,8 @@ const state: DailyPresenterState = {
     projectKey: "DEMO",
     selectedSprintId: "sprint-1",
     selectedSprintName: "Sprint 42",
+    sprintBoardUrl: "https://jira.example.invalid/secure/RapidBoard.jspa?rapidView=42&projectKey=DEMO&sprint=sprint-1",
+    sprintBoardUrlsByAssignee: {},
     sprints: [{ id: "sprint-1", name: "Sprint 42", state: "active" }],
     members: [{
       accountId: "test-user-a",

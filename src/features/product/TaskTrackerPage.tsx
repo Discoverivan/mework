@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { save } from "@tauri-apps/plugin-dialog";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import { AlertTriangle, Check, CheckCheck, ChevronDown, ChevronUp, Copy, Download, ExternalLink, Pencil, Plus, RefreshCw, SlidersHorizontal, Trash2, Upload, X } from "lucide-react";
+import { AlertTriangle, Check, CheckCheck, ChevronDown, ChevronUp, Copy, Download, ExternalLink, Pencil, Plus, Radar, RefreshCw, SlidersHorizontal, Trash2, Upload, X } from "lucide-react";
 
 import { APP_EVENT, subscribeAppEvent } from "@/app/app-events";
 import { PageHeader } from "@/components/shared/PageHeader";
+import { EmptyState } from "@/components/shared/EmptyState";
 import { useI18n, type I18nContextValue } from "@/i18n/context";
 import type { TranslationKey } from "@/i18n/locales/en";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -519,36 +520,35 @@ export function TaskTrackerPage() {
         title={t("nav.taskTracker")}
         titleId="task-tracker-title"
         description={t("taskTracker.description")}
+        actions={<Button type="button" size="icon" className="h-9 w-9" aria-label={t("taskTracker.createMonitor")} title={t("taskTracker.createMonitor")} onClick={openCreate}><Plus className="size-4" aria-hidden="true" /></Button>}
       />
 
       {pageError ? <Alert variant="destructive"><AlertTitle>{t("taskTracker.unavailable")}</AlertTitle><AlertDescription>{pageError}</AlertDescription></Alert> : null}
 
-      {monitors.length > 0 ? <div className="flex items-center gap-3">
-        <div className="flex min-w-0 flex-1 items-center gap-2 overflow-x-auto border-b border-border pb-2" role="tablist" aria-label={t("taskTracker.monitors")}>
-          {monitors.map((monitor) => (
-            <button
-              key={monitor.id}
-              type="button"
-              role="tab"
-              aria-selected={activeMonitor?.id === monitor.id}
-              onClick={() => selectMonitor(monitor.id)}
-              className={`flex min-w-40 items-center gap-2 rounded-md px-3 py-2 text-left text-sm transition-colors ${activeMonitor?.id === monitor.id ? "bg-accent text-accent-foreground" : "hover:bg-muted"}`}
-            >
-              <span className="min-w-0 flex-1 truncate">{monitor.name}</span>
-              {monitor.exceedsLimit ? <AlertTriangle role="img" aria-label={t("taskTracker.issueLimitExceeded")} className="size-4 shrink-0 text-destructive" /> : <span className="text-xs opacity-75">{monitor.currentIssueCount}</span>}
-              {monitor.changesAfterLastCheck > 0 && viewedChanges[monitor.id] !== (monitor.lastSuccessAt ?? null) ? <span className="size-2 shrink-0 rounded-full bg-blue-500" aria-hidden="true" /> : null}
-            </button>
-          ))}
-        </div>
-        <Button type="button" variant="outline" size="icon" className="shrink-0" aria-label={t("taskTracker.newMonitor")} title={t("taskTracker.newMonitor")} onClick={openCreate}><Plus className="size-4" aria-hidden="true" /></Button>
+      {monitors.length > 0 ? <div className="flex min-w-0 items-center gap-2 overflow-x-auto border-b border-border pb-2" role="tablist" aria-label={t("taskTracker.monitors")}>
+        {monitors.map((monitor) => (
+          <button
+            key={monitor.id}
+            type="button"
+            role="tab"
+            aria-selected={activeMonitor?.id === monitor.id}
+            onClick={() => selectMonitor(monitor.id)}
+            className={`flex min-w-40 items-center gap-2 rounded-md px-3 py-2 text-left text-sm transition-colors ${activeMonitor?.id === monitor.id ? "bg-accent text-accent-foreground" : "hover:bg-muted"}`}
+          >
+            <span className="min-w-0 flex-1 truncate">{monitor.name}</span>
+            {monitor.exceedsLimit ? <AlertTriangle role="img" aria-label={t("taskTracker.issueLimitExceeded")} className="size-4 shrink-0 text-destructive" /> : <span className="text-xs opacity-75">{monitor.currentIssueCount}</span>}
+            {monitor.changesAfterLastCheck > 0 && viewedChanges[monitor.id] !== (monitor.lastSuccessAt ?? null) ? <span className="size-2 shrink-0 rounded-full bg-blue-500" aria-hidden="true" /> : null}
+          </button>
+        ))}
       </div> : null}
 
       {!activeMonitor ? (
-        <section className="rounded-lg border border-dashed border-border p-10 text-center">
-          <h2 className="text-lg font-semibold">{t("taskTracker.noMonitors")}</h2>
-          <p className="mt-2 text-sm text-muted-foreground">{t("taskTracker.noMonitorsDescription")}</p>
-          <Button type="button" className="mt-4" onClick={openCreate}><Plus className="mr-2 size-4" aria-hidden="true" />{t("taskTracker.createMonitor")}</Button>
-        </section>
+        <EmptyState
+          titleId="task-tracker-empty-title"
+          title={t("taskTracker.noMonitors")}
+          description={t("taskTracker.noMonitorsDescription")}
+          icon={<Radar className="size-6" />}
+        />
       ) : (
         <section className="space-y-4" aria-labelledby="active-monitor-title">
           <div className="flex flex-wrap items-center gap-4 rounded-lg border border-border p-4">
@@ -687,9 +687,9 @@ function MonitorDialog({ t, open, editing, draft, saving, validating, validation
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
         <DialogHeader><DialogTitle>{editing ? t("taskTracker.dialog.edit") : t("taskTracker.dialog.create")}</DialogTitle><DialogDescription>{t("taskTracker.dialog.description")}</DialogDescription></DialogHeader>
-        <DialogBody>
+        <DialogBody className="pr-3">
           <div className="space-y-4">
-            <div className="flex items-center gap-3"><Switch checked={draft.enabled} onCheckedChange={(checked) => onChange("enabled", checked)} /><Label>{t("taskTracker.enabled")}</Label></div>
+            <div className="flex items-center gap-3"><Switch checked={draft.enabled} onCheckedChange={(checked) => onChange("enabled", checked)} /><Label alignment="inline">{t("taskTracker.enabled")}</Label></div>
             <div><Label htmlFor="monitor-name">{t("taskTracker.field.name")}</Label><Input id="monitor-name" className="mt-1" value={draft.name} onChange={(event) => onChange("name", event.target.value)} placeholder={t("taskTracker.field.namePlaceholder")} /></div>
             <div>
               <Label htmlFor="monitor-jql">JQL</Label>
@@ -714,7 +714,7 @@ function MonitorDialog({ t, open, editing, draft, saving, validating, validation
           </div>
           <div className="ml-auto flex items-center gap-2">
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>{t("taskTracker.cancel")}</Button>
-            <Button type="button" disabled={saving} onClick={onSave}>{saving ? t("taskTracker.saving") : editing ? t("taskTracker.saveChanges") : t("taskTracker.createMonitor")}</Button>
+            <Button type="button" disabled={saving} onClick={onSave}>{saving ? t("taskTracker.saving") : editing ? t("taskTracker.saveChanges") : t("taskTracker.create")}</Button>
           </div>
         </DialogFooter>
       </DialogContent>

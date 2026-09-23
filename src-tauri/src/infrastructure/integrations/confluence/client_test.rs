@@ -24,7 +24,7 @@ async fn searches_pages_with_bearer_auth_and_returns_safe_results() {
                     "space": { "name": "Example space" },
                     "_links": { "webui": "/pages/viewpage.action?pageId=10001" }
                 },
-                "excerpt": "An <span class=\"search-highlight\">example</span> summary",
+                "excerpt": "An <span class=\"search-highlight\">@@@hl@@@example@@@endhl@@@</span> summary",
                 "lastModified": "2026-09-20T12:00:00.000Z"
             }]
         })))

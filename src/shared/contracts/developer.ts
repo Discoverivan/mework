@@ -27,6 +27,8 @@ export interface DailyWorkspace {
   projectKey: string;
   selectedSprintId: string;
   selectedSprintName: string;
+  sprintBoardUrl: string;
+  sprintBoardUrlsByAssignee: Record<string, string>;
   sprints: DailySprint[];
   members: TeamMember[];
   subtasks: DailySubtask[];

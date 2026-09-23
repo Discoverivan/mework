@@ -39,6 +39,13 @@ pub struct PlanningBoard {
     #[serde(rename = "type")]
     pub board_type: Option<String>,
 }
+#[derive(Debug, Clone, Deserialize)]
+pub struct BoardQuickFilter {
+    #[serde(deserialize_with = "string_or_number")]
+    pub id: String,
+    #[serde(alias = "query")]
+    pub jql: String,
+}
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PlanningSprint {
@@ -287,6 +294,33 @@ impl JiraPlanningClient {
         let endpoint = self.endpoint(&format!("rest/agile/1.0/board/{board_id}/sprint"))?;
         self.paginate(endpoint, page_size, serde_json::from_value)
             .await
+    }
+    pub async fn list_board_quick_filters(
+        &self,
+        board_id: &str,
+    ) -> Result<Vec<BoardQuickFilter>, JiraError> {
+        validate_path_component(board_id)?;
+        match self.deployment {
+            JiraDeployment::Cloud => {
+                let endpoint =
+                    self.endpoint(&format!("rest/agile/1.0/board/{board_id}/quickfilter"))?;
+                Ok(self
+                    .paginate::<BoardQuickFilter, _>(endpoint, 100, serde_json::from_value)
+                    .await?
+                    .values)
+            }
+            JiraDeployment::DataCenter => {
+                let endpoint =
+                    self.endpoint(&format!("rest/greenhopper/1.0/quickfilters/{board_id}"))?;
+                let response = self.send(Method::GET, endpoint, None).await?;
+                let body: Value = response
+                    .json()
+                    .await
+                    .map_err(|_| JiraError::InvalidResponse)?;
+                let filters = body.get("quickFilters").ok_or(JiraError::InvalidResponse)?;
+                serde_json::from_value(filters.clone()).map_err(|_| JiraError::InvalidResponse)
+            }
+        }
     }
     pub async fn list_active_sprints(
         &self,

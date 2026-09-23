@@ -66,8 +66,9 @@ describe("CreateTaskPage", () => {
     expect(await screen.findByRole("heading", { name: "No tasks yet" })).toBeInTheDocument();
     expect(screen.getByText("Your created Jira tasks will appear here.")).toBeInTheDocument();
     expect(screen.getByText("Start by describing a task and let AI prepare the draft for you.")).toBeInTheDocument();
-    expect(document.querySelector(".create-task-empty-icon svg.lucide-clipboard-list")).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Create your first task" }));
+    expect(screen.getByRole("status").querySelector("svg.lucide-clipboard-list")).toBeInTheDocument();
+    expect(screen.getByRole("status")).not.toContainElement(screen.getByRole("button", { name: "Create task" }));
+    fireEvent.click(screen.getByRole("button", { name: "Create task" }));
 
     expect(screen.getByRole("dialog")).toBeInTheDocument();
     expect(screen.getByPlaceholderText("Describe your task")).toBeInTheDocument();
@@ -80,6 +81,8 @@ describe("CreateTaskPage", () => {
     expect(screen.getByText("Create Jira tasks with AI-assisted drafts for the selected team and sprint.")).toBeInTheDocument();
     const createTaskButton = screen.getByRole("button", { name: "Create task" });
     expect(createTaskButton).toHaveClass("h-9", "w-9");
+    expect(createTaskButton).toHaveClass("bg-primary");
+    expect(createTaskButton.className).not.toContain("shadow-");
     expect(createTaskButton.querySelector("svg.lucide-plus")).not.toBeNull();
     expect(createTaskButton).not.toHaveTextContent("Create task");
     const teamSelect = await screen.findByLabelText("Team");
