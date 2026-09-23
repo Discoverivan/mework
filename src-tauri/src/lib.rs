@@ -61,8 +61,6 @@ pub fn run() {
             let pool = tauri::async_runtime::block_on(crate::infrastructure::db::open_database(
                 &database_path,
             ))?;
-            #[cfg(all(windows, not(debug_assertions)))]
-            crate::os::update_launch::recover_codex_after_update(app.handle().clone(), pool.clone());
             if tauri::async_runtime::block_on(
                 crate::commands::integrations::preload_all_credentials(&pool),
             )

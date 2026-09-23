@@ -8,7 +8,7 @@ use std::{
 use serde_json::Value;
 
 use super::ai::{
-    is_usable_cli_file, local_cli_command, AiProviderDto, AiProviderId, AiProviderStatus,
+    local_cli_command, usable_cli_path, AiProviderDto, AiProviderId, AiProviderStatus,
 };
 
 const MODELS: [&str; 3] = ["sonnet", "opus", "haiku"];
@@ -99,7 +99,7 @@ fn provider(
 pub fn resolve_binary() -> Option<PathBuf> {
     if let Some(configured) = env::var_os("MEWORK_CLAUDE_BIN") {
         let path = PathBuf::from(configured);
-        if is_usable_cli_file(&path) {
+        if let Some(path) = usable_cli_path(&path) {
             return Some(path);
         }
     }
@@ -107,8 +107,8 @@ pub fn resolve_binary() -> Option<PathBuf> {
         for entry in env::split_paths(&path) {
             for name in executable_names() {
                 let candidate = entry.join(name);
-                if is_usable_cli_file(&candidate) {
-                    return Some(candidate);
+                if let Some(path) = usable_cli_path(&candidate) {
+                    return Some(path);
                 }
             }
         }
@@ -116,7 +116,7 @@ pub fn resolve_binary() -> Option<PathBuf> {
     diagnostic_install_paths()
         .into_iter()
         .map(|(_, path)| path)
-        .find(|path| is_usable_cli_file(path))
+        .find_map(|path| usable_cli_path(&path))
 }
 
 pub(crate) fn executable_names() -> &'static [&'static str] {

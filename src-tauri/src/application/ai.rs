@@ -490,7 +490,7 @@ pub fn parse_codex_model_list_response(value: &serde_json::Value) -> Option<Vec<
 pub fn resolve_codex_binary() -> Option<PathBuf> {
     if let Some(configured) = env::var_os("MEWORK_CODEX_BIN") {
         let path = PathBuf::from(configured);
-        if is_usable_cli_file(&path) {
+        if let Some(path) = usable_cli_path(&path) {
             return Some(path);
         }
     }
@@ -499,8 +499,8 @@ pub fn resolve_codex_binary() -> Option<PathBuf> {
         for entry in env::split_paths(&path) {
             for executable in codex_executable_names(windows) {
                 let candidate = entry.join(executable);
-                if is_usable_cli_file(&candidate) {
-                    return Some(candidate);
+                if let Some(path) = usable_cli_path(&candidate) {
+                    return Some(path);
                 }
             }
         }
@@ -516,19 +516,56 @@ pub fn resolve_codex_binary() -> Option<PathBuf> {
         .into_iter()
         .chain(windows_codex_install_paths())
         .collect::<Vec<_>>();
-    candidates.into_iter().find(|path| is_usable_cli_file(path))
+    candidates
+        .into_iter()
+        .find_map(|path| usable_cli_path(&path))
 }
 
-pub(crate) fn is_usable_cli_file(path: &Path) -> bool {
+pub(crate) fn usable_cli_path(path: &Path) -> Option<PathBuf> {
     if path.is_file() {
-        return true;
+        return Some(path.to_path_buf());
     }
-    // A direct open is an independent Windows check when metadata says the
-    // candidate is missing. The later --version call validates the binary.
     #[cfg(windows)]
-    return fs::File::open(path).is_ok();
+    {
+        // An updater-launched process can have EnforceRedirectionTrust enabled.
+        // Windows then rejects a CLI behind a user junction with error 448.
+        // Resolve the junctions explicitly and execute the concrete file.
+        match fs::File::open(path) {
+            Ok(_) => return Some(path.to_path_buf()),
+            Err(error) if error.raw_os_error() == Some(448) => {}
+            Err(_) => return None,
+        }
+        let resolved = resolve_windows_cli_junctions(path, |part| fs::read_link(part))?;
+        resolved.is_file().then_some(resolved)
+    }
     #[cfg(not(windows))]
-    false
+    None
+}
+
+#[cfg(windows)]
+fn resolve_windows_cli_junctions(
+    path: &Path,
+    read_link: impl Fn(&Path) -> std::io::Result<PathBuf>,
+) -> Option<PathBuf> {
+    let mut resolved = path.to_path_buf();
+    for _ in 0..8 {
+        let junction = resolved
+            .ancestors()
+            .collect::<Vec<_>>()
+            .into_iter()
+            .rev()
+            .find_map(|ancestor| read_link(ancestor).ok().map(|target| (ancestor, target)));
+        let Some((ancestor, target)) = junction else {
+            return Some(resolved);
+        };
+        let suffix = resolved.strip_prefix(ancestor).ok()?;
+        resolved = if target.is_absolute() {
+            target.join(suffix)
+        } else {
+            ancestor.parent()?.join(target).join(suffix)
+        };
+    }
+    None
 }
 
 #[derive(Serialize)]
@@ -1456,6 +1493,30 @@ mod tests {
             super::codex_executable_names(true),
             &["codex.exe", "codex.cmd", "codex"]
         );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn resolves_nested_windows_cli_junctions_to_the_concrete_executable() {
+        use std::io;
+        use std::path::{Path, PathBuf};
+
+        let root = PathBuf::from(r"C:\Users\example");
+        let install_bin = root.join(r"AppData\Local\Programs\OpenAI\Codex\bin");
+        let current = root.join(r".codex\packages\standalone\current");
+        let release = root.join(r".codex\packages\standalone\releases\1.0.0");
+        let candidate = install_bin.join("codex.exe");
+        let resolved = super::resolve_windows_cli_junctions(&candidate, |path: &Path| {
+            if path == install_bin {
+                Ok(current.join("bin"))
+            } else if path == current {
+                Ok(release.clone())
+            } else {
+                Err(io::Error::from(io::ErrorKind::NotFound))
+            }
+        });
+
+        assert_eq!(resolved, Some(release.join("bin/codex.exe")));
     }
 
     #[test]
