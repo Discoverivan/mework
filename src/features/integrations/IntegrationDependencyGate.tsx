@@ -163,8 +163,11 @@ export function IntegrationDependencyGate({
                 {t("dependencies.retry")}
               </Button>
               <Button asChild variant="outline" size="sm">
-                <a href="#settings">{t("dependencies.openSettings")}</a>
+                <a href="#settings/integrations">{t("nav.dataIntegrations")}</a>
               </Button>
+              {requireAiProvider ? <Button asChild variant="outline" size="sm">
+                <a href="#settings/ai">{t("nav.aiSettings")}</a>
+              </Button> : null}
             </div>
           </AlertDescription>
         </Alert>
@@ -178,9 +181,14 @@ export function IntegrationDependencyGate({
         <AlertTitle id="integration-dependency-title">{t("dependencies.required")}</AlertTitle>
         <AlertDescription>
           <p>{t("dependencies.configure", { reasons: blockedReasons.join(t("dependencies.and")) })}</p>
-          <Button asChild variant="outline" size="sm" className="mt-3">
-            <a href="#settings">{t("dependencies.openSettings")}</a>
-          </Button>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <Button asChild variant="outline" size="sm">
+              <a href="#settings/integrations">{t("nav.dataIntegrations")}</a>
+            </Button>
+            {requireAiProvider ? <Button asChild variant="outline" size="sm">
+              <a href="#settings/ai">{t("nav.aiSettings")}</a>
+            </Button> : null}
+          </div>
         </AlertDescription>
       </Alert>
     </section>
