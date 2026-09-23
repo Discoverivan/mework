@@ -14,6 +14,7 @@ import { Switch } from "@/components/ui/switch";
 import {
   generalSettings,
   openNotificationSettings,
+  requestNotificationPermission,
   saveGeneralSettings,
   sendNotificationTest,
   type GeneralSettings,
@@ -43,7 +44,9 @@ export function GeneralSettingsPage() {
   const [installingUpdate, setInstallingUpdate] = useState(false);
   const [updateInstallError, setUpdateInstallError] = useState<string | null>(null);
   const [openingSettings, setOpeningSettings] = useState(false);
+  const [requestingPermission, setRequestingPermission] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [notificationError, setNotificationError] = useState<string | null>(null);
   const savingRef = useRef(false);
   const languageRef = useRef(language);
   const themePreferenceRef = useRef(themePreference);
@@ -64,7 +67,7 @@ export function GeneralSettingsPage() {
         language: languageRef.current,
         themePreference: themePreferenceRef.current,
       });
-      setError(loaded.permissionCheckError ?? null);
+      setNotificationError(loaded.permissionCheckError ?? null);
     } catch (loadError) {
       setError(t("general.loadError", { error: errorMessage(loadError, t("common.unknownError")) }));
     } finally {
@@ -116,13 +119,14 @@ export function GeneralSettingsPage() {
   async function handleTestNotification(notificationKind: NotificationTestKind) {
     setTestingNotification(notificationKind);
     setTestedNotification(null);
-    setError(null);
+    setNotificationError(null);
     try {
       await sendNotificationTest(notificationKind);
       setTestedNotification(notificationKind);
     } catch (testError) {
-      setError(errorMessage(testError, t("common.unknownError")));
+      const message = errorMessage(testError, t("common.unknownError"));
       await loadSettings();
+      setNotificationError(message);
     } finally {
       setTestingNotification(null);
     }
@@ -130,13 +134,26 @@ export function GeneralSettingsPage() {
 
   async function handleOpenNotificationSettings() {
     setOpeningSettings(true);
-    setError(null);
+    setNotificationError(null);
     try {
       await openNotificationSettings();
     } catch (settingsError) {
-      setError(errorMessage(settingsError, t("common.unknownError")));
+      setNotificationError(errorMessage(settingsError, t("common.unknownError")));
     } finally {
       setOpeningSettings(false);
+    }
+  }
+
+  async function handleRequestNotificationPermission() {
+    setRequestingPermission(true);
+    setNotificationError(null);
+    try {
+      const notificationPermission = await requestNotificationPermission();
+      setSettings((current) => current ? { ...current, notificationPermission } : current);
+    } catch (permissionError) {
+      setNotificationError(errorMessage(permissionError, t("common.unknownError")));
+    } finally {
+      setRequestingPermission(false);
     }
   }
 
@@ -200,25 +217,6 @@ export function GeneralSettingsPage() {
           <AlertTriangle className="size-4" aria-hidden="true" />
           <AlertTitle>{t("general.unavailable")}</AlertTitle>
           <AlertDescription>{error}</AlertDescription>
-        </Alert>
-      ) : null}
-
-      {permissionBlocked ? (
-        <Alert variant="destructive" role="alert" aria-live="polite">
-          <AlertTriangle className="size-4" aria-hidden="true" />
-          <AlertTitle>{t("general.permissionTitle")}</AlertTitle>
-          <AlertDescription>
-            {t("general.permissionDescription")}
-            <div className="mt-3 flex flex-wrap gap-2">
-              <Button type="button" size="sm" onClick={() => void handleOpenNotificationSettings()} disabled={openingSettings}>
-                {openingSettings ? t("general.opening") : t("general.openNotificationSettings")}
-              </Button>
-              <Button type="button" size="sm" variant="outline" onClick={() => void loadSettings()} disabled={loading}>
-                <RefreshCw className="mr-2 size-4" aria-hidden="true" />
-                {t("general.checkAgain")}
-              </Button>
-            </div>
-          </AlertDescription>
         </Alert>
       ) : null}
 
@@ -300,6 +298,38 @@ export function GeneralSettingsPage() {
               disabled={loading || saving}
             />
           </div>
+          {permissionBlocked ? (
+            <Alert variant="destructive" role="alert" aria-live="polite">
+              <AlertTriangle className="size-4" aria-hidden="true" />
+              <AlertTitle>{t("general.permissionTitle")}</AlertTitle>
+              <AlertDescription>
+                {settings?.notificationPermission === "notDetermined"
+                  ? t("general.permissionRequestDescription")
+                  : t("general.permissionDescription")}
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {settings?.notificationPermission === "notDetermined" ? (
+                    <Button type="button" size="sm" onClick={() => void handleRequestNotificationPermission()} disabled={requestingPermission}>
+                      {t("general.allowNotifications")}
+                    </Button>
+                  ) : (
+                    <Button type="button" size="sm" onClick={() => void handleOpenNotificationSettings()} disabled={openingSettings}>
+                      {openingSettings ? t("general.opening") : t("general.openNotificationSettings")}
+                    </Button>
+                  )}
+                  <Button type="button" size="sm" variant="outline" onClick={() => void loadSettings()} disabled={loading}>
+                    <RefreshCw className="mr-2 size-4" aria-hidden="true" />
+                    {t("general.checkAgain")}
+                  </Button>
+                </div>
+              </AlertDescription>
+            </Alert>
+          ) : null}
+          {notificationError ? (
+            <Alert variant="destructive" role="alert" aria-live="assertive">
+              <AlertTriangle className="size-4" aria-hidden="true" />
+              <AlertDescription>{notificationError}</AlertDescription>
+            </Alert>
+          ) : null}
           <div className="grid gap-3 border-t pt-4">
             <div className="flex items-center justify-between gap-4 pl-4">
               <div>

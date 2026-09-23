@@ -656,7 +656,11 @@ async fn poll_monitor<R: Runtime>(
             for change in &changes {
                 let title = format!("{} · {}", change.key, change.kind.label());
                 let body = format!("{}\n{}", change.summary, change.description);
-                let _ = adapter.notify_with_url(&title, &body, &change.key, &change.issue_url);
+                if let Err(error) =
+                    adapter.notify_with_url(&title, &body, &change.key, &change.issue_url)
+                {
+                    eprintln!("Task Tracker notification delivery failed: {error}");
+                }
             }
         }
     }

@@ -152,7 +152,7 @@ pub async fn dto<R: Runtime>(
 ) -> Result<GeneralSettingsDto, String> {
     let settings = load(pool).await?;
     let (notification_permission, permission_check_error) =
-        match notifications::permission_status(app) {
+        match notifications::permission_status(app).await {
             Ok(permission) => (permission, None),
             Err(error) => (NotificationPermission::NotDetermined, Some(error)),
         };
@@ -181,11 +181,17 @@ pub async fn notifications_enabled(pool: &SqlitePool) -> Result<bool, String> {
     Ok(load(pool).await?.notifications_enabled)
 }
 
-pub fn send_test_notification<R: Runtime>(
+pub async fn send_test_notification<R: Runtime>(
     app: &AppHandle<R>,
     notification_kind: NotificationTestKind,
 ) -> Result<(), String> {
-    match notifications::permission_status(app)? {
+    let permission = notifications::permission_status(app).await?;
+    let permission = if permission == NotificationPermission::NotDetermined {
+        notifications::request_permission(app).await?
+    } else {
+        permission
+    };
+    match permission {
         NotificationPermission::Granted => {}
         NotificationPermission::Denied | NotificationPermission::NotDetermined => {
             return Err(
@@ -208,7 +214,9 @@ pub fn send_test_notification<R: Runtime>(
     };
 
     let adapter = NativeNotificationAdapter::new(app.clone());
-    adapter.notify(title, body, identifier)
+    tokio::task::spawn_blocking(move || adapter.notify(title, body, identifier))
+        .await
+        .map_err(|_| "failed to dispatch native notification".to_owned())?
 }
 
 pub fn open_notification_settings() -> Result<(), String> {
