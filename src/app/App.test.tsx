@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import type { IntegrationRedacted } from "../shared/contracts/settings";
 import App from "../App";
 
@@ -99,6 +99,36 @@ describe("mework application shell", () => {
 
     resolveHealth([]);
     await waitFor(() => expect(screen.queryByRole("status", { name: "Loading mework" })).not.toBeInTheDocument());
+  });
+
+  it("releases the splash after ten seconds even when integration health never responds", async () => {
+    let resolveHealth!: (value: IntegrationRedacted[]) => void;
+    refreshAllIntegrationsHealthMock.mockImplementationOnce(
+      () => new Promise<IntegrationRedacted[]>((resolve) => { resolveHealth = resolve; }),
+    );
+    vi.useFakeTimers();
+    try {
+      const view = render(<App />);
+      expect(screen.getByRole("status", { name: "Loading mework" })).toBeInTheDocument();
+      await act(async () => { await vi.advanceTimersByTimeAsync(9_999); });
+      expect(screen.queryByRole("main", { name: "mework" })).not.toBeInTheDocument();
+      await act(async () => { await vi.advanceTimersByTimeAsync(1); });
+      expect(screen.getByRole("main", { name: "mework" })).toBeInTheDocument();
+      expect(screen.queryByRole("status", { name: "Loading mework" })).not.toBeInTheDocument();
+      await act(async () => { resolveHealth([{
+        id: "bitbucket-1",
+        kind: "bitbucket",
+        baseUrl: "https://bitbucket.example.com",
+        enabled: true,
+        healthStatus: "working",
+        capabilities: [],
+      }]); });
+      expect(refreshMyPullRequestsMock).toHaveBeenCalledWith(0, 100);
+      expect(screen.getByRole("main", { name: "mework" })).toBeInTheDocument();
+      view.unmount();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("waits for the initial Bitbucket refresh before showing the main UI", async () => {

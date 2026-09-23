@@ -16,6 +16,8 @@ import "./App.css";
 import "./presenter.css";
 import "./daily-status.css";
 
+const STARTUP_SPLASH_TIMEOUT_MS = 10_000;
+
 function routeFromHash(hash: string): AppRoute {
   if (hash === "#product/create-task" || hash.startsWith("#product/create-task?")) return "product-create-task";
   if (hash === "#product/task-tracker") return "product-task-tracker";
@@ -69,6 +71,9 @@ function AppContent() {
 
   useEffect(() => {
     let active = true;
+    const splashDeadline = window.setTimeout(() => {
+      if (active) setReady(true);
+    }, STARTUP_SPLASH_TIMEOUT_MS);
 
     const initialize = async () => {
       let integrations: Awaited<ReturnType<typeof refreshAllIntegrationsHealth>> = [];
@@ -98,12 +103,16 @@ function AppContent() {
         }
       }
 
-      if (active) setReady(true);
+      if (active) {
+        window.clearTimeout(splashDeadline);
+        setReady(true);
+      }
     };
 
     void initialize();
     return () => {
       active = false;
+      window.clearTimeout(splashDeadline);
     };
   }, []);
 
