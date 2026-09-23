@@ -35,6 +35,21 @@ async fn migration_creates_settings_table() {
     .await
     .expect("Task Tracker tables should exist");
     assert_eq!(task_tracker_tables.len(), 2);
+
+    let monitor_columns = sqlx::query("PRAGMA table_info(task_monitors)")
+        .fetch_all(&pool)
+        .await
+        .expect("Task tracker monitor columns should exist");
+    let tracked_limit = monitor_columns
+        .iter()
+        .find(|row| row.get::<String, _>("name") == "max_tracked_issues");
+    assert_eq!(
+        tracked_limit.map(|row| row.get::<String, _>("dflt_value")),
+        Some("100".to_owned())
+    );
+    assert!(monitor_columns
+        .iter()
+        .any(|row| row.get::<String, _>("name") == "exceeds_limit"));
 }
 
 #[tokio::test]

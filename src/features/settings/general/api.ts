@@ -11,6 +11,7 @@ export interface GeneralSettings {
   notificationsEnabled: boolean;
   reviewNotificationsEnabled: boolean;
   authoredNotificationsEnabled: boolean;
+  taskTrackerNotificationsEnabled: boolean;
   notificationPermission: NotificationPermission;
   permissionCheckError?: string;
 }
@@ -19,18 +20,24 @@ export interface GeneralSettingsSaveInput {
   notificationsEnabled: boolean;
   reviewNotificationsEnabled: boolean;
   authoredNotificationsEnabled: boolean;
+  taskTrackerNotificationsEnabled: boolean;
   language: AppLanguage;
   themePreference: ThemePreference;
 }
 
 export const generalSettings = () =>
-  invoke<GeneralSettings>("general_settings");
+  invoke<GeneralSettings>("general_settings", {
+    systemLanguage: typeof navigator !== "undefined" && navigator.language.toLowerCase().startsWith("ru")
+      ? AppLanguage.Russian
+      : AppLanguage.English,
+  });
 
 export const saveGeneralSettings = (input: GeneralSettingsSaveInput) =>
   invoke<GeneralSettings>("general_settings_save", {
     notificationsEnabled: input.notificationsEnabled,
     reviewNotificationsEnabled: input.reviewNotificationsEnabled,
     authoredNotificationsEnabled: input.authoredNotificationsEnabled,
+    taskTrackerNotificationsEnabled: input.taskTrackerNotificationsEnabled,
   });
 
 export const saveAppearanceSettings = (language: AppLanguage, themePreference: ThemePreference) =>

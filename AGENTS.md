@@ -20,6 +20,7 @@
 - Until the 1.0.0 release, evolve SQLite with forward compatibility migrations and never rewrite or remove a migration that may already have been applied to a development database. Before releasing 1.0.0, review and consolidate the migration history into a small clean baseline as an explicit release task.
 - Do not invent provider fields, signed headers, destination metadata, or fallback values absent from the external contract.
 - Product branding is fixed: the production name is exactly `mework` and the development name is exactly `mework-dev`, both lowercase. Do not change their spelling, capitalization, or user-visible/native metadata without an explicit product decision.
+- Add localization as part of every new user-facing feature: use translation keys instead of hardcoded renderer copy and provide both English and Russian values in the same change. On first run, initialize the saved language from the operating-system locale when supported; otherwise use English, while preserving an existing saved language.
 - Test fixtures and examples must use only synthetic identities, usernames, emails, repository/project/team names, task/PR titles, and reserved domains such as `example`, `example.com`, or `example.invalid`; never copy real surnames, people, internal or public production domains, company names, project keys, repository names, team names, task names, PR titles, or credentials into code, tests, fixtures, docs, prompts, or sample configuration. Keep all sample credential values empty.
 - Do not commit or push changes unless explicitly authorized.
 
@@ -44,6 +45,7 @@
 
 ## shadcn/ui design system rules
 
+- Before implementing any UI or styling change, load and follow the Hermes `shadcn` skill; apply the project-specific constraints below where they are more specific.
 - `components.json` is the source of truth for shadcn/ui CLI configuration. Keep `style: "default"`, CSS variables enabled, the Lucide icon library, and the configured `@/*` aliases in sync with the repository.
 - Components are source-owned under `src/components/ui`. Add or refresh them with `npx shadcn@latest add <component>` only after checking the current official component documentation, then review the generated diff before keeping it.
 - Use Tailwind CSS v4's CSS-first setup (`@import "tailwindcss"` and `@tailwindcss/vite`); do not add a legacy `tailwind.config.*` solely for shadcn/ui.

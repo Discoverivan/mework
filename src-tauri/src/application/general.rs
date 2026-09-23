@@ -10,7 +10,7 @@ use crate::os::notifications::{
 };
 
 const GENERAL_SETTINGS_KEY: &str = "general.settings";
-const GENERAL_SETTINGS_SCHEMA_VERSION: i64 = 3;
+const GENERAL_SETTINGS_SCHEMA_VERSION: i64 = 4;
 static GENERAL_SETTINGS_WRITE_LOCK: OnceLock<tokio::sync::Mutex<()>> = OnceLock::new();
 
 fn general_settings_write_lock() -> &'static tokio::sync::Mutex<()> {
@@ -53,6 +53,8 @@ pub struct GeneralSettings {
     pub review_notifications_enabled: bool,
     #[serde(default = "enabled_by_default")]
     pub authored_notifications_enabled: bool,
+    #[serde(default = "enabled_by_default")]
+    pub task_tracker_notifications_enabled: bool,
     #[serde(default)]
     pub language: AppLanguage,
     #[serde(default)]
@@ -65,6 +67,7 @@ impl Default for GeneralSettings {
             notifications_enabled: true,
             review_notifications_enabled: true,
             authored_notifications_enabled: true,
+            task_tracker_notifications_enabled: true,
             language: AppLanguage::English,
             theme_preference: ThemePreference::System,
         }
@@ -77,6 +80,7 @@ pub struct GeneralSettingsDto {
     pub notifications_enabled: bool,
     pub review_notifications_enabled: bool,
     pub authored_notifications_enabled: bool,
+    pub task_tracker_notifications_enabled: bool,
     pub language: AppLanguage,
     pub theme_preference: ThemePreference,
     pub notification_permission: NotificationPermission,
@@ -95,6 +99,24 @@ pub async fn load(pool: &SqlitePool) -> Result<GeneralSettings, String> {
                 .map_err(|_| "failed to deserialize general settings".to_owned())
         },
     )
+}
+
+pub async fn initialize_if_missing(
+    pool: &SqlitePool,
+    system_language: AppLanguage,
+) -> Result<(), String> {
+    let _guard = general_settings_write_lock().lock().await;
+    let value = repositories::get_setting(pool, GENERAL_SETTINGS_KEY)
+        .await
+        .map_err(|_| "failed to load general settings".to_owned())?;
+    if value.is_none() {
+        let settings = GeneralSettings {
+            language: system_language,
+            ..GeneralSettings::default()
+        };
+        save(pool, &settings).await?;
+    }
+    Ok(())
 }
 
 async fn save(pool: &SqlitePool, settings: &GeneralSettings) -> Result<(), String> {
@@ -125,11 +147,13 @@ pub async fn save_notification_preferences(
     notifications_enabled: bool,
     review_notifications_enabled: bool,
     authored_notifications_enabled: bool,
+    task_tracker_notifications_enabled: bool,
 ) -> Result<(), String> {
     update(pool, |settings| {
         settings.notifications_enabled = notifications_enabled;
         settings.review_notifications_enabled = review_notifications_enabled;
         settings.authored_notifications_enabled = authored_notifications_enabled;
+        settings.task_tracker_notifications_enabled = task_tracker_notifications_enabled;
     })
     .await
 }
@@ -160,6 +184,7 @@ pub async fn dto<R: Runtime>(
         notifications_enabled: settings.notifications_enabled,
         review_notifications_enabled: settings.review_notifications_enabled,
         authored_notifications_enabled: settings.authored_notifications_enabled,
+        task_tracker_notifications_enabled: settings.task_tracker_notifications_enabled,
         language: settings.language,
         theme_preference: settings.theme_preference,
         notification_permission,
@@ -179,6 +204,11 @@ pub async fn authored_notifications_enabled(pool: &SqlitePool) -> Result<bool, S
 
 pub async fn notifications_enabled(pool: &SqlitePool) -> Result<bool, String> {
     Ok(load(pool).await?.notifications_enabled)
+}
+
+pub async fn task_tracker_notifications_enabled(pool: &SqlitePool) -> Result<bool, String> {
+    let settings = load(pool).await?;
+    Ok(settings.notifications_enabled && settings.task_tracker_notifications_enabled)
 }
 
 pub async fn send_test_notification<R: Runtime>(
@@ -226,8 +256,8 @@ pub fn open_notification_settings() -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::{
-        load, save_appearance_preferences, save_notification_preferences, AppLanguage,
-        GeneralSettings, ThemePreference,
+        initialize_if_missing, load, save_appearance_preferences, save_notification_preferences,
+        AppLanguage, GeneralSettings, ThemePreference,
     };
     use sqlx::sqlite::SqlitePoolOptions;
 
@@ -237,8 +267,39 @@ mod tests {
         assert!(settings.notifications_enabled);
         assert!(settings.review_notifications_enabled);
         assert!(settings.authored_notifications_enabled);
+        assert!(settings.task_tracker_notifications_enabled);
         assert_eq!(settings.language, AppLanguage::English);
         assert_eq!(settings.theme_preference, ThemePreference::System);
+    }
+
+    #[tokio::test]
+    async fn initializes_missing_settings_from_the_system_language_once() {
+        let pool = SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+        sqlx::query(
+            "CREATE TABLE settings (
+                key TEXT PRIMARY KEY,
+                value_json TEXT NOT NULL,
+                schema_version INTEGER NOT NULL,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        initialize_if_missing(&pool, AppLanguage::Russian)
+            .await
+            .unwrap();
+        initialize_if_missing(&pool, AppLanguage::English)
+            .await
+            .unwrap();
+
+        assert_eq!(load(&pool).await.unwrap().language, AppLanguage::Russian);
     }
 
     #[tokio::test]
@@ -264,7 +325,7 @@ mod tests {
         save_appearance_preferences(&pool, AppLanguage::Russian, ThemePreference::Dark)
             .await
             .unwrap();
-        save_notification_preferences(&pool, false, false, true)
+        save_notification_preferences(&pool, false, false, true, false)
             .await
             .unwrap();
 
@@ -274,5 +335,6 @@ mod tests {
         assert!(!settings.notifications_enabled);
         assert!(!settings.review_notifications_enabled);
         assert!(settings.authored_notifications_enabled);
+        assert!(!settings.task_tracker_notifications_enabled);
     }
 }

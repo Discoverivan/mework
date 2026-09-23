@@ -407,6 +407,7 @@ pub fn run() {
             commands::planning::planning_apply_and_lock,
             commands::task_tracker::task_tracker_list,
             commands::task_tracker::task_tracker_save,
+            commands::task_tracker::task_tracker_save_export,
             commands::task_tracker::task_tracker_delete,
             commands::task_tracker::task_tracker_set_enabled,
             commands::task_tracker::task_tracker_validate_jql,

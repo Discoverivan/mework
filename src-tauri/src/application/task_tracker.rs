@@ -1,5 +1,6 @@
 use std::{
     collections::{HashMap, HashSet},
+    path::Path,
     time::{Duration as StdDuration, SystemTime, UNIX_EPOCH},
 };
 
@@ -31,6 +32,8 @@ const KEYRING_SERVICE: &str = if cfg!(debug_assertions) {
 };
 const JIRA_PAGE_SIZE: u64 = 100;
 const JQL_VALIDATION_LIMIT: usize = 10;
+const DEFAULT_MAX_TRACKED_ISSUES: i64 = 100;
+const MAX_ALLOWED_TRACKED_ISSUES: i64 = 10_000;
 const TRACKED_EVENTS: [TaskTrackerEventKind; 4] = [
     TaskTrackerEventKind::NewIssues,
     TaskTrackerEventKind::RemovedIssues,
@@ -95,6 +98,20 @@ pub struct TaskTrackerMonitorRequest {
     pub tracked_events: Vec<TaskTrackerEventKind>,
     #[serde(default = "default_enabled")]
     pub enabled: bool,
+    #[serde(default = "default_max_tracked_issues")]
+    pub max_tracked_issues: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TaskTrackerMonitorExportRequest {
+    pub name: String,
+    pub jql: String,
+    pub schedule_kind: TaskTrackerScheduleKind,
+    pub schedule_value: String,
+    pub tracked_events: Vec<TaskTrackerEventKind>,
+    pub enabled: bool,
+    pub max_tracked_issues: i64,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -139,6 +156,8 @@ pub struct TaskTrackerMonitorDto {
     pub next_check_at: Option<i64>,
     pub current_issue_count: i64,
     pub changes_after_last_check: i64,
+    pub max_tracked_issues: i64,
+    pub exceeds_limit: bool,
     pub last_error: Option<String>,
     pub issues: Vec<TaskTrackerIssueDto>,
 }
@@ -165,6 +184,8 @@ struct MonitorRecord {
     next_check_at_ms: Option<i64>,
     current_issue_count: i64,
     changes_after_last_check: i64,
+    max_tracked_issues: i64,
+    exceeds_limit: bool,
     last_error: Option<String>,
 }
 
@@ -216,16 +237,47 @@ fn default_enabled() -> bool {
     true
 }
 
+fn default_max_tracked_issues() -> i64 {
+    DEFAULT_MAX_TRACKED_ISSUES
+}
+
+fn validate_max_tracked_issues(max_tracked_issues: i64) -> Result<(), String> {
+    if !(1..=MAX_ALLOWED_TRACKED_ISSUES).contains(&max_tracked_issues) {
+        return Err(format!(
+            "Maximum tracked issues must be between 1 and {MAX_ALLOWED_TRACKED_ISSUES}"
+        ));
+    }
+    Ok(())
+}
+
+fn exceeds_issue_limit(observed_count: i64, max_tracked_issues: i64, truncated: bool) -> bool {
+    truncated || observed_count > max_tracked_issues
+}
+
+fn next_query_page_size(limit: Option<usize>, fetched_count: usize) -> u64 {
+    limit
+        .map(|limit| {
+            limit
+                .saturating_sub(fetched_count)
+                .min(JIRA_PAGE_SIZE as usize) as u64
+        })
+        .unwrap_or(JIRA_PAGE_SIZE)
+}
+
+fn should_compare_snapshot(has_previous_success: bool, exceeded_limit: bool) -> bool {
+    has_previous_success && !exceeded_limit
+}
+
 pub async fn list_monitors(pool: &SqlitePool) -> Result<Vec<TaskTrackerMonitorDto>, String> {
     let rows = sqlx::query(
         "SELECT id, integration_id, name, jql, schedule_kind, schedule_value,
-                tracked_events_json, enabled, last_success_at, next_check_at_ms,
+                tracked_events_json, enabled, max_tracked_issues, exceeds_limit, last_success_at, next_check_at_ms,
                 current_issue_count, changes_after_last_check, last_error
          FROM task_monitors ORDER BY created_at ASC, id ASC",
     )
     .fetch_all(pool)
     .await
-    .map_err(|_| "Task Tracker monitors could not be loaded".to_owned())?;
+    .map_err(|_| "Task tracker monitors could not be loaded".to_owned())?;
 
     let mut monitors = Vec::with_capacity(rows.len());
     for row in rows {
@@ -243,25 +295,28 @@ pub async fn save_monitor(
     let jql = required_text(&request.jql, "JQL", 10_000)?;
     let tracked_events = normalize_events(request.tracked_events);
     validate_schedule(request.schedule_kind, &request.schedule_value)?;
+    validate_max_tracked_issues(request.max_tracked_issues)?;
     let integration = jira_integration(pool, None).await?;
     let now = now_iso();
-    let effective_enabled = request.id.is_none() || request.enabled;
+    let effective_enabled = request.enabled;
     let monitor_id = request.id.unwrap_or_else(|| Uuid::now_v7().to_string());
     let existing = sqlx::query(
         "SELECT id, integration_id, name, jql, schedule_kind, schedule_value,
-                tracked_events_json, enabled, last_success_at, next_check_at_ms,
+                tracked_events_json, enabled, max_tracked_issues, exceeds_limit, last_success_at, next_check_at_ms,
                 current_issue_count, changes_after_last_check, last_error
          FROM task_monitors WHERE id = ?",
     )
     .bind(&monitor_id)
     .fetch_optional(pool)
     .await
-    .map_err(|_| "Task Tracker monitor could not be loaded".to_owned())?
+    .map_err(|_| "Task tracker monitor could not be loaded".to_owned())?
     .map(row_to_monitor)
     .transpose()?;
-    let reset_snapshot = existing
-        .as_ref()
-        .is_some_and(|previous| previous.jql != jql || previous.integration_id != integration.id);
+    let reset_snapshot = existing.as_ref().is_some_and(|previous| {
+        previous.jql != jql
+            || previous.integration_id != integration.id
+            || previous.max_tracked_issues != request.max_tracked_issues
+    });
     let needs_baseline = existing
         .as_ref()
         .is_none_or(|previous| previous.last_success_at.is_none() || !previous.enabled)
@@ -282,12 +337,12 @@ pub async fn save_monitor(
                 .bind(&monitor_id)
                 .execute(pool)
                 .await
-                .map_err(|_| "Task Tracker snapshot could not be reset".to_owned())?;
+                .map_err(|_| "Task tracker snapshot could not be reset".to_owned())?;
         }
         sqlx::query(
             "UPDATE task_monitors
              SET integration_id = ?, name = ?, jql = ?, schedule_kind = ?, schedule_value = ?,
-                 tracked_events_json = ?, enabled = ?, next_check_at_ms = ?,
+                 tracked_events_json = ?, enabled = ?, max_tracked_issues = ?, next_check_at_ms = ?,
                  last_error = NULL, updated_at = ?
              WHERE id = ?",
         )
@@ -301,30 +356,31 @@ pub async fn save_monitor(
                 .map_err(|_| "Monitor events are invalid".to_owned())?,
         )
         .bind(effective_enabled)
+        .bind(request.max_tracked_issues)
         .bind(next_check_at_ms)
         .bind(&now)
         .bind(&monitor_id)
         .execute(pool)
         .await
-        .map_err(|_| "Task Tracker monitor could not be saved".to_owned())?;
+        .map_err(|_| "Task tracker monitor could not be saved".to_owned())?;
         if reset_snapshot {
             sqlx::query(
                 "UPDATE task_monitors
                  SET last_success_at = NULL, current_issue_count = 0,
-                     changes_after_last_check = 0
+                     changes_after_last_check = 0, exceeds_limit = 0
                  WHERE id = ?",
             )
             .bind(&monitor_id)
             .execute(pool)
             .await
-            .map_err(|_| "Task Tracker snapshot could not be reset".to_owned())?;
+            .map_err(|_| "Task tracker snapshot could not be reset".to_owned())?;
         }
     } else {
         sqlx::query(
             "INSERT INTO task_monitors
                 (id, integration_id, name, jql, schedule_kind, schedule_value,
-                 tracked_events_json, enabled, next_check_at_ms, created_at, updated_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                 tracked_events_json, enabled, max_tracked_issues, next_check_at_ms, created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         )
         .bind(&monitor_id)
         .bind(&integration.id)
@@ -337,16 +393,55 @@ pub async fn save_monitor(
                 .map_err(|_| "Monitor events are invalid".to_owned())?,
         )
         .bind(effective_enabled)
+        .bind(request.max_tracked_issues)
         .bind(next_check_at_ms)
         .bind(&now)
         .bind(&now)
         .execute(pool)
         .await
-        .map_err(|_| "Task Tracker monitor could not be saved".to_owned())?;
+        .map_err(|_| "Task tracker monitor could not be saved".to_owned())?;
     }
 
     let record = load_monitor(pool, &monitor_id).await?;
     to_monitor_dto(pool, &record).await
+}
+
+pub fn save_monitor_export(
+    file_path: &str,
+    request: TaskTrackerMonitorExportRequest,
+) -> Result<(), String> {
+    let path = Path::new(file_path);
+    let is_json = path
+        .extension()
+        .and_then(|extension| extension.to_str())
+        .is_some_and(|extension| extension.eq_ignore_ascii_case("json"));
+    if !path.is_absolute() || !is_json {
+        return Err("Choose an absolute path with a .json extension".to_owned());
+    }
+
+    let name = required_text(&request.name, "Monitor name", 120)?;
+    let jql = required_text(&request.jql, "JQL", 10_000)?;
+    required_text(&request.schedule_value, "Schedule", 200)?;
+    validate_schedule(request.schedule_kind, &request.schedule_value)?;
+    validate_max_tracked_issues(request.max_tracked_issues)?;
+
+    let document = serde_json::json!({
+        "format": "mework-task-tracker-monitor",
+        "version": 1,
+        "monitor": TaskTrackerMonitorExportRequest {
+            name,
+            jql,
+            schedule_kind: request.schedule_kind,
+            schedule_value: request.schedule_value,
+            tracked_events: request.tracked_events,
+            enabled: request.enabled,
+            max_tracked_issues: request.max_tracked_issues,
+        },
+    });
+    let contents = serde_json::to_vec_pretty(&document)
+        .map_err(|_| "Task tracker monitor export could not be serialized".to_owned())?;
+    std::fs::write(path, contents)
+        .map_err(|_| "Task tracker monitor export could not be saved".to_owned())
 }
 
 pub async fn delete_monitor(pool: &SqlitePool, id: &str) -> Result<bool, String> {
@@ -354,7 +449,7 @@ pub async fn delete_monitor(pool: &SqlitePool, id: &str) -> Result<bool, String>
         .bind(id)
         .execute(pool)
         .await
-        .map_err(|_| "Task Tracker monitor could not be deleted".to_owned())?;
+        .map_err(|_| "Task tracker monitor could not be deleted".to_owned())?;
     Ok(result.rows_affected() == 1)
 }
 
@@ -384,7 +479,7 @@ pub async fn set_monitor_enabled(
     .bind(id)
     .execute(pool)
     .await
-    .map_err(|_| "Task Tracker monitor could not be updated".to_owned())?;
+    .map_err(|_| "Task tracker monitor could not be updated".to_owned())?;
     let record = load_monitor(pool, id).await?;
     to_monitor_dto(pool, &record).await
 }
@@ -433,7 +528,7 @@ pub async fn poll_due_monitors<R: Runtime>(
     .bind(now_ms())
     .fetch_all(pool)
     .await
-    .map_err(|_| "Task Tracker schedule could not be loaded".to_owned())?;
+    .map_err(|_| "Task tracker schedule could not be loaded".to_owned())?;
 
     if ids.is_empty() {
         return Ok(());
@@ -461,15 +556,50 @@ async fn poll_monitor<R: Runtime>(
             return Err(error);
         }
     };
-    let issues = match fetch_issues(&integration, &monitor.jql).await {
+    let (issues, truncated) = match fetch_issues_with_limit(
+        &integration,
+        &monitor.jql,
+        Some(monitor.max_tracked_issues.saturating_add(1) as usize),
+    )
+    .await
+    {
         Ok(value) => value,
         Err(error) => {
             record_failure(pool, &monitor, &error).await?;
             return Err(error);
         }
     };
+    if exceeds_issue_limit(issues.len() as i64, monitor.max_tracked_issues, truncated) {
+        let now = now_iso();
+        let next_check = if monitor.enabled {
+            Some(next_check_at(
+                monitor.schedule_kind,
+                &monitor.schedule_value,
+                now_ms(),
+            )?)
+        } else {
+            None
+        };
+        sqlx::query(
+            "UPDATE task_monitors
+             SET last_success_at = ?, next_check_at_ms = ?, current_issue_count = ?,
+                 changes_after_last_check = 0, exceeds_limit = 1, last_error = NULL, updated_at = ?
+             WHERE id = ?",
+        )
+        .bind(&now)
+        .bind(next_check)
+        .bind(issues.len() as i64)
+        .bind(&now)
+        .bind(id)
+        .execute(pool)
+        .await
+        .map_err(|_| "Task tracker monitor could not be updated".to_owned())?;
+        let updated = load_monitor(pool, id).await?;
+        return to_monitor_dto(pool, &updated).await;
+    }
     let previous = load_issue_states(pool, id).await?;
-    let baseline_exists = monitor.last_success_at.is_some();
+    let baseline_exists =
+        should_compare_snapshot(monitor.last_success_at.is_some(), monitor.exceeds_limit);
     let now = now_iso();
     let current_by_key: HashMap<String, JiraIssueSnapshot> = issues
         .iter()
@@ -559,7 +689,7 @@ async fn poll_monitor<R: Runtime>(
     let mut transaction = pool
         .begin()
         .await
-        .map_err(|_| "Task Tracker snapshot could not be saved".to_owned())?;
+        .map_err(|_| "Task tracker snapshot could not be saved".to_owned())?;
 
     for issue in &issues {
         let change = changes.iter().rev().find(|change| change.key == issue.key);
@@ -600,7 +730,7 @@ async fn poll_monitor<R: Runtime>(
         .bind(&now)
         .execute(&mut *transaction)
         .await
-        .map_err(|_| "Task Tracker snapshot could not be saved".to_owned())?;
+        .map_err(|_| "Task tracker snapshot could not be saved".to_owned())?;
     }
 
     for previous_issue in previous.values().filter(|item| item.present) {
@@ -628,13 +758,13 @@ async fn poll_monitor<R: Runtime>(
         .bind(&previous_issue.key)
         .execute(&mut *transaction)
         .await
-        .map_err(|_| "Task Tracker snapshot could not be saved".to_owned())?;
+        .map_err(|_| "Task tracker snapshot could not be saved".to_owned())?;
     }
 
     sqlx::query(
         "UPDATE task_monitors
          SET last_success_at = ?, next_check_at_ms = ?, current_issue_count = ?,
-             changes_after_last_check = ?, last_error = NULL, updated_at = ?
+             changes_after_last_check = ?, exceeds_limit = 0, last_error = NULL, updated_at = ?
          WHERE id = ?",
     )
     .bind(&now)
@@ -645,13 +775,17 @@ async fn poll_monitor<R: Runtime>(
     .bind(id)
     .execute(&mut *transaction)
     .await
-    .map_err(|_| "Task Tracker monitor could not be updated".to_owned())?;
+    .map_err(|_| "Task tracker monitor could not be updated".to_owned())?;
     transaction
         .commit()
         .await
-        .map_err(|_| "Task Tracker snapshot could not be committed".to_owned())?;
+        .map_err(|_| "Task tracker snapshot could not be committed".to_owned())?;
 
-    if adapter.is_some() && general::notifications_enabled(pool).await.unwrap_or(false) {
+    if adapter.is_some()
+        && general::task_tracker_notifications_enabled(pool)
+            .await
+            .unwrap_or(false)
+    {
         if let Some(adapter) = adapter {
             for change in &changes {
                 let title = format!("{} · {}", change.key, change.kind.label());
@@ -659,7 +793,7 @@ async fn poll_monitor<R: Runtime>(
                 if let Err(error) =
                     adapter.notify_with_url(&title, &body, &change.key, &change.issue_url)
                 {
-                    eprintln!("Task Tracker notification delivery failed: {error}");
+                    eprintln!("Task tracker notification delivery failed: {error}");
                 }
             }
         }
@@ -693,14 +827,7 @@ async fn record_failure(
     .execute(pool)
     .await
     .map(|_| ())
-    .map_err(|_| "Task Tracker monitor error could not be saved".to_owned())
-}
-
-async fn fetch_issues(
-    integration: &Integration,
-    jql: &str,
-) -> Result<Vec<JiraIssueSnapshot>, String> {
-    Ok(fetch_issues_with_limit(integration, jql, None).await?.0)
+    .map_err(|_| "Task tracker monitor error could not be saved".to_owned())
 }
 
 async fn fetch_issues_with_limit(
@@ -723,12 +850,14 @@ async fn fetch_issues_with_limit(
         .build()
         .map_err(|_| "Jira transport is unavailable".to_owned())?;
     let endpoint = jira_endpoint(&integration.base_url, "rest/api/2/search")?;
-    let page_size = limit
-        .map(|value| value.min(JIRA_PAGE_SIZE as usize) as u64)
-        .unwrap_or(JIRA_PAGE_SIZE);
     let mut start_at = 0_u64;
     let mut result = Vec::new();
     loop {
+        // Request only the number of issues still needed to decide the N+1 limit.
+        let page_size = next_query_page_size(limit, result.len());
+        if page_size == 0 {
+            break;
+        }
         let response = jira_authenticate(
             client.get(endpoint.clone()),
             &integration.account_key,
@@ -854,6 +983,8 @@ async fn to_monitor_dto(
         next_check_at: record.next_check_at_ms,
         current_issue_count: record.current_issue_count,
         changes_after_last_check: record.changes_after_last_check,
+        max_tracked_issues: record.max_tracked_issues,
+        exceeds_limit: record.exceeds_limit,
         last_error: record.last_error.clone(),
         issues,
     })
@@ -862,70 +993,77 @@ async fn to_monitor_dto(
 async fn load_monitor(pool: &SqlitePool, id: &str) -> Result<MonitorRecord, String> {
     sqlx::query(
         "SELECT id, integration_id, name, jql, schedule_kind, schedule_value,
-                tracked_events_json, enabled, last_success_at, next_check_at_ms,
+                tracked_events_json, enabled, max_tracked_issues, exceeds_limit, last_success_at, next_check_at_ms,
                 current_issue_count, changes_after_last_check, last_error
          FROM task_monitors WHERE id = ?",
     )
     .bind(id)
     .fetch_one(pool)
     .await
-    .map_err(|_| "Task Tracker monitor was not found".to_owned())
+    .map_err(|_| "Task tracker monitor was not found".to_owned())
     .and_then(row_to_monitor)
 }
 
 fn row_to_monitor(row: SqliteRow) -> Result<MonitorRecord, String> {
     let schedule_kind = match row
         .try_get::<String, _>("schedule_kind")
-        .map_err(|_| "Task Tracker monitor data is invalid".to_owned())?
+        .map_err(|_| "Task tracker monitor data is invalid".to_owned())?
         .as_str()
     {
         "period" => TaskTrackerScheduleKind::Period,
         "cron" => TaskTrackerScheduleKind::Cron,
-        _ => return Err("Task Tracker schedule is invalid".to_owned()),
+        _ => return Err("Task tracker schedule is invalid".to_owned()),
     };
     let raw_events: String = row
         .try_get("tracked_events_json")
-        .map_err(|_| "Task Tracker events are invalid".to_owned())?;
+        .map_err(|_| "Task tracker events are invalid".to_owned())?;
     let tracked_events = serde_json::from_str::<Vec<TaskTrackerEventKind>>(&raw_events)
         .map(normalize_events)
         .unwrap_or_else(|_| TRACKED_EVENTS.to_vec());
     Ok(MonitorRecord {
         id: row
             .try_get("id")
-            .map_err(|_| "Task Tracker monitor data is invalid".to_owned())?,
+            .map_err(|_| "Task tracker monitor data is invalid".to_owned())?,
         integration_id: row
             .try_get("integration_id")
-            .map_err(|_| "Task Tracker monitor data is invalid".to_owned())?,
+            .map_err(|_| "Task tracker monitor data is invalid".to_owned())?,
         name: row
             .try_get("name")
-            .map_err(|_| "Task Tracker monitor data is invalid".to_owned())?,
+            .map_err(|_| "Task tracker monitor data is invalid".to_owned())?,
         jql: row
             .try_get("jql")
-            .map_err(|_| "Task Tracker monitor data is invalid".to_owned())?,
+            .map_err(|_| "Task tracker monitor data is invalid".to_owned())?,
         schedule_kind,
         schedule_value: row
             .try_get("schedule_value")
-            .map_err(|_| "Task Tracker monitor data is invalid".to_owned())?,
+            .map_err(|_| "Task tracker monitor data is invalid".to_owned())?,
         tracked_events,
         enabled: row
             .try_get::<i64, _>("enabled")
-            .map_err(|_| "Task Tracker monitor data is invalid".to_owned())?
+            .map_err(|_| "Task tracker monitor data is invalid".to_owned())?
+            != 0,
+        max_tracked_issues: row
+            .try_get("max_tracked_issues")
+            .map_err(|_| "Task tracker monitor data is invalid".to_owned())?,
+        exceeds_limit: row
+            .try_get::<i64, _>("exceeds_limit")
+            .map_err(|_| "Task tracker monitor data is invalid".to_owned())?
             != 0,
         last_success_at: row
             .try_get("last_success_at")
-            .map_err(|_| "Task Tracker monitor data is invalid".to_owned())?,
+            .map_err(|_| "Task tracker monitor data is invalid".to_owned())?,
         next_check_at_ms: row
             .try_get("next_check_at_ms")
-            .map_err(|_| "Task Tracker monitor data is invalid".to_owned())?,
+            .map_err(|_| "Task tracker monitor data is invalid".to_owned())?,
         current_issue_count: row
             .try_get("current_issue_count")
-            .map_err(|_| "Task Tracker monitor data is invalid".to_owned())?,
+            .map_err(|_| "Task tracker monitor data is invalid".to_owned())?,
         changes_after_last_check: row
             .try_get("changes_after_last_check")
-            .map_err(|_| "Task Tracker monitor data is invalid".to_owned())?,
+            .map_err(|_| "Task tracker monitor data is invalid".to_owned())?,
         last_error: row
             .try_get("last_error")
-            .map_err(|_| "Task Tracker monitor data is invalid".to_owned())?,
+            .map_err(|_| "Task tracker monitor data is invalid".to_owned())?,
     })
 }
 
@@ -941,19 +1079,19 @@ async fn load_issue_states(
     .bind(monitor_id)
     .fetch_all(pool)
     .await
-    .map_err(|_| "Task Tracker snapshot could not be loaded".to_owned())?;
+    .map_err(|_| "Task tracker snapshot could not be loaded".to_owned())?;
     let mut issues = HashMap::new();
     for row in rows {
         let kind = row
             .try_get::<Option<String>, _>("last_change_type")
-            .map_err(|_| "Task Tracker snapshot is invalid".to_owned())?
+            .map_err(|_| "Task tracker snapshot is invalid".to_owned())?
             .and_then(|value| parse_change_kind(&value));
         let description: Option<String> = row
             .try_get("last_change_description")
-            .map_err(|_| "Task Tracker snapshot is invalid".to_owned())?;
+            .map_err(|_| "Task tracker snapshot is invalid".to_owned())?;
         let detected_at: Option<String> = row
             .try_get("last_changed_at")
-            .map_err(|_| "Task Tracker snapshot is invalid".to_owned())?;
+            .map_err(|_| "Task tracker snapshot is invalid".to_owned())?;
         let last_change = match (kind, description, detected_at) {
             (Some(kind), Some(description), Some(detected_at)) => Some(TaskTrackerChangeDto {
                 kind,
@@ -965,31 +1103,31 @@ async fn load_issue_states(
         let issue = IssueState {
             key: row
                 .try_get("issue_key")
-                .map_err(|_| "Task Tracker snapshot is invalid".to_owned())?,
+                .map_err(|_| "Task tracker snapshot is invalid".to_owned())?,
             summary: row
                 .try_get("summary")
-                .map_err(|_| "Task Tracker snapshot is invalid".to_owned())?,
+                .map_err(|_| "Task tracker snapshot is invalid".to_owned())?,
             status: row
                 .try_get("status")
-                .map_err(|_| "Task Tracker snapshot is invalid".to_owned())?,
+                .map_err(|_| "Task tracker snapshot is invalid".to_owned())?,
             priority: row
                 .try_get("priority")
-                .map_err(|_| "Task Tracker snapshot is invalid".to_owned())?,
+                .map_err(|_| "Task tracker snapshot is invalid".to_owned())?,
             assignee: row
                 .try_get("assignee")
-                .map_err(|_| "Task Tracker snapshot is invalid".to_owned())?,
+                .map_err(|_| "Task tracker snapshot is invalid".to_owned())?,
             updated: row
                 .try_get("updated")
-                .map_err(|_| "Task Tracker snapshot is invalid".to_owned())?,
+                .map_err(|_| "Task tracker snapshot is invalid".to_owned())?,
             comment_count: row
                 .try_get("comment_count")
-                .map_err(|_| "Task Tracker snapshot is invalid".to_owned())?,
+                .map_err(|_| "Task tracker snapshot is invalid".to_owned())?,
             issue_url: row
                 .try_get("issue_url")
-                .map_err(|_| "Task Tracker snapshot is invalid".to_owned())?,
+                .map_err(|_| "Task tracker snapshot is invalid".to_owned())?,
             present: row
                 .try_get::<i64, _>("present")
-                .map_err(|_| "Task Tracker snapshot is invalid".to_owned())?
+                .map_err(|_| "Task tracker snapshot is invalid".to_owned())?
                 != 0,
             last_change,
         };
@@ -1233,7 +1371,7 @@ fn required_text(value: &str, label: &str, max_chars: usize) -> Result<String, S
 fn safe_error(value: &str) -> String {
     let value = value.trim();
     if value.is_empty() {
-        return "Task Tracker polling failed".to_owned();
+        return "Task tracker polling failed".to_owned();
     }
     value.chars().take(240).collect()
 }
@@ -1254,7 +1392,59 @@ fn now_iso() -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{next_check_at, parse_cron, TaskTrackerScheduleKind};
+    use super::{
+        exceeds_issue_limit, next_check_at, next_query_page_size, parse_cron, save_monitor_export,
+        should_compare_snapshot, validate_max_tracked_issues, TaskTrackerMonitorExportRequest,
+        TaskTrackerScheduleKind,
+    };
+
+    #[test]
+    fn resets_change_detection_after_a_monitor_exceeds_its_issue_limit() {
+        assert!(!should_compare_snapshot(true, true));
+        assert!(should_compare_snapshot(true, false));
+    }
+
+    #[test]
+    fn detects_task_tracker_issue_limit_overflow() {
+        assert!(!exceeds_issue_limit(100, 100, false));
+        assert!(exceeds_issue_limit(101, 100, false));
+        assert!(exceeds_issue_limit(100, 100, true));
+        assert!(validate_max_tracked_issues(100).is_ok());
+        assert!(validate_max_tracked_issues(0).is_err());
+        assert!(validate_max_tracked_issues(10_001).is_err());
+    }
+
+    #[test]
+    fn monitor_search_requests_only_the_remaining_issue_count() {
+        assert_eq!(next_query_page_size(Some(101), 0), 100);
+        assert_eq!(next_query_page_size(Some(101), 100), 1);
+        assert_eq!(next_query_page_size(Some(100), 0), 100);
+        assert_eq!(next_query_page_size(None, 0), 100);
+    }
+
+    #[test]
+    fn saves_monitor_export_json_to_the_selected_path() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("open-tasks.json");
+        let request = TaskTrackerMonitorExportRequest {
+            name: "Open tasks".to_owned(),
+            jql: "project = DEMO".to_owned(),
+            schedule_kind: TaskTrackerScheduleKind::Period,
+            schedule_value: "300".to_owned(),
+            tracked_events: vec![],
+            enabled: true,
+            max_tracked_issues: 100,
+        };
+
+        save_monitor_export(path.to_str().unwrap(), request).unwrap();
+
+        let document: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
+        assert_eq!(document["format"], "mework-task-tracker-monitor");
+        assert_eq!(document["version"], 1);
+        assert_eq!(document["monitor"]["maxTrackedIssues"], 100);
+        assert_eq!(document["monitor"]["jql"], "project = DEMO");
+    }
 
     #[test]
     fn accepts_tasknotify_style_cron() {
