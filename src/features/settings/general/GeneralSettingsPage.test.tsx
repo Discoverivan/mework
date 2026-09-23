@@ -3,9 +3,10 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { GeneralSettingsPage } from "./GeneralSettingsPage";
 import { I18nProvider } from "@/i18n/I18nProvider";
 
-const { generalSettingsMock, openNotificationSettingsMock, saveAppearanceSettingsMock, saveGeneralSettingsMock, sendNotificationTestMock, updaterCheckMock, installAvailableUpdateMock } = vi.hoisted(() => ({
+const { generalSettingsMock, openNotificationSettingsMock, requestNotificationPermissionMock, saveAppearanceSettingsMock, saveGeneralSettingsMock, sendNotificationTestMock, updaterCheckMock, installAvailableUpdateMock } = vi.hoisted(() => ({
   generalSettingsMock: vi.fn(),
   openNotificationSettingsMock: vi.fn(),
+  requestNotificationPermissionMock: vi.fn(),
   saveAppearanceSettingsMock: vi.fn(),
   saveGeneralSettingsMock: vi.fn(),
   sendNotificationTestMock: vi.fn(),
@@ -18,6 +19,7 @@ vi.mock("@tauri-apps/plugin-updater", () => ({ check: updaterCheckMock }));
 vi.mock("./api", () => ({
   generalSettings: generalSettingsMock,
   openNotificationSettings: openNotificationSettingsMock,
+  requestNotificationPermission: requestNotificationPermissionMock,
   saveAppearanceSettings: saveAppearanceSettingsMock,
   saveGeneralSettings: saveGeneralSettingsMock,
   sendNotificationTest: sendNotificationTestMock,
@@ -40,6 +42,7 @@ describe("GeneralSettingsPage", () => {
     };
     generalSettingsMock.mockResolvedValue(initialSettings);
     openNotificationSettingsMock.mockResolvedValue(undefined);
+    requestNotificationPermissionMock.mockResolvedValue("granted");
     saveGeneralSettingsMock.mockImplementation(async (input) => ({
       ...initialSettings,
       ...input,
@@ -66,7 +69,8 @@ describe("GeneralSettingsPage", () => {
     expect(screen.getByRole("combobox", { name: "Appearance" })).toHaveValue("system");
     expect(screen.getByRole("switch", { name: "Pull requests awaiting your review" })).toBeChecked();
     expect(screen.getByRole("switch", { name: "Pull requests authored by you" })).toBeChecked();
-    expect(await screen.findByRole("heading", { name: "Notifications are not allowed" })).toBeInTheDocument();
+    const notificationsCard = screen.getByRole("switch", { name: "Notifications" }).closest(".rounded-lg.border.bg-card");
+    expect(notificationsCard).toContainElement(await screen.findByRole("heading", { name: "Notifications are not allowed" }));
 
     fireEvent.change(screen.getByRole("combobox", { name: "Appearance" }), {
       target: { value: "dark" },
@@ -117,6 +121,21 @@ describe("GeneralSettingsPage", () => {
       target: { value: "english" },
     });
     expect(await screen.findByRole("heading", { name: "Application preferences" })).toBeInTheDocument();
+  });
+
+  it("requests notification permission inside the Notifications card", async () => {
+    generalSettingsMock.mockResolvedValueOnce({
+      language: "english", themePreference: "system", notificationsEnabled: true,
+      reviewNotificationsEnabled: true, authoredNotificationsEnabled: true,
+      notificationPermission: "notDetermined",
+    });
+    render(<GeneralSettingsPage />);
+    const notificationsCard = screen.getByRole("switch", { name: "Notifications" }).closest(".rounded-lg.border.bg-card");
+    const allowButton = await screen.findByRole("button", { name: "Allow notifications" });
+    expect(notificationsCard).toContainElement(allowButton);
+    fireEvent.click(allowButton);
+    await waitFor(() => expect(requestNotificationPermissionMock).toHaveBeenCalledOnce());
+    expect(screen.queryByRole("heading", { name: "Notifications are not allowed" })).not.toBeInTheDocument();
   });
 
   it("offers a stable install action when a newer application version is available", async () => {

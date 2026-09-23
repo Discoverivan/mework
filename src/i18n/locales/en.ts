@@ -308,6 +308,8 @@ export const en = {
   "general.loading": "Loading general settings…",
   "general.unavailable": "General settings unavailable",
   "general.permissionTitle": "Notifications are not allowed",
+  "general.permissionRequestDescription": "Allow mework to send notifications. macOS will ask for permission.",
+  "general.allowNotifications": "Allow notifications",
   "general.permissionDescription": "Notifications are enabled in mework, but macOS has not granted permission. Open notification settings and allow mework to send notifications.",
   "general.opening": "Opening…",
   "general.openNotificationSettings": "Open notification settings",

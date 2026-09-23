@@ -310,6 +310,8 @@ export const ru: Record<TranslationKey, string> = {
   "general.loading": "Загрузка общих настроек…",
   "general.unavailable": "Общие настройки недоступны",
   "general.permissionTitle": "Уведомления не разрешены",
+  "general.permissionRequestDescription": "Разрешите mework отправлять уведомления. macOS запросит подтверждение.",
+  "general.allowNotifications": "Разрешить уведомления",
   "general.permissionDescription": "Уведомления включены в mework, но macOS не предоставила разрешение. Откройте настройки уведомлений и разрешите mework отправлять их.",
   "general.opening": "Открытие…",
   "general.openNotificationSettings": "Открыть настройки уведомлений",

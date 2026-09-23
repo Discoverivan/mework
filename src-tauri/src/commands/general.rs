@@ -4,6 +4,7 @@ use tauri::{AppHandle, State};
 use crate::application::general::{
     self, AppLanguage, GeneralSettingsDto, NotificationTestKind, ThemePreference,
 };
+use crate::os::notifications::{self, NotificationPermission};
 
 #[tauri::command]
 pub async fn general_settings(
@@ -43,11 +44,18 @@ pub async fn general_appearance_save(
 }
 
 #[tauri::command]
-pub fn notification_test(
+pub async fn notification_test(
     app: AppHandle,
     notification_kind: NotificationTestKind,
 ) -> Result<(), String> {
-    general::send_test_notification(&app, notification_kind)
+    general::send_test_notification(&app, notification_kind).await
+}
+
+#[tauri::command]
+pub async fn notification_request_permission(
+    app: AppHandle,
+) -> Result<NotificationPermission, String> {
+    notifications::request_permission(&app).await
 }
 
 #[tauri::command]

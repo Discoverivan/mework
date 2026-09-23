@@ -39,5 +39,8 @@ export const saveAppearanceSettings = (language: AppLanguage, themePreference: T
 export const sendNotificationTest = (notificationKind: NotificationTestKind) =>
   invoke<void>("notification_test", { notificationKind });
 
+export const requestNotificationPermission = () =>
+  invoke<NotificationPermission>("notification_request_permission");
+
 export const openNotificationSettings = () =>
   invoke<void>("notification_open_settings");
