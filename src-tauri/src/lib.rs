@@ -45,6 +45,8 @@ pub fn run() {
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .setup(|app| {
+            #[cfg(target_os = "macos")]
+            crate::os::notifications::setup();
             #[cfg(desktop)]
             crate::os::menu::setup(app)?;
 
@@ -170,12 +172,14 @@ pub fn run() {
                                         notification.pull_request_id,
                                         notification.title,
                                     );
-                                    let _ = crate::os::notifications::NotificationAdapter::notify(
+                                    if let Err(error) = crate::os::notifications::NotificationAdapter::notify(
                                         &notifier,
                                         title,
                                         &body,
                                         &notification.key,
-                                    );
+                                    ) {
+                                        eprintln!("Review notification delivery failed: {error}");
+                                    }
                                 }
                             }
                         }
@@ -289,12 +293,14 @@ pub fn run() {
                                             notification.title,
                                         )
                                     };
-                                    let _ = crate::os::notifications::NotificationAdapter::notify(
+                                    if let Err(error) = crate::os::notifications::NotificationAdapter::notify(
                                         &notifier,
                                         &title,
                                         &body,
                                         &notification.key,
-                                    );
+                                    ) {
+                                        eprintln!("Authored notification delivery failed: {error}");
+                                    }
                                 }
                             }
                         }
@@ -355,6 +361,7 @@ pub fn run() {
             commands::general::general_settings_save,
             commands::general::general_appearance_save,
             commands::general::notification_test,
+            commands::general::notification_request_permission,
             commands::general::notification_open_settings,
             commands::create_task::ai_task_draft,
             commands::create_task::jira_task_team_members,
