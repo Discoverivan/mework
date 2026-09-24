@@ -71,6 +71,18 @@ pub fn run() {
             app.manage(crate::commands::presenter::PresenterState::default());
             let background_pool = pool.clone();
             let background_app = app.handle().clone();
+            let update_state = crate::application::updates::UpdateAvailabilityState::default();
+            app.manage(update_state.clone());
+            #[cfg(desktop)]
+            if !cfg!(debug_assertions) {
+                let update_app = background_app.clone();
+                tauri::async_runtime::spawn(
+                    crate::application::updates::run_background_update_checks(
+                        update_app,
+                        update_state,
+                    ),
+                );
+            }
             app.manage(pool.clone());
             tauri::async_runtime::spawn(async move {
                 let notifier = crate::os::notifications::NativeNotificationAdapter::new(background_app.clone());
@@ -339,6 +351,7 @@ pub fn run() {
             commands::presenter::presenter_view_state,
             commands::presenter::close_presenter_view,
             greet,
+            commands::developer::bitbucket_pull_request_unread_counts,
             commands::developer::bitbucket_my_pull_requests,
             commands::developer::bitbucket_my_pull_requests_refresh,
             commands::developer::bitbucket_authored_pull_requests,
@@ -361,6 +374,7 @@ pub fn run() {
             commands::general::notification_test,
             commands::general::notification_request_permission,
             commands::general::notification_open_settings,
+            commands::updates::background_update_version,
             commands::create_task::ai_task_draft,
             commands::create_task::jira_task_team_members,
             commands::create_task::jira_task_create,
@@ -368,6 +382,8 @@ pub fn run() {
             commands::command_board::command_board_save,
             commands::command_board::command_board_delete,
             commands::command_board::command_board_run,
+            commands::command_board::command_board_terminal_preferences,
+            commands::command_board::command_board_terminal_set,
             commands::confluence::confluence_search,
             commands::confluence::confluence_space_resolve,
             commands::ai::ai_settings,

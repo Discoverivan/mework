@@ -48,10 +48,13 @@ interface AppShellProps {
   onThemeChange?: (theme: ThemePreference) => void;
   themeChanging?: boolean;
   version?: string;
+  updateAvailableVersion?: string | null;
+  onOpenUpdateSettings?: () => void;
   onNavigate?: (section: AppSection) => void;
   activeSection?: AppSection;
   unreadPullRequestCount?: number;
   unreadAuthoredPullRequestCount?: number;
+  unreadTaskTrackerCount?: number;
 }
 
 const productNavigation: NavigationItem[] = [
@@ -82,14 +85,20 @@ export function AppShell({
   onThemeChange,
   themeChanging = false,
   version,
+  updateAvailableVersion,
+  onOpenUpdateSettings,
   onNavigate,
   activeSection,
   unreadPullRequestCount = 0,
   unreadAuthoredPullRequestCount = 0,
+  unreadTaskTrackerCount = 0,
 }: AppShellProps) {
   const { resolvedTheme, themePreference: contextThemePreference, t } = useI18n();
   const selectedTheme = themePreference ?? contextThemePreference;
   const versionLabel = version === "dev" ? t("nav.developmentBuild") : version ? `v${version}` : undefined;
+  const updateActionLabel = updateAvailableVersion
+    ? t("nav.updateAvailable", { version: updateAvailableVersion })
+    : t("nav.checkForUpdates");
 
   function renderNavigationItem(item: NavigationItem) {
     const label = t(item.labelKey);
@@ -99,11 +108,18 @@ export function AppShell({
       ? unreadPullRequestCount
       : item.section === "developer-my-pull-requests"
         ? unreadAuthoredPullRequestCount
-        : 0;
-    const displayUnreadCount = itemUnreadCount > 99 ? "99+" : itemUnreadCount;
-    const pullRequestLabel = itemUnreadCount > 0
+        : item.section === "product-task-tracker"
+          ? unreadTaskTrackerCount
+          : 0;
+    const displayUnreadCount = item.section === "product-task-tracker"
+      ? itemUnreadCount
+      : itemUnreadCount > 99 ? "99+" : itemUnreadCount;
+    const navigationLabel = itemUnreadCount > 0
       ? `${label}, ${itemUnreadCount} ${t("nav.unread")}`
       : label;
+    const unreadBadgeLabel = item.section === "product-task-tracker"
+      ? t("nav.unreadTaskTrackerIssues", { count: itemUnreadCount })
+      : t("nav.unreadPullRequests", { count: itemUnreadCount });
 
     return (
       <Button
@@ -114,14 +130,14 @@ export function AppShell({
       >
         <a
           href={item.href}
-          aria-label={pullRequestLabel}
+          aria-label={navigationLabel}
           aria-current={active ? "page" : undefined}
           onClick={() => onNavigate?.(item.section)}
         >
           <Icon className="size-4 shrink-0" aria-hidden="true" />
           <span className="min-w-0 flex-1 truncate">{label}</span>
           {itemUnreadCount > 0 ? (
-            <span className="sidebar-unread-badge" aria-label={t("nav.unreadPullRequests", { count: itemUnreadCount })}>
+            <span className="sidebar-unread-badge" aria-label={unreadBadgeLabel}>
               {displayUnreadCount}
             </span>
           ) : null}
@@ -205,11 +221,14 @@ export function AppShell({
               type="button"
               variant="ghost"
               className="sidebar-version h-7 px-2 py-0 leading-none"
-              aria-label={t("nav.openRelease", { version })}
-              title={t("nav.openRelease", { version })}
-              onClick={() => void openUrl(`${GITHUB_RELEASES_URL}/tag/mework-v${version}`)}
+              aria-label={updateActionLabel}
+              title={updateActionLabel}
+              onClick={onOpenUpdateSettings}
             >
               {versionLabel}
+              {updateAvailableVersion ? (
+                <span className="sidebar-update-dot ml-1.5 inline-block size-2 shrink-0 rounded-full bg-primary" aria-hidden="true" />
+              ) : null}
             </Button>
           ) : null}
         </div>

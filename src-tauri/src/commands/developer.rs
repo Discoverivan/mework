@@ -1,13 +1,13 @@
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use sqlx::SqlitePool;
 use tauri::{AppHandle, State};
 
 use crate::application::authored_pull_requests;
 use crate::application::developer::{
     self, BitbucketRepositoryDto, BitbucketUserDto, DeveloperCommandError, MyPullRequestsPageDto,
-    PullRequestActivityStatus, PullRequestCommentRequest, PullRequestCommentStatus,
-    PullRequestDecisionRequest, PullRequestDecisionStatus, PullRequestReadAllStatus,
-    PullRequestReviewSettings,
+    PullRequestActivity, PullRequestActivityStatus, PullRequestCommentRequest,
+    PullRequestCommentStatus, PullRequestDecisionRequest, PullRequestDecisionStatus,
+    PullRequestReadAllStatus, PullRequestReviewSettings,
 };
 use crate::application::developer_review::{
     self, PullRequestReviewDto, PullRequestReviewRequest, PullRequestReviewStateRequest,
@@ -24,6 +24,31 @@ pub struct PullRequestReviewPageRequest {
 
 const fn default_page_size() -> u64 {
     100
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PullRequestUnreadCountsDto {
+    pub reviewer: u64,
+    pub authored: u64,
+}
+
+#[tauri::command]
+pub async fn bitbucket_pull_request_unread_counts(
+    state: State<'_, SqlitePool>,
+) -> Result<PullRequestUnreadCountsDto, DeveloperCommandError> {
+    let reviewer_page =
+        developer::get_cached_my_pull_requests_page(&state, default_page_size()).await?;
+    let authored =
+        authored_pull_requests::get_cached_authored_pull_request_unread_count(&state).await?;
+    Ok(PullRequestUnreadCountsDto {
+        reviewer: reviewer_page
+            .values
+            .iter()
+            .filter(|pull_request| pull_request.activity != PullRequestActivity::Read)
+            .count() as u64,
+        authored,
+    })
 }
 
 #[tauri::command]

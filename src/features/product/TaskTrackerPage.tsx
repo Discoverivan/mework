@@ -3,7 +3,7 @@ import { save } from "@tauri-apps/plugin-dialog";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { AlertTriangle, Check, CheckCheck, ChevronDown, ChevronUp, Copy, Download, ExternalLink, Pencil, Plus, Radar, RefreshCw, SlidersHorizontal, Trash2, Upload, X } from "lucide-react";
 
-import { APP_EVENT, subscribeAppEvent } from "@/app/app-events";
+import { APP_EVENT, emitAppEvent, subscribeAppEvent } from "@/app/app-events";
 import { PageHeader } from "@/components/shared/PageHeader";
 import { EmptyState } from "@/components/shared/EmptyState";
 import { useI18n, type I18nContextValue } from "@/i18n/context";
@@ -31,6 +31,7 @@ import {
   saveTaskTrackerMonitorExport,
   validateTaskTrackerJql,
 } from "@/shared/contracts/task-tracker";
+import { loadTaskTrackerReadCheckpoints, saveTaskTrackerReadCheckpoint } from "./task-tracker-read-state";
 import type {
   TaskTrackerChangeKind,
   TaskTrackerEventKind,
@@ -218,6 +219,7 @@ function changeBadgeClass(kind?: TaskTrackerChangeKind | null): string {
 export function TaskTrackerPage() {
   const { locale, t } = useI18n();
   const [monitors, setMonitors] = useState<TaskTrackerMonitor[]>([]);
+  const monitorsRef = useRef<TaskTrackerMonitor[]>([]);
   const [activeId, setActiveId] = useState<string | undefined>();
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -240,7 +242,7 @@ export function TaskTrackerPage() {
   const [filterDraftOnlyChanged, setFilterDraftOnlyChanged] = useState(false);
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [viewedChanges, setViewedChanges] = useState<Record<string, string | null>>({});
-  const [readChanges, setReadChanges] = useState<Record<string, string | null>>({});
+  const [readChanges, setReadChanges] = useState<Record<string, string | null>>(() => loadTaskTrackerReadCheckpoints());
   const [page, setPage] = useState(1);
   const [now, setNow] = useState(() => Date.now());
   const [jqlCopied, setJqlCopied] = useState(false);
@@ -260,6 +262,13 @@ export function TaskTrackerPage() {
     setViewedChanges((current) => ({ ...current, [activeMonitor.id]: activeMonitor.lastSuccessAt ?? null }));
   }, [activeMonitor?.id, activeMonitor?.lastSuccessAt]);
 
+  function applyMonitorSnapshot(next: TaskTrackerMonitor[], publish = false) {
+    monitorsRef.current = next;
+    setMonitors(next);
+    setActiveId((current) => current && next.some((monitor) => monitor.id === current) ? current : next[0]?.id);
+    if (publish) emitAppEvent(APP_EVENT.taskTrackerUpdated, next);
+  }
+
   async function loadMonitors(showSpinner = true) {
     const revision = monitorsRevision.current + 1;
     monitorsRevision.current = revision;
@@ -267,8 +276,7 @@ export function TaskTrackerPage() {
     try {
       const next = await listTaskTrackerMonitors();
       if (monitorsRevision.current !== revision) return;
-      setMonitors(next);
-      setActiveId((current) => current && next.some((monitor) => monitor.id === current) ? current : next[0]?.id);
+      applyMonitorSnapshot(next, true);
       setPageError(undefined);
     } catch (reason) {
       if (monitorsRevision.current === revision) setPageError(errorMessage(reason, t("taskTracker.unavailable")));
@@ -284,8 +292,7 @@ export function TaskTrackerPage() {
     void loadMonitors();
     return subscribeAppEvent(APP_EVENT.taskTrackerUpdated, (updatedMonitors) => {
       monitorsRevision.current += 1;
-      setMonitors(updatedMonitors);
-      setActiveId((current) => current && updatedMonitors.some((monitor) => monitor.id === current) ? current : updatedMonitors[0]?.id);
+      applyMonitorSnapshot(updatedMonitors);
       setLoading(false);
       setRefreshing(false);
     });
@@ -378,8 +385,9 @@ export function TaskTrackerPage() {
   function markAllRead() {
     if (!activeMonitor) return;
     const checkpoint = activeMonitor.lastSuccessAt ?? null;
-    setReadChanges((current) => ({ ...current, [activeMonitor.id]: checkpoint }));
+    setReadChanges(saveTaskTrackerReadCheckpoint(activeMonitor.id, checkpoint));
     setViewedChanges((current) => ({ ...current, [activeMonitor.id]: checkpoint }));
+    emitAppEvent(APP_EVENT.taskTrackerReadStateChanged, { monitorId: activeMonitor.id, checkpoint });
   }
 
   async function copyJql() {
@@ -445,16 +453,19 @@ export function TaskTrackerPage() {
   }
 
   async function saveMonitor() {
+    const shouldCheckImmediately = editingId === undefined;
     setSaving(true);
     setDialogError(undefined);
     try {
       const saved = await saveTaskTrackerMonitor(draft);
-      setMonitors((current) => {
-        const exists = current.some((monitor) => monitor.id === saved.id);
-        return exists ? current.map((monitor) => monitor.id === saved.id ? saved : monitor) : [...current, saved];
-      });
+      const current = monitorsRef.current;
+      const next = current.some((monitor) => monitor.id === saved.id)
+        ? current.map((monitor) => monitor.id === saved.id ? saved : monitor)
+        : [...current, saved];
+      applyMonitorSnapshot(next, true);
       setActiveId(saved.id);
       setDialogOpen(false);
+      if (shouldCheckImmediately) void checkMonitorNow(saved.id);
     } catch (reason) {
       setDialogError(errorMessage(reason, t("taskTracker.unavailable")));
     } finally {
@@ -476,9 +487,8 @@ export function TaskTrackerPage() {
     setDialogError(undefined);
     try {
       await deleteTaskTrackerMonitor(monitor.id);
-      const next = monitors.filter((item) => item.id !== monitor.id);
-      setMonitors(next);
-      setActiveId(next[0]?.id);
+      const next = monitorsRef.current.filter((item) => item.id !== monitor.id);
+      applyMonitorSnapshot(next, true);
       setDialogOpen(false);
       setEditingId(undefined);
     } catch (reason) {
@@ -486,19 +496,23 @@ export function TaskTrackerPage() {
     }
   }
 
-  async function checkNow() {
-    if (!activeMonitor) return;
+  async function checkMonitorNow(id: string) {
     setChecking(true);
     setPageError(undefined);
     try {
-      const updated = await checkTaskTrackerNow(activeMonitor.id);
-      setMonitors((current) => current.map((monitor) => monitor.id === updated.id ? updated : monitor));
+      const updated = await checkTaskTrackerNow(id);
+      applyMonitorSnapshot(monitorsRef.current.map((monitor) => monitor.id === updated.id ? updated : monitor), true);
     } catch (reason) {
       setPageError(errorMessage(reason, t("taskTracker.unavailable")));
       await loadMonitors(false);
     } finally {
       setChecking(false);
     }
+  }
+
+  async function checkNow() {
+    if (!activeMonitor) return;
+    await checkMonitorNow(activeMonitor.id);
   }
 
   const statuses = statusValues(activeMonitor?.issues ?? []);

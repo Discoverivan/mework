@@ -2,11 +2,13 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { save } from "@tauri-apps/plugin-dialog";
 
+import { APP_EVENT, subscribeAppEvent } from "@/app/app-events";
 import { TaskTrackerPage } from "./TaskTrackerPage";
 import { I18nContext } from "@/i18n/context";
 import { ru } from "@/i18n/locales/ru";
 import { AppLanguage, APP_LANGUAGE_LOCALES } from "@/i18n/types";
 import {
+  checkTaskTrackerNow,
   listTaskTrackerMonitors,
   saveTaskTrackerMonitor,
   saveTaskTrackerMonitorExport,
@@ -150,7 +152,10 @@ describe("TaskTrackerPage", () => {
     expect(tab.querySelector(".bg-blue-500")).not.toBeInTheDocument();
   });
 
-  it("marks changed rows as read without changing the change history", async () => {
+  it("marks changed rows as read and persists the monitor checkpoint", async () => {
+    window.localStorage.removeItem("mework.task-tracker.read-checkpoints.v1");
+    const readStateListener = vi.fn();
+    const unsubscribe = subscribeAppEvent(APP_EVENT.taskTrackerReadStateChanged, readStateListener);
     render(<TaskTrackerPage />);
     const issueButton = await screen.findByRole("button", { name: "DEMO-1" });
     expect(issueButton.querySelector(".bg-blue-500")).toBeInTheDocument();
@@ -159,6 +164,14 @@ describe("TaskTrackerPage", () => {
     expect(issueButton.querySelector(".bg-blue-500")).not.toBeInTheDocument();
     expect(markReadButton).toBeDisabled();
     expect(screen.getByRole("columnheader", { name: "Status" })).toBeInTheDocument();
+    expect(window.localStorage.getItem("mework.task-tracker.read-checkpoints.v1")).toBe(
+      JSON.stringify({ [monitor.id]: monitor.lastSuccessAt }),
+    );
+    expect(readStateListener).toHaveBeenCalledWith({
+      monitorId: monitor.id,
+      checkpoint: monitor.lastSuccessAt,
+    });
+    unsubscribe();
   });
 
   it("sorts changed issues before unchanged issues and then by the selected header", async () => {
@@ -181,6 +194,37 @@ describe("TaskTrackerPage", () => {
     expect(rows()[0]).toHaveTextContent("DEMO-3");
     fireEvent.click(screen.getByRole("button", { name: "Summary" }));
     expect(rows()[0]).toHaveTextContent("DEMO-1");
+  });
+
+  it("checks a newly created monitor immediately and shows its first tasks", async () => {
+    const created: TaskTrackerMonitor = {
+      ...monitor,
+      id: "monitor-new",
+      name: "New monitor",
+      lastSuccessAt: null,
+      nextCheckAt: null,
+      currentIssueCount: 0,
+      changesAfterLastCheck: 0,
+      issues: [],
+    };
+    const checked: TaskTrackerMonitor = {
+      ...created,
+      lastSuccessAt: "2026-09-24T10:00:00Z",
+      currentIssueCount: 1,
+      issues: [monitor.issues[0]],
+    };
+    vi.mocked(listTaskTrackerMonitors).mockResolvedValue([]);
+    vi.mocked(saveTaskTrackerMonitor).mockResolvedValue(created);
+    vi.mocked(checkTaskTrackerNow).mockResolvedValue(checked);
+
+    render(<TaskTrackerPage />);
+    fireEvent.click(await screen.findByRole("button", { name: "Create monitor" }));
+    fireEvent.change(screen.getByLabelText("Name"), { target: { value: "New monitor" } });
+    fireEvent.change(screen.getByLabelText("JQL"), { target: { value: "project = DEMO" } });
+    fireEvent.click(screen.getByRole("button", { name: "Create" }));
+
+    await waitFor(() => expect(checkTaskTrackerNow).toHaveBeenCalledWith(created.id));
+    expect(await screen.findByRole("button", { name: "DEMO-1" })).toBeInTheDocument();
   });
 
   it("imports valid monitor JSON into the create form", async () => {

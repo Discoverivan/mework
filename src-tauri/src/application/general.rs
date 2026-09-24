@@ -10,7 +10,7 @@ use crate::os::notifications::{
 };
 
 const GENERAL_SETTINGS_KEY: &str = "general.settings";
-const GENERAL_SETTINGS_SCHEMA_VERSION: i64 = 4;
+const GENERAL_SETTINGS_SCHEMA_VERSION: i64 = 5;
 static GENERAL_SETTINGS_WRITE_LOCK: OnceLock<tokio::sync::Mutex<()>> = OnceLock::new();
 
 fn general_settings_write_lock() -> &'static tokio::sync::Mutex<()> {
@@ -29,11 +29,40 @@ pub enum AppLanguage {
     Russian,
 }
 
+impl AppLanguage {
+    pub const fn prompt_name(self) -> &'static str {
+        match self {
+            Self::English => "English",
+            Self::Russian => "Russian",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, Default, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum AiResponseLanguage {
+    #[default]
+    SameAsUi,
+    English,
+    Russian,
+}
+
+impl AiResponseLanguage {
+    pub const fn output_language(self, ui_language: AppLanguage) -> AppLanguage {
+        match self {
+            Self::SameAsUi => ui_language,
+            Self::English => AppLanguage::English,
+            Self::Russian => AppLanguage::Russian,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub enum NotificationTestKind {
     Review,
     Authored,
+    TaskTracker,
 }
 
 #[derive(Debug, Clone, Copy, Default, Deserialize, Serialize, PartialEq, Eq)]
@@ -58,6 +87,8 @@ pub struct GeneralSettings {
     #[serde(default)]
     pub language: AppLanguage,
     #[serde(default)]
+    pub ai_response_language: AiResponseLanguage,
+    #[serde(default)]
     pub theme_preference: ThemePreference,
 }
 
@@ -69,6 +100,7 @@ impl Default for GeneralSettings {
             authored_notifications_enabled: true,
             task_tracker_notifications_enabled: true,
             language: AppLanguage::English,
+            ai_response_language: AiResponseLanguage::SameAsUi,
             theme_preference: ThemePreference::System,
         }
     }
@@ -82,6 +114,7 @@ pub struct GeneralSettingsDto {
     pub authored_notifications_enabled: bool,
     pub task_tracker_notifications_enabled: bool,
     pub language: AppLanguage,
+    pub ai_response_language: AiResponseLanguage,
     pub theme_preference: ThemePreference,
     pub notification_permission: NotificationPermission,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -142,18 +175,20 @@ async fn update(pool: &SqlitePool, apply: impl FnOnce(&mut GeneralSettings)) -> 
     Ok(())
 }
 
-pub async fn save_notification_preferences(
+pub async fn save_general_preferences(
     pool: &SqlitePool,
     notifications_enabled: bool,
     review_notifications_enabled: bool,
     authored_notifications_enabled: bool,
     task_tracker_notifications_enabled: bool,
+    ai_response_language: AiResponseLanguage,
 ) -> Result<(), String> {
     update(pool, |settings| {
         settings.notifications_enabled = notifications_enabled;
         settings.review_notifications_enabled = review_notifications_enabled;
         settings.authored_notifications_enabled = authored_notifications_enabled;
         settings.task_tracker_notifications_enabled = task_tracker_notifications_enabled;
+        settings.ai_response_language = ai_response_language;
     })
     .await
 }
@@ -186,6 +221,7 @@ pub async fn dto<R: Runtime>(
         authored_notifications_enabled: settings.authored_notifications_enabled,
         task_tracker_notifications_enabled: settings.task_tracker_notifications_enabled,
         language: settings.language,
+        ai_response_language: settings.ai_response_language,
         theme_preference: settings.theme_preference,
         notification_permission,
         permission_check_error,
@@ -241,6 +277,11 @@ pub async fn send_test_notification<R: Runtime>(
             "EXAMPLE/sample-repository #42 — Example authored pull request",
             "general-authored-test",
         ),
+        NotificationTestKind::TaskTracker => (
+            "Task tracker monitor updated",
+            "A task tracker test notification was sent successfully.",
+            "general-task-tracker-test",
+        ),
     };
 
     let adapter = NativeNotificationAdapter::new(app.clone());
@@ -256,10 +297,16 @@ pub fn open_notification_settings() -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::{
-        initialize_if_missing, load, save_appearance_preferences, save_notification_preferences,
-        AppLanguage, GeneralSettings, ThemePreference,
+        initialize_if_missing, load, save_appearance_preferences, save_general_preferences,
+        AiResponseLanguage, AppLanguage, GeneralSettings, NotificationTestKind, ThemePreference,
     };
     use sqlx::sqlite::SqlitePoolOptions;
+
+    #[test]
+    fn deserializes_task_tracker_notification_test_kind() {
+        let kind: NotificationTestKind = serde_json::from_str("\"taskTracker\"").unwrap();
+        assert_eq!(kind, NotificationTestKind::TaskTracker);
+    }
 
     #[test]
     fn general_preferences_have_expected_defaults() {
@@ -269,7 +316,25 @@ mod tests {
         assert!(settings.authored_notifications_enabled);
         assert!(settings.task_tracker_notifications_enabled);
         assert_eq!(settings.language, AppLanguage::English);
+        assert_eq!(settings.ai_response_language, AiResponseLanguage::SameAsUi);
         assert_eq!(settings.theme_preference, ThemePreference::System);
+    }
+
+    #[test]
+    fn defaults_missing_ai_response_language_and_resolves_same_as_ui() {
+        let legacy: GeneralSettings = serde_json::from_str(
+            r#"{"notificationsEnabled":true,"language":"russian","themePreference":"dark"}"#,
+        )
+        .unwrap();
+        assert_eq!(legacy.ai_response_language, AiResponseLanguage::SameAsUi);
+        assert_eq!(
+            legacy.ai_response_language.output_language(legacy.language),
+            AppLanguage::Russian
+        );
+        assert_eq!(
+            AiResponseLanguage::English.output_language(AppLanguage::Russian),
+            AppLanguage::English
+        );
     }
 
     #[tokio::test]
@@ -303,7 +368,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn notification_patch_preserves_appearance_preferences() {
+    async fn general_preference_update_preserves_appearance_preferences() {
         let pool = SqlitePoolOptions::new()
             .max_connections(1)
             .connect("sqlite::memory:")
@@ -325,13 +390,21 @@ mod tests {
         save_appearance_preferences(&pool, AppLanguage::Russian, ThemePreference::Dark)
             .await
             .unwrap();
-        save_notification_preferences(&pool, false, false, true, false)
-            .await
-            .unwrap();
+        save_general_preferences(
+            &pool,
+            false,
+            false,
+            true,
+            false,
+            AiResponseLanguage::Russian,
+        )
+        .await
+        .unwrap();
 
         let settings = load(&pool).await.unwrap();
         assert_eq!(settings.language, AppLanguage::Russian);
         assert_eq!(settings.theme_preference, ThemePreference::Dark);
+        assert_eq!(settings.ai_response_language, AiResponseLanguage::Russian);
         assert!(!settings.notifications_enabled);
         assert!(!settings.review_notifications_enabled);
         assert!(settings.authored_notifications_enabled);

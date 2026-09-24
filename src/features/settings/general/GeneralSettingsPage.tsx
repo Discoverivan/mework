@@ -7,21 +7,26 @@ import { Button } from "@/components/ui/button";
 import { checkForAvailableUpdate } from "@/components/shared/update-check";
 import { installAvailableUpdate } from "@/components/shared/update-install";
 import { StatusToast } from "@/components/shared/StatusToast";
-import { Card, CardDescription, CardHeader } from "@/components/ui/card";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 import { Switch } from "@/components/ui/switch";
 import {
+  commandBoardTerminalPreferences,
   generalSettings,
   openNotificationSettings,
   requestNotificationPermission,
+  saveCommandBoardTerminalPreference,
   saveGeneralSettings,
   sendNotificationTest,
+  type CommandBoardTerminalPreferences,
   type GeneralSettings,
   type GeneralSettingsSaveInput,
   type NotificationTestKind,
+  AiResponseLanguage,
   type ThemePreference,
 } from "./api";
+import { APP_EVENT, emitAppEvent } from "@/app/app-events";
 import { useI18n } from "@/i18n/context";
 import { AppLanguage } from "@/i18n/types";
 
@@ -30,9 +35,17 @@ function errorMessage(error: unknown, fallback: string): string {
   return message.replace(/(?:token|pat|password|secret|authorization)[^\n]*/gi, "credential details redacted");
 }
 
-export function GeneralSettingsPage() {
+interface GeneralSettingsPageProps {
+  updateCheckRequest?: number;
+}
+
+export function GeneralSettingsPage({ updateCheckRequest = 0 }: GeneralSettingsPageProps) {
   const { appearanceSaving, language, themePreference, t, updateAppearance } = useI18n();
   const [settings, setSettings] = useState<GeneralSettings | null>(null);
+  const [terminalPreferences, setTerminalPreferences] = useState<CommandBoardTerminalPreferences | null>(null);
+  const [terminalLoading, setTerminalLoading] = useState(true);
+  const [terminalSaving, setTerminalSaving] = useState(false);
+  const [terminalError, setTerminalError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [testingNotification, setTestingNotification] = useState<NotificationTestKind | null>(null);
@@ -48,8 +61,24 @@ export function GeneralSettingsPage() {
   const [error, setError] = useState<string | null>(null);
   const [notificationError, setNotificationError] = useState<string | null>(null);
   const savingRef = useRef(false);
+  const terminalSavingRef = useRef(false);
   const languageRef = useRef(language);
   const themePreferenceRef = useRef(themePreference);
+
+  const loadTerminalPreferences = useCallback(async () => {
+    if (terminalSavingRef.current) return;
+    setTerminalLoading(true);
+    try {
+      setTerminalPreferences(await commandBoardTerminalPreferences());
+      setTerminalError(null);
+    } catch (loadError) {
+      setTerminalError(t("general.terminalLoadError", {
+        error: errorMessage(loadError, t("common.unknownError")),
+      }));
+    } finally {
+      setTerminalLoading(false);
+    }
+  }, [t]);
 
   useEffect(() => {
     languageRef.current = language;
@@ -68,12 +97,13 @@ export function GeneralSettingsPage() {
         themePreference: themePreferenceRef.current,
       });
       setNotificationError(loaded.permissionCheckError ?? null);
+      void loadTerminalPreferences();
     } catch (loadError) {
       setError(t("general.loadError", { error: errorMessage(loadError, t("common.unknownError")) }));
     } finally {
       setLoading(false);
     }
-  }, [t]);
+  }, [loadTerminalPreferences, t]);
 
   useEffect(() => {
     void loadSettings();
@@ -91,6 +121,7 @@ export function GeneralSettingsPage() {
       authoredNotificationsEnabled: settings.authoredNotificationsEnabled,
       taskTrackerNotificationsEnabled: settings.taskTrackerNotificationsEnabled,
       language: settings.language,
+      aiResponseLanguage: settings.aiResponseLanguage ?? AiResponseLanguage.SameAsUi,
       themePreference: settings.themePreference,
       ...changes,
     };
@@ -114,6 +145,26 @@ export function GeneralSettingsPage() {
     } finally {
       savingRef.current = false;
       setSaving(false);
+    }
+  }
+
+  async function handleTerminalPreferenceChange(terminalId: string) {
+    if (!terminalPreferences || terminalSavingRef.current) return;
+    const previous = terminalPreferences;
+    terminalSavingRef.current = true;
+    setTerminalSaving(true);
+    setTerminalError(null);
+    setTerminalPreferences({ ...previous, selectedTerminal: terminalId });
+    try {
+      setTerminalPreferences(await saveCommandBoardTerminalPreference(terminalId));
+    } catch (saveError) {
+      setTerminalPreferences(previous);
+      setTerminalError(t("general.terminalSaveError", {
+        error: errorMessage(saveError, t("common.unknownError")),
+      }));
+    } finally {
+      terminalSavingRef.current = false;
+      setTerminalSaving(false);
     }
   }
 
@@ -158,7 +209,7 @@ export function GeneralSettingsPage() {
     }
   }
 
-  async function handleCheckForUpdates() {
+  const handleCheckForUpdates = useCallback(async () => {
     setCheckingUpdates(true);
     setUpdateStatus("idle");
     setAvailableUpdate(null);
@@ -170,15 +221,24 @@ export function GeneralSettingsPage() {
         setAvailableUpdate(update);
         setAvailableUpdateVersion(update.version);
         setUpdateStatus("available");
+        emitAppEvent(APP_EVENT.updateAvailabilityChanged, update.version);
       } else {
         setUpdateStatus("current");
+        emitAppEvent(APP_EVENT.updateAvailabilityChanged, null);
       }
     } catch {
       setUpdateStatus("error");
     } finally {
       setCheckingUpdates(false);
     }
-  }
+  }, []);
+
+  const handledUpdateCheckRequestRef = useRef(updateCheckRequest);
+  useEffect(() => {
+    if (updateCheckRequest <= handledUpdateCheckRequestRef.current) return;
+    handledUpdateCheckRequestRef.current = updateCheckRequest;
+    void handleCheckForUpdates();
+  }, [handleCheckForUpdates, updateCheckRequest]);
 
   async function handleInstallUpdate() {
     if (!availableUpdate) return;
@@ -222,20 +282,26 @@ export function GeneralSettingsPage() {
       ) : null}
 
       <Card>
-        <CardHeader className="space-y-4 px-4 py-3.5">
+        <CardHeader className="px-4 pb-0 pt-3.5">
+          <CardTitle className="text-base font-semibold leading-tight">{t("general.language")}</CardTitle>
+          <CardDescription className="mt-1 leading-snug">
+            {t("general.languageDescription")}
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="flex flex-col gap-4 px-4 pb-3.5 pt-4">
           <div className="flex flex-wrap items-center justify-between gap-4">
-            <div className="-translate-y-px">
-              <Label htmlFor="general-language" alignment="inline" className="text-base font-semibold leading-tight">
-                {t("general.language")}
+            <div className="min-w-0">
+              <Label htmlFor="general-language" alignment="inline" className="font-medium">
+                {t("general.languageUi")}
               </Label>
               <CardDescription className="mt-1 leading-snug">
-                {t("general.languageDescription")}
+                {t("general.languageUiDescription")}
               </CardDescription>
             </div>
             <div className="relative w-full sm:w-48">
               <select
                 id="general-language"
-                aria-label={t("general.language")}
+                aria-label={t("general.languageUi")}
                 value={language}
                 onChange={(event) => void handlePreferencesChange({ language: event.target.value as AppLanguage })}
                 disabled={loading || saving || appearanceSaving}
@@ -247,7 +313,35 @@ export function GeneralSettingsPage() {
               <ChevronDown className="pointer-events-none absolute right-2 top-1/2 size-4 -translate-y-1/2 opacity-50" aria-hidden="true" />
             </div>
           </div>
-        </CardHeader>
+          <Separator />
+          <div className="flex flex-wrap items-center justify-between gap-4">
+            <div className="min-w-0">
+              <Label htmlFor="general-ai-response-language" alignment="inline" className="font-medium">
+                {t("general.aiResponseLanguage")}
+              </Label>
+              <CardDescription className="mt-1 leading-snug">
+                {t("general.aiResponseLanguageDescription")}
+              </CardDescription>
+            </div>
+            <div className="relative w-full sm:w-48">
+              <select
+                id="general-ai-response-language"
+                aria-label={t("general.aiResponseLanguage")}
+                value={settings?.aiResponseLanguage ?? AiResponseLanguage.SameAsUi}
+                onChange={(event) => void handlePreferencesChange({
+                  aiResponseLanguage: event.target.value as AiResponseLanguage,
+                })}
+                disabled={loading || saving || settings === null}
+                className="h-10 w-full appearance-none rounded-md border border-input bg-background px-3 pr-9 text-sm disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                <option value={AiResponseLanguage.SameAsUi}>{t("general.aiResponseLanguageSameAsUi")}</option>
+                <option value={AiResponseLanguage.English}>{t("general.aiResponseLanguageEnglish")}</option>
+                <option value={AiResponseLanguage.Russian}>{t("general.aiResponseLanguageRussian")}</option>
+              </select>
+              <ChevronDown className="pointer-events-none absolute right-2 top-1/2 size-4 -translate-y-1/2 opacity-50" aria-hidden="true" />
+            </div>
+          </div>
+        </CardContent>
       </Card>
 
       <Card>
@@ -277,6 +371,53 @@ export function GeneralSettingsPage() {
               <ChevronDown className="pointer-events-none absolute right-2 top-1/2 size-4 -translate-y-1/2 opacity-50" aria-hidden="true" />
             </div>
           </div>
+        </CardHeader>
+      </Card>
+
+      <Card>
+        <CardHeader className="space-y-4 px-4 py-3.5">
+          <div className="flex flex-wrap items-center justify-between gap-4">
+            <div className="-translate-y-px min-w-0 flex-1">
+              <Label htmlFor="general-terminal" alignment="inline" className="text-base font-semibold leading-tight">
+                {t("general.terminal")}
+              </Label>
+              <CardDescription className="mt-1 leading-snug">
+                {t("general.terminalDescription")}
+              </CardDescription>
+            </div>
+            <div className="relative w-full sm:w-48">
+              <select
+                id="general-terminal"
+                aria-label={t("general.terminal")}
+                value={terminalPreferences?.selectedTerminal ?? ""}
+                onChange={(event) => void handleTerminalPreferenceChange(event.target.value)}
+                disabled={loading || terminalLoading || terminalSaving || terminalPreferences === null}
+                className="h-10 w-full appearance-none rounded-md border border-input bg-background px-3 pr-9 text-sm disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {!terminalPreferences ? (
+                  <option value="" disabled>
+                    {terminalLoading ? t("general.terminalLoading") : t("general.terminalOptionsUnavailable")}
+                  </option>
+                ) : null}
+                {terminalPreferences?.options.map((option) => (
+                  <option key={option.id} value={option.id} disabled={!option.available}>
+                    {option.id === "system"
+                      ? option.available ? t("general.terminalSystem") : t("general.terminalSystemUnavailable")
+                      : option.available ? option.label : t("general.terminalOptionUnavailable", {
+                          name: option.label || t("general.terminalUnknown"),
+                        })}
+                  </option>
+                ))}
+              </select>
+              <ChevronDown className="pointer-events-none absolute right-2 top-1/2 size-4 -translate-y-1/2 opacity-50" aria-hidden="true" />
+            </div>
+          </div>
+          {terminalError ? (
+            <Alert variant="destructive" role="alert" aria-live="polite">
+              <AlertTriangle className="size-4" aria-hidden="true" />
+              <AlertDescription>{terminalError}</AlertDescription>
+            </Alert>
+          ) : null}
         </CardHeader>
       </Card>
 
@@ -334,7 +475,25 @@ export function GeneralSettingsPage() {
           <div className="grid gap-3 border-t pt-4">
             <div className="flex items-center justify-between gap-4 pl-4">
               <div>
-                <Label htmlFor="general-task-tracker-notifications-enabled" alignment="inline" className="font-medium">Task tracker</Label>
+                <div className="flex items-center gap-1.5">
+                  <Label htmlFor="general-task-tracker-notifications-enabled" alignment="inline" className="font-medium">Task tracker</Label>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="h-6 w-6 text-muted-foreground hover:text-foreground [&_svg]:!size-3.5"
+                    onClick={() => void handleTestNotification("taskTracker")}
+                    disabled={loading || testingNotification !== null || !(settings?.notificationsEnabled ?? true) || !(settings?.taskTrackerNotificationsEnabled ?? true)}
+                    aria-label={t("general.testTaskTrackerNotification")}
+                    title={t("general.testTaskTrackerNotification")}
+                  >
+                    {testingNotification === "taskTracker"
+                      ? <RefreshCw className="animate-spin" aria-hidden="true" />
+                      : testedNotification === "taskTracker"
+                        ? <CheckCircle2 className="text-success" aria-hidden="true" />
+                        : <BellRing aria-hidden="true" />}
+                  </Button>
+                </div>
                 <CardDescription className="mt-1">Notifications from Task tracker monitors.</CardDescription>
               </div>
               <Switch
