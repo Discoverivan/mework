@@ -628,6 +628,7 @@ export function MyPullRequestsPage() {
           type="button"
           role="tab"
           size="sm"
+          className="text-[13.5px] font-normal"
           variant={quickFilter === "all" ? "default" : "outline"}
           aria-selected={quickFilter === "all"}
           onClick={() => setQuickFilter("all")}
@@ -638,6 +639,7 @@ export function MyPullRequestsPage() {
           type="button"
           role="tab"
           size="sm"
+          className="text-[13.5px] font-normal"
           variant={quickFilter === "pending" ? "default" : "outline"}
           aria-selected={quickFilter === "pending"}
           onClick={() => setQuickFilter("pending")}

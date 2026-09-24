@@ -359,6 +359,7 @@ export function AuthoredPullRequestsPage() {
           type="button"
           role="tab"
           size="sm"
+          className="text-[13.5px] font-normal"
           variant={quickFilter === "all" ? "default" : "outline"}
           aria-selected={quickFilter === "all"}
           onClick={() => setQuickFilter("all")}
@@ -369,6 +370,7 @@ export function AuthoredPullRequestsPage() {
           type="button"
           role="tab"
           size="sm"
+          className="text-[13.5px] font-normal"
           variant={quickFilter === "needs_action" ? "default" : "outline"}
           aria-selected={quickFilter === "needs_action"}
           onClick={() => setQuickFilter("needs_action")}
