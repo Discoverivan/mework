@@ -46,7 +46,7 @@ describe("CommandBoardPage", () => {
   it("shows an empty state and opens the add command dialog", async () => {
     render(<CommandBoardPage />);
 
-    expect(await screen.findByRole("status", { name: "No commands yet" })).toHaveClass("min-h-72", "bg-card");
+    expect(await screen.findByRole("status", { name: "No commands yet" })).toHaveClass("py-10", "bg-card");
     const addCommandButton = screen.getByRole("button", { name: "Add command" });
     expect(addCommandButton.querySelector("svg.lucide-plus")).not.toBeNull();
     expect(addCommandButton).not.toHaveTextContent("Add command");
