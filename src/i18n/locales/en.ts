@@ -797,6 +797,23 @@ export const en = {
   "pr.autoReviewSaveError": "Unable to save the AI auto-review setting. {error}",
   "pr.changedBeforeViewed": "The pull request changed before it could be marked as viewed. Refresh and try again.",
   "pr.reviewSourceMissing": "This pull request has no reviewable URL or latest commit.",
+  "devOverlay.title": "Development scenario",
+  "devOverlay.launch": "Open development scenario",
+  "devOverlay.badge": "MOCK DATA",
+  "devOverlay.description": "A fresh isolated mock profile is reset on launch. Integration data is synthetic; Jira, Bitbucket, and Confluence are not contacted. AI uses your configured provider.",
+  "devOverlay.hide": "Hide",
+  "devOverlay.show": "Show",
+  "devOverlay.taskSummary": "Mock task summary",
+  "devOverlay.taskPlaceholder": "Example: Verify a sample workflow",
+  "devOverlay.addTask": "Add Jira task",
+  "devOverlay.selectTask": "Select mock task",
+  "devOverlay.taskStatus": "Mock task status",
+  "devOverlay.setStatus": "Set status",
+  "devOverlay.addReviewerPr": "Add review PR",
+  "devOverlay.addAuthoredPr": "Add authored PR",
+  "devOverlay.reset": "Reset scenario",
+  "devOverlay.restrictedTitle": "Unavailable in mock mode",
+  "devOverlay.restrictedDescription": "Integration data and external writes are mocked; application screens and workflows remain available.",
 } as const;
 
 export type TranslationKey = keyof typeof en;

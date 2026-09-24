@@ -273,6 +273,25 @@ pub async fn start_review<R: Runtime>(
     app: &AppHandle<R>,
     request: PullRequestReviewRequest,
 ) -> Result<PullRequestReviewDto, String> {
+    let diff = crate::application::developer::pull_request_diff(
+        pool,
+        &request.integration_id,
+        &request.project_key,
+        &request.repository_slug,
+        &request.pull_request_id,
+        request.latest_commit.as_deref().unwrap_or_default(),
+    )
+    .await
+    .map_err(|error| error.message)?;
+    start_review_with_diff(pool, app, request, diff).await
+}
+
+pub async fn start_review_with_diff<R: Runtime>(
+    pool: &SqlitePool,
+    app: &AppHandle<R>,
+    request: PullRequestReviewRequest,
+    diff: String,
+) -> Result<PullRequestReviewDto, String> {
     validate_request(&request)?;
     let ai_settings = crate::application::ai::ensure_review_ready(pool).await?;
     let general_settings = crate::application::general::load(pool).await?;
@@ -285,16 +304,7 @@ pub async fn start_review<R: Runtime>(
         } else {
             None
         };
-    let diff = crate::application::developer::pull_request_diff(
-        pool,
-        &request.integration_id,
-        &request.project_key,
-        &request.repository_slug,
-        &request.pull_request_id,
-        request.latest_commit.as_deref().unwrap_or_default(),
-    )
-    .await
-    .map_err(|error| error.message)?;
+
     let key = pull_request_review_key(
         &request.integration_id,
         &request.project_key,

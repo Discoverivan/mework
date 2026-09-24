@@ -24,4 +24,4 @@ if ! node -e 'const [major, minor] = process.versions.node.split(".").map(Number
   exit 1
 fi
 
-exec node ./scripts/tauri-dev.mjs
+exec node ./scripts/tauri-dev.mjs "$@"

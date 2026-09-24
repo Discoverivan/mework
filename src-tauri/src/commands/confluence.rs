@@ -5,6 +5,7 @@ use crate::application::confluence::{
     self, ConfluenceSearchError, ConfluenceSearchRequest, ConfluenceSearchResponse,
     ConfluenceSpaceDto, ConfluenceSpaceResolveRequest,
 };
+use crate::application::dev_overlay::DevMockMode;
 use crate::application::integration_error::{IntegrationCommandError, IntegrationErrorDetails};
 
 fn map_error(
@@ -111,11 +112,26 @@ fn credential_store_error() -> IntegrationCommandError {
     }
 }
 
+fn mock_mode_error() -> IntegrationCommandError {
+    IntegrationCommandError {
+        code: "mock_mode",
+        message: "Provider access is disabled in mock mode",
+        retryable: false,
+        details: None,
+    }
+}
+
 #[tauri::command]
 pub async fn confluence_search(
+    mode: State<'_, DevMockMode>,
     state: State<'_, SqlitePool>,
     request: ConfluenceSearchRequest,
 ) -> Result<ConfluenceSearchResponse, IntegrationCommandError> {
+    if mode.is_enabled() {
+        return mode
+            .mock_confluence_search(request)
+            .map_err(|_| mock_mode_error());
+    }
     let store = super::integrations::credential_store(&state)
         .await
         .map_err(|_| credential_store_error())?;
@@ -126,9 +142,15 @@ pub async fn confluence_search(
 
 #[tauri::command]
 pub async fn confluence_space_resolve(
+    mode: State<'_, DevMockMode>,
     state: State<'_, SqlitePool>,
     request: ConfluenceSpaceResolveRequest,
 ) -> Result<ConfluenceSpaceDto, IntegrationCommandError> {
+    if mode.is_enabled() {
+        return mode
+            .mock_confluence_space(&request.integration_id, &request.key_or_url)
+            .map_err(|_| mock_mode_error());
+    }
     let store = super::integrations::credential_store(&state)
         .await
         .map_err(|_| credential_store_error())?;
