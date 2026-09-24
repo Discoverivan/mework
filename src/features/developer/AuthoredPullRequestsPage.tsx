@@ -7,6 +7,7 @@ import { useI18n } from "@/i18n/context";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { PullRequestDisplayOptionsDialog } from "./components/PullRequestDisplayOptionsDialog";
 import { PullRequestListItem } from "./components/PullRequestListItem";
 import { PullRequestProjectSection } from "./components/PullRequestProjectSection";
@@ -354,29 +355,16 @@ export function AuthoredPullRequestsPage() {
         ) : undefined}
       />
 
-      <div role="tablist" aria-label={t("pr.quickFilters.authored")} className="flex flex-wrap items-center gap-2">
-        <Button
-          type="button"
-          role="tab"
-          size="sm"
-          className="text-[13.5px] font-normal"
-          variant={quickFilter === "all" ? "default" : "outline"}
-          aria-selected={quickFilter === "all"}
-          onClick={() => setQuickFilter("all")}
-        >
-          {t("pr.filter.all")}
-        </Button>
-        <Button
-          type="button"
-          role="tab"
-          size="sm"
-          className="text-[13.5px] font-normal"
-          variant={quickFilter === "needs_action" ? "default" : "outline"}
-          aria-selected={quickFilter === "needs_action"}
-          onClick={() => setQuickFilter("needs_action")}
-        >
-          {t("pr.filter.needsAction")}
-        </Button>
+      <div className="flex flex-wrap items-center gap-2">
+        <Select value={quickFilter} onValueChange={(value) => setQuickFilter(value as QuickFilter)}>
+          <SelectTrigger aria-label={t("pr.quickFilters.authored")} className="h-9 w-56 max-w-full text-[13.5px]">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">{t("pr.filter.all")}</SelectItem>
+            <SelectItem value="needs_action">{t("pr.filter.needsAction")}</SelectItem>
+          </SelectContent>
+        </Select>
         <div className="ml-auto flex items-center gap-2">
           <Button
             type="button"
