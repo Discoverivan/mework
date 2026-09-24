@@ -226,6 +226,7 @@ export function PullRequestListItem({
                 type="button"
                 variant="ghost"
                 size="icon"
+                actionTone="success"
                 className="size-8"
                 onClick={() => onMarkViewed(pullRequest)}
                 aria-label={t("pr.markViewed")}

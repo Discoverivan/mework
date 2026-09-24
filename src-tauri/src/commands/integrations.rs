@@ -34,11 +34,10 @@ pub(crate) async fn preload_all_credentials(state: &SqlitePool) -> Result<(), St
         .into_iter()
         .map(|integration| integration.credential_ref)
         .collect::<Vec<_>>();
-    let ai_ref = ai::configured_openai_credential_ref(state)
+    let ai_refs = ai::configured_openai_credential_refs(state)
         .await
-        .ok()
-        .flatten();
-    let credential_refs = credential_refs_for_preload(integration_refs, ai_ref);
+        .unwrap_or_default();
+    let credential_refs = credential_refs_for_preload(integration_refs, ai_refs);
     OsKeyring::new(KEYRING_SERVICE)
         .preload(&credential_refs)
         .map_err(|_| "operating system keyring preload failed".to_owned())
@@ -46,13 +45,16 @@ pub(crate) async fn preload_all_credentials(state: &SqlitePool) -> Result<(), St
 
 fn credential_refs_for_preload(
     integration_refs: impl IntoIterator<Item = String>,
-    ai_ref: Option<String>,
+    ai_refs: impl IntoIterator<Item = String>,
 ) -> Vec<String> {
     let mut refs = integration_refs
         .into_iter()
         .filter(|credential_ref| !credential_ref.trim().is_empty())
         .collect::<HashSet<_>>();
-    if let Some(ai_ref) = ai_ref.filter(|credential_ref| !credential_ref.trim().is_empty()) {
+    for ai_ref in ai_refs
+        .into_iter()
+        .filter(|credential_ref| !credential_ref.trim().is_empty())
+    {
         refs.insert(ai_ref);
     }
     refs.into_iter().collect()
@@ -170,7 +172,7 @@ mod tests {
                 "jira-ref".to_owned(),
                 "  ".to_owned(),
             ],
-            Some("ai-ref".to_owned()),
+            vec!["ai-ref".to_owned(), "ai-ref-2".to_owned()],
         );
         assert_eq!(
             refs.into_iter().collect::<HashSet<_>>(),
@@ -178,6 +180,7 @@ mod tests {
                 "jira-ref".to_owned(),
                 "bitbucket-ref".to_owned(),
                 "ai-ref".to_owned(),
+                "ai-ref-2".to_owned(),
             ])
         );
     }

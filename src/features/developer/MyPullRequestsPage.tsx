@@ -17,6 +17,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 import type { AiSettingsPageData } from "@/shared/contracts/settings";
+import { matchesSelectedAiProvider } from "@/shared/contracts/settings";
 import type {
   BitbucketRepository,
   BitbucketUser,
@@ -213,7 +214,7 @@ export function MyPullRequestsPage() {
   }, []);
 
   const aiReviewReady = aiSettings?.settings.provider !== null && aiSettings?.providers.some((provider) =>
-    provider.id === aiSettings.settings.provider
+    matchesSelectedAiProvider(aiSettings.settings, provider)
       && provider.available
       && provider.status === "connected"
       && provider.models.includes(aiSettings.settings.model),
@@ -685,6 +686,7 @@ export function MyPullRequestsPage() {
             type="button"
             variant="outline"
             size="icon"
+            actionTone="success"
             className="h-9 w-9"
             aria-label={t("pr.readAll")}
             title={t("pr.readAll")}

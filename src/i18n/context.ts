@@ -1,6 +1,6 @@
 import { createContext, useContext } from "react";
 
-import type { GeneralSettings, ThemePreference } from "@/features/settings/general/api";
+import type { ButtonStyle, GeneralSettings, ThemePreference } from "@/features/settings/general/api";
 import { en, type TranslationKey } from "./locales/en";
 import { APP_LANGUAGE_LOCALES, AppLanguage, type TranslationParams } from "./types";
 
@@ -8,9 +8,12 @@ export interface I18nContextValue {
   language: AppLanguage;
   locale: string;
   themePreference: ThemePreference;
+  buttonStyle: ButtonStyle;
+  buttonStyleSaving: boolean;
   resolvedTheme: "light" | "dark";
   appearanceSaving: boolean;
   updateAppearance: (changes: Partial<Pick<GeneralSettings, "language" | "themePreference">>) => Promise<GeneralSettings>;
+  updateButtonStyle: (buttonStyle: ButtonStyle) => Promise<GeneralSettings>;
   t: (key: TranslationKey, params?: TranslationParams) => string;
 }
 
@@ -26,9 +29,12 @@ export const I18nContext = createContext<I18nContextValue>({
   language: AppLanguage.English,
   locale: APP_LANGUAGE_LOCALES[AppLanguage.English],
   themePreference: "system",
+  buttonStyle: "quiet",
+  buttonStyleSaving: false,
   resolvedTheme: "light",
   appearanceSaving: false,
   updateAppearance: async () => { throw new Error("Appearance settings are unavailable"); },
+  updateButtonStyle: async () => { throw new Error("Button style settings are unavailable"); },
   t: fallbackTranslation,
 });
 

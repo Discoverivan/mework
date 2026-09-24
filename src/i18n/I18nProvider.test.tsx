@@ -44,5 +44,6 @@ describe("I18nProvider startup appearance", () => {
 
     expect(screen.getByText("dark")).toBeInTheDocument();
     expect(document.documentElement).toHaveAttribute("data-theme", "dark");
+    expect(document.documentElement).toHaveAttribute("data-button-style", "filled");
   });
 });

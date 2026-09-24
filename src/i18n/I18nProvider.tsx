@@ -4,12 +4,14 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import {
   generalSettings,
   saveAppearanceSettings,
+  saveButtonStyle,
+  type ButtonStyle,
   type GeneralSettings,
   type ThemePreference,
 } from "@/features/settings/general/api";
 import { en, type TranslationKey } from "./locales/en";
 import { ru } from "./locales/ru";
-import { cacheThemePreference, readCachedThemePreference } from "./appearance-cache";
+import { cacheButtonStyle, cacheThemePreference, readCachedButtonStyle, readCachedThemePreference } from "./appearance-cache";
 import { APP_LANGUAGE_LOCALES, AppLanguage, type TranslationParams } from "./types";
 import { I18nContext, type I18nContextValue } from "./context";
 
@@ -29,26 +31,64 @@ function translate(language: AppLanguage, key: TranslationKey, params?: Translat
 export function I18nProvider({ children }: { children: ReactNode }) {
   const [language, setLanguage] = useState<AppLanguage>(AppLanguage.English);
   const [themePreference, setThemePreference] = useState<ThemePreference>(() => readCachedThemePreference() ?? "system");
+  const [buttonStyle, setButtonStyle] = useState<ButtonStyle>(() => readCachedButtonStyle() ?? "filled");
+  const [buttonStyleSaving, setButtonStyleSaving] = useState(false);
   const [appearanceSaving, setAppearanceSaving] = useState(false);
   const languageRef = useRef(language);
   const themePreferenceRef = useRef(themePreference);
+  const buttonStyleRef = useRef(buttonStyle);
   const appearanceRevisionRef = useRef(0);
+  const buttonStyleRevisionRef = useRef(0);
   const [systemTheme, setSystemTheme] = useState<"light" | "dark">(() =>
     window.matchMedia?.("(prefers-color-scheme: dark)").matches ? "dark" : "light"
   );
 
   useEffect(() => {
     const revision = appearanceRevisionRef.current;
+    const buttonRevision = buttonStyleRevisionRef.current;
     void generalSettings().then((settings) => {
-      if (appearanceRevisionRef.current !== revision) return;
-      languageRef.current = settings.language;
-      themePreferenceRef.current = settings.themePreference;
-      cacheThemePreference(settings.themePreference);
-      setLanguage(settings.language);
-      setThemePreference(settings.themePreference);
+      if (appearanceRevisionRef.current === revision) {
+        languageRef.current = settings.language;
+        themePreferenceRef.current = settings.themePreference;
+        cacheThemePreference(settings.themePreference);
+        setLanguage(settings.language);
+        setThemePreference(settings.themePreference);
+      }
+      if (buttonStyleRevisionRef.current === buttonRevision) {
+        buttonStyleRef.current = settings.buttonStyle ?? "filled";
+        cacheButtonStyle(buttonStyleRef.current);
+        setButtonStyle(buttonStyleRef.current);
+      }
     }).catch(() => {
       // English remains the safe default when the Rust settings command is unavailable.
     });
+  }, []);
+
+  const updateButtonStyle = useCallback(async (requestedStyle: ButtonStyle) => {
+    const revision = ++buttonStyleRevisionRef.current;
+    const previousStyle = buttonStyleRef.current;
+    buttonStyleRef.current = requestedStyle;
+    cacheButtonStyle(requestedStyle);
+    setButtonStyle(requestedStyle);
+    setButtonStyleSaving(true);
+    try {
+      const saved = await saveButtonStyle(requestedStyle);
+      if (buttonStyleRevisionRef.current === revision) {
+        buttonStyleRef.current = saved.buttonStyle;
+        cacheButtonStyle(saved.buttonStyle);
+        setButtonStyle(saved.buttonStyle);
+      }
+      return saved;
+    } catch (error) {
+      if (buttonStyleRevisionRef.current === revision) {
+        buttonStyleRef.current = previousStyle;
+        cacheButtonStyle(previousStyle);
+        setButtonStyle(previousStyle);
+      }
+      throw error;
+    } finally {
+      if (buttonStyleRevisionRef.current === revision) setButtonStyleSaving(false);
+    }
   }, []);
 
   const updateAppearance = useCallback(async (
@@ -143,6 +183,10 @@ export function I18nProvider({ children }: { children: ReactNode }) {
     document.documentElement.style.colorScheme = resolvedTheme;
   }, [resolvedTheme]);
 
+  useEffect(() => {
+    document.documentElement.dataset.buttonStyle = buttonStyle;
+  }, [buttonStyle]);
+
   const t = useCallback(
     (key: TranslationKey, params?: TranslationParams) => translate(language, key, params),
     [language],
@@ -152,11 +196,14 @@ export function I18nProvider({ children }: { children: ReactNode }) {
     language,
     locale: APP_LANGUAGE_LOCALES[language],
     themePreference,
+    buttonStyle,
+    buttonStyleSaving,
     resolvedTheme,
     appearanceSaving,
     updateAppearance,
+    updateButtonStyle,
     t,
-  }), [appearanceSaving, language, resolvedTheme, t, themePreference, updateAppearance]);
+  }), [appearanceSaving, buttonStyle, buttonStyleSaving, language, resolvedTheme, t, themePreference, updateAppearance, updateButtonStyle]);
 
   return <I18nContext.Provider value={value}>{children}</I18nContext.Provider>;
 }

@@ -4,6 +4,7 @@ export type AiReasoning = "minimal" | "low" | "medium" | "high" | "xhigh";
 
 export interface AiSettings {
   provider: AiProviderId | null;
+  providerInstanceId?: string | null;
   model: string;
   reasoning: AiReasoning;
   fastMode: boolean;
@@ -11,6 +12,7 @@ export interface AiSettings {
 
 export interface AiProvider {
   id: AiProviderId;
+  instanceId?: string | null;
   name: string;
   status: AiProviderStatus;
   available: boolean;
@@ -27,7 +29,14 @@ export interface AiSettingsPageData {
   providers: AiProvider[];
 }
 
+export function matchesSelectedAiProvider(settings: AiSettings, provider: AiProvider): boolean {
+  return provider.id === settings.provider
+    && (provider.id !== "openai-compatible"
+      || (provider.instanceId ?? "legacy") === (settings.providerInstanceId ?? "legacy"));
+}
+
 export interface OpenAiCompatibleProviderSaveInput {
+  id?: string;
   baseUrl: string;
   token: string;
   allowInsecureTls?: boolean;

@@ -18,6 +18,7 @@ import {
   sortPullRequestsByUpdatedDate,
 } from "./components/pull-request-projects";
 import type { AiSettingsPageData } from "@/shared/contracts/settings";
+import { matchesSelectedAiProvider } from "@/shared/contracts/settings";
 import type { PullRequestReviewSettings } from "@/shared/contracts/developer";
 import type {
   MyPullRequest,
@@ -125,7 +126,7 @@ export function AuthoredPullRequestsPage() {
   }, []);
 
   const aiReviewReady = aiSettings?.settings.provider !== null && aiSettings?.providers.some((provider) =>
-    provider.id === aiSettings.settings.provider
+    matchesSelectedAiProvider(aiSettings.settings, provider)
       && provider.available
       && provider.status === "connected"
       && provider.models.includes(aiSettings.settings.model),
@@ -404,6 +405,7 @@ export function AuthoredPullRequestsPage() {
             type="button"
             variant="outline"
             size="icon"
+            actionTone="success"
             className="h-9 w-9"
             aria-label={t("pr.readAll")}
             title={t("pr.readAll")}

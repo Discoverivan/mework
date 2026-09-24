@@ -421,6 +421,7 @@ export function DailyPage() {
           <Button
             type="button"
             size="icon"
+            actionTone="add"
             className="h-9 w-9"
             aria-label={t("daily.createTask")}
             title={t("daily.createTask")}
@@ -483,7 +484,7 @@ export function DailyPage() {
         <div className="daily-workspace-layout">
           <Card className="daily-members-card">
             <CardHeader className="daily-panel-header">
-              <CardTitle className="text-sm uppercase tracking-wide">{t("daily.assignees")}</CardTitle>
+              <CardTitle className="text-[15px]">{t("daily.assignees")}</CardTitle>
             </CardHeader>
             <CardContent className="daily-members-content">
               {owners.length === 0 ? (
@@ -524,9 +525,9 @@ export function DailyPage() {
               <Card className="daily-selected-member-card">
                 <CardHeader className="daily-selected-member-header">
                   <div className="flex min-w-0 items-center gap-3">
-                    {selectedMember ? <MemberAvatar member={selectedMember} className="h-10 w-10 shrink-0" managedProjectId={workspace.managedProjectId} /> : null}
+                    {selectedMember ? <MemberAvatar member={selectedMember} className="h-9 w-9 shrink-0" managedProjectId={workspace.managedProjectId} /> : null}
                     <div className="min-w-0">
-                      <CardTitle className="truncate text-xl">{selectedOwner.label}</CardTitle>
+                      <CardTitle className="truncate text-[17px] font-medium">{selectedOwner.label}</CardTitle>
                       <CardDescription>
                         {t("daily.summary", selectedMemberSummary)}
                       </CardDescription>
@@ -537,6 +538,7 @@ export function DailyPage() {
                       type="button"
                       variant="outline"
                       size="icon"
+                      className="size-9"
                       aria-label={t("daily.previousMember")}
                       disabled={owners.length < 2}
                       onClick={() => selectAdjacentMember(-1)}
@@ -547,6 +549,7 @@ export function DailyPage() {
                       type="button"
                       variant="outline"
                       size="icon"
+                      className="size-9"
                       aria-label={t("daily.nextMember")}
                       disabled={owners.length < 2}
                       onClick={() => selectAdjacentMember(1)}
@@ -585,7 +588,7 @@ export function DailyPage() {
                           </span>
                           <DropdownMenu>
                             <DropdownMenuTrigger asChild>
-                              <Button type="button" variant="ghost" size="icon" className="daily-task-menu" aria-label={t("daily.actions", { key: subtask.key })}>
+                              <Button type="button" variant="ghost" size="icon" className="daily-task-menu size-8" aria-label={t("daily.actions", { key: subtask.key })}>
                                 <MoreHorizontal aria-hidden="true" />
                               </Button>
                             </DropdownMenuTrigger>

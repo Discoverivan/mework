@@ -2,7 +2,7 @@ use sqlx::SqlitePool;
 use tauri::{AppHandle, State};
 
 use crate::application::general::{
-    self, AiResponseLanguage, AppLanguage, GeneralSettingsDto, NotificationTestKind,
+    self, AiResponseLanguage, AppLanguage, ButtonStyle, GeneralSettingsDto, NotificationTestKind,
     ThemePreference,
 };
 use crate::os::notifications::{self, NotificationPermission};
@@ -47,6 +47,16 @@ pub async fn general_appearance_save(
     theme_preference: ThemePreference,
 ) -> Result<GeneralSettingsDto, String> {
     general::save_appearance_preferences(&state, language, theme_preference).await?;
+    general::dto(&state, &app).await
+}
+
+#[tauri::command]
+pub async fn general_button_style_save(
+    app: AppHandle,
+    state: State<'_, SqlitePool>,
+    button_style: ButtonStyle,
+) -> Result<GeneralSettingsDto, String> {
+    general::save_button_style(&state, button_style).await?;
     general::dto(&state, &app).await
 }
 

@@ -99,7 +99,10 @@ pub async fn generate_draft(
         .ai_response_language
         .output_language(general_settings.language);
     let openai_runtime = if settings.provider == Some(ai::AiProviderId::OpenAiCompatible) {
-        Some(ai::openai_compatible_runtime_config(pool).await?)
+        Some(
+            ai::openai_compatible_runtime_config(pool, settings.provider_instance_id.as_deref())
+                .await?,
+        )
     } else {
         None
     };
@@ -722,6 +725,7 @@ mod tests {
         std::env::set_var("MEWORK_CLAUDE_BIN", &binary);
         let settings = AiSettings {
             provider: Some(AiProviderId::ClaudeCodeCli),
+            provider_instance_id: None,
             model: "sonnet".to_owned(),
             reasoning: AiReasoning::Medium,
             fast_mode: false,

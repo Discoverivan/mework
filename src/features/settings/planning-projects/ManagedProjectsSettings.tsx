@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
   Dialog,
   DialogContent,
@@ -42,6 +43,7 @@ type Action = "next" | "save" | "delete" | null;
 type AddTeamStep = "details" | "board";
 
 const ROLE_OPTIONS = ["backend", "frontend", "qa", "devops", "analyst", "product", "architect"];
+const NO_SELECTION = "__none__";
 
 export function memberInitials(displayName: string): string {
   const parts = displayName.trim().split(/\s+/).filter(Boolean);
@@ -861,6 +863,7 @@ export function ManagedProjectsSettings({
           <Button
             type="button"
             size="icon"
+            actionTone="add"
             className="h-9 w-9"
             onClick={startAdd}
             disabled={controlsDisabled}
@@ -900,11 +903,11 @@ export function ManagedProjectsSettings({
                 <Card className="w-full">
                   <CardHeader className="space-y-0 px-4 pb-4 pt-3.5">
                     <div className="flex flex-wrap items-center justify-between gap-3">
-                      <div className="grid min-w-0 flex-1 gap-1.5">
+                      <div className="grid min-w-0 flex-1 gap-2">
                         <Button
                           type="button"
                           variant="ghost"
-                          className="h-auto justify-start p-0 text-left text-base font-semibold leading-tight"
+                          className="h-auto justify-start p-0 text-left text-[15px] font-medium leading-tight"
                           onClick={() => detailProject?.id === project.id ? setDetailProject(null) : openDetail(project)}
                           disabled={controlsDisabled}
                           aria-label={t("teams.openDetails", { team: project.projectName })}
@@ -912,7 +915,7 @@ export function ManagedProjectsSettings({
                           <ChevronDown className={`mr-1 inline-block h-4 w-4 transition-transform ${detailProject?.id === project.id ? "rotate-180" : ""}`} aria-hidden="true" />
                           {project.projectName}
                         </Button>
-                        <CardDescription className="leading-snug">
+                        <CardDescription className="text-[13px] leading-snug">
                           <span aria-label={t("teams.projectKeyFor", { team: project.projectName })}>{project.projectKey}</span>
                           {` · ${boardNames[project.id] ?? project.boardId ?? t("teams.jiraBoard")}`}
                           {project.confluenceSpace ? ` · ${project.confluenceSpace.spaceName} (${project.confluenceSpace.spaceKey})` : ""}
@@ -921,9 +924,10 @@ export function ManagedProjectsSettings({
                       <div className="ml-auto flex items-center gap-2">
                         <Button
                           type="button"
-                          variant="outline"
+                          variant="ghost"
                           size="icon"
-                          className="h-9 w-9"
+                          actionTone="edit"
+                          className="size-8 [&_svg]:size-[18px]"
                           onClick={() => startEdit(project)}
                           disabled={controlsDisabled}
                           aria-label={t("teams.editTeamAction", { team: project.projectName })}
@@ -933,9 +937,10 @@ export function ManagedProjectsSettings({
                         </Button>
                         <Button
                           type="button"
-                          variant="destructive"
+                          variant="ghost"
                           size="icon"
-                          className="h-9 w-9"
+                          actionTone="delete"
+                          className="size-8 text-muted-foreground hover:bg-transparent hover:text-destructive [&_svg]:size-[18px]"
                           onClick={() => void handleDelete(project)}
                           disabled={controlsDisabled}
                           aria-label={t(deletingProjectId === project.id ? "teams.deletingTeamAction" : "teams.deleteTeamAction", { team: project.projectName })}
@@ -1065,24 +1070,14 @@ export function ManagedProjectsSettings({
                   <div className="grid gap-2">
                     <Label htmlFor="jira-board">{t("teams.jiraBoard")}</Label>
                     <div className="flex flex-wrap gap-2">
-                      <div className="relative min-w-72">
-                        <select
-                          id="jira-board"
-                          aria-label={t("teams.jiraBoard")}
-                          className="h-10 w-full appearance-none rounded-md border border-input bg-background py-2 pl-3 pr-8 text-sm"
-                          value={form.boardId}
-                          onFocus={isCreatingTeam ? undefined : () => void handleLoadBoards()}
-                          onChange={(event) => updateForm("boardId", event.target.value)}
-                          disabled={controlsDisabled}
-                        >
-                          <option value="">{boardsLoading ? t("teams.loadingBoards") : t("teams.chooseBoard")}</option>
-                          {boards.map((board) => (
-                            <option key={board.id} value={board.id}>
-                              {board.name} ({board.id})
-                            </option>
-                          ))}
-                        </select>
-                        <ChevronDown className="pointer-events-none absolute right-2 top-1/2 size-4 -translate-y-1/2 opacity-50" aria-hidden="true" />
+                      <div className="min-w-72">
+                        <Select value={form.boardId || NO_SELECTION} onValueChange={(value) => updateForm("boardId", value === NO_SELECTION ? "" : value)} onOpenChange={(open) => { if (open && !isCreatingTeam) void handleLoadBoards(); }} disabled={controlsDisabled}>
+                          <SelectTrigger id="jira-board" aria-label={t("teams.jiraBoard")}><SelectValue /></SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value={NO_SELECTION}>{boardsLoading ? t("teams.loadingBoards") : t("teams.chooseBoard")}</SelectItem>
+                            {boards.map((board) => <SelectItem key={board.id} value={board.id}>{board.name} ({board.id})</SelectItem>)}
+                          </SelectContent>
+                        </Select>
                       </div>
                     </div>
                     {boardsLoading ? <p role="status">{t("teams.loadingBoardsForProject")}</p> : null}
@@ -1154,26 +1149,21 @@ export function ManagedProjectsSettings({
               </div>
               <div className="grid gap-2 sm:max-w-xl">
                 <Label htmlFor={`default-task-sprint-${detailProject.id}`}>{t("teams.defaultSprint")}</Label>
-                <div className="relative">
-                  <select
-                    id={`default-task-sprint-${detailProject.id}`}
-                    aria-label={t("teams.defaultSprint")}
-                    className="h-10 w-full appearance-none rounded-md border border-input bg-background py-2 pl-3 pr-8 text-sm"
-                    value={defaultTaskSprintId}
-                    onChange={(event) => {
-                      const nextId = event.target.value;
-                      setDefaultTaskSprintId(nextId);
-                      setDefaultTaskSprintName(taskSprints.find((sprint) => sprint.id === nextId)?.name ?? "");
-                    }}
-                    disabled={controlsDisabled || taskSprintsLoading}
-                  >
-                    <option value="">{taskSprintsLoading ? t("teams.loadingSprints") : t("teams.noDefaultSprint")}</option>
-                    {defaultTaskSprintId && !taskSprints.some((sprint) => sprint.id === defaultTaskSprintId) ? (
-                      <option value={defaultTaskSprintId}>{defaultTaskSprintName || defaultTaskSprintId}</option>
-                    ) : null}
-                    {taskSprints.map((sprint) => <option key={sprint.id} value={sprint.id}>{sprint.name}</option>)}
-                  </select>
-                  <ChevronDown className="pointer-events-none absolute right-2 top-1/2 size-4 -translate-y-1/2 opacity-50" aria-hidden="true" />
+                <div>
+                  <Select value={defaultTaskSprintId || NO_SELECTION} onValueChange={(value) => {
+                    const nextId = value === NO_SELECTION ? "" : value;
+                    setDefaultTaskSprintId(nextId);
+                    setDefaultTaskSprintName(taskSprints.find((sprint) => sprint.id === nextId)?.name ?? "");
+                  }} disabled={controlsDisabled || taskSprintsLoading}>
+                    <SelectTrigger id={`default-task-sprint-${detailProject.id}`} aria-label={t("teams.defaultSprint")}><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value={NO_SELECTION}>{taskSprintsLoading ? t("teams.loadingSprints") : t("teams.noDefaultSprint")}</SelectItem>
+                      {defaultTaskSprintId && !taskSprints.some((sprint) => sprint.id === defaultTaskSprintId) ? (
+                        <SelectItem value={defaultTaskSprintId}>{defaultTaskSprintName || defaultTaskSprintId}</SelectItem>
+                      ) : null}
+                      {taskSprints.map((sprint) => <SelectItem key={sprint.id} value={sprint.id}>{sprint.name}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
                 </div>
                 {taskSprintsError ? <p className="text-xs text-destructive">{t("teams.loadSprintsError", { error: taskSprintsError })}</p> : null}
               </div>
@@ -1200,29 +1190,22 @@ export function ManagedProjectsSettings({
                 <p className="text-xs text-muted-foreground">{t("teams.epicJqlDescription")}</p>
                 <div className="grid gap-2 sm:max-w-xl">
                   <Label htmlFor={`default-epic-link-${detailProject.id}`}>{t("teams.defaultEpic")}</Label>
-                  <div className="relative">
-                    <select
-                      id={`default-epic-link-${detailProject.id}`}
-                      aria-label={t("teams.defaultEpic")}
-                      className="h-10 w-full appearance-none rounded-md border border-input bg-background py-2 pl-3 pr-8 text-sm"
-                      value={defaultEpicLinkKey}
-                      onChange={(event) => {
-                        const nextKey = event.target.value;
-                        const selected = epicPreviewIssues.find((issue) => issue.key === nextKey);
-                        setDefaultEpicLinkKey(nextKey);
-                        setDefaultEpicLinkSummary(selected?.summary ?? (nextKey ? defaultEpicLinkSummary : ""));
-                      }}
-                      disabled={controlsDisabled}
-                    >
-                      <option value="">{t("teams.noDefaultEpic")}</option>
-                      {defaultEpicLinkKey && !epicPreviewIssues.some((issue) => issue.key === defaultEpicLinkKey) ? (
-                        <option value={defaultEpicLinkKey}>{defaultEpicLinkSummary || defaultEpicLinkKey}</option>
-                      ) : null}
-                      {epicPreviewIssues.map((issue) => (
-                        <option key={issue.key} value={issue.key}>{issue.key} — {issue.summary}</option>
-                      ))}
-                    </select>
-                    <ChevronDown className="pointer-events-none absolute right-2 top-1/2 size-4 -translate-y-1/2 opacity-50" aria-hidden="true" />
+                  <div>
+                    <Select value={defaultEpicLinkKey || NO_SELECTION} onValueChange={(value) => {
+                      const nextKey = value === NO_SELECTION ? "" : value;
+                      const selected = epicPreviewIssues.find((issue) => issue.key === nextKey);
+                      setDefaultEpicLinkKey(nextKey);
+                      setDefaultEpicLinkSummary(selected?.summary ?? (nextKey ? defaultEpicLinkSummary : ""));
+                    }} disabled={controlsDisabled}>
+                      <SelectTrigger id={`default-epic-link-${detailProject.id}`} aria-label={t("teams.defaultEpic")}><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value={NO_SELECTION}>{t("teams.noDefaultEpic")}</SelectItem>
+                        {defaultEpicLinkKey && !epicPreviewIssues.some((issue) => issue.key === defaultEpicLinkKey) ? (
+                          <SelectItem value={defaultEpicLinkKey}>{defaultEpicLinkSummary || defaultEpicLinkKey}</SelectItem>
+                        ) : null}
+                        {epicPreviewIssues.map((issue) => <SelectItem key={issue.key} value={issue.key}>{issue.key} — {issue.summary}</SelectItem>)}
+                      </SelectContent>
+                    </Select>
                   </div>
                   <p className="text-xs text-muted-foreground">{t("teams.epicSaveHint")}</p>
                 </div>
@@ -1334,19 +1317,14 @@ export function ManagedProjectsSettings({
                 </div>
                 <div className="grid gap-2 sm:max-w-xs">
                   <Label htmlFor="team-member-role">{t("teams.role")}</Label>
-                  <div className="relative">
-                    <select
-                      id="team-member-role"
-                      aria-label={t("teams.roleFor", { member: selectedSearchMember.displayName })}
-                      className="h-10 w-full appearance-none rounded-md border border-input bg-background py-2 pl-3 pr-8 text-sm"
-                      value={memberRole}
-                      onChange={(event) => setMemberRole(event.target.value)}
-                      disabled={controlsDisabled}
-                    >
-                      <option value="">{t("teams.chooseRole")}</option>
-                      {ROLE_OPTIONS.map((role) => <option key={role} value={role}>{role}</option>)}
-                    </select>
-                    <ChevronDown className="pointer-events-none absolute right-2 top-1/2 size-4 -translate-y-1/2 opacity-50" aria-hidden="true" />
+                  <div>
+                    <Select value={memberRole || NO_SELECTION} onValueChange={(value) => setMemberRole(value === NO_SELECTION ? "" : value)} disabled={controlsDisabled}>
+                      <SelectTrigger id="team-member-role" aria-label={t("teams.roleFor", { member: selectedSearchMember.displayName })}><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value={NO_SELECTION}>{t("teams.chooseRole")}</SelectItem>
+                        {ROLE_OPTIONS.map((role) => <SelectItem key={role} value={role}>{role}</SelectItem>)}
+                      </SelectContent>
+                    </Select>
                   </div>
                 </div>
                 <div className="grid gap-2 sm:max-w-xs">
@@ -1436,9 +1414,10 @@ export function ManagedProjectsSettings({
                       </div>
                       <Button
                         type="button"
-                        variant="outline"
+                        variant="ghost"
                         size="icon"
-                        className="h-9 w-9"
+                        actionTone="edit"
+                        className="size-8 [&_svg]:size-[18px]"
                         onClick={() => openEditMemberDialog(member)}
                         disabled={controlsDisabled}
                         aria-label={t("teams.editMemberAction", { member: label })}
@@ -1450,7 +1429,8 @@ export function ManagedProjectsSettings({
                         type="button"
                         variant="ghost"
                         size="icon"
-                        className="h-9 w-9 text-destructive hover:bg-destructive/10 hover:text-destructive"
+                        actionTone="delete"
+                        className="size-8 text-muted-foreground hover:bg-transparent hover:text-destructive [&_svg]:size-[18px]"
                         onClick={() => void handleRemoveTeamMember(member.accountId)}
                         disabled={controlsDisabled}
                         aria-label={t(removingMemberAccountId === member.accountId ? "teams.deletingMemberAction" : "teams.deleteMemberAction", { member: label })}
