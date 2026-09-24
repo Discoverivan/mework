@@ -4,13 +4,14 @@ import { GeneralSettingsPage } from "./GeneralSettingsPage";
 import { APP_EVENT, subscribeAppEvent } from "@/app/app-events";
 import { I18nProvider } from "@/i18n/I18nProvider";
 
-const { generalSettingsMock, commandBoardTerminalPreferencesMock, saveCommandBoardTerminalPreferenceMock, openNotificationSettingsMock, requestNotificationPermissionMock, saveAppearanceSettingsMock, saveGeneralSettingsMock, sendNotificationTestMock, updaterCheckMock, installAvailableUpdateMock } = vi.hoisted(() => ({
+const { generalSettingsMock, commandBoardTerminalPreferencesMock, saveCommandBoardTerminalPreferenceMock, openNotificationSettingsMock, requestNotificationPermissionMock, saveAppearanceSettingsMock, saveButtonStyleMock, saveGeneralSettingsMock, sendNotificationTestMock, updaterCheckMock, installAvailableUpdateMock } = vi.hoisted(() => ({
   generalSettingsMock: vi.fn(),
   commandBoardTerminalPreferencesMock: vi.fn(),
   saveCommandBoardTerminalPreferenceMock: vi.fn(),
   openNotificationSettingsMock: vi.fn(),
   requestNotificationPermissionMock: vi.fn(),
   saveAppearanceSettingsMock: vi.fn(),
+  saveButtonStyleMock: vi.fn(),
   saveGeneralSettingsMock: vi.fn(),
   sendNotificationTestMock: vi.fn(),
   updaterCheckMock: vi.fn(),
@@ -31,6 +32,7 @@ vi.mock("./api", () => ({
   openNotificationSettings: openNotificationSettingsMock,
   requestNotificationPermission: requestNotificationPermissionMock,
   saveAppearanceSettings: saveAppearanceSettingsMock,
+  saveButtonStyle: saveButtonStyleMock,
   saveGeneralSettings: saveGeneralSettingsMock,
   sendNotificationTest: sendNotificationTestMock,
 }));
@@ -46,6 +48,7 @@ describe("GeneralSettingsPage", () => {
       language: "english",
       aiResponseLanguage: "sameAsUi",
       themePreference: "system",
+      buttonStyle: "quiet",
       notificationsEnabled: true,
       reviewNotificationsEnabled: true,
       authoredNotificationsEnabled: true,
@@ -80,6 +83,10 @@ describe("GeneralSettingsPage", () => {
       persistedSettings = { ...persistedSettings, language, themePreference };
       return persistedSettings;
     });
+    saveButtonStyleMock.mockImplementation(async (buttonStyle) => {
+      persistedSettings = { ...persistedSettings, buttonStyle };
+      return persistedSettings;
+    });
     sendNotificationTestMock.mockResolvedValue(undefined);
     updaterCheckMock.mockResolvedValue(null);
     installAvailableUpdateMock.mockResolvedValue(undefined);
@@ -93,8 +100,15 @@ describe("GeneralSettingsPage", () => {
     );
 
     expect(await screen.findByRole("switch", { name: "Notifications" })).toBeChecked();
-    expect(screen.getByRole("combobox", { name: "UI" })).toHaveValue("english");
-    expect(screen.getByRole("combobox", { name: "Appearance" })).toHaveValue("system");
+    const uiSelect = screen.getByRole("combobox", { name: "UI" });
+    expect(uiSelect).toHaveTextContent("English");
+    expect(screen.getByRole("combobox", { name: "Appearance" })).toHaveTextContent("System");
+    const buttonStyleSelect = screen.getByRole("combobox", { name: "Action buttons" });
+    expect(buttonStyleSelect).toHaveTextContent("Minimal");
+    fireEvent.click(buttonStyleSelect);
+    fireEvent.click(screen.getByRole("option", { name: "Filled" }));
+    await waitFor(() => expect(document.documentElement).toHaveAttribute("data-button-style", "filled"));
+    expect(saveButtonStyleMock).toHaveBeenCalledWith("filled");
     expect(screen.getByRole("switch", { name: "Pull requests awaiting your review" })).toBeChecked();
     expect(screen.getByRole("switch", { name: "Pull requests authored by you" })).toBeChecked();
     const taskTrackerNotifications = screen.getByRole("switch", { name: "Task tracker" });
@@ -112,15 +126,13 @@ describe("GeneralSettingsPage", () => {
     const notificationsCard = screen.getByRole("switch", { name: "Notifications" }).closest(".rounded-lg.border.bg-card");
     expect(notificationsCard).toContainElement(await screen.findByRole("heading", { name: "Notifications are not allowed" }));
 
-    fireEvent.change(screen.getByRole("combobox", { name: "Appearance" }), {
-      target: { value: "dark" },
-    });
+    fireEvent.click(screen.getByRole("combobox", { name: "Appearance" }));
+    fireEvent.click(screen.getByRole("option", { name: "Dark" }));
     await waitFor(() => expect(document.documentElement).toHaveAttribute("data-theme", "dark"));
     expect(saveAppearanceSettingsMock).toHaveBeenLastCalledWith("english", "dark");
 
-    fireEvent.change(screen.getByRole("combobox", { name: "Appearance" }), {
-      target: { value: "light" },
-    });
+    fireEvent.click(screen.getByRole("combobox", { name: "Appearance" }));
+    fireEvent.click(screen.getByRole("option", { name: "Light" }));
     await waitFor(() => expect(document.documentElement).toHaveAttribute("data-theme", "light"));
 
     fireEvent.click(screen.getByRole("button", { name: "Open notification settings" }));
@@ -154,14 +166,12 @@ describe("GeneralSettingsPage", () => {
     fireEvent.click(screen.getByRole("switch", { name: "Notifications" }));
     await waitFor(() => expect(screen.getByRole("switch", { name: "Pull requests authored by you" })).toBeDisabled());
 
-    fireEvent.change(screen.getByRole("combobox", { name: "UI" }), {
-      target: { value: "russian" },
-    });
+    fireEvent.click(uiSelect);
+    fireEvent.click(screen.getByRole("option", { name: "Русский" }));
     expect(await screen.findByRole("heading", { name: "Настройки приложения" })).toBeInTheDocument();
 
-    fireEvent.change(screen.getByRole("combobox", { name: "UI" }), {
-      target: { value: "english" },
-    });
+    fireEvent.click(uiSelect);
+    fireEvent.click(screen.getByRole("option", { name: "English" }));
     expect(await screen.findByRole("heading", { name: "Application preferences" })).toBeInTheDocument();
   });
 
@@ -189,9 +199,10 @@ describe("GeneralSettingsPage", () => {
     );
 
     const terminalSelect = await screen.findByRole("combobox", { name: "Terminal" });
-    expect(terminalSelect).toHaveValue("system");
-    expect(screen.getByRole("option", { name: "Default terminal" })).toBeInTheDocument();
+    expect(terminalSelect).toHaveTextContent("Default terminal");
     const appearanceSelect = await screen.findByRole("combobox", { name: "Appearance" });
+    fireEvent.click(terminalSelect);
+    expect(screen.getByRole("option", { name: "Default terminal" })).toBeInTheDocument();
     expect(screen.getByRole("option", { name: "Kitty" })).toBeInTheDocument();
     expect(screen.getByRole("option", { name: "iTerm2" })).toBeInTheDocument();
     expect(screen.getByRole("option", { name: "Ghostty" })).toBeInTheDocument();
@@ -201,10 +212,10 @@ describe("GeneralSettingsPage", () => {
       appearanceSelect.parentElement?.parentElement?.className,
     );
     expect(terminalSelect.parentElement?.parentElement?.firstElementChild).toHaveClass("min-w-0", "flex-1");
-    fireEvent.change(terminalSelect, { target: { value: "kitty" } });
+    fireEvent.click(screen.getByRole("option", { name: "Kitty" }));
 
     await waitFor(() => expect(saveCommandBoardTerminalPreferenceMock).toHaveBeenCalledWith("kitty"));
-    expect(terminalSelect).toHaveValue("kitty");
+    expect(terminalSelect).toHaveTextContent("Kitty");
   });
 
   it("requests notification permission inside the Notifications card", async () => {
@@ -226,8 +237,9 @@ describe("GeneralSettingsPage", () => {
     render(<GeneralSettingsPage />);
 
     const responseLanguage = await screen.findByRole("combobox", { name: "AI agent response language" });
-    expect(responseLanguage).toHaveValue("sameAsUi");
-    fireEvent.change(responseLanguage, { target: { value: "russian" } });
+    expect(responseLanguage).toHaveTextContent("Same as UI");
+    fireEvent.click(responseLanguage);
+    fireEvent.click(screen.getByRole("option", { name: "Russian" }));
 
     await waitFor(() => expect(saveGeneralSettingsMock).toHaveBeenLastCalledWith(expect.objectContaining({
       language: "english",

@@ -51,6 +51,7 @@ pub fn inspect() -> AiProviderDto {
     match local_cli_command(&path).args(["auth", "status"]).output() {
         Ok(output) if output.status.success() => AiProviderDto {
             id: AiProviderId::ClaudeCodeCli,
+            instance_id: None,
             name: "Claude Code CLI".to_owned(),
             status: AiProviderStatus::Connected,
             available: true,
@@ -84,6 +85,7 @@ fn provider(
 ) -> AiProviderDto {
     AiProviderDto {
         id: AiProviderId::ClaudeCodeCli,
+        instance_id: None,
         name: "Claude Code CLI".to_owned(),
         status,
         available: false,

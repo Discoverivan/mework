@@ -3,6 +3,7 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import type { AiSettingsPageData, IntegrationKind, IntegrationRedacted } from "@/shared/contracts/settings";
+import { matchesSelectedAiProvider } from "@/shared/contracts/settings";
 import { getAiSettings, listIntegrations } from "../settings/api";
 import { useI18n } from "@/i18n/context";
 import { APP_EVENT, subscribeAppEvent } from "@/app/app-events";
@@ -30,7 +31,7 @@ function satisfiesAi(data: AiSettingsPageData): boolean {
   const { provider, model } = data.settings;
   if (!provider || !model.trim()) return false;
   return data.providers.some((candidate) =>
-    candidate.id === provider
+    matchesSelectedAiProvider(data.settings, candidate)
       && candidate.available
       && candidate.status === "connected"
       && candidate.models.includes(model),
@@ -39,7 +40,7 @@ function satisfiesAi(data: AiSettingsPageData): boolean {
 
 function hasTransientAiFailure(data: AiSettingsPageData | null): boolean {
   if (!data?.settings.provider || !data.settings.model.trim()) return false;
-  const provider = data.providers.find((candidate) => candidate.id === data.settings.provider);
+  const provider = data.providers.find((candidate) => matchesSelectedAiProvider(data.settings, candidate));
   return provider?.status === "loading" || provider?.status === "unavailable" || provider?.status === "not_found";
 }
 

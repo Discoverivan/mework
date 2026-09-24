@@ -571,7 +571,7 @@ export function CreateTaskPage() {
             <Button type="button" variant="ghost" className="text-muted-foreground" onClick={() => startGeneration(card.id, card.prompt)}>
               <RefreshCw className="mr-2 h-4 w-4" aria-hidden="true" /> {t("task.retry")}
             </Button>
-            <Button type="button" variant="ghost" className="text-muted-foreground hover:text-destructive" onClick={() => deleteCard(card.id)}>{t("task.delete")}</Button>
+            <Button type="button" variant="ghost" actionTone="delete" className="text-muted-foreground hover:bg-transparent hover:text-destructive" onClick={() => deleteCard(card.id)}>{t("task.delete")}</Button>
           </div>
         </article>
       );
@@ -732,7 +732,7 @@ export function CreateTaskPage() {
             </>
           ) : (
             <>
-              <Button type="button" variant="ghost" className="text-muted-foreground hover:text-destructive" onClick={() => deleteCard(card.id)}>
+              <Button type="button" variant="ghost" actionTone="delete" className="text-muted-foreground hover:bg-transparent hover:text-destructive" onClick={() => deleteCard(card.id)}>
                 <Trash2 className="mr-2 h-4 w-4" aria-hidden="true" />
                 {t("task.delete")}
               </Button>
@@ -793,6 +793,7 @@ export function CreateTaskPage() {
           <Button
             type="button"
             size="icon"
+            actionTone="add"
             className="h-9 w-9"
             onClick={() => setDialogOpen(true)}
             aria-label={t("task.new")}
@@ -820,7 +821,7 @@ export function CreateTaskPage() {
           title={t("task.empty")}
           description={t("task.emptyDescription")}
           hint={t("task.emptyHint")}
-          icon={<ClipboardList className="size-6" />}
+          icon={<ClipboardList className="size-5" />}
         />
       )}
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>

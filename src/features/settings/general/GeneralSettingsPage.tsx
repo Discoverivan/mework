@@ -1,6 +1,6 @@
 import type { Update } from "@tauri-apps/plugin-updater";
 
-import { AlertTriangle, BellRing, CheckCircle2, ChevronDown, Download, RefreshCw } from "lucide-react";
+import { AlertTriangle, BellRing, CheckCircle2, Download, RefreshCw } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -9,6 +9,7 @@ import { installAvailableUpdate } from "@/components/shared/update-install";
 import { StatusToast } from "@/components/shared/StatusToast";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
 import { Switch } from "@/components/ui/switch";
 import {
@@ -20,6 +21,7 @@ import {
   saveGeneralSettings,
   sendNotificationTest,
   type CommandBoardTerminalPreferences,
+  type ButtonStyle,
   type GeneralSettings,
   type GeneralSettingsSaveInput,
   type NotificationTestKind,
@@ -40,7 +42,7 @@ interface GeneralSettingsPageProps {
 }
 
 export function GeneralSettingsPage({ updateCheckRequest = 0 }: GeneralSettingsPageProps) {
-  const { appearanceSaving, language, themePreference, t, updateAppearance } = useI18n();
+  const { appearanceSaving, buttonStyle, buttonStyleSaving, language, themePreference, t, updateAppearance, updateButtonStyle } = useI18n();
   const [settings, setSettings] = useState<GeneralSettings | null>(null);
   const [terminalPreferences, setTerminalPreferences] = useState<CommandBoardTerminalPreferences | null>(null);
   const [terminalLoading, setTerminalLoading] = useState(true);
@@ -289,6 +291,7 @@ export function GeneralSettingsPage({ updateCheckRequest = 0 }: GeneralSettingsP
           </CardDescription>
         </CardHeader>
         <CardContent className="flex flex-col gap-4 px-4 pb-3.5 pt-4">
+          <Separator />
           <div className="flex flex-wrap items-center justify-between gap-4">
             <div className="min-w-0">
               <Label htmlFor="general-language" alignment="inline" className="font-medium">
@@ -298,19 +301,14 @@ export function GeneralSettingsPage({ updateCheckRequest = 0 }: GeneralSettingsP
                 {t("general.languageUiDescription")}
               </CardDescription>
             </div>
-            <div className="relative w-full sm:w-48">
-              <select
-                id="general-language"
-                aria-label={t("general.languageUi")}
-                value={language}
-                onChange={(event) => void handlePreferencesChange({ language: event.target.value as AppLanguage })}
-                disabled={loading || saving || appearanceSaving}
-                className="h-10 w-full appearance-none rounded-md border border-input bg-background px-3 pr-9 text-sm disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                <option value={AppLanguage.English}>English</option>
-                <option value={AppLanguage.Russian}>Русский</option>
-              </select>
-              <ChevronDown className="pointer-events-none absolute right-2 top-1/2 size-4 -translate-y-1/2 opacity-50" aria-hidden="true" />
+            <div className="w-full sm:w-48">
+              <Select value={language} onValueChange={(value) => void handlePreferencesChange({ language: value as AppLanguage })} disabled={loading || saving || appearanceSaving}>
+                <SelectTrigger id="general-language" aria-label={t("general.languageUi")}><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={AppLanguage.English}>English</SelectItem>
+                  <SelectItem value={AppLanguage.Russian}>Русский</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
           </div>
           <Separator />
@@ -323,22 +321,15 @@ export function GeneralSettingsPage({ updateCheckRequest = 0 }: GeneralSettingsP
                 {t("general.aiResponseLanguageDescription")}
               </CardDescription>
             </div>
-            <div className="relative w-full sm:w-48">
-              <select
-                id="general-ai-response-language"
-                aria-label={t("general.aiResponseLanguage")}
-                value={settings?.aiResponseLanguage ?? AiResponseLanguage.SameAsUi}
-                onChange={(event) => void handlePreferencesChange({
-                  aiResponseLanguage: event.target.value as AiResponseLanguage,
-                })}
-                disabled={loading || saving || settings === null}
-                className="h-10 w-full appearance-none rounded-md border border-input bg-background px-3 pr-9 text-sm disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                <option value={AiResponseLanguage.SameAsUi}>{t("general.aiResponseLanguageSameAsUi")}</option>
-                <option value={AiResponseLanguage.English}>{t("general.aiResponseLanguageEnglish")}</option>
-                <option value={AiResponseLanguage.Russian}>{t("general.aiResponseLanguageRussian")}</option>
-              </select>
-              <ChevronDown className="pointer-events-none absolute right-2 top-1/2 size-4 -translate-y-1/2 opacity-50" aria-hidden="true" />
+            <div className="w-full sm:w-48">
+              <Select value={settings?.aiResponseLanguage ?? AiResponseLanguage.SameAsUi} onValueChange={(value) => void handlePreferencesChange({ aiResponseLanguage: value as AiResponseLanguage })} disabled={loading || saving || settings === null}>
+                <SelectTrigger id="general-ai-response-language" aria-label={t("general.aiResponseLanguage")}><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={AiResponseLanguage.SameAsUi}>{t("general.aiResponseLanguageSameAsUi")}</SelectItem>
+                  <SelectItem value={AiResponseLanguage.English}>{t("general.aiResponseLanguageEnglish")}</SelectItem>
+                  <SelectItem value={AiResponseLanguage.Russian}>{t("general.aiResponseLanguageRussian")}</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
           </div>
         </CardContent>
@@ -355,23 +346,41 @@ export function GeneralSettingsPage({ updateCheckRequest = 0 }: GeneralSettingsP
                 {t("general.themeDescription")}
               </CardDescription>
             </div>
-            <div className="relative w-full sm:w-48">
-              <select
-                id="general-theme"
-                aria-label={t("general.theme")}
-                value={themePreference}
-                onChange={(event) => void handlePreferencesChange({ themePreference: event.target.value as ThemePreference })}
-                disabled={loading || saving || appearanceSaving}
-                className="h-10 w-full appearance-none rounded-md border border-input bg-background px-3 pr-9 text-sm disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                <option value="system">{t("general.themeSystem")}</option>
-                <option value="light">{t("general.themeLight")}</option>
-                <option value="dark">{t("general.themeDark")}</option>
-              </select>
-              <ChevronDown className="pointer-events-none absolute right-2 top-1/2 size-4 -translate-y-1/2 opacity-50" aria-hidden="true" />
+            <div className="w-full sm:w-48">
+              <Select value={themePreference} onValueChange={(value) => void handlePreferencesChange({ themePreference: value as ThemePreference })} disabled={loading || saving || appearanceSaving}>
+                <SelectTrigger id="general-theme" aria-label={t("general.theme")}><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="system">{t("general.themeSystem")}</SelectItem>
+                  <SelectItem value="light">{t("general.themeLight")}</SelectItem>
+                  <SelectItem value="dark">{t("general.themeDark")}</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
           </div>
         </CardHeader>
+        <CardContent className="px-4 pb-3.5 pt-0">
+          <Separator className="mb-3.5" />
+          <div className="flex flex-wrap items-center justify-between gap-4">
+            <div className="min-w-0 flex-1">
+              <Label htmlFor="general-button-style" alignment="inline" className="font-medium">{t("general.buttonStyle")}</Label>
+              <CardDescription className="mt-1 leading-snug">{t("general.buttonStyleDescription")}</CardDescription>
+            </div>
+            <div className="w-full sm:w-48">
+              <Select value={buttonStyle} onValueChange={(value) => {
+                  setError(null);
+                  void updateButtonStyle(value as ButtonStyle).catch((saveError) =>
+                    setError(t("general.saveError", { error: errorMessage(saveError, t("common.unknownError")) }))
+                  );
+                }} disabled={loading || saving || buttonStyleSaving}>
+                <SelectTrigger id="general-button-style" aria-label={t("general.buttonStyle")}><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="quiet">{t("general.buttonStyleQuiet")}</SelectItem>
+                  <SelectItem value="filled">{t("general.buttonStyleFilled")}</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+        </CardContent>
       </Card>
 
       <Card>
@@ -385,31 +394,23 @@ export function GeneralSettingsPage({ updateCheckRequest = 0 }: GeneralSettingsP
                 {t("general.terminalDescription")}
               </CardDescription>
             </div>
-            <div className="relative w-full sm:w-48">
-              <select
-                id="general-terminal"
-                aria-label={t("general.terminal")}
-                value={terminalPreferences?.selectedTerminal ?? ""}
-                onChange={(event) => void handleTerminalPreferenceChange(event.target.value)}
-                disabled={loading || terminalLoading || terminalSaving || terminalPreferences === null}
-                className="h-10 w-full appearance-none rounded-md border border-input bg-background px-3 pr-9 text-sm disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                {!terminalPreferences ? (
-                  <option value="" disabled>
-                    {terminalLoading ? t("general.terminalLoading") : t("general.terminalOptionsUnavailable")}
-                  </option>
-                ) : null}
-                {terminalPreferences?.options.map((option) => (
-                  <option key={option.id} value={option.id} disabled={!option.available}>
-                    {option.id === "system"
-                      ? option.available ? t("general.terminalSystem") : t("general.terminalSystemUnavailable")
-                      : option.available ? option.label : t("general.terminalOptionUnavailable", {
-                          name: option.label || t("general.terminalUnknown"),
-                        })}
-                  </option>
-                ))}
-              </select>
-              <ChevronDown className="pointer-events-none absolute right-2 top-1/2 size-4 -translate-y-1/2 opacity-50" aria-hidden="true" />
+            <div className="w-full sm:w-48">
+              <Select value={terminalPreferences?.selectedTerminal ?? ""} onValueChange={(value) => void handleTerminalPreferenceChange(value)} disabled={loading || terminalLoading || terminalSaving || terminalPreferences === null}>
+                <SelectTrigger id="general-terminal" aria-label={t("general.terminal")}>
+                  <SelectValue placeholder={terminalLoading ? t("general.terminalLoading") : t("general.terminalOptionsUnavailable")} />
+                </SelectTrigger>
+                <SelectContent>
+                  {terminalPreferences?.options.map((option) => (
+                    <SelectItem key={option.id} value={option.id} disabled={!option.available}>
+                      {option.id === "system"
+                        ? option.available ? t("general.terminalSystem") : t("general.terminalSystemUnavailable")
+                        : option.available ? option.label : t("general.terminalOptionUnavailable", {
+                            name: option.label || t("general.terminalUnknown"),
+                          })}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
           </div>
           {terminalError ? (

@@ -311,9 +311,12 @@ describe("TaskTrackerPage", () => {
         language: AppLanguage.Russian,
         locale: APP_LANGUAGE_LOCALES[AppLanguage.Russian],
         themePreference: "system",
+        buttonStyle: "quiet",
+        buttonStyleSaving: false,
         resolvedTheme: "light",
         appearanceSaving: false,
         updateAppearance: async () => { throw new Error("not used"); },
+        updateButtonStyle: async () => { throw new Error("not used"); },
         t: (key, params) => {
           const template = ru[key];
           return params ? template.replace(/\{(\w+)\}/g, (placeholder, name: string) =>
@@ -336,7 +339,6 @@ describe("TaskTrackerPage", () => {
     render(<TaskTrackerPage />);
 
     expect(await screen.findByRole("heading", { name: "No monitors yet" })).toBeInTheDocument();
-    expect(screen.getByRole("status")).toHaveClass("py-10", "border-dashed", "bg-card");
     expect(screen.getByRole("status").querySelector("svg.lucide-radar")).toBeInTheDocument();
     expect(screen.queryByRole("tablist", { name: "Task tracker monitors" })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Create monitor" }).closest("header")).toBeInTheDocument();

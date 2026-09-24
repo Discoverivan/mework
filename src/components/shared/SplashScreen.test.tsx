@@ -9,7 +9,7 @@ describe("SplashScreen", () => {
     expect(screen.getByRole("status", { name: "Loading mework" })).toBeInTheDocument();
     expect(screen.getByRole("img", { name: "mework" })).toHaveAttribute("src", "/mework-icon.png");
     expect(screen.getByText("Loading mework")).toBeInTheDocument();
-    expect(screen.getByText("Checking integrations and AI providers…")).toBeInTheDocument();
+    expect(screen.getByText("Preparing your workspace…")).toBeInTheDocument();
     expect(screen.getByRole("progressbar", { name: "Application loading" })).toBeInTheDocument();
     expect(screen.getAllByRole("img")).toHaveLength(1);
   });

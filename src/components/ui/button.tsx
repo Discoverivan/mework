@@ -37,14 +37,17 @@ export interface ButtonProps
   extends React.ButtonHTMLAttributes<HTMLButtonElement>,
     VariantProps<typeof buttonVariants> {
   asChild?: boolean
+  actionTone?: "add" | "edit" | "delete" | "neutral" | "success"
 }
 
 const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
-  ({ className, variant, size, asChild = false, ...props }, ref) => {
+  ({ actionTone, className, variant, size, asChild = false, ...props }, ref) => {
     const Comp = asChild ? Slot : "button"
     return (
       <Comp
-        className={cn(buttonVariants({ variant, size, className }))}
+        className={cn(buttonVariants({ variant, size, className }), size === "icon" && "app-icon-button", size !== "icon" && actionTone && "app-action-text")}
+        data-action-tone={actionTone}
+        data-button-variant={size === "icon" ? variant ?? "default" : undefined}
         ref={ref}
         {...props}
       />

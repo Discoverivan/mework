@@ -159,7 +159,8 @@ describe("ManagedProjectsSettings task creation settings", () => {
       projectKey: "DEMO",
     }));
 
-    fireEvent.change(screen.getByRole("combobox", { name: "Jira board" }), { target: { value: "board-1" } });
+    fireEvent.click(screen.getByRole("combobox", { name: "Jira board" }));
+    fireEvent.click(screen.getByRole("option", { name: "Platform board (board-1)" }));
     fireEvent.click(screen.getByRole("button", { name: "Save team" }));
     await waitFor(() => expect(saveProjectMock).toHaveBeenCalledWith(expect.objectContaining({
       integrationId: "jira-1",
@@ -250,7 +251,8 @@ describe("ManagedProjectsSettings task creation settings", () => {
     expect(deleteMemberButton.querySelector("svg.lucide-trash-2")).not.toBeNull();
     await waitFor(() => expect(listSprintsMock).toHaveBeenCalledWith("team-1"));
 
-    fireEvent.change(screen.getByLabelText("Default sprint for task creation"), { target: { value: "sprint-1" } });
+    fireEvent.click(screen.getByRole("combobox", { name: "Default sprint for task creation" }));
+    fireEvent.click(screen.getByRole("option", { name: "Platform Sprint" }));
     fireEvent.change(screen.getByLabelText("Epic link JQL"), {
       target: { value: "project = DEMO AND issuetype = Epic" },
     });
@@ -264,9 +266,8 @@ describe("ManagedProjectsSettings task creation settings", () => {
       jql: "project = DEMO AND issuetype = Epic",
     }));
     fireEvent.click(screen.getByRole("button", { name: "Close" }));
-    fireEvent.change(screen.getByLabelText("Default Epic link for task creation"), {
-      target: { value: "DEMO-EPIC-1" },
-    });
+    fireEvent.click(screen.getByRole("combobox", { name: "Default Epic link for task creation" }));
+    fireEvent.click(screen.getByRole("option", { name: /DEMO-EPIC-1/ }));
 
     fireEvent.click(screen.getByRole("button", { name: "Save task creation settings" }));
     await waitFor(() => expect(saveProjectMock).toHaveBeenCalledWith(expect.objectContaining({

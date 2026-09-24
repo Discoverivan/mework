@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { useI18n } from "./context";
 import { I18nProvider } from "./I18nProvider";
-import { THEME_PREFERENCE_CACHE_KEY } from "./appearance-cache";
+import { BUTTON_STYLE_CACHE_KEY, THEME_PREFERENCE_CACHE_KEY } from "./appearance-cache";
 
 const { generalSettingsMock } = vi.hoisted(() => ({
   generalSettingsMock: vi.fn(),
@@ -35,6 +35,7 @@ describe("I18nProvider startup appearance", () => {
 
   it("uses the cached theme while Rust settings are loading", () => {
     window.localStorage.setItem(THEME_PREFERENCE_CACHE_KEY, "dark");
+    window.localStorage.setItem(BUTTON_STYLE_CACHE_KEY, "filled");
 
     render(
       <I18nProvider>
@@ -44,5 +45,6 @@ describe("I18nProvider startup appearance", () => {
 
     expect(screen.getByText("dark")).toBeInTheDocument();
     expect(document.documentElement).toHaveAttribute("data-theme", "dark");
+    expect(document.documentElement).toHaveAttribute("data-button-style", "filled");
   });
 });

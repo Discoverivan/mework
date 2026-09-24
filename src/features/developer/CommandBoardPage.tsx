@@ -235,6 +235,7 @@ export function CommandBoardPage() {
         actions={(
           <Button
             size="icon"
+            actionTone="add"
             className="h-9 w-9"
             onClick={openCreateDialog}
             aria-label={t("command.add")}
@@ -252,7 +253,7 @@ export function CommandBoardPage() {
           titleId="command-board-empty-title"
           title={t("command.empty")}
           description={t("command.emptyDescription")}
-          icon={<Terminal className="size-6" />}
+          icon={<Terminal className="size-5" />}
         />
       ) : null}
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
@@ -278,7 +279,8 @@ export function CommandBoardPage() {
               <div className="relative">
                 <button
                   type="button"
-                  className="inline-flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground"
+                  className="app-icon-button inline-flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground"
+                  data-action-tone="neutral"
                   aria-label={t("command.options", { name: item.name })}
                   aria-expanded={openMenuId === item.id}
                   onClick={(event) => {
@@ -317,10 +319,10 @@ export function CommandBoardPage() {
                       </Select>
                     </div>
                     <div className="my-1 border-t border-border" aria-hidden="true" />
-                    <button type="button" className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm hover:bg-muted" role="menuitem" onClick={() => openEditDialog(item)}>
+                    <button type="button" className="app-action-text flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm hover:bg-muted" data-action-tone="edit" role="menuitem" onClick={() => openEditDialog(item)}>
                       <Pencil className="h-3.5 w-3.5" aria-hidden="true" /> {t("command.edit")}
                     </button>
-                    <button type="button" className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm text-destructive hover:bg-destructive/10" role="menuitem" onClick={() => void handleDelete(item)}>
+                    <button type="button" className="app-action-text flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm text-muted-foreground hover:text-destructive focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:text-destructive" data-action-tone="delete" role="menuitem" onClick={() => void handleDelete(item)}>
                       <Trash2 className="h-3.5 w-3.5" aria-hidden="true" /> {t("command.delete")}
                     </button>
                   </div>

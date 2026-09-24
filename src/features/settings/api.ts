@@ -1,7 +1,9 @@
 import { invoke } from "@tauri-apps/api/core";
+import { matchesSelectedAiProvider } from "@/shared/contracts/settings";
 import { APP_EVENT, emitAppEvent } from "@/app/app-events";
 import type {
   AiSettings,
+  AiProvider,
   AiSettingsPageData,
   OpenAiCompatibleProviderSaveInput,
   IntegrationDeleteInput,
@@ -33,7 +35,7 @@ function scheduleAiCliRecovery(missingProvider: NonNullable<AiSettings["provider
 }
 
 function cacheStableAiSettings(value: AiSettingsPageData): AiSettingsPageData {
-  const selectedProvider = value.providers.find((provider) => provider.id === value.settings.provider);
+  const selectedProvider = value.providers.find((provider) => matchesSelectedAiProvider(value.settings, provider));
   const cliMissing = selectedProvider?.status === "not_found";
   const transient = value.providers.some((provider) =>
     provider.status === "loading" || provider.status === "unavailable"
@@ -72,6 +74,15 @@ export const saveAiSettings = (settings: AiSettings) =>
 
 export const saveOpenAiCompatibleProvider = (input: OpenAiCompatibleProviderSaveInput) =>
   invoke<AiSettingsPageData>("ai_openai_compatible_save", { request: input }).then(cacheStableAiSettings);
+
+export const addAiCliProvider = (provider: "codex-cli" | "claude-code-cli") =>
+  invoke<AiSettingsPageData>("ai_provider_add", { provider }).then(cacheStableAiSettings);
+
+export const inspectAiCliProvider = (provider: "codex-cli" | "claude-code-cli") =>
+  invoke<AiProvider>("ai_cli_candidate_inspect", { provider });
+
+export const deleteAiProvider = (provider: AiSettings["provider"], instanceId?: string | null) =>
+  invoke<AiSettingsPageData>("ai_provider_delete", { provider, instanceId: instanceId ?? null }).then(cacheStableAiSettings);
 
 export const listIntegrations = () => invoke<IntegrationRedacted[]>("integration_list");
 

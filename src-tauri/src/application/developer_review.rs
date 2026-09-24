@@ -300,7 +300,13 @@ pub async fn start_review_with_diff<R: Runtime>(
         .output_language(general_settings.language);
     let openai_runtime =
         if ai_settings.provider == Some(crate::application::ai::AiProviderId::OpenAiCompatible) {
-            Some(crate::application::ai::openai_compatible_runtime_config(pool).await?)
+            Some(
+                crate::application::ai::openai_compatible_runtime_config(
+                    pool,
+                    ai_settings.provider_instance_id.as_deref(),
+                )
+                .await?,
+            )
         } else {
             None
         };
@@ -1248,6 +1254,7 @@ mod tests {
         };
         let ai_settings = AiSettings {
             provider: Some(AiProviderId::CodexCli),
+            provider_instance_id: None,
             model: "gpt-5.5".to_owned(),
             reasoning: AiReasoning::Medium,
             fast_mode: false,
@@ -1282,6 +1289,7 @@ mod tests {
         std::env::set_var("MEWORK_CLAUDE_BIN", &claude);
         let claude_settings = AiSettings {
             provider: Some(AiProviderId::ClaudeCodeCli),
+            provider_instance_id: None,
             model: "sonnet".to_owned(),
             ..ai_settings
         };

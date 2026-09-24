@@ -1,4 +1,5 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { openUrl } from "@tauri-apps/plugin-opener";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { listIntegrations } from "@/features/settings/api";
@@ -68,11 +69,19 @@ describe("ConfluenceSearchPage smoke test", () => {
     fireEvent.change(screen.getByRole("textbox", { name: "Search query" }), {
       target: { value: "release notes" },
     });
-    fireEvent.click(screen.getByRole("button", { name: "Search" }));
+    const searchButton = screen.getByRole("button", { name: "Search" });
+    expect(searchButton).toHaveAttribute("title", "Search");
+    expect(searchButton).not.toHaveTextContent("Search");
+    fireEvent.click(searchButton);
 
     await waitFor(() => expect(searchConfluenceMock).toHaveBeenCalledWith("confluence-1", "release notes", 20, "DOCS"));
     expect(await screen.findByText("Example release notes")).toBeInTheDocument();
     expect(screen.getByText("A synthetic search result.")).toBeInTheDocument();
+    const openPageButton = screen.getByRole("button", { name: "Open page" });
+    expect(openPageButton).toHaveAttribute("title", "Open page");
+    expect(openPageButton).not.toHaveTextContent("Open page");
+    fireEvent.click(openPageButton);
+    expect(openUrl).toHaveBeenCalledWith("https://confluence.example.invalid/pages/viewpage.action?pageId=10001");
   });
 
   it("shows a structured integration error message", async () => {

@@ -1,5 +1,5 @@
 import { openUrl } from "@tauri-apps/plugin-opener";
-import { ChevronDown, ExternalLink, Search } from "lucide-react";
+import { ChevronDown, ExternalLink, LoaderCircle, Search } from "lucide-react";
 import { useEffect, useState, type FormEvent } from "react";
 
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -112,9 +112,15 @@ export function ConfluenceSearchPage() {
             disabled={searching}
           />
         </div>
-        <Button type="submit" disabled={!integrationId || !query.trim() || searching}>
-          <Search aria-hidden="true" />
-          {searching ? t("confluence.searching") : t("confluence.search")}
+        <Button
+          type="submit"
+          size="icon"
+          className="shrink-0"
+          aria-label={searching ? t("confluence.searching") : t("confluence.search")}
+          title={searching ? t("confluence.searching") : t("confluence.search")}
+          disabled={!integrationId || !query.trim() || searching}
+        >
+          {searching ? <LoaderCircle className="animate-spin" aria-hidden="true" /> : <Search className="knowledge-search-icon" aria-hidden="true" />}
         </Button>
       </form>
 
@@ -145,12 +151,13 @@ export function ConfluenceSearchPage() {
                     <Button
                       type="button"
                       variant="outline"
-                      size="sm"
+                      size="icon"
                       className="shrink-0"
+                      aria-label={t("confluence.openPage")}
+                      title={t("confluence.openPage")}
                       onClick={() => void openUrl(result.url!)}
                     >
                       <ExternalLink aria-hidden="true" />
-                      {t("confluence.openPage")}
                     </Button>
                   ) : null}
                 </div>

@@ -32,6 +32,8 @@ const AI_SETTINGS_SCHEMA_VERSION: i64 = 1;
 const OPENAI_COMPATIBLE_SETTINGS_KEY: &str = "ai.openai-compatible";
 const OPENAI_COMPATIBLE_SETTINGS_SCHEMA_VERSION: i64 = 1;
 const OPENAI_COMPATIBLE_CREDENTIAL_REF: &str = "ai-openai-compatible";
+const OPENAI_INSTANCES_KEY: &str = "ai.openai-compatible.instances";
+const ADDED_CLI_PROVIDERS_KEY: &str = "ai.providers.added";
 
 #[cfg(target_os = "windows")]
 const CREATE_NO_WINDOW: u32 = 0x08000000;
@@ -58,6 +60,8 @@ const AI_KEYRING_SERVICE: &str = if cfg!(debug_assertions) {
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 struct OpenAiCompatibleProviderConfig {
+    #[serde(default)]
+    id: String,
     base_url: String,
     credential_ref: String,
     #[serde(default)]
@@ -74,6 +78,7 @@ pub struct OpenAiCompatibleRuntimeConfig {
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct OpenAiCompatibleProviderSaveRequest {
+    pub id: Option<String>,
     pub base_url: String,
     pub token: String,
     #[serde(default)]
@@ -115,6 +120,8 @@ impl AiReasoning {
 #[serde(rename_all = "camelCase")]
 pub struct AiSettings {
     pub provider: Option<AiProviderId>,
+    #[serde(default)]
+    pub provider_instance_id: Option<String>,
     pub model: String,
     pub reasoning: AiReasoning,
     pub fast_mode: bool,
@@ -124,6 +131,7 @@ impl Default for AiSettings {
     fn default() -> Self {
         Self {
             provider: None,
+            provider_instance_id: None,
             model: String::new(),
             reasoning: AiReasoning::Medium,
             fast_mode: false,
@@ -146,6 +154,8 @@ pub enum AiProviderStatus {
 #[serde(rename_all = "camelCase")]
 pub struct AiProviderDto {
     pub id: AiProviderId,
+    #[serde(default)]
+    pub instance_id: Option<String>,
     pub name: String,
     pub status: AiProviderStatus,
     pub available: bool,
@@ -212,51 +222,262 @@ pub async fn save_openai_compatible_provider(
     request: OpenAiCompatibleProviderSaveRequest,
 ) -> Result<AiSettingsPageDto, String> {
     let base_url = normalize_openai_base_url(&request.base_url)?;
-    if request.token.trim().is_empty() {
-        return Err("Token is required".to_owned());
+    let mut configs = load_openai_configs(pool).await?;
+    let id = request
+        .id
+        .unwrap_or_else(|| uuid::Uuid::now_v7().to_string());
+    let existing = configs.iter().find(|config| config.id == id);
+    if existing.is_none() && uuid::Uuid::parse_str(&id).is_err() {
+        return Err("AI provider ID is invalid".to_owned());
     }
-
-    let models = load_openai_models(&base_url, &request.token, request.allow_insecure_tls).await?;
+    let credential_ref = existing
+        .map(|config| config.credential_ref.clone())
+        .unwrap_or_else(|| format!("{OPENAI_COMPATIBLE_CREDENTIAL_REF}-{id}"));
+    let credential_store = openai_credential_store();
+    let token = if request.token.trim().is_empty() {
+        if existing.is_none() {
+            return Err("Token is required".to_owned());
+        }
+        credential_store.load(&credential_ref).map_err(|_| {
+            "OpenAI-compatible API token is unavailable in the operating system keyring".to_owned()
+        })?
+    } else {
+        request.token.clone()
+    };
+    let models = load_openai_models(&base_url, &token, request.allow_insecure_tls).await?;
     if models.is_empty() {
         return Err("Authorization succeeded, but the API returned no models".to_owned());
     }
-
-    let credential_store = openai_credential_store();
-    credential_store
-        .save(OPENAI_COMPATIBLE_CREDENTIAL_REF, &request.token)
-        .map_err(|_| "failed to save token in the operating system keyring".to_owned())?;
+    if !request.token.trim().is_empty() {
+        credential_store
+            .save(&credential_ref, &request.token)
+            .map_err(|_| "failed to save token in the operating system keyring".to_owned())?;
+    }
     let config = OpenAiCompatibleProviderConfig {
+        id: id.clone(),
         base_url,
-        credential_ref: OPENAI_COMPATIBLE_CREDENTIAL_REF.to_owned(),
+        credential_ref,
         allow_insecure_tls: request.allow_insecure_tls,
     };
     let value = serde_json::to_string(&config)
         .map_err(|_| "failed to serialize OpenAI-compatible API settings".to_owned())?;
+    let config_key = if id == "legacy" {
+        OPENAI_COMPATIBLE_SETTINGS_KEY.to_owned()
+    } else {
+        format!("{OPENAI_COMPATIBLE_SETTINGS_KEY}.{id}")
+    };
     repositories::upsert_setting(
         pool,
-        OPENAI_COMPATIBLE_SETTINGS_KEY,
+        &config_key,
         &value,
         OPENAI_COMPATIBLE_SETTINGS_SCHEMA_VERSION,
     )
     .await
     .map_err(|_| "failed to save OpenAI-compatible API settings".to_owned())?;
+    if !configs.iter().any(|config| config.id == id) {
+        configs.push(config);
+        let ids: Vec<&str> = configs
+            .iter()
+            .filter(|config| config.id != "legacy")
+            .map(|config| config.id.as_str())
+            .collect();
+        let value = serde_json::to_string(&ids)
+            .map_err(|_| "failed to serialize AI providers".to_owned())?;
+        repositories::upsert_setting(pool, OPENAI_INSTANCES_KEY, &value, 1)
+            .await
+            .map_err(|_| "failed to save AI providers".to_owned())?;
+    }
 
     dto(pool).await
 }
 
 pub async fn dto(pool: &SqlitePool) -> Result<AiSettingsPageDto, String> {
     let settings = load(pool).await?;
+    let configs = load_openai_configs(pool).await?;
+    let mut providers = Vec::new();
+    let added_cli = load_added_cli_providers(pool).await?;
+    let show_codex = added_cli.contains(&AiProviderId::CodexCli)
+        || settings.provider == Some(AiProviderId::CodexCli);
+    let show_claude = added_cli.contains(&AiProviderId::ClaudeCodeCli)
+        || settings.provider == Some(AiProviderId::ClaudeCodeCli);
     let (codex, claude) = tokio::join!(
-        tokio::task::spawn_blocking(inspect_codex_cli),
-        tokio::task::spawn_blocking(crate::application::claude_code::inspect),
+        async {
+            if show_codex {
+                Some(tokio::task::spawn_blocking(inspect_codex_cli).await)
+            } else {
+                None
+            }
+        },
+        async {
+            if show_claude {
+                Some(tokio::task::spawn_blocking(crate::application::claude_code::inspect).await)
+            } else {
+                None
+            }
+        },
     );
-    let provider = codex.map_err(|_| "failed to inspect Codex CLI".to_owned())?;
-    let claude_provider = claude.map_err(|_| "failed to inspect Claude Code CLI".to_owned())?;
-    let openai_provider = inspect_openai_compatible(pool).await;
+    if let Some(result) = codex {
+        providers.push(result.map_err(|_| "failed to inspect Codex CLI".to_owned())?);
+    }
+    if let Some(result) = claude {
+        providers.push(result.map_err(|_| "failed to inspect Claude Code CLI".to_owned())?);
+    }
+    for config in configs {
+        providers.push(inspect_openai_compatible(config).await);
+    }
     Ok(AiSettingsPageDto {
         settings,
-        providers: vec![provider, claude_provider, openai_provider],
+        providers,
     })
+}
+
+async fn load_added_cli_providers(pool: &SqlitePool) -> Result<Vec<AiProviderId>, String> {
+    let value = repositories::get_setting(pool, ADDED_CLI_PROVIDERS_KEY)
+        .await
+        .map_err(|_| "failed to load AI providers".to_owned())?;
+    Ok(value
+        .and_then(|raw| serde_json::from_str(&raw).ok())
+        .unwrap_or_default())
+}
+
+pub async fn add_cli_provider(
+    pool: &SqlitePool,
+    provider: AiProviderId,
+) -> Result<AiSettingsPageDto, String> {
+    if provider == AiProviderId::OpenAiCompatible {
+        return Err("Select an API URL to add this provider".to_owned());
+    }
+    let inspected = inspect_cli_candidate(provider).await?;
+    if !inspected.available
+        || inspected.status != AiProviderStatus::Connected
+        || inspected.models.is_empty()
+    {
+        return Err(inspected
+            .message
+            .unwrap_or_else(|| "Selected CLI provider is unavailable".to_owned()));
+    }
+    let mut added = load_added_cli_providers(pool).await?;
+    if !added.contains(&provider) {
+        added.push(provider);
+        let value = serde_json::to_string(&added)
+            .map_err(|_| "failed to serialize AI providers".to_owned())?;
+        repositories::upsert_setting(pool, ADDED_CLI_PROVIDERS_KEY, &value, 1)
+            .await
+            .map_err(|_| "failed to save AI providers".to_owned())?;
+    }
+    dto(pool).await
+}
+
+pub async fn inspect_cli_candidate(provider: AiProviderId) -> Result<AiProviderDto, String> {
+    match provider {
+        AiProviderId::CodexCli => tokio::task::spawn_blocking(inspect_codex_cli)
+            .await
+            .map_err(|_| "failed to inspect Codex CLI".to_owned()),
+        AiProviderId::ClaudeCodeCli => {
+            tokio::task::spawn_blocking(crate::application::claude_code::inspect)
+                .await
+                .map_err(|_| "failed to inspect Claude Code CLI".to_owned())
+        }
+        AiProviderId::OpenAiCompatible => Err("Select a CLI provider".to_owned()),
+    }
+}
+
+pub async fn delete_provider(
+    pool: &SqlitePool,
+    provider: AiProviderId,
+    instance_id: Option<String>,
+) -> Result<AiSettingsPageDto, String> {
+    let mut settings = load(pool).await?;
+    let selected = settings.provider == Some(provider)
+        && (provider != AiProviderId::OpenAiCompatible
+            || settings.provider_instance_id.as_deref().unwrap_or("legacy")
+                == instance_id.as_deref().unwrap_or("legacy"));
+    if selected {
+        settings = AiSettings::default();
+    }
+
+    let configs = if provider == AiProviderId::OpenAiCompatible {
+        Some(load_openai_configs(pool).await?)
+    } else {
+        None
+    };
+    let added_cli = if provider != AiProviderId::OpenAiCompatible {
+        Some(load_added_cli_providers(pool).await?)
+    } else {
+        None
+    };
+    let mut tx = pool
+        .begin()
+        .await
+        .map_err(|_| "failed to delete AI provider".to_owned())?;
+    if provider == AiProviderId::OpenAiCompatible {
+        let id = instance_id.ok_or_else(|| "AI provider ID is required".to_owned())?;
+        let configs = configs.as_ref().expect("OpenAI configurations were loaded");
+        let config = configs
+            .iter()
+            .find(|config| config.id == id)
+            .ok_or_else(|| "AI provider was not found".to_owned())?;
+        if id == "legacy" {
+            sqlx::query("DELETE FROM settings WHERE key = ?")
+                .bind(OPENAI_COMPATIBLE_SETTINGS_KEY)
+                .execute(&mut *tx)
+                .await
+                .map_err(|_| "failed to delete AI provider".to_owned())?;
+        } else {
+            if uuid::Uuid::parse_str(&id).is_err() {
+                return Err("AI provider ID is invalid".to_owned());
+            }
+            sqlx::query("DELETE FROM settings WHERE key = ?")
+                .bind(format!("{OPENAI_COMPATIBLE_SETTINGS_KEY}.{id}"))
+                .execute(&mut *tx)
+                .await
+                .map_err(|_| "failed to delete AI provider".to_owned())?;
+            let ids: Vec<&str> = configs
+                .iter()
+                .filter(|item| item.id != "legacy" && item.id != id)
+                .map(|item| item.id.as_str())
+                .collect();
+            let value = serde_json::to_string(&ids)
+                .map_err(|_| "failed to serialize AI providers".to_owned())?;
+            sqlx::query("UPDATE settings SET value_json = ?, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE key = ?")
+                .bind(value).bind(OPENAI_INSTANCES_KEY).execute(&mut *tx).await.map_err(|_| "failed to delete AI provider".to_owned())?;
+        }
+        let credential_ref = config.credential_ref.clone();
+        match openai_credential_store().load(&credential_ref) {
+            Ok(_) => openai_credential_store()
+                .delete(&credential_ref)
+                .map_err(|_| {
+                    "failed to delete AI provider token from the operating system keyring"
+                        .to_owned()
+                })?,
+            Err(CredentialError::NotFound) => {}
+            Err(_) => {
+                return Err(
+                    "failed to access AI provider token in the operating system keyring".to_owned(),
+                )
+            }
+        }
+    } else {
+        let mut added = added_cli.expect("CLI providers were loaded");
+        if !added.contains(&provider) && settings.provider != Some(provider) && !selected {
+            return Err("AI provider was not found".to_owned());
+        }
+        added.retain(|item| *item != provider);
+        let value = serde_json::to_string(&added)
+            .map_err(|_| "failed to serialize AI providers".to_owned())?;
+        sqlx::query("UPDATE settings SET value_json = ?, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE key = ?")
+            .bind(value).bind(ADDED_CLI_PROVIDERS_KEY).execute(&mut *tx).await.map_err(|_| "failed to delete AI provider".to_owned())?;
+    }
+    if selected {
+        let value = serde_json::to_string(&settings)
+            .map_err(|_| "failed to serialize AI settings".to_owned())?;
+        sqlx::query("UPDATE settings SET value_json = ?, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE key = ?")
+            .bind(value).bind(AI_SETTINGS_KEY).execute(&mut *tx).await.map_err(|_| "failed to clear selected AI provider".to_owned())?;
+    }
+    tx.commit()
+        .await
+        .map_err(|_| "failed to delete AI provider".to_owned())?;
+    dto(pool).await
 }
 
 pub async fn ensure_review_ready(pool: &SqlitePool) -> Result<AiSettings, String> {
@@ -267,7 +488,17 @@ pub async fn ensure_review_ready(pool: &SqlitePool) -> Result<AiSettings, String
                 .to_owned(),
         );
     };
-    let Some(provider_status) = data.providers.iter().find(|item| item.id == provider) else {
+    let Some(provider_status) = data.providers.iter().find(|item| {
+        item.id == provider
+            && (provider != AiProviderId::OpenAiCompatible
+                || item.instance_id.as_deref()
+                    == Some(
+                        data.settings
+                            .provider_instance_id
+                            .as_deref()
+                            .unwrap_or("legacy"),
+                    ))
+    }) else {
         return Err("Selected AI provider is unavailable".to_owned());
     };
     if !provider_status.available || provider_status.status != AiProviderStatus::Connected {
@@ -293,6 +524,7 @@ pub fn inspect_codex_cli() -> AiProviderDto {
     let Some(path) = resolve_codex_binary_with_startup_retry() else {
         return AiProviderDto {
             id: AiProviderId::CodexCli,
+            instance_id: None,
             name: "Codex CLI".to_owned(),
             status: AiProviderStatus::NotFound,
             available: false,
@@ -319,6 +551,7 @@ pub fn inspect_codex_cli() -> AiProviderDto {
     let Ok(login_output) = login_output else {
         return AiProviderDto {
             id: AiProviderId::CodexCli,
+            instance_id: None,
             name: "Codex CLI".to_owned(),
             status: AiProviderStatus::Unavailable,
             available: false,
@@ -345,6 +578,7 @@ pub fn inspect_codex_cli() -> AiProviderDto {
         };
         return AiProviderDto {
             id: AiProviderId::CodexCli,
+            instance_id: None,
             name: "Codex CLI".to_owned(),
             status: AiProviderStatus::Connected,
             available: true,
@@ -359,6 +593,7 @@ pub fn inspect_codex_cli() -> AiProviderDto {
 
     AiProviderDto {
         id: AiProviderId::CodexCli,
+        instance_id: None,
         name: "Codex CLI".to_owned(),
         status: AiProviderStatus::NotAuthenticated,
         available: false,
@@ -794,6 +1029,7 @@ fn codex_install_paths(
 fn unavailable_provider(path: PathBuf, models: Vec<String>, message: &str) -> AiProviderDto {
     AiProviderDto {
         id: AiProviderId::CodexCli,
+        instance_id: None,
         name: "Codex CLI".to_owned(),
         status: AiProviderStatus::Unavailable,
         available: false,
@@ -828,7 +1064,12 @@ async fn validate_settings(pool: &SqlitePool, settings: &AiSettings) -> Result<(
         None => return Err("Select an AI provider before saving".to_owned()),
     };
     let providers = dto(pool).await?.providers;
-    let Some(provider_status) = providers.iter().find(|item| item.id == provider) else {
+    let Some(provider_status) = providers.iter().find(|item| {
+        item.id == provider
+            && (provider != AiProviderId::OpenAiCompatible
+                || item.instance_id.as_deref()
+                    == Some(settings.provider_instance_id.as_deref().unwrap_or("legacy")))
+    }) else {
         return Err("Selected AI provider is unavailable".to_owned());
     };
     if !provider_status.available
@@ -890,30 +1131,60 @@ fn openai_credential_store_for_mode(mock_mode: bool) -> Box<dyn CredentialStore>
     }
 }
 
-async fn load_openai_config(
+async fn load_openai_configs(
     pool: &SqlitePool,
-) -> Result<Option<OpenAiCompatibleProviderConfig>, String> {
-    let value = repositories::get_setting(pool, OPENAI_COMPATIBLE_SETTINGS_KEY)
+) -> Result<Vec<OpenAiCompatibleProviderConfig>, String> {
+    let mut result = Vec::new();
+    if let Some(raw) = repositories::get_setting(pool, OPENAI_COMPATIBLE_SETTINGS_KEY)
         .await
-        .map_err(|_| "failed to load OpenAI-compatible API settings".to_owned())?;
-    value
-        .map(|raw| {
-            serde_json::from_str::<OpenAiCompatibleProviderConfig>(&raw)
-                .map_err(|_| "stored OpenAI-compatible API settings are invalid".to_owned())
-        })
-        .transpose()
+        .map_err(|_| "failed to load OpenAI-compatible API settings".to_owned())?
+    {
+        let mut legacy: OpenAiCompatibleProviderConfig = serde_json::from_str(&raw)
+            .map_err(|_| "stored OpenAI-compatible API settings are invalid".to_owned())?;
+        legacy.id = "legacy".to_owned();
+        result.push(legacy);
+    }
+    if let Some(raw) = repositories::get_setting(pool, OPENAI_INSTANCES_KEY)
+        .await
+        .map_err(|_| "failed to load AI providers".to_owned())?
+    {
+        let ids: Vec<String> =
+            serde_json::from_str(&raw).map_err(|_| "stored AI providers are invalid".to_owned())?;
+        for id in ids {
+            if uuid::Uuid::parse_str(&id).is_err() {
+                return Err("stored AI provider ID is invalid".to_owned());
+            }
+            let raw =
+                repositories::get_setting(pool, &format!("{OPENAI_COMPATIBLE_SETTINGS_KEY}.{id}"))
+                    .await
+                    .map_err(|_| "failed to load OpenAI-compatible API settings".to_owned())?
+                    .ok_or_else(|| "stored AI provider is missing".to_owned())?;
+            let mut config: OpenAiCompatibleProviderConfig = serde_json::from_str(&raw)
+                .map_err(|_| "stored OpenAI-compatible API settings are invalid".to_owned())?;
+            config.id = id;
+            result.push(config);
+        }
+    }
+    Ok(result)
 }
 
-pub async fn configured_openai_credential_ref(pool: &SqlitePool) -> Result<Option<String>, String> {
-    Ok(load_openai_config(pool)
+pub async fn configured_openai_credential_refs(pool: &SqlitePool) -> Result<Vec<String>, String> {
+    Ok(load_openai_configs(pool)
         .await?
-        .map(|config| config.credential_ref))
+        .into_iter()
+        .map(|config| config.credential_ref)
+        .collect())
 }
 
 pub async fn openai_compatible_runtime_config(
     pool: &SqlitePool,
+    instance_id: Option<&str>,
 ) -> Result<OpenAiCompatibleRuntimeConfig, String> {
-    let Some(config) = load_openai_config(pool).await? else {
+    let configs = load_openai_configs(pool).await?;
+    let Some(config) = configs
+        .into_iter()
+        .find(|config| Some(config.id.as_str()) == instance_id.or(Some("legacy")))
+    else {
         return Err("OpenAI-compatible API is not configured".to_owned());
     };
     let base_url = normalize_openai_base_url(&config.base_url)?;
@@ -929,20 +1200,26 @@ pub async fn openai_compatible_runtime_config(
     })
 }
 
-async fn inspect_openai_compatible(pool: &SqlitePool) -> AiProviderDto {
-    let config = match load_openai_config(pool).await {
-        Ok(Some(config)) => config,
-        Ok(None) => return openai_not_configured_provider(),
-        Err(message) => return openai_unavailable_provider(None, message),
-    };
+async fn inspect_openai_compatible(config: OpenAiCompatibleProviderConfig) -> AiProviderDto {
     let base_url = match normalize_openai_base_url(&config.base_url) {
         Ok(base_url) => base_url,
-        Err(message) => return openai_unavailable_provider(Some(config.base_url), message),
+        Err(message) => {
+            return openai_provider(
+                &config.id,
+                AiProviderStatus::Unavailable,
+                false,
+                config.base_url,
+                Vec::new(),
+                Some(config.allow_insecure_tls),
+                Some(message),
+            )
+        }
     };
     let token =
         match openai_credential_store().load(&config.credential_ref) {
             Ok(token) => token,
             Err(_) => return openai_provider(
+                &config.id,
                 AiProviderStatus::NotAuthenticated,
                 false,
                 base_url,
@@ -956,6 +1233,7 @@ async fn inspect_openai_compatible(pool: &SqlitePool) -> AiProviderDto {
         };
     match load_openai_models(&base_url, &token, config.allow_insecure_tls).await {
         Ok(models) => openai_provider(
+            &config.id,
             AiProviderStatus::Connected,
             true,
             base_url,
@@ -964,6 +1242,7 @@ async fn inspect_openai_compatible(pool: &SqlitePool) -> AiProviderDto {
             None,
         ),
         Err(message) => openai_provider(
+            &config.id,
             AiProviderStatus::Unavailable,
             false,
             base_url,
@@ -974,29 +1253,8 @@ async fn inspect_openai_compatible(pool: &SqlitePool) -> AiProviderDto {
     }
 }
 
-fn openai_not_configured_provider() -> AiProviderDto {
-    openai_provider(
-        AiProviderStatus::NotConfigured,
-        false,
-        String::new(),
-        Vec::new(),
-        None,
-        Some("Configure an API URL and token to load available models".to_owned()),
-    )
-}
-
-fn openai_unavailable_provider(base_url: Option<String>, message: String) -> AiProviderDto {
-    openai_provider(
-        AiProviderStatus::Unavailable,
-        false,
-        base_url.unwrap_or_default(),
-        Vec::new(),
-        None,
-        Some(message),
-    )
-}
-
 fn openai_provider(
+    instance_id: &str,
     status: AiProviderStatus,
     available: bool,
     base_url: String,
@@ -1006,6 +1264,7 @@ fn openai_provider(
 ) -> AiProviderDto {
     AiProviderDto {
         id: AiProviderId::OpenAiCompatible,
+        instance_id: Some(instance_id.to_owned()),
         name: "OpenAI-compatible API".to_owned(),
         status,
         available,
@@ -1428,16 +1687,18 @@ pub fn test_process_env_lock() -> &'static std::sync::Mutex<()> {
 #[cfg(test)]
 mod tests {
     use super::{
-        copy_configuration_to_mock, load_openai_models, normalize_openai_base_url,
-        openai_credential_store_for_mode, parse_codex_model_list_response,
-        parse_openai_model_list_response, safe_first_line, safe_openai_error_detail, AiProviderId,
-        AiReasoning, AiSettings, OpenAiCompatibleProviderConfig, AI_SETTINGS_KEY,
+        copy_configuration_to_mock, delete_provider, load, load_openai_models,
+        normalize_openai_base_url, openai_credential_store_for_mode,
+        parse_codex_model_list_response, parse_openai_model_list_response, safe_first_line,
+        safe_openai_error_detail, AiProviderId, AiReasoning, AiSettings,
+        OpenAiCompatibleProviderConfig, ADDED_CLI_PROVIDERS_KEY, AI_SETTINGS_KEY,
         AI_SETTINGS_SCHEMA_VERSION, OPENAI_COMPATIBLE_SETTINGS_KEY,
         OPENAI_COMPATIBLE_SETTINGS_SCHEMA_VERSION,
     };
     #[cfg(unix)]
     use super::{inspect_codex_cli, query_codex_models_with_timeout, AiProviderStatus};
     use crate::infrastructure::credentials::keyring::CredentialError;
+    use sqlx::sqlite::SqlitePoolOptions;
 
     #[tokio::test]
     async fn copies_only_ai_configuration_to_the_disposable_mock_database() {
@@ -1526,6 +1787,47 @@ mod tests {
         assert!(!settings.fast_mode);
     }
 
+    #[tokio::test]
+    async fn deleting_selected_cli_clears_its_selection() {
+        let pool = SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+        sqlx::query("CREATE TABLE settings (key TEXT PRIMARY KEY, value_json TEXT NOT NULL, schema_version INTEGER NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL)")
+            .execute(&pool).await.unwrap();
+        let settings = AiSettings {
+            provider: Some(AiProviderId::CodexCli),
+            provider_instance_id: None,
+            model: "example-model".to_owned(),
+            reasoning: AiReasoning::Medium,
+            fast_mode: false,
+        };
+        crate::infrastructure::db::repositories::upsert_setting(
+            &pool,
+            AI_SETTINGS_KEY,
+            &serde_json::to_string(&settings).unwrap(),
+            1,
+        )
+        .await
+        .unwrap();
+        crate::infrastructure::db::repositories::upsert_setting(
+            &pool,
+            ADDED_CLI_PROVIDERS_KEY,
+            "[\"codex-cli\"]",
+            1,
+        )
+        .await
+        .unwrap();
+
+        let result = delete_provider(&pool, AiProviderId::CodexCli, None)
+            .await
+            .unwrap();
+        assert!(result.providers.is_empty());
+        assert_eq!(result.settings.provider, None);
+        assert_eq!(load(&pool).await.unwrap().model, "");
+    }
+
     #[test]
     fn exposes_only_safe_openai_error_metadata() {
         let payload = serde_json::json!({
@@ -1590,6 +1892,7 @@ mod tests {
     fn serializes_provider_and_reasoning_for_renderer_contract() {
         let settings = AiSettings {
             provider: Some(AiProviderId::CodexCli),
+            provider_instance_id: None,
             model: "gpt-5.5".to_owned(),
             reasoning: AiReasoning::High,
             fast_mode: true,
@@ -1782,6 +2085,7 @@ mod tests {
     #[test]
     fn serializes_openai_provider_without_static_model_metadata() {
         let config = OpenAiCompatibleProviderConfig {
+            id: "legacy".to_owned(),
             base_url: "https://api.example.invalid/v1".to_owned(),
             credential_ref: "ai-openai-compatible".to_owned(),
             allow_insecure_tls: true,

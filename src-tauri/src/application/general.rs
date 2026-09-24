@@ -10,7 +10,7 @@ use crate::os::notifications::{
 };
 
 const GENERAL_SETTINGS_KEY: &str = "general.settings";
-const GENERAL_SETTINGS_SCHEMA_VERSION: i64 = 5;
+const GENERAL_SETTINGS_SCHEMA_VERSION: i64 = 6;
 static GENERAL_SETTINGS_WRITE_LOCK: OnceLock<tokio::sync::Mutex<()>> = OnceLock::new();
 
 fn general_settings_write_lock() -> &'static tokio::sync::Mutex<()> {
@@ -74,6 +74,14 @@ pub enum ThemePreference {
     Dark,
 }
 
+#[derive(Debug, Clone, Copy, Default, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ButtonStyle {
+    #[default]
+    Quiet,
+    Filled,
+}
+
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct GeneralSettings {
@@ -90,6 +98,8 @@ pub struct GeneralSettings {
     pub ai_response_language: AiResponseLanguage,
     #[serde(default)]
     pub theme_preference: ThemePreference,
+    #[serde(default)]
+    pub button_style: ButtonStyle,
 }
 
 impl Default for GeneralSettings {
@@ -102,6 +112,7 @@ impl Default for GeneralSettings {
             language: AppLanguage::English,
             ai_response_language: AiResponseLanguage::SameAsUi,
             theme_preference: ThemePreference::System,
+            button_style: ButtonStyle::Quiet,
         }
     }
 }
@@ -116,6 +127,7 @@ pub struct GeneralSettingsDto {
     pub language: AppLanguage,
     pub ai_response_language: AiResponseLanguage,
     pub theme_preference: ThemePreference,
+    pub button_style: ButtonStyle,
     pub notification_permission: NotificationPermission,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub permission_check_error: Option<String>,
@@ -205,6 +217,10 @@ pub async fn save_appearance_preferences(
     .await
 }
 
+pub async fn save_button_style(pool: &SqlitePool, button_style: ButtonStyle) -> Result<(), String> {
+    update(pool, |settings| settings.button_style = button_style).await
+}
+
 pub async fn dto<R: Runtime>(
     pool: &SqlitePool,
     app: &AppHandle<R>,
@@ -223,6 +239,7 @@ pub async fn dto<R: Runtime>(
         language: settings.language,
         ai_response_language: settings.ai_response_language,
         theme_preference: settings.theme_preference,
+        button_style: settings.button_style,
         notification_permission,
         permission_check_error,
     })
@@ -297,8 +314,9 @@ pub fn open_notification_settings() -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::{
-        initialize_if_missing, load, save_appearance_preferences, save_general_preferences,
-        AiResponseLanguage, AppLanguage, GeneralSettings, NotificationTestKind, ThemePreference,
+        initialize_if_missing, load, save_appearance_preferences, save_button_style,
+        save_general_preferences, AiResponseLanguage, AppLanguage, ButtonStyle, GeneralSettings,
+        NotificationTestKind, ThemePreference,
     };
     use sqlx::sqlite::SqlitePoolOptions;
 
@@ -318,6 +336,7 @@ mod tests {
         assert_eq!(settings.language, AppLanguage::English);
         assert_eq!(settings.ai_response_language, AiResponseLanguage::SameAsUi);
         assert_eq!(settings.theme_preference, ThemePreference::System);
+        assert_eq!(settings.button_style, ButtonStyle::Quiet);
     }
 
     #[test]
@@ -390,6 +409,7 @@ mod tests {
         save_appearance_preferences(&pool, AppLanguage::Russian, ThemePreference::Dark)
             .await
             .unwrap();
+        save_button_style(&pool, ButtonStyle::Filled).await.unwrap();
         save_general_preferences(
             &pool,
             false,
@@ -404,6 +424,7 @@ mod tests {
         let settings = load(&pool).await.unwrap();
         assert_eq!(settings.language, AppLanguage::Russian);
         assert_eq!(settings.theme_preference, ThemePreference::Dark);
+        assert_eq!(settings.button_style, ButtonStyle::Filled);
         assert_eq!(settings.ai_response_language, AiResponseLanguage::Russian);
         assert!(!settings.notifications_enabled);
         assert!(!settings.review_notifications_enabled);
