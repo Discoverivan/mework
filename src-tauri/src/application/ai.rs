@@ -1,11 +1,12 @@
 use std::{
+    collections::HashMap,
     env,
     ffi::OsStr,
     fs,
     io::{BufRead, BufReader, Write},
     path::{Path, PathBuf},
     process::{ChildStdin, Command, Stdio},
-    sync::{mpsc, OnceLock},
+    sync::{mpsc, Mutex, OnceLock},
     thread,
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
@@ -20,7 +21,8 @@ use sqlx::SqlitePool;
 
 use crate::infrastructure::{
     credentials::keyring::{
-        CredentialStore, OsKeyring, DEV_KEYRING_SERVICE, PRODUCTION_KEYRING_SERVICE,
+        CredentialError, CredentialStore, OsKeyring, DEV_KEYRING_SERVICE,
+        PRODUCTION_KEYRING_SERVICE,
     },
     db::repositories,
 };
@@ -160,6 +162,31 @@ pub struct AiProviderDto {
 pub struct AiSettingsPageDto {
     pub settings: AiSettings,
     pub providers: Vec<AiProviderDto>,
+}
+
+/// Copy only non-secret AI configuration from the regular DEV database into
+/// the disposable mock database. Credential values remain in the OS keyring.
+pub async fn copy_configuration_to_mock(
+    source: &SqlitePool,
+    destination: &SqlitePool,
+) -> Result<(), String> {
+    for (key, version) in [
+        (AI_SETTINGS_KEY, AI_SETTINGS_SCHEMA_VERSION),
+        (
+            OPENAI_COMPATIBLE_SETTINGS_KEY,
+            OPENAI_COMPATIBLE_SETTINGS_SCHEMA_VERSION,
+        ),
+    ] {
+        if let Some(value) = repositories::get_setting(source, key)
+            .await
+            .map_err(|_| "failed to read AI configuration for mock mode".to_owned())?
+        {
+            repositories::upsert_setting(destination, key, &value, version)
+                .await
+                .map_err(|_| "failed to copy AI configuration to mock mode".to_owned())?;
+        }
+    }
+    Ok(())
 }
 
 pub async fn load(pool: &SqlitePool) -> Result<AiSettings, String> {
@@ -816,8 +843,51 @@ async fn validate_settings(pool: &SqlitePool, settings: &AiSettings) -> Result<(
     Ok(())
 }
 
-fn openai_credential_store() -> OsKeyring {
-    OsKeyring::new(AI_KEYRING_SERVICE)
+#[derive(Debug, Default)]
+struct MockAiCredentialStore;
+
+static MOCK_AI_CREDENTIALS: OnceLock<Mutex<HashMap<String, String>>> = OnceLock::new();
+
+impl CredentialStore for MockAiCredentialStore {
+    fn save(&self, credential_ref: &str, secret: &str) -> Result<(), CredentialError> {
+        MOCK_AI_CREDENTIALS
+            .get_or_init(|| Mutex::new(HashMap::new()))
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .insert(credential_ref.to_owned(), secret.to_owned());
+        Ok(())
+    }
+
+    fn load(&self, credential_ref: &str) -> Result<String, CredentialError> {
+        MOCK_AI_CREDENTIALS
+            .get_or_init(|| Mutex::new(HashMap::new()))
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .get(credential_ref)
+            .cloned()
+            .ok_or(CredentialError::NotFound)
+    }
+
+    fn delete(&self, credential_ref: &str) -> Result<(), CredentialError> {
+        MOCK_AI_CREDENTIALS
+            .get_or_init(|| Mutex::new(HashMap::new()))
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .remove(credential_ref);
+        Ok(())
+    }
+}
+
+fn openai_credential_store() -> Box<dyn CredentialStore> {
+    openai_credential_store_for_mode(crate::application::dev_overlay::current_mock_mode_requested())
+}
+
+fn openai_credential_store_for_mode(mock_mode: bool) -> Box<dyn CredentialStore> {
+    if mock_mode {
+        Box::new(MockAiCredentialStore)
+    } else {
+        Box::new(OsKeyring::new(AI_KEYRING_SERVICE))
+    }
 }
 
 async fn load_openai_config(
@@ -1357,13 +1427,95 @@ pub fn test_process_env_lock() -> &'static std::sync::Mutex<()> {
 
 #[cfg(test)]
 mod tests {
+    use super::{
+        copy_configuration_to_mock, load_openai_models, normalize_openai_base_url,
+        openai_credential_store_for_mode, parse_codex_model_list_response,
+        parse_openai_model_list_response, safe_first_line, safe_openai_error_detail, AiProviderId,
+        AiReasoning, AiSettings, OpenAiCompatibleProviderConfig, AI_SETTINGS_KEY,
+        AI_SETTINGS_SCHEMA_VERSION, OPENAI_COMPATIBLE_SETTINGS_KEY,
+        OPENAI_COMPATIBLE_SETTINGS_SCHEMA_VERSION,
+    };
     #[cfg(unix)]
     use super::{inspect_codex_cli, query_codex_models_with_timeout, AiProviderStatus};
-    use super::{
-        load_openai_models, normalize_openai_base_url, parse_codex_model_list_response,
-        parse_openai_model_list_response, safe_first_line, safe_openai_error_detail, AiProviderId,
-        AiReasoning, AiSettings, OpenAiCompatibleProviderConfig,
-    };
+    use crate::infrastructure::credentials::keyring::CredentialError;
+
+    #[tokio::test]
+    async fn copies_only_ai_configuration_to_the_disposable_mock_database() {
+        let temp_dir = tempfile::tempdir().expect("temporary app data");
+        let source = crate::infrastructure::db::open_database(&temp_dir.path().join("dev.sqlite"))
+            .await
+            .expect("regular dev database");
+        let mock = crate::infrastructure::db::open_database(&temp_dir.path().join("mock.sqlite"))
+            .await
+            .expect("mock database");
+        crate::infrastructure::db::repositories::upsert_setting(
+            &source,
+            AI_SETTINGS_KEY,
+            r#"{"provider":"openai-compatible","model":"example-model","reasoning":"medium","fastMode":false}"#,
+            AI_SETTINGS_SCHEMA_VERSION,
+        )
+        .await
+        .expect("save AI settings");
+        crate::infrastructure::db::repositories::upsert_setting(
+            &source,
+            OPENAI_COMPATIBLE_SETTINGS_KEY,
+            r#"{"baseUrl":"https://ai.example.invalid/v1","credentialRef":"ai-openai-compatible","allowInsecureTls":false}"#,
+            OPENAI_COMPATIBLE_SETTINGS_SCHEMA_VERSION,
+        )
+        .await
+        .expect("save AI provider configuration");
+        crate::infrastructure::db::repositories::upsert_setting(
+            &source,
+            "general.preferences",
+            r#"{"language":"en"}"#,
+            1,
+        )
+        .await
+        .expect("save unrelated setting");
+
+        copy_configuration_to_mock(&source, &mock)
+            .await
+            .expect("copy AI configuration");
+
+        assert!(
+            crate::infrastructure::db::repositories::get_setting(&mock, AI_SETTINGS_KEY)
+                .await
+                .expect("read copied AI settings")
+                .is_some()
+        );
+        assert!(crate::infrastructure::db::repositories::get_setting(
+            &mock,
+            OPENAI_COMPATIBLE_SETTINGS_KEY
+        )
+        .await
+        .expect("read copied AI provider config")
+        .is_some());
+        assert!(
+            crate::infrastructure::db::repositories::get_setting(&mock, "general.preferences")
+                .await
+                .expect("read uncopied settings")
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn mock_ai_credentials_are_ephemeral_instead_of_using_the_os_keyring() {
+        let store = openai_credential_store_for_mode(true);
+        let credential_ref = "mock-test-credential";
+        assert_eq!(store.load(credential_ref), Err(CredentialError::NotFound));
+
+        store
+            .save(credential_ref, "ephemeral-test-value")
+            .expect("mock credential should stay in memory");
+        assert_eq!(
+            store.load(credential_ref),
+            Ok("ephemeral-test-value".to_owned())
+        );
+        store
+            .delete(credential_ref)
+            .expect("mock credential should be removable");
+        assert_eq!(store.load(credential_ref), Err(CredentialError::NotFound));
+    }
 
     #[test]
     fn defaults_to_no_provider_until_user_saves_one() {

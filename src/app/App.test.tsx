@@ -1,10 +1,14 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { act, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type { IntegrationRedacted } from "../shared/contracts/settings";
 import type { MyPullRequestPage } from "../shared/contracts/developer";
 import type { TaskTrackerMonitor } from "../shared/contracts/task-tracker";
 import { APP_EVENT, emitAppEvent } from "./app-events";
 import App from "../App";
+
+vi.mock("../features/daily/PresenterView", () => ({
+  PresenterView: () => <h1>Daily presenter screen</h1>,
+}));
 
 vi.mock("../features/settings/SettingsPage", () => ({
   SettingsPage: ({ section }: { section?: string }) => <h1>{section === "projects" ? "Team settings" : section === "ai" ? "AI settings" : section === "general" ? "General" : "Data integrations"}</h1>,
@@ -17,7 +21,17 @@ vi.mock("../features/developer/MyPullRequestsPage", () => ({
 vi.mock("../features/developer/AuthoredPullRequestsPage", () => ({
   AuthoredPullRequestsPage: () => <h1>Pull requests authored by you</h1>,
 }));
-const { getAiSettingsMock, getPullRequestUnreadCountsMock, refreshAuthoredPullRequestsMock, refreshMyPullRequestsMock, refreshAllIntegrationsHealthMock, listTaskTrackerMonitorsMock, nativeThemeMock, onThemeChangedMock } = vi.hoisted(() => ({
+const { devOverlayEnabledMock, getDevOverlayStateMock, addDevMockTaskMock, setDevMockTaskStatusMock, addDevMockPullRequestMock, resetDevMockScenarioMock, getAiSettingsMock, getPullRequestUnreadCountsMock, refreshAuthoredPullRequestsMock, refreshMyPullRequestsMock, refreshAllIntegrationsHealthMock, listTaskTrackerMonitorsMock, nativeThemeMock, onThemeChangedMock } = vi.hoisted(() => ({
+  devOverlayEnabledMock: vi.fn().mockResolvedValue(false),
+  getDevOverlayStateMock: vi.fn().mockResolvedValue({
+    monitors: [],
+    reviewerPullRequests: { values: [], total: 0, hasMore: false },
+    authoredPullRequests: { values: [], total: 0, hasMore: false },
+  }),
+  addDevMockTaskMock: vi.fn(),
+  setDevMockTaskStatusMock: vi.fn(),
+  addDevMockPullRequestMock: vi.fn(),
+  resetDevMockScenarioMock: vi.fn(),
   getAiSettingsMock: vi.fn().mockResolvedValue({
     settings: { provider: "codex-cli", model: "gpt-5.5", reasoning: "medium", fastMode: false },
     providers: [{ id: "codex-cli", name: "Codex CLI", status: "connected", available: true, models: ["gpt-5.5"] }],
@@ -39,6 +53,15 @@ vi.mock("../features/developer/api", () => ({
   getPullRequestUnreadCounts: getPullRequestUnreadCountsMock,
   refreshAuthoredPullRequests: refreshAuthoredPullRequestsMock,
   refreshMyPullRequests: refreshMyPullRequestsMock,
+}));
+
+vi.mock("../features/dev/api", () => ({
+  devOverlayEnabled: devOverlayEnabledMock,
+  getDevOverlayState: getDevOverlayStateMock,
+  addDevMockTask: addDevMockTaskMock,
+  setDevMockTaskStatus: setDevMockTaskStatusMock,
+  addDevMockPullRequest: addDevMockPullRequestMock,
+  resetDevMockScenario: resetDevMockScenarioMock,
 }));
 
 vi.mock("@/shared/contracts/task-tracker", () => ({
@@ -132,6 +155,18 @@ describe("mework application shell", () => {
       settings: { provider: "codex-cli", model: "gpt-5.5", reasoning: "medium", fastMode: false },
       providers: [{ id: "codex-cli", name: "Codex CLI", status: "connected", available: true, models: ["gpt-5.5"] }],
     });
+    devOverlayEnabledMock.mockReset();
+    devOverlayEnabledMock.mockResolvedValue(false);
+    getDevOverlayStateMock.mockReset();
+    getDevOverlayStateMock.mockResolvedValue({
+      monitors: [],
+      reviewerPullRequests: { values: [], total: 0, hasMore: false },
+      authoredPullRequests: { values: [], total: 0, hasMore: false },
+    });
+    addDevMockTaskMock.mockReset();
+    setDevMockTaskStatusMock.mockReset();
+    addDevMockPullRequestMock.mockReset();
+    resetDevMockScenarioMock.mockReset();
     getPullRequestUnreadCountsMock.mockReset();
     getPullRequestUnreadCountsMock.mockResolvedValue({ reviewer: 0, authored: 0 });
     refreshAuthoredPullRequestsMock.mockClear();
@@ -155,9 +190,33 @@ describe("mework application shell", () => {
 
     render(<App />);
     expect(screen.getByRole("status", { name: "Loading mework" })).toBeInTheDocument();
+    await waitFor(() => expect(refreshAllIntegrationsHealthMock).toHaveBeenCalledOnce());
 
-    resolveHealth([]);
+    await act(async () => { resolveHealth([]); });
     await waitFor(() => expect(screen.queryByRole("status", { name: "Loading mework" })).not.toBeInTheDocument());
+  });
+
+  it("uses only local scenario data when explicit mock mode is enabled", async () => {
+    devOverlayEnabledMock.mockResolvedValueOnce(true);
+
+    render(<App />);
+
+    const overlayLauncher = await screen.findByRole("button", { name: "Open development scenario" });
+    fireEvent.click(overlayLauncher);
+    expect(await screen.findByRole("heading", { name: "Development scenario" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Pull requests awaiting your review" })).toBeInTheDocument();
+    expect(refreshAllIntegrationsHealthMock).not.toHaveBeenCalled();
+    expect(refreshMyPullRequestsMock).not.toHaveBeenCalled();
+    expect(refreshAuthoredPullRequestsMock).not.toHaveBeenCalled();
+  });
+
+  it("keeps the daily presenter available in mock mode", async () => {
+    devOverlayEnabledMock.mockResolvedValueOnce(true);
+    window.location.hash = "#product/daily/presenter";
+
+    render(<App />);
+
+    expect(await screen.findByRole("heading", { name: "Daily presenter screen" })).toBeInTheDocument();
   });
 
   it("releases the splash after ten seconds even when integration health never responds", async () => {
@@ -202,17 +261,20 @@ describe("mework application shell", () => {
 
     render(<App />);
     expect(screen.getByRole("status", { name: "Loading mework" })).toBeInTheDocument();
+    await waitFor(() => expect(refreshAllIntegrationsHealthMock).toHaveBeenCalledOnce());
     expect(refreshMyPullRequestsMock).not.toHaveBeenCalled();
     expect(screen.queryByRole("main", { name: "mework" })).not.toBeInTheDocument();
 
-    resolveHealth([{
-      id: "bitbucket-1",
-      kind: "bitbucket",
-      baseUrl: "https://bitbucket.example.com",
-      enabled: true,
-      healthStatus: "working",
-      capabilities: [],
-    }]);
+    await act(async () => {
+      resolveHealth([{
+        id: "bitbucket-1",
+        kind: "bitbucket",
+        baseUrl: "https://bitbucket.example.com",
+        enabled: true,
+        healthStatus: "working",
+        capabilities: [],
+      }]);
+    });
     await waitFor(() => expect(refreshMyPullRequestsMock).toHaveBeenCalledWith(0, 100));
     expect(refreshAuthoredPullRequestsMock).toHaveBeenCalledWith(0, 100);
     expect(screen.queryByRole("main", { name: "mework" })).not.toBeInTheDocument();

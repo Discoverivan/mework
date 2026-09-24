@@ -6,6 +6,8 @@ import { UpdateBanner } from "./components/shared/UpdateBanner";
 import { getBackgroundUpdateVersion } from "./components/shared/update-check";
 import { AppRoutes, type AppRoute } from "./app/routes";
 import { PresenterView } from "./features/daily/PresenterView";
+import { DevOverlay } from "./features/dev/DevOverlay";
+import { devOverlayEnabled } from "./features/dev/api";
 import { getPullRequestUnreadCounts, refreshAuthoredPullRequests, refreshMyPullRequests } from "./features/developer/api";
 import { listTaskTrackerMonitors } from "@/shared/contracts/task-tracker";
 import type { TaskTrackerMonitor } from "@/shared/contracts/task-tracker";
@@ -45,6 +47,8 @@ function AppContent() {
   );
   const [route, setRoute] = useState<AppRoute>(initialRoute);
   const [ready, setReady] = useState(false);
+  const [mockMode, setMockMode] = useState(false);
+  const [mockModeLoaded, setMockModeLoaded] = useState(false);
   const [unreadPullRequestCount, setUnreadPullRequestCount] = useState(0);
   const [unreadAuthoredPullRequestCount, setUnreadAuthoredPullRequestCount] = useState(0);
   const [taskTrackerMonitors, setTaskTrackerMonitors] = useState<TaskTrackerMonitor[]>([]);
@@ -65,12 +69,10 @@ function AppContent() {
 
   useEffect(() => {
     let active = true;
-    let updateEventReceived = false;
     let stopBridge: (() => void) | undefined;
     const unsubscribeUpdateAvailability = subscribeAppEvent(
       APP_EVENT.updateAvailabilityChanged,
       (version) => {
-        updateEventReceived = true;
         if (active) setAvailableUpdateVersion(version);
       },
     );
@@ -80,13 +82,6 @@ function AppContent() {
         return;
       }
       stopBridge = cleanup;
-      void getBackgroundUpdateVersion()
-        .then((version) => {
-          if (active && !updateEventReceived) setAvailableUpdateVersion(version);
-        })
-        .catch(() => {
-          // The background result is optional; manual settings checks remain available.
-        });
     });
     return () => {
       active = false;
@@ -96,12 +91,44 @@ function AppContent() {
   }, []);
 
   useEffect(() => {
+    if (!mockModeLoaded || mockMode) return;
+    let active = true;
+    void getBackgroundUpdateVersion()
+      .then((version) => {
+        if (active) setAvailableUpdateVersion(version);
+      })
+      .catch(() => {
+        // The background result is optional; manual settings checks remain available.
+      });
+    return () => {
+      active = false;
+    };
+  }, [mockMode, mockModeLoaded]);
+
+  useEffect(() => {
     let active = true;
     const splashDeadline = window.setTimeout(() => {
       if (active) setReady(true);
     }, STARTUP_SPLASH_TIMEOUT_MS);
 
     const initialize = async () => {
+      let isMockMode = false;
+      if (import.meta.env.DEV) {
+        try {
+          isMockMode = await devOverlayEnabled();
+        } catch {
+          // Browser-only development falls back to the normal integration flow.
+        }
+      }
+      if (!active) return;
+      setMockMode(isMockMode);
+      setMockModeLoaded(true);
+      if (isMockMode) {
+        window.clearTimeout(splashDeadline);
+        setReady(true);
+        return;
+      }
+
       let integrations: Awaited<ReturnType<typeof refreshAllIntegrationsHealth>> = [];
       try {
         integrations = await refreshAllIntegrationsHealth();
@@ -243,11 +270,12 @@ function AppContent() {
           unreadAuthoredPullRequestCount={unreadAuthoredPullRequestCount}
           unreadTaskTrackerCount={unreadTaskTrackerCount}
         >
-          <AppRoutes route={route} updateCheckRequest={updateCheckRequest} />
+          <AppRoutes route={route} updateCheckRequest={updateCheckRequest} mockMode={mockMode} />
         </AppShell>
       ) : null}
+      {import.meta.env.DEV && mockMode ? <DevOverlay /> : null}
       <SplashScreen visible={!ready} />
-      <UpdateBanner enabled={ready && !import.meta.env.DEV} updateVersion={availableUpdateVersion} />
+      <UpdateBanner enabled={ready && !import.meta.env.DEV && !mockMode} updateVersion={availableUpdateVersion} />
     </>
   );
 }

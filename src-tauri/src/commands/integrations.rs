@@ -4,6 +4,7 @@ use sqlx::SqlitePool;
 use tauri::State;
 
 use crate::application::ai;
+use crate::application::dev_overlay::DevMockMode;
 use crate::application::integrations::health::ReqwestHealthChecker;
 use crate::application::integrations::settings::{
     self, IntegrationDto, IntegrationSaveRequest, IntegrationSaveResult,
@@ -76,9 +77,13 @@ pub async fn integration_list(state: State<'_, SqlitePool>) -> Result<Vec<Integr
 
 #[tauri::command]
 pub async fn integration_save(
+    mode: State<'_, DevMockMode>,
     state: State<'_, SqlitePool>,
     request: IntegrationSaveRequest,
 ) -> Result<IntegrationSaveResult, String> {
+    if mode.is_enabled() {
+        return Err("Integration changes are disabled in mock mode".to_owned());
+    }
     let store = credential_store(&state).await?;
     let checker = ReqwestHealthChecker::new();
     settings::save_integration_checked(&state, store.as_ref(), &checker, request)
@@ -88,9 +93,17 @@ pub async fn integration_save(
 
 #[tauri::command]
 pub async fn integration_health_check(
+    mode: State<'_, DevMockMode>,
     state: State<'_, SqlitePool>,
     id: String,
 ) -> Result<IntegrationDto, String> {
+    if mode.is_enabled() {
+        return mode
+            .mock_integrations()?
+            .into_iter()
+            .find(|integration| integration.id == id)
+            .ok_or_else(|| "Mock integration was not found".to_owned());
+    }
     let store = credential_store(&state).await?;
     let checker = ReqwestHealthChecker::new();
     settings::refresh_integration_health(&state, store.as_ref(), &checker, &id)
@@ -100,8 +113,12 @@ pub async fn integration_health_check(
 
 #[tauri::command]
 pub async fn integration_health_check_all(
+    mode: State<'_, DevMockMode>,
     state: State<'_, SqlitePool>,
 ) -> Result<Vec<IntegrationDto>, String> {
+    if mode.is_enabled() {
+        return mode.mock_integrations();
+    }
     let store = credential_store(&state).await?;
     let checker = ReqwestHealthChecker::new();
     settings::refresh_all_integration_health(&state, store.as_ref(), &checker)
@@ -110,7 +127,14 @@ pub async fn integration_health_check_all(
 }
 
 #[tauri::command]
-pub async fn integration_delete(state: State<'_, SqlitePool>, id: String) -> Result<(), String> {
+pub async fn integration_delete(
+    mode: State<'_, DevMockMode>,
+    state: State<'_, SqlitePool>,
+    id: String,
+) -> Result<(), String> {
+    if mode.is_enabled() {
+        return Err("Integration changes are disabled in mock mode".to_owned());
+    }
     let store = credential_store(&state).await?;
     settings::delete_integration(&state, store.as_ref(), &id)
         .await
@@ -119,10 +143,14 @@ pub async fn integration_delete(state: State<'_, SqlitePool>, id: String) -> Res
 
 #[tauri::command]
 pub async fn integration_set_enabled(
+    mode: State<'_, DevMockMode>,
     state: State<'_, SqlitePool>,
     id: String,
     enabled: bool,
 ) -> Result<IntegrationDto, String> {
+    if mode.is_enabled() {
+        return Err("Integration changes are disabled in mock mode".to_owned());
+    }
     settings::set_integration_enabled(&state, &id, enabled)
         .await
         .map_err(|error| error.to_string())

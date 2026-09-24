@@ -1,7 +1,29 @@
 use sqlx::{Row, SqlitePool};
 use tempfile::TempDir;
 
-use super::open_database;
+use super::{open_database, reset_mock_database_file, DATABASE_FILENAME, MOCK_DATABASE_FILENAME};
+
+#[test]
+fn resetting_mock_database_removes_only_its_file_and_sidecars() {
+    let temp_dir = tempfile::tempdir().expect("temporary app-data directory");
+    let normal_database = temp_dir.path().join(DATABASE_FILENAME);
+    let mock_database = temp_dir.path().join(MOCK_DATABASE_FILENAME);
+    std::fs::write(&normal_database, "normal-db").expect("normal database fixture");
+    std::fs::write(&mock_database, "mock-db").expect("mock database fixture");
+    std::fs::write(format!("{}-wal", mock_database.display()), "wal").expect("mock wal fixture");
+    std::fs::write(format!("{}-shm", mock_database.display()), "shm").expect("mock shm fixture");
+
+    let reset_path = reset_mock_database_file(temp_dir.path()).expect("reset mock database");
+
+    assert_eq!(reset_path, mock_database);
+    assert!(
+        normal_database.exists(),
+        "normal dev database must be preserved"
+    );
+    assert!(!mock_database.exists());
+    assert!(!std::path::PathBuf::from(format!("{}-wal", mock_database.display())).exists());
+    assert!(!std::path::PathBuf::from(format!("{}-shm", mock_database.display())).exists());
+}
 
 async fn test_database() -> (TempDir, SqlitePool) {
     let temp_dir = tempfile::tempdir().expect("temporary database directory");

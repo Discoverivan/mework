@@ -216,7 +216,7 @@ function changeBadgeClass(kind?: TaskTrackerChangeKind | null): string {
   return "bg-muted text-muted-foreground";
 }
 
-export function TaskTrackerPage() {
+export function TaskTrackerPage({ mockMode = false }: { mockMode?: boolean }) {
   const { locale, t } = useI18n();
   const [monitors, setMonitors] = useState<TaskTrackerMonitor[]>([]);
   const monitorsRef = useRef<TaskTrackerMonitor[]>([]);
@@ -534,7 +534,18 @@ export function TaskTrackerPage() {
         title={t("nav.taskTracker")}
         titleId="task-tracker-title"
         description={t("taskTracker.description")}
-        actions={<Button type="button" size="icon" className="h-9 w-9" aria-label={t("taskTracker.createMonitor")} title={t("taskTracker.createMonitor")} onClick={openCreate}><Plus className="size-4" aria-hidden="true" /></Button>}
+        actions={mockMode ? undefined : (
+          <Button
+            type="button"
+            size="icon"
+            className="h-9 w-9"
+            aria-label={t("taskTracker.createMonitor")}
+            title={t("taskTracker.createMonitor")}
+            onClick={openCreate}
+          >
+            <Plus className="size-4" aria-hidden="true" />
+          </Button>
+        )}
       />
 
       {pageError ? <Alert variant="destructive"><AlertTitle>{t("taskTracker.unavailable")}</AlertTitle><AlertDescription>{pageError}</AlertDescription></Alert> : null}
@@ -580,9 +591,13 @@ export function TaskTrackerPage() {
               </div>
             </div>
             <div className="flex shrink-0 items-center gap-2">
-              <Button type="button" variant="outline" size="icon" aria-label={t("taskTracker.exportSettings")} title={t("taskTracker.exportSettings")} onClick={() => void exportMonitor(activeMonitor)}><Download className="size-4" aria-hidden="true" /></Button>
+              {!mockMode ? (
+                <Button type="button" variant="outline" size="icon" aria-label={t("taskTracker.exportSettings")} title={t("taskTracker.exportSettings")} onClick={() => void exportMonitor(activeMonitor)}><Download className="size-4" aria-hidden="true" /></Button>
+              ) : null}
               <Button type="button" variant="outline" size="icon" aria-label={checking ? t("taskTracker.checking") : t("taskTracker.checkNow")} title={checking ? t("taskTracker.checking") : t("taskTracker.checkNow")} disabled={checking} onClick={() => void checkNow()}><RefreshCw className={`size-4 ${checking ? "animate-spin" : ""}`} aria-hidden="true" /></Button>
-              <Button type="button" variant="outline" size="icon" aria-label={t("taskTracker.dialog.edit")} title={t("taskTracker.dialog.edit")} onClick={() => openEdit(activeMonitor)}><Pencil className="size-4" aria-hidden="true" /></Button>
+              {!mockMode ? (
+                <Button type="button" variant="outline" size="icon" aria-label={t("taskTracker.dialog.edit")} title={t("taskTracker.dialog.edit")} onClick={() => openEdit(activeMonitor)}><Pencil className="size-4" aria-hidden="true" /></Button>
+              ) : null}
             </div>
           </div>
 

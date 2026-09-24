@@ -45,6 +45,9 @@ pub fn run() {
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .setup(|app| {
+            let mock_mode_enabled = crate::application::dev_overlay::current_mock_mode_requested();
+            app.manage(crate::application::dev_overlay::DevMockMode::new(mock_mode_enabled));
+
             #[cfg(target_os = "macos")]
             crate::os::notifications::setup();
             #[cfg(desktop)]
@@ -57,25 +60,45 @@ pub fn run() {
             std::fs::create_dir_all(&app_data_dir)?;
             #[cfg(debug_assertions)]
             crate::application::ai::initialize_openai_debug_log(&app_data_dir);
-            let database_path = app_data_dir.join(crate::infrastructure::db::DATABASE_FILENAME);
+            let database_path = if mock_mode_enabled {
+                crate::infrastructure::db::reset_mock_database_file(&app_data_dir)?
+            } else {
+                app_data_dir.join(crate::infrastructure::db::DATABASE_FILENAME)
+            };
             let pool = tauri::async_runtime::block_on(crate::infrastructure::db::open_database(
                 &database_path,
             ))?;
-            if tauri::async_runtime::block_on(
-                crate::commands::integrations::preload_all_credentials(&pool),
-            )
-            .is_err()
+            if mock_mode_enabled {
+                let regular_database_path =
+                    app_data_dir.join(crate::infrastructure::db::DATABASE_FILENAME);
+                if regular_database_path.exists() {
+                    let regular_pool = tauri::async_runtime::block_on(
+                        crate::infrastructure::db::open_database(&regular_database_path),
+                    )?;
+                    tauri::async_runtime::block_on(
+                        crate::application::ai::copy_configuration_to_mock(&regular_pool, &pool),
+                    )
+                    .map_err(std::io::Error::other)?;
+                }
+                tauri::async_runtime::block_on(
+                    crate::application::dev_overlay::seed_mock_settings(&pool),
+                )
+                .map_err(std::io::Error::other)?;
+            }
+            if !mock_mode_enabled
+                && tauri::async_runtime::block_on(
+                    crate::commands::integrations::preload_all_credentials(&pool),
+                )
+                .is_err()
             {
-                eprintln!("Operating system keyring preload failed");
+                eprintln!("Configured credential preload failed");
             }
             app.manage(crate::commands::presenter::PresenterState::default());
-            let background_pool = pool.clone();
-            let background_app = app.handle().clone();
             let update_state = crate::application::updates::UpdateAvailabilityState::default();
             app.manage(update_state.clone());
             #[cfg(desktop)]
-            if !cfg!(debug_assertions) {
-                let update_app = background_app.clone();
+            if !mock_mode_enabled && !cfg!(debug_assertions) {
+                let update_app = app.handle().clone();
                 tauri::async_runtime::spawn(
                     crate::application::updates::run_background_update_checks(
                         update_app,
@@ -84,7 +107,10 @@ pub fn run() {
                 );
             }
             app.manage(pool.clone());
-            tauri::async_runtime::spawn(async move {
+            if !mock_mode_enabled {
+                let background_pool = pool.clone();
+                let background_app = app.handle().clone();
+                tauri::async_runtime::spawn(async move {
                 let notifier = crate::os::notifications::NativeNotificationAdapter::new(background_app.clone());
                 // App initialization owns the first health/snapshot pass. Starting the
                 // recurring worker after one interval avoids duplicate keyring prompts and
@@ -336,7 +362,8 @@ pub fn run() {
                     }
                     tokio::time::sleep(Duration::from_secs(30)).await;
                 }
-            });
+                });
+            }
             Ok(())
         })
         .on_window_event(|window, event| {
@@ -368,6 +395,12 @@ pub fn run() {
             commands::developer::bitbucket_search_repositories,
             commands::developer::pull_request_review_settings,
             commands::developer::save_pull_request_review_settings,
+            commands::dev_overlay::dev_overlay_enabled,
+            commands::dev_overlay::dev_overlay_state,
+            commands::dev_overlay::dev_overlay_add_task,
+            commands::dev_overlay::dev_overlay_set_task_status,
+            commands::dev_overlay::dev_overlay_add_pull_request,
+            commands::dev_overlay::dev_overlay_reset_scenario,
             commands::general::general_settings,
             commands::general::general_settings_save,
             commands::general::general_appearance_save,

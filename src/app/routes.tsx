@@ -25,59 +25,70 @@ export type AppRoute =
 interface AppRoutesProps {
   route: AppRoute;
   updateCheckRequest?: number;
+  mockMode?: boolean;
 }
 
-export function AppRoutes({ route, updateCheckRequest = 0 }: AppRoutesProps) {
+export function AppRoutes({ route, updateCheckRequest = 0, mockMode = false }: AppRoutesProps) {
+  if (mockMode) {
+    if (route === "product-task-tracker") return <TaskTrackerPage mockMode />;
+    if (route === "developer-pull-requests") return <MyPullRequestsPage />;
+    if (route === "developer-my-pull-requests") return <AuthoredPullRequestsPage />;
+  }
+
   if (route === "product-create-task") {
-    return (
+    const page = <CreateTaskPage />;
+    return mockMode ? page : (
       <IntegrationDependencyGate requirement="jira" requireAiProvider>
-        <CreateTaskPage />
+        {page}
       </IntegrationDependencyGate>
     );
   }
 
   if (route === "product-task-tracker") {
-    return (
+    const page = <TaskTrackerPage />;
+    return mockMode ? page : (
       <IntegrationDependencyGate requirement="jira">
-        <TaskTrackerPage />
+        {page}
       </IntegrationDependencyGate>
     );
   }
 
   if (route === "product-daily") {
-    return (
+    const page = <DailyPage />;
+    return mockMode ? page : (
       <IntegrationDependencyGate requirement="jira" requireAiProvider>
-        <DailyPage />
+        {page}
       </IntegrationDependencyGate>
     );
   }
 
   if (route === "product-confluence-search") {
-    return (
+    const page = <ConfluenceSearchPage />;
+    return mockMode ? page : (
       <IntegrationDependencyGate requirement="confluence">
-        <ConfluenceSearchPage />
+        {page}
       </IntegrationDependencyGate>
     );
   }
 
   if (route === "developer-pull-requests") {
-    return (
+    const page = <MyPullRequestsPage />;
+    return mockMode ? page : (
       <IntegrationDependencyGate requirement="bitbucket" requireAiProvider>
-        <MyPullRequestsPage />
+        {page}
       </IntegrationDependencyGate>
     );
   }
 
   if (route === "developer-my-pull-requests") {
-    return (
+    const page = <AuthoredPullRequestsPage />;
+    return mockMode ? page : (
       <IntegrationDependencyGate requirement="bitbucket" requireAiProvider>
-        <AuthoredPullRequestsPage />
+        {page}
       </IntegrationDependencyGate>
     );
   }
-  if (route === "developer-command-board") {
-    return <CommandBoardPage />;
-  }
+  if (route === "developer-command-board") return <CommandBoardPage />;
   if (route === "settings-general" || route === "settings-ai" || route === "settings-integrations" || route === "settings-projects") {
     const section = route === "settings-general" ? "general" : route === "settings-ai" ? "ai" : route === "settings-projects" ? "projects" : "integrations";
     return <SettingsPage section={section} updateCheckRequest={updateCheckRequest} />;

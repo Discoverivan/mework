@@ -3,6 +3,7 @@ pub mod command_board;
 pub mod confluence;
 pub mod create_task;
 pub mod daily;
+pub mod dev_overlay;
 pub mod developer;
 pub mod general;
 pub mod inbox;
