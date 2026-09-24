@@ -48,7 +48,7 @@ describe("GeneralSettingsPage", () => {
       language: "english",
       aiResponseLanguage: "sameAsUi",
       themePreference: "system",
-      buttonStyle: "quiet",
+      buttonStyle: "filled",
       notificationsEnabled: true,
       reviewNotificationsEnabled: true,
       authoredNotificationsEnabled: true,
@@ -104,11 +104,11 @@ describe("GeneralSettingsPage", () => {
     expect(uiSelect).toHaveTextContent("English");
     expect(screen.getByRole("combobox", { name: "Appearance" })).toHaveTextContent("System");
     const buttonStyleSelect = screen.getByRole("combobox", { name: "Action buttons" });
-    expect(buttonStyleSelect).toHaveTextContent("Minimal");
+    expect(buttonStyleSelect).toHaveTextContent("Filled");
     fireEvent.click(buttonStyleSelect);
-    fireEvent.click(screen.getByRole("option", { name: "Filled" }));
-    await waitFor(() => expect(document.documentElement).toHaveAttribute("data-button-style", "filled"));
-    expect(saveButtonStyleMock).toHaveBeenCalledWith("filled");
+    fireEvent.click(screen.getByRole("option", { name: "Minimal" }));
+    await waitFor(() => expect(document.documentElement).toHaveAttribute("data-button-style", "quiet"));
+    expect(saveButtonStyleMock).toHaveBeenCalledWith("quiet");
     expect(screen.getByRole("switch", { name: "Pull requests awaiting your review" })).toBeChecked();
     expect(screen.getByRole("switch", { name: "Pull requests authored by you" })).toBeChecked();
     const taskTrackerNotifications = screen.getByRole("switch", { name: "Task tracker" });

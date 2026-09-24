@@ -374,8 +374,8 @@ export function GeneralSettingsPage({ updateCheckRequest = 0 }: GeneralSettingsP
                 }} disabled={loading || saving || buttonStyleSaving}>
                 <SelectTrigger id="general-button-style" aria-label={t("general.buttonStyle")}><SelectValue /></SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="quiet">{t("general.buttonStyleQuiet")}</SelectItem>
                   <SelectItem value="filled">{t("general.buttonStyleFilled")}</SelectItem>
+                  <SelectItem value="quiet">{t("general.buttonStyleQuiet")}</SelectItem>
                 </SelectContent>
               </Select>
             </div>

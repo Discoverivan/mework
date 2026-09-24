@@ -31,7 +31,7 @@ function translate(language: AppLanguage, key: TranslationKey, params?: Translat
 export function I18nProvider({ children }: { children: ReactNode }) {
   const [language, setLanguage] = useState<AppLanguage>(AppLanguage.English);
   const [themePreference, setThemePreference] = useState<ThemePreference>(() => readCachedThemePreference() ?? "system");
-  const [buttonStyle, setButtonStyle] = useState<ButtonStyle>(() => readCachedButtonStyle() ?? "quiet");
+  const [buttonStyle, setButtonStyle] = useState<ButtonStyle>(() => readCachedButtonStyle() ?? "filled");
   const [buttonStyleSaving, setButtonStyleSaving] = useState(false);
   const [appearanceSaving, setAppearanceSaving] = useState(false);
   const languageRef = useRef(language);
@@ -55,7 +55,7 @@ export function I18nProvider({ children }: { children: ReactNode }) {
         setThemePreference(settings.themePreference);
       }
       if (buttonStyleRevisionRef.current === buttonRevision) {
-        buttonStyleRef.current = settings.buttonStyle ?? "quiet";
+        buttonStyleRef.current = settings.buttonStyle ?? "filled";
         cacheButtonStyle(buttonStyleRef.current);
         setButtonStyle(buttonStyleRef.current);
       }

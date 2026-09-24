@@ -77,8 +77,8 @@ pub enum ThemePreference {
 #[derive(Debug, Clone, Copy, Default, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum ButtonStyle {
-    #[default]
     Quiet,
+    #[default]
     Filled,
 }
 
@@ -112,7 +112,7 @@ impl Default for GeneralSettings {
             language: AppLanguage::English,
             ai_response_language: AiResponseLanguage::SameAsUi,
             theme_preference: ThemePreference::System,
-            button_style: ButtonStyle::Quiet,
+            button_style: ButtonStyle::Filled,
         }
     }
 }
@@ -336,7 +336,7 @@ mod tests {
         assert_eq!(settings.language, AppLanguage::English);
         assert_eq!(settings.ai_response_language, AiResponseLanguage::SameAsUi);
         assert_eq!(settings.theme_preference, ThemePreference::System);
-        assert_eq!(settings.button_style, ButtonStyle::Quiet);
+        assert_eq!(settings.button_style, ButtonStyle::Filled);
     }
 
     #[test]
@@ -346,6 +346,7 @@ mod tests {
         )
         .unwrap();
         assert_eq!(legacy.ai_response_language, AiResponseLanguage::SameAsUi);
+        assert_eq!(legacy.button_style, ButtonStyle::Filled);
         assert_eq!(
             legacy.ai_response_language.output_language(legacy.language),
             AppLanguage::Russian
