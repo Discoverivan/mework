@@ -3,10 +3,13 @@ import { getVersion } from "@tauri-apps/api/app";
 import { AppShell, type AppSection } from "./components/layout/AppShell";
 import { SplashScreen } from "./components/shared/SplashScreen";
 import { UpdateBanner } from "./components/shared/UpdateBanner";
+import { getBackgroundUpdateVersion } from "./components/shared/update-check";
 import { AppRoutes, type AppRoute } from "./app/routes";
 import { PresenterView } from "./features/daily/PresenterView";
-import { listAuthoredPullRequests, listMyPullRequests, refreshAuthoredPullRequests, refreshMyPullRequests } from "./features/developer/api";
-import type { MyPullRequestPage } from "./shared/contracts/developer";
+import { getPullRequestUnreadCounts, refreshAuthoredPullRequests, refreshMyPullRequests } from "./features/developer/api";
+import { listTaskTrackerMonitors } from "@/shared/contracts/task-tracker";
+import type { TaskTrackerMonitor } from "@/shared/contracts/task-tracker";
+import { countUnreadTaskTrackerIssues, loadTaskTrackerReadCheckpoints, type TaskTrackerReadCheckpoints } from "./features/product/task-tracker-read-state";
 import { refreshAllIntegrationsHealth } from "./features/settings/api";
 import { I18nProvider } from "@/i18n/I18nProvider";
 import { useI18n } from "@/i18n/context";
@@ -34,10 +37,6 @@ function routeFromHash(hash: string): AppRoute {
   return "developer-pull-requests";
 }
 
-function unreadCount(page: MyPullRequestPage): number {
-  return page.values.filter((pullRequest) => pullRequest.activity !== "read").length;
-}
-
 function AppContent() {
   const { appearanceSaving, themePreference, updateAppearance } = useI18n();
   const initialRoute = routeFromHash(typeof window !== "undefined" ? window.location.hash : "");
@@ -48,6 +47,14 @@ function AppContent() {
   const [ready, setReady] = useState(false);
   const [unreadPullRequestCount, setUnreadPullRequestCount] = useState(0);
   const [unreadAuthoredPullRequestCount, setUnreadAuthoredPullRequestCount] = useState(0);
+  const [taskTrackerMonitors, setTaskTrackerMonitors] = useState<TaskTrackerMonitor[]>([]);
+  const [taskTrackerReadCheckpoints, setTaskTrackerReadCheckpoints] = useState<TaskTrackerReadCheckpoints>(
+    () => loadTaskTrackerReadCheckpoints(),
+  );
+  const unreadTaskTrackerCount = countUnreadTaskTrackerIssues(taskTrackerMonitors, taskTrackerReadCheckpoints);
+  const [availableUpdateVersion, setAvailableUpdateVersion] = useState<string | null>(null);
+  const [updateCheckRequest, setUpdateCheckRequest] = useState(0);
+  const [pendingUpdateCheck, setPendingUpdateCheck] = useState(false);
 
   useEffect(() => {
     if (import.meta.env.DEV) return;
@@ -58,13 +65,32 @@ function AppContent() {
 
   useEffect(() => {
     let active = true;
+    let updateEventReceived = false;
     let stopBridge: (() => void) | undefined;
+    const unsubscribeUpdateAvailability = subscribeAppEvent(
+      APP_EVENT.updateAvailabilityChanged,
+      (version) => {
+        updateEventReceived = true;
+        if (active) setAvailableUpdateVersion(version);
+      },
+    );
     void startNativeEventBridge().then((cleanup) => {
-      if (active) stopBridge = cleanup;
-      else cleanup();
+      if (!active) {
+        cleanup();
+        return;
+      }
+      stopBridge = cleanup;
+      void getBackgroundUpdateVersion()
+        .then((version) => {
+          if (active && !updateEventReceived) setAvailableUpdateVersion(version);
+        })
+        .catch(() => {
+          // The background result is optional; manual settings checks remain available.
+        });
     });
     return () => {
       active = false;
+      unsubscribeUpdateAvailability();
       stopBridge?.();
     };
   }, []);
@@ -90,17 +116,11 @@ function AppContent() {
           && integration.enabled
           && integration.healthStatus === "working"
       )) {
-        const [reviewerResult, authoredResult] = await Promise.allSettled([
+        await Promise.allSettled([
           refreshMyPullRequests(0, 100),
           refreshAuthoredPullRequests(0, 100),
         ]);
-        if (!active) return;
-        if (reviewerResult.status === "fulfilled") {
-          setUnreadPullRequestCount(unreadCount(reviewerResult.value));
-        }
-        if (authoredResult.status === "fulfilled") {
-          setUnreadAuthoredPullRequestCount(unreadCount(authoredResult.value));
-        }
+        if (active) emitAppEvent(APP_EVENT.pullRequestActivityChanged);
       }
 
       if (active) {
@@ -118,35 +138,62 @@ function AppContent() {
 
   useEffect(() => {
     let active = true;
+    let refreshRevision = 0;
 
-    const applyReviewerPage = (page: MyPullRequestPage) => {
-      if (active) setUnreadPullRequestCount(unreadCount(page));
-    };
-    const applyAuthoredPage = (page: MyPullRequestPage) => {
-      if (active) setUnreadAuthoredPullRequestCount(unreadCount(page));
-    };
     const refreshCachedCount = async () => {
-      const [reviewerResult, authoredResult] = await Promise.allSettled([
-        listMyPullRequests(0, 100),
-        listAuthoredPullRequests(0, 100),
-      ]);
-      if (!active) return;
-      if (reviewerResult.status === "fulfilled") applyReviewerPage(reviewerResult.value);
-      if (authoredResult.status === "fulfilled") applyAuthoredPage(authoredResult.value);
+      const revision = ++refreshRevision;
+      try {
+        const counts = await getPullRequestUnreadCounts();
+        if (!active || revision !== refreshRevision) return;
+        setUnreadPullRequestCount(counts.reviewer);
+        setUnreadAuthoredPullRequestCount(counts.authored);
+      } catch {
+        // Keep the last known counts when the cached native read is temporarily unavailable.
+      }
     };
+    const invalidateCount = () => void refreshCachedCount();
 
-    const unsubscribeActivity = subscribeAppEvent(
-      APP_EVENT.pullRequestActivityChanged,
-      () => void refreshCachedCount(),
-    );
-    const unsubscribeReviewer = subscribeAppEvent(APP_EVENT.reviewerPullRequestsUpdated, applyReviewerPage);
-    const unsubscribeAuthored = subscribeAppEvent(APP_EVENT.authoredPullRequestsUpdated, applyAuthoredPage);
+    const unsubscribeActivity = subscribeAppEvent(APP_EVENT.pullRequestActivityChanged, invalidateCount);
+    const unsubscribeReviewer = subscribeAppEvent(APP_EVENT.reviewerPullRequestsUpdated, invalidateCount);
+    const unsubscribeAuthored = subscribeAppEvent(APP_EVENT.authoredPullRequestsUpdated, invalidateCount);
+    void refreshCachedCount();
 
     return () => {
       active = false;
+      refreshRevision += 1;
       unsubscribeActivity();
       unsubscribeReviewer();
       unsubscribeAuthored();
+    };
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+    let revision = 0;
+    const applyMonitors = (monitors: TaskTrackerMonitor[]) => {
+      revision += 1;
+      setTaskTrackerMonitors(monitors);
+    };
+    const loadMonitors = async () => {
+      const requestRevision = ++revision;
+      try {
+        const monitors = await listTaskTrackerMonitors();
+        if (active && requestRevision === revision) setTaskTrackerMonitors(monitors);
+      } catch {
+        // The sidebar count is optional; Task Tracker reports its own loading errors.
+      }
+    };
+    const unsubscribeMonitors = subscribeAppEvent(APP_EVENT.taskTrackerUpdated, applyMonitors);
+    const unsubscribeReadState = subscribeAppEvent(APP_EVENT.taskTrackerReadStateChanged, ({ monitorId, checkpoint }) => {
+      setTaskTrackerReadCheckpoints((current) => ({ ...current, [monitorId]: checkpoint }));
+    });
+    void loadMonitors();
+
+    return () => {
+      active = false;
+      revision += 1;
+      unsubscribeMonitors();
+      unsubscribeReadState();
     };
   }, []);
 
@@ -156,8 +203,22 @@ function AppContent() {
     return () => window.removeEventListener("hashchange", onHashChange);
   }, []);
 
+  useEffect(() => {
+    if (route !== "settings-general" || !pendingUpdateCheck) return;
+    setPendingUpdateCheck(false);
+    setUpdateCheckRequest((current) => current + 1);
+  }, [pendingUpdateCheck, route]);
+
   function navigate(section: AppSection) {
     setRoute(section);
+  }
+
+  function openUpdateSettings() {
+    setRoute("settings-general");
+    setPendingUpdateCheck(true);
+    if (window.location.hash !== "#settings/general") {
+      window.location.hash = "#settings/general";
+    }
   }
 
   if (route === "product-daily-presenter") {
@@ -174,16 +235,19 @@ function AppContent() {
             void updateAppearance({ themePreference: theme }).catch(() => undefined);
           }}
           version={appVersion}
+          updateAvailableVersion={availableUpdateVersion}
+          onOpenUpdateSettings={openUpdateSettings}
           onNavigate={navigate}
           activeSection={route}
           unreadPullRequestCount={unreadPullRequestCount}
           unreadAuthoredPullRequestCount={unreadAuthoredPullRequestCount}
+          unreadTaskTrackerCount={unreadTaskTrackerCount}
         >
-          <AppRoutes route={route} />
+          <AppRoutes route={route} updateCheckRequest={updateCheckRequest} />
         </AppShell>
       ) : null}
       <SplashScreen visible={!ready} />
-      <UpdateBanner enabled={ready && !import.meta.env.DEV} />
+      <UpdateBanner enabled={ready && !import.meta.env.DEV} updateVersion={availableUpdateVersion} />
     </>
   );
 }

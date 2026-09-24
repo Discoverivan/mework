@@ -24,9 +24,10 @@ export type AppRoute =
 
 interface AppRoutesProps {
   route: AppRoute;
+  updateCheckRequest?: number;
 }
 
-export function AppRoutes({ route }: AppRoutesProps) {
+export function AppRoutes({ route, updateCheckRequest = 0 }: AppRoutesProps) {
   if (route === "product-create-task") {
     return (
       <IntegrationDependencyGate requirement="jira" requireAiProvider>
@@ -79,7 +80,7 @@ export function AppRoutes({ route }: AppRoutesProps) {
   }
   if (route === "settings-general" || route === "settings-ai" || route === "settings-integrations" || route === "settings-projects") {
     const section = route === "settings-general" ? "general" : route === "settings-ai" ? "ai" : route === "settings-projects" ? "projects" : "integrations";
-    return <SettingsPage section={section} />;
+    return <SettingsPage section={section} updateCheckRequest={updateCheckRequest} />;
   }
 
   return <SettingsPage section="integrations" />;

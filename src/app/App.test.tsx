@@ -1,6 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { act, render, screen, waitFor } from "@testing-library/react";
 import type { IntegrationRedacted } from "../shared/contracts/settings";
+import type { MyPullRequestPage } from "../shared/contracts/developer";
+import type { TaskTrackerMonitor } from "../shared/contracts/task-tracker";
+import { APP_EVENT, emitAppEvent } from "./app-events";
 import App from "../App";
 
 vi.mock("../features/settings/SettingsPage", () => ({
@@ -14,16 +17,16 @@ vi.mock("../features/developer/MyPullRequestsPage", () => ({
 vi.mock("../features/developer/AuthoredPullRequestsPage", () => ({
   AuthoredPullRequestsPage: () => <h1>Pull requests authored by you</h1>,
 }));
-const { getAiSettingsMock, listAuthoredPullRequestsMock, listMyPullRequestsMock, refreshAuthoredPullRequestsMock, refreshMyPullRequestsMock, refreshAllIntegrationsHealthMock, nativeThemeMock, onThemeChangedMock } = vi.hoisted(() => ({
+const { getAiSettingsMock, getPullRequestUnreadCountsMock, refreshAuthoredPullRequestsMock, refreshMyPullRequestsMock, refreshAllIntegrationsHealthMock, listTaskTrackerMonitorsMock, nativeThemeMock, onThemeChangedMock } = vi.hoisted(() => ({
   getAiSettingsMock: vi.fn().mockResolvedValue({
     settings: { provider: "codex-cli", model: "gpt-5.5", reasoning: "medium", fastMode: false },
     providers: [{ id: "codex-cli", name: "Codex CLI", status: "connected", available: true, models: ["gpt-5.5"] }],
   }),
-  listMyPullRequestsMock: vi.fn().mockResolvedValue({ values: [], total: 0, hasMore: false }),
-  listAuthoredPullRequestsMock: vi.fn().mockResolvedValue({ values: [], total: 0, hasMore: false }),
+  getPullRequestUnreadCountsMock: vi.fn().mockResolvedValue({ reviewer: 0, authored: 0 }),
   refreshAuthoredPullRequestsMock: vi.fn().mockResolvedValue({ values: [], total: 0, hasMore: false }),
   refreshMyPullRequestsMock: vi.fn().mockResolvedValue({ values: [], total: 0, hasMore: false }),
   refreshAllIntegrationsHealthMock: vi.fn().mockResolvedValue([]),
+  listTaskTrackerMonitorsMock: vi.fn().mockResolvedValue([]),
   nativeThemeMock: vi.fn().mockResolvedValue("dark"),
   onThemeChangedMock: vi.fn().mockResolvedValue(vi.fn()),
 }));
@@ -33,10 +36,19 @@ vi.mock("@tauri-apps/api/window", () => ({
 }));
 
 vi.mock("../features/developer/api", () => ({
-  listAuthoredPullRequests: listAuthoredPullRequestsMock,
+  getPullRequestUnreadCounts: getPullRequestUnreadCountsMock,
   refreshAuthoredPullRequests: refreshAuthoredPullRequestsMock,
-  listMyPullRequests: listMyPullRequestsMock,
   refreshMyPullRequests: refreshMyPullRequestsMock,
+}));
+
+vi.mock("@/shared/contracts/task-tracker", () => ({
+  checkTaskTrackerNow: vi.fn(),
+  deleteTaskTrackerMonitor: vi.fn(),
+  listTaskTrackerMonitors: listTaskTrackerMonitorsMock,
+  saveTaskTrackerMonitor: vi.fn(),
+  saveTaskTrackerMonitorExport: vi.fn(),
+  setTaskTrackerEnabled: vi.fn(),
+  validateTaskTrackerJql: vi.fn(),
 }));
 
 vi.mock("../features/settings/api", () => ({
@@ -64,24 +76,71 @@ vi.mock("../features/settings/api", () => ({
   refreshAllIntegrationsHealth: refreshAllIntegrationsHealthMock,
 }));
 
+function trackerMonitor(id: string, checkpoint: string, changedCount: number): TaskTrackerMonitor {
+  return {
+    id,
+    name: id,
+    jql: "project = DEMO",
+    scheduleKind: "period",
+    scheduleValue: "300",
+    trackedEvents: ["newIssues"],
+    enabled: true,
+    lastSuccessAt: checkpoint,
+    currentIssueCount: changedCount,
+    changesAfterLastCheck: changedCount,
+    maxTrackedIssues: 100,
+    exceedsLimit: false,
+    issues: Array.from({ length: changedCount }, (_, index) => ({
+      key: `DEMO-${index + 1}`,
+      summary: `Changed task ${index + 1}`,
+      status: "In Progress",
+      priority: "High",
+      issueUrl: `https://jira.example.invalid/browse/DEMO-${index + 1}`,
+      changed: true,
+    })),
+  };
+}
+
+function pullRequestPage(activity: "new" | "updated" | "read"): MyPullRequestPage {
+  return {
+    values: [{
+      integrationId: "bitbucket-1",
+      pullRequestId: "7",
+      title: "Example PR",
+      state: "OPEN",
+      repositorySlug: "sample-repository",
+      repositoryName: "Sample repository",
+      projectKey: "DEMO",
+      sourceBranch: "feature/example",
+      targetBranch: "main",
+      authorDisplayName: "Example Author",
+      myDecision: "not_reviewed",
+      activity,
+    }],
+    total: 1,
+    hasMore: false,
+  };
+}
+
 describe("mework application shell", () => {
   beforeEach(() => {
     window.location.hash = "";
+    window.localStorage.removeItem("mework.task-tracker.read-checkpoints.v1");
     vi.stubGlobal("matchMedia", () => ({ matches: true }));
     getAiSettingsMock.mockClear();
     getAiSettingsMock.mockResolvedValue({
       settings: { provider: "codex-cli", model: "gpt-5.5", reasoning: "medium", fastMode: false },
       providers: [{ id: "codex-cli", name: "Codex CLI", status: "connected", available: true, models: ["gpt-5.5"] }],
     });
-    listMyPullRequestsMock.mockClear();
-    listMyPullRequestsMock.mockResolvedValue({ values: [], total: 0, hasMore: false });
-    listAuthoredPullRequestsMock.mockClear();
-    listAuthoredPullRequestsMock.mockResolvedValue({ values: [], total: 0, hasMore: false });
+    getPullRequestUnreadCountsMock.mockReset();
+    getPullRequestUnreadCountsMock.mockResolvedValue({ reviewer: 0, authored: 0 });
     refreshAuthoredPullRequestsMock.mockClear();
     refreshAuthoredPullRequestsMock.mockResolvedValue({ values: [], total: 0, hasMore: false });
     refreshMyPullRequestsMock.mockClear();
     refreshMyPullRequestsMock.mockResolvedValue({ values: [], total: 0, hasMore: false });
     refreshAllIntegrationsHealthMock.mockClear();
+    listTaskTrackerMonitorsMock.mockReset();
+    listTaskTrackerMonitorsMock.mockResolvedValue([]);
     nativeThemeMock.mockReset();
     nativeThemeMock.mockResolvedValue("dark");
     onThemeChangedMock.mockReset();
@@ -210,15 +269,74 @@ describe("mework application shell", () => {
       total: 1,
       hasMore: false,
     });
+    getPullRequestUnreadCountsMock
+      .mockResolvedValueOnce({ reviewer: 0, authored: 0 })
+      .mockResolvedValueOnce({ reviewer: 0, authored: 1 });
 
     render(<App />);
-
     await screen.findByRole("main", { name: "mework" });
     expect(await screen.findByRole("link", { name: "Your PRs, 1 unread" })).toHaveAttribute(
       "href",
       "#developer/my-pull-requests",
     );
     expect(refreshAuthoredPullRequestsMock).toHaveBeenCalledWith(0, 100);
+  });
+
+  it("shows unread changed tasks aggregated across all task-tracker monitors", async () => {
+    window.localStorage.setItem(
+      "mework.task-tracker.read-checkpoints.v1",
+      JSON.stringify({ "read-monitor": "read-checkpoint" }),
+    );
+    listTaskTrackerMonitorsMock.mockResolvedValue([
+      trackerMonitor("first-monitor", "first-checkpoint", 100),
+      trackerMonitor("second-monitor", "second-checkpoint", 1),
+      trackerMonitor("read-monitor", "read-checkpoint", 1),
+    ]);
+
+    render(<App />);
+
+    const taskTrackerLink = await screen.findByRole("link", { name: "Task tracker, 101 unread" });
+    expect(taskTrackerLink).toHaveAttribute("href", "#product/task-tracker");
+
+    act(() => {
+      emitAppEvent(APP_EVENT.taskTrackerReadStateChanged, {
+        monitorId: "first-monitor",
+        checkpoint: "first-checkpoint",
+      });
+    });
+    expect(await screen.findByRole("link", { name: "Task tracker, 1 unread" })).toBe(taskTrackerLink);
+
+    act(() => {
+      emitAppEvent(APP_EVENT.taskTrackerUpdated, [
+        trackerMonitor("first-monitor", "first-checkpoint", 2),
+        trackerMonitor("second-monitor", "next-checkpoint", 2),
+        trackerMonitor("read-monitor", "read-checkpoint", 1),
+      ]);
+    });
+    expect(await screen.findByRole("link", { name: "Task tracker, 2 unread" })).toBe(taskTrackerLink);
+  });
+
+  it("does not let an older PR cache read overwrite the count after a newer activity event", async () => {
+    render(<App />);
+    await screen.findByRole("main", { name: "mework" });
+    getPullRequestUnreadCountsMock.mockClear();
+
+    let resolveStaleCounts!: (counts: { reviewer: number; authored: number }) => void;
+    getPullRequestUnreadCountsMock.mockImplementationOnce(
+      () => new Promise((resolve) => { resolveStaleCounts = resolve; }),
+    );
+
+    act(() => {
+      emitAppEvent(APP_EVENT.pullRequestActivityChanged);
+      emitAppEvent(APP_EVENT.reviewerPullRequestsUpdated, pullRequestPage("read"));
+    });
+    await waitFor(() => expect(getPullRequestUnreadCountsMock).toHaveBeenCalledTimes(2));
+    await act(async () => {
+      resolveStaleCounts({ reviewer: 1, authored: 0 });
+    });
+
+    const reviewerLink = screen.getByRole("link", { name: /^PRs to review/ });
+    expect(reviewerLink).toHaveAccessibleName("PRs to review");
   });
 
   it("runs integration health checks when the app starts", async () => {

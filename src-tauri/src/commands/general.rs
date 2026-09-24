@@ -2,7 +2,8 @@ use sqlx::SqlitePool;
 use tauri::{AppHandle, State};
 
 use crate::application::general::{
-    self, AppLanguage, GeneralSettingsDto, NotificationTestKind, ThemePreference,
+    self, AiResponseLanguage, AppLanguage, GeneralSettingsDto, NotificationTestKind,
+    ThemePreference,
 };
 use crate::os::notifications::{self, NotificationPermission};
 
@@ -24,13 +25,15 @@ pub async fn general_settings_save(
     review_notifications_enabled: bool,
     authored_notifications_enabled: bool,
     task_tracker_notifications_enabled: bool,
+    ai_response_language: AiResponseLanguage,
 ) -> Result<GeneralSettingsDto, String> {
-    general::save_notification_preferences(
+    general::save_general_preferences(
         &state,
         notifications_enabled,
         review_notifications_enabled,
         authored_notifications_enabled,
         task_tracker_notifications_enabled,
+        ai_response_language,
     )
     .await?;
     general::dto(&state, &app).await

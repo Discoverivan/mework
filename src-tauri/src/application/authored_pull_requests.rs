@@ -373,6 +373,17 @@ pub async fn get_cached_authored_pull_requests_page(
     })
 }
 
+pub async fn get_cached_authored_pull_request_unread_count(
+    pool: &SqlitePool,
+) -> Result<u64, DeveloperCommandError> {
+    let _state_guard = developer::pull_request_state_lock().lock().await;
+    let cache = load_cache(pool).await?;
+    let activity_state = load_activity_state(pool).await?;
+    let mut values = cache.values;
+    apply_activity_state(&activity_state, &mut values);
+    Ok(unread_pull_request_count(&values))
+}
+
 pub async fn mark_authored_pull_request_read(
     pool: &SqlitePool,
     integration_id: &str,
@@ -616,6 +627,13 @@ fn apply_activity_state(state: &ActivityState, values: &mut [MyPullRequestDto]) 
     }
 }
 
+fn unread_pull_request_count(values: &[MyPullRequestDto]) -> u64 {
+    values
+        .iter()
+        .filter(|pull_request| pull_request.activity != PullRequestActivity::Read)
+        .count() as u64
+}
+
 fn activity_rank(activity: PullRequestActivity) -> u8 {
     match activity {
         PullRequestActivity::New => 3,
@@ -736,6 +754,7 @@ async fn save_cache(
 mod tests {
     use super::*;
     use crate::application::developer::PullRequestReviewSummaryDto;
+    use crate::infrastructure::db::open_database;
 
     #[test]
     fn review_event_fingerprint_changes_when_a_comment_is_added() {
@@ -1116,6 +1135,73 @@ mod tests {
         ];
 
         assert_eq!(active_comment_count(&comments), 2);
+    }
+
+    #[tokio::test]
+    async fn unread_count_includes_cached_pull_requests_beyond_the_page_limit() {
+        let directory = tempfile::tempdir().unwrap();
+        let pool = open_database(&directory.path().join("mework.sqlite"))
+            .await
+            .unwrap();
+        let values = (0..125)
+            .map(|index| MyPullRequestDto {
+                integration_id: "bitbucket-1".into(),
+                pull_request_id: index.to_string(),
+                title: format!("Pull request {index}"),
+                state: "OPEN".into(),
+                repository_slug: "sample-repository".into(),
+                repository_name: "Sample repository".into(),
+                project_key: "DEMO".into(),
+                source_branch: "feature".into(),
+                target_branch: "main".into(),
+                author_display_name: "Example Author".into(),
+                updated_date: None,
+                url: None,
+                my_decision: "not_reviewed".into(),
+                author_avatar_url: None,
+                latest_commit: Some(format!("commit-{index}")),
+                review_summary: PullRequestReviewSummaryDto::default(),
+                needs_action: false,
+                activity: PullRequestActivity::Updated,
+                review: None,
+            })
+            .collect();
+        save_cache(
+            &pool,
+            &PullRequestCache {
+                values,
+                last_updated_at: Some(1),
+            },
+        )
+        .await
+        .unwrap();
+        let key = pull_request_state_key("DEMO", "sample-repository", "0");
+        let state = ActivityState {
+            integrations: HashMap::from([(
+                "bitbucket-1".into(),
+                IntegrationActivity {
+                    initialized: true,
+                    pull_requests: HashMap::from([(
+                        key,
+                        ActivitySnapshot {
+                            latest_commit: Some("commit-0".into()),
+                            review_fingerprint: String::new(),
+                            auto_review_attempted: false,
+                            auto_review_completed: false,
+                            activity: PullRequestActivity::Read,
+                        },
+                    )]),
+                },
+            )]),
+        };
+        save_activity_state(&pool, &state).await.unwrap();
+
+        assert_eq!(
+            get_cached_authored_pull_request_unread_count(&pool)
+                .await
+                .unwrap(),
+            124
+        );
     }
 
     #[test]

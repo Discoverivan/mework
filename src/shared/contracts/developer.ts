@@ -124,6 +124,11 @@ export interface MyPullRequest {
   review?: PullRequestReviewState;
 }
 
+export interface PullRequestUnreadCounts {
+  reviewer: number;
+  authored: number;
+}
+
 export interface MyPullRequestPage {
   values: MyPullRequest[];
   total?: number;

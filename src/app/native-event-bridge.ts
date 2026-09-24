@@ -13,6 +13,7 @@ interface NativeEventMap {
   my_pull_requests_updated: MyPullRequestPage;
   pull_request_review_changed: PullRequestReviewChangedEvent;
   task_tracker_updated: TaskTrackerMonitor[];
+  update_availability_changed: string | null;
 }
 
 async function listenSafely<Name extends keyof NativeEventMap>(
@@ -41,6 +42,8 @@ export async function startNativeEventBridge(): Promise<Cleanup> {
       emitAppEvent(APP_EVENT.pullRequestReviewChanged, payload)),
     listenSafely("task_tracker_updated", (payload) =>
       emitAppEvent(APP_EVENT.taskTrackerUpdated, payload)),
+    listenSafely("update_availability_changed", (payload) =>
+      emitAppEvent(APP_EVENT.updateAvailabilityChanged, payload)),
   ]);
 
   return () => cleanups.forEach((cleanup) => cleanup?.());

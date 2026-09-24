@@ -39,7 +39,7 @@ describe("AppShell product navigation", () => {
     expect(screen.getByText("5")).toBeInTheDocument();
     expect(screen.queryByRole("link", { name: "Inbox" })).not.toBeInTheDocument();
     expect(screen.queryByRole("link", { name: "Planning" })).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Open release 0.1.9 on GitHub" })).toHaveTextContent("v0.1.9");
+    expect(screen.getByRole("button", { name: "Check for updates in General settings" })).toHaveTextContent("v0.1.9");
     const themePicker = screen.getByRole("combobox", { name: "Theme" });
     expect(themePicker).toHaveAttribute("data-state", "closed");
     expect(themePicker.querySelector("svg.lucide-monitor")).toBeInTheDocument();
@@ -49,15 +49,27 @@ describe("AppShell product navigation", () => {
     expect(onThemeChange).toHaveBeenCalledWith("dark");
   });
 
-  it("opens the matching GitHub release from a release version", () => {
+  it("opens General Settings from the version and marks an available update", () => {
+    const onOpenUpdateSettings = vi.fn();
     render(
-      <AppShell onThemeChange={vi.fn()} version="0.1.9">
+      <AppShell
+        onThemeChange={vi.fn()}
+        version="0.1.9"
+        updateAvailableVersion="0.2.0"
+        onOpenUpdateSettings={onOpenUpdateSettings}
+      >
         <div>Content</div>
       </AppShell>,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "Open release 0.1.9 on GitHub" }));
-    expect(openUrlMock).toHaveBeenCalledWith("https://github.com/Discoverivan/mework/releases/tag/mework-v0.1.9");
+    const versionButton = screen.getByRole("button", {
+      name: "Update 0.2.0 available. Open General settings",
+    });
+    expect(versionButton).toHaveTextContent("v0.1.9");
+    expect(versionButton.querySelector(".sidebar-update-dot")).toBeInTheDocument();
+    fireEvent.click(versionButton);
+    expect(onOpenUpdateSettings).toHaveBeenCalledOnce();
+    expect(openUrlMock).not.toHaveBeenCalled();
   });
 
   it("labels development builds without a hardcoded release version", () => {
