@@ -16,6 +16,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import type { AiSettingsPageData } from "@/shared/contracts/settings";
 import { matchesSelectedAiProvider } from "@/shared/contracts/settings";
 import type {
@@ -623,27 +624,19 @@ export function MyPullRequestsPage() {
         ) : undefined}
       />
 
-      <div role="tablist" aria-label={t("pr.quickFilters.review")} className="flex flex-wrap items-center gap-2">
-        <Button
-          type="button"
-          role="tab"
-          size="sm"
-          variant={quickFilter === "all" ? "default" : "outline"}
-          aria-selected={quickFilter === "all"}
-          onClick={() => setQuickFilter("all")}
-        >
-          {t("pr.filter.all")}
-        </Button>
-        <Button
-          type="button"
-          role="tab"
-          size="sm"
-          variant={quickFilter === "pending" ? "default" : "outline"}
-          aria-selected={quickFilter === "pending"}
-          onClick={() => setQuickFilter("pending")}
-        >
-          {t("pr.filter.pending")}
-        </Button>
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="inline-grid max-w-full">
+          <span aria-hidden="true" className="invisible col-start-1 row-start-1 whitespace-nowrap pl-3 pr-9 text-[13.5px]">{t("pr.filter.pending")}</span>
+          <Select value={quickFilter} onValueChange={(value) => setQuickFilter(value as QuickFilter)}>
+            <SelectTrigger aria-label={t("pr.quickFilters.review")} className="col-start-1 row-start-1 h-9 w-full text-[13.5px]">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">{t("pr.filter.all")}</SelectItem>
+              <SelectItem value="pending">{t("pr.filter.pending")}</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
         <div className="ml-auto flex items-center gap-2">
           <Button
             type="button"

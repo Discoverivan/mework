@@ -220,7 +220,10 @@ describe("AuthoredPullRequestsPage", () => {
     expect(screen.getByText("DEMO/sample-repository", { exact: false })).toBeInTheDocument();
 
     fireEvent.click(within(displayOptions).getByRole("button", { name: "Done" }));
-    fireEvent.click(screen.getByRole("tab", { name: "Needs action" }));
+    const quickFilter = screen.getByRole("combobox", { name: "Your pull request quick filters" });
+    expect(quickFilter).toHaveTextContent("All");
+    fireEvent.click(quickFilter);
+    fireEvent.click(screen.getByRole("option", { name: "Needs action" }));
     expect(screen.getByRole("heading", { name: "Owned pull request" })).toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "Owned tools change" })).not.toBeInTheDocument();
   });

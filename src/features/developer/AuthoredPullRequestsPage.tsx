@@ -7,6 +7,7 @@ import { useI18n } from "@/i18n/context";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { PullRequestDisplayOptionsDialog } from "./components/PullRequestDisplayOptionsDialog";
 import { PullRequestListItem } from "./components/PullRequestListItem";
 import { PullRequestProjectSection } from "./components/PullRequestProjectSection";
@@ -354,27 +355,19 @@ export function AuthoredPullRequestsPage() {
         ) : undefined}
       />
 
-      <div role="tablist" aria-label={t("pr.quickFilters.authored")} className="flex flex-wrap items-center gap-2">
-        <Button
-          type="button"
-          role="tab"
-          size="sm"
-          variant={quickFilter === "all" ? "default" : "outline"}
-          aria-selected={quickFilter === "all"}
-          onClick={() => setQuickFilter("all")}
-        >
-          {t("pr.filter.all")}
-        </Button>
-        <Button
-          type="button"
-          role="tab"
-          size="sm"
-          variant={quickFilter === "needs_action" ? "default" : "outline"}
-          aria-selected={quickFilter === "needs_action"}
-          onClick={() => setQuickFilter("needs_action")}
-        >
-          {t("pr.filter.needsAction")}
-        </Button>
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="inline-grid max-w-full">
+          <span aria-hidden="true" className="invisible col-start-1 row-start-1 whitespace-nowrap pl-3 pr-9 text-[13.5px]">{t("pr.filter.needsAction")}</span>
+          <Select value={quickFilter} onValueChange={(value) => setQuickFilter(value as QuickFilter)}>
+            <SelectTrigger aria-label={t("pr.quickFilters.authored")} className="col-start-1 row-start-1 h-9 w-full text-[13.5px]">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">{t("pr.filter.all")}</SelectItem>
+              <SelectItem value="needs_action">{t("pr.filter.needsAction")}</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
         <div className="ml-auto flex items-center gap-2">
           <Button
             type="button"

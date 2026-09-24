@@ -280,12 +280,13 @@ describe("MyPullRequestsPage", () => {
     await renderFlatPage();
     expect(await screen.findByRole("heading", { name: "Pending example pull request" })).toBeInTheDocument();
     expect(screen.getAllByRole("heading", { level: 2 })).toHaveLength(2);
-    expect(screen.getByRole("tab", { name: "All" })).toHaveAttribute("aria-selected", "true");
-    expect(screen.getByRole("tab", { name: "Pending your review" })).toHaveAttribute("aria-selected", "false");
+    const quickFilter = screen.getByRole("combobox", { name: "Pull request quick filters" });
+    expect(quickFilter).toHaveTextContent("All");
 
-    fireEvent.click(screen.getByRole("tab", { name: "Pending your review" }));
+    fireEvent.click(quickFilter);
+    fireEvent.click(screen.getByRole("option", { name: "Pending your review" }));
 
-    expect(screen.getByRole("tab", { name: "Pending your review" })).toHaveAttribute("aria-selected", "true");
+    expect(quickFilter).toHaveTextContent("Pending your review");
     expect(screen.getByRole("heading", { name: "Pending example pull request" })).toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "Example documentation change" })).not.toBeInTheDocument();
     expect(screen.getByRole("img", { name: "Review pending" })).toBeInTheDocument();
