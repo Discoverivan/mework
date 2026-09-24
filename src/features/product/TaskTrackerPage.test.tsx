@@ -292,7 +292,7 @@ describe("TaskTrackerPage", () => {
     render(<TaskTrackerPage />);
 
     expect(await screen.findByRole("heading", { name: "No monitors yet" })).toBeInTheDocument();
-    expect(screen.getByRole("status")).toHaveClass("min-h-72", "border-dashed", "bg-card");
+    expect(screen.getByRole("status")).toHaveClass("py-10", "border-dashed", "bg-card");
     expect(screen.getByRole("status").querySelector("svg.lucide-radar")).toBeInTheDocument();
     expect(screen.queryByRole("tablist", { name: "Task tracker monitors" })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Create monitor" }).closest("header")).toBeInTheDocument();

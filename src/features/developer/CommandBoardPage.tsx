@@ -3,6 +3,7 @@ import { open } from "@tauri-apps/plugin-dialog";
 import { MoreHorizontal, Pencil, Play, Plus, Terminal, Trash2 } from "lucide-react";
 
 import { PageHeader } from "@/components/shared/PageHeader";
+import { EmptyState } from "@/components/shared/EmptyState";
 import { useI18n } from "@/i18n/context";
 import type { TranslationKey } from "@/i18n/locales/en";
 import { Button } from "@/components/ui/button";
@@ -247,13 +248,12 @@ export function CommandBoardPage() {
       {error ? <p className="text-sm text-destructive" role="alert">{error}</p> : null}
       {loading ? <p className="text-sm text-muted-foreground">{t("command.loading")}</p> : null}
       {!loading && sortedCommands.length === 0 ? (
-        <div className="rounded-xl border border-dashed border-border px-6 py-12 text-center">
-          <Terminal className="mx-auto mb-3 h-8 w-8 text-muted-foreground" aria-hidden="true" />
-          <h2 className="text-base font-semibold text-foreground">{t("command.empty")}</h2>
-          <p className="mx-auto mt-1 max-w-md text-sm text-muted-foreground">
-            {t("command.emptyDescription")}
-          </p>
-        </div>
+        <EmptyState
+          titleId="command-board-empty-title"
+          title={t("command.empty")}
+          description={t("command.emptyDescription")}
+          icon={<Terminal className="size-6" />}
+        />
       ) : null}
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
         {sortedCommands.map((item) => (
