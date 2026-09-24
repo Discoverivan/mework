@@ -625,15 +625,18 @@ export function MyPullRequestsPage() {
       />
 
       <div className="flex flex-wrap items-center gap-2">
-        <Select value={quickFilter} onValueChange={(value) => setQuickFilter(value as QuickFilter)}>
-          <SelectTrigger aria-label={t("pr.quickFilters.review")} className="h-9 w-56 max-w-full text-[13.5px]">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">{t("pr.filter.all")}</SelectItem>
-            <SelectItem value="pending">{t("pr.filter.pending")}</SelectItem>
-          </SelectContent>
-        </Select>
+        <div className="inline-grid max-w-full">
+          <span aria-hidden="true" className="invisible col-start-1 row-start-1 whitespace-nowrap pl-3 pr-9 text-[13.5px]">{t("pr.filter.pending")}</span>
+          <Select value={quickFilter} onValueChange={(value) => setQuickFilter(value as QuickFilter)}>
+            <SelectTrigger aria-label={t("pr.quickFilters.review")} className="col-start-1 row-start-1 h-9 w-full text-[13.5px]">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">{t("pr.filter.all")}</SelectItem>
+              <SelectItem value="pending">{t("pr.filter.pending")}</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
         <div className="ml-auto flex items-center gap-2">
           <Button
             type="button"
