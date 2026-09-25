@@ -854,7 +854,7 @@ export function SettingsPage({ section = "integrations", updateCheckRequest = 0 
           <div aria-label={t("settings.aiProviders.aria")} className="space-y-3">
             <div className="flex items-center gap-3">
               <Select value={selectedAiGroup} onValueChange={(value) => setSelectedAiGroup(value as "cli" | "api")}>
-                <SelectTrigger aria-label={t("settings.aiProviders.groups")} className="w-48"><SelectValue /></SelectTrigger>
+                <SelectTrigger aria-label={t("settings.aiProviders.groups")} className="w-fit max-w-full gap-3"><SelectValue /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="cli">{t("settings.aiProviders.cliGroup")}</SelectItem>
                   <SelectItem value="api">{t("settings.aiProviders.apiGroup")}</SelectItem>
