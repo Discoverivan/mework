@@ -356,18 +356,15 @@ export function AuthoredPullRequestsPage() {
       />
 
       <div className="flex flex-wrap items-center gap-2">
-        <div className="inline-grid max-w-full">
-          <span aria-hidden="true" className="invisible col-start-1 row-start-1 whitespace-nowrap pl-3 pr-9 text-[13.5px]">{t("pr.filter.needsAction")}</span>
-          <Select value={quickFilter} onValueChange={(value) => setQuickFilter(value as QuickFilter)}>
-            <SelectTrigger aria-label={t("pr.quickFilters.authored")} className="col-start-1 row-start-1 h-9 w-full text-[13.5px]">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">{t("pr.filter.all")}</SelectItem>
-              <SelectItem value="needs_action">{t("pr.filter.needsAction")}</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
+        <Select value={quickFilter} onValueChange={(value) => setQuickFilter(value as QuickFilter)}>
+          <SelectTrigger aria-label={t("pr.quickFilters.authored")} className="h-9 w-fit max-w-full gap-3 text-[13.5px]">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">{t("pr.filter.all")}</SelectItem>
+            <SelectItem value="needs_action">{t("pr.filter.needsAction")}</SelectItem>
+          </SelectContent>
+        </Select>
         <div className="ml-auto flex items-center gap-2">
           <Button
             type="button"
