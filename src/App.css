@@ -118,12 +118,18 @@ body,
   font-weight: 600;
 }
 
+:root[data-button-style="filled"] .theme-picker:is(:hover, :focus-visible, [data-state="open"]) {
+  background: var(--accent);
+  color: var(--accent-foreground);
+}
+
 .sidebar-footer {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 8px;
   margin-top: auto;
+  padding-top: 16px;
   color: var(--muted-foreground);
 }
 
