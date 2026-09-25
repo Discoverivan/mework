@@ -627,7 +627,7 @@ export function CreateTaskPage() {
             <div className="grid gap-2">
               <Label htmlFor={`draft-issue-type-${card.id}`}>{t("task.type")}</Label>
               <Select value={card.issueType} onValueChange={(value) => updateCard(card.id, { issueType: issueTypeValue(value) })} disabled={card.status === "creating"}>
-                <SelectTrigger id={`draft-issue-type-${card.id}`} aria-label={t("task.issueType")} className="h-10 w-[7.25rem] px-2.5 text-xs">
+                <SelectTrigger id={`draft-issue-type-${card.id}`} aria-label={t("task.issueType")} className="h-10 px-2.5 text-xs">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -770,7 +770,7 @@ export function CreateTaskPage() {
           }}
           disabled={teamsLoading || teams.length === 0}
         >
-          <SelectTrigger id="create-task-team-select" aria-label={t("task.team")} className="w-48">
+          <SelectTrigger id="create-task-team-select" aria-label={t("task.team")}>
             <SelectValue placeholder={teamsLoading ? t("task.loadingTeams") : t("task.selectTeam")} />
           </SelectTrigger>
           <SelectContent>
@@ -782,7 +782,7 @@ export function CreateTaskPage() {
           onValueChange={setSelectedSprintId}
           disabled={!selectedTeamId || selectedContext?.sprintsLoading || !selectedContext?.sprints.length}
         >
-          <SelectTrigger id="create-task-sprint-select" aria-label={t("task.newTaskSprint")} className="w-56">
+          <SelectTrigger id="create-task-sprint-select" aria-label={t("task.newTaskSprint")}>
             <SelectValue placeholder={selectedContext?.sprintsLoading ? t("task.loadingSprints") : t("task.noSprints")} />
           </SelectTrigger>
           <SelectContent>

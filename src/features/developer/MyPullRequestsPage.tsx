@@ -626,7 +626,7 @@ export function MyPullRequestsPage() {
 
       <div className="flex flex-wrap items-center gap-2">
         <Select value={quickFilter} onValueChange={(value) => setQuickFilter(value as QuickFilter)}>
-          <SelectTrigger aria-label={t("pr.quickFilters.review")} className="h-9 w-fit max-w-full gap-3 text-[13.5px]">
+          <SelectTrigger aria-label={t("pr.quickFilters.review")} className="h-9 text-[13.5px]">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
