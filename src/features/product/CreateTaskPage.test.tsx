@@ -88,8 +88,11 @@ describe("CreateTaskPage", () => {
     const teamSelect = await screen.findByLabelText("Team");
     expect(teamSelect).toBeInTheDocument();
     expect(teamSelect.querySelector("svg.lucide-chevron-down")).toHaveClass("-mr-1");
-    expect(await screen.findByLabelText("Sprint for new tasks")).toBeInTheDocument();
     await waitFor(() => expect(listMembersMock).toHaveBeenCalledWith("team-1"));
+    const headerControls = screen.getByLabelText("Team").closest(".mb-4");
+    expect(headerControls).not.toBeNull();
+    expect(within(headerControls as HTMLElement).getAllByRole("combobox")).toHaveLength(1);
+    expect(screen.queryByLabelText("Sprint for new tasks")).not.toBeInTheDocument();
     expect(screen.queryByText("Product", { exact: true })).not.toBeInTheDocument();
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     await waitFor(() => expect(listMembersMock).toHaveBeenCalled());
@@ -245,9 +248,15 @@ describe("CreateTaskPage", () => {
     render(<CreateTaskPage />);
 
     expect(await screen.findByLabelText("Team")).toHaveTextContent("Payments team");
-    expect(await screen.findByLabelText("Sprint for new tasks")).toHaveTextContent("Payments Sprint");
+    expect(screen.queryByLabelText("Sprint for new tasks")).not.toBeInTheDocument();
     expect(listMembersMock).toHaveBeenCalledWith("team-2");
     expect(listSprintsMock).toHaveBeenCalledWith("team-2");
+
+    generateMock.mockResolvedValue({ summary: "Route-aware task", description: "Route-selected sprint" });
+    fireEvent.click(screen.getByRole("button", { name: "Create task" }));
+    fireEvent.change(screen.getByPlaceholderText("Describe your task"), { target: { value: "Create a route-aware task" } });
+    fireEvent.click(screen.getByRole("button", { name: "Create with AI" }));
+    expect(await screen.findByLabelText("Sprint")).toHaveTextContent("Payments Sprint");
   });
 
   it("keeps multiple AI draft cards independent while they are generating", async () => {
@@ -308,9 +317,10 @@ describe("CreateTaskPage", () => {
     fireEvent.change(screen.getByPlaceholderText("Describe your task"), { target: { value: "Create task" } });
     fireEvent.click(screen.getByRole("button", { name: "Create with AI" }));
     expect(await screen.findByRole("article", { name: "Editable Jira task draft" })).toBeInTheDocument();
+    expect(screen.getByLabelText("Sprint")).toHaveTextContent("Platform Sprint");
     expect(screen.getByText("DEMO-EPIC-1 — Example epic")).toBeInTheDocument();
 
-    expect(screen.getByLabelText("Sprint for new tasks")).toHaveTextContent("Platform Sprint");
+    expect(screen.queryByLabelText("Sprint for new tasks")).not.toBeInTheDocument();
     fireEvent.click(screen.getByLabelText("Epic link"));
     expect(await screen.findByRole("option", { name: "DEMO-EPIC-1 — Example epic" })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("option", { name: "DEMO-EPIC-1 — Example epic" }));
