@@ -9,19 +9,20 @@ interface ReleaseNotesDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   releases: ReleaseNote[];
+  mode?: "update" | "history";
 }
 
-export function ReleaseNotesDialog({ open, onOpenChange, releases }: ReleaseNotesDialogProps) {
+export function ReleaseNotesDialog({ open, onOpenChange, releases, mode = "update" }: ReleaseNotesDialogProps) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
-        <ReleaseNotesContent releases={releases} onOpenChange={onOpenChange} />
+        <ReleaseNotesContent releases={releases} onOpenChange={onOpenChange} mode={mode} />
       </DialogContent>
     </Dialog>
   );
 }
 
-function ReleaseNotesContent({ releases, onOpenChange }: Pick<ReleaseNotesDialogProps, "releases" | "onOpenChange">) {
+function ReleaseNotesContent({ releases, onOpenChange, mode }: Pick<ReleaseNotesDialogProps, "releases" | "onOpenChange"> & { mode: "update" | "history" }) {
   const { language, t } = useI18n();
   const noteLanguage = language === "russian" ? "ru" : "en";
   const contentRef = useRef<HTMLDivElement>(null);
@@ -63,7 +64,7 @@ function ReleaseNotesContent({ releases, onOpenChange }: Pick<ReleaseNotesDialog
   return (
     <>
       <DialogHeader className="pb-2">
-        <DialogTitle>{t("releaseNotes.title")}</DialogTitle>
+        <DialogTitle>{t(mode === "history" ? "releaseNotes.open" : "releaseNotes.title")}</DialogTitle>
       </DialogHeader>
       <DialogBody>
         <div ref={contentRef} className="flex flex-col gap-4">

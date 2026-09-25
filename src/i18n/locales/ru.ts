@@ -16,7 +16,7 @@ export const ru: Record<TranslationKey, string> = {
   "releaseNotes.title": "Что нового в mework",
   "releaseNotes.version": "Версия {version}",
   "releaseNotes.done": "Понятно",
-  "releaseNotes.open": "Что нового",
+  "releaseNotes.open": "История изменений",
   "inbox.title": "Входящие",
   "inbox.search": "Поиск во входящих",
   "inbox.searchPlaceholder": "Поиск по заголовку, причине или задаче",

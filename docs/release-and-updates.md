@@ -65,7 +65,7 @@ Several entries can be added together before a release. Keep both languages conc
 
 For a manual release build, run the script with the release version before building the app. Keep the generated catalog in that build; it is not a source version bump.
 
-On the first launch of a new installation, the Rust core saves the installed version without showing a window. Migration `0018_release_notes_seen.sql` marks existing installations as eligible for the first release with this feature. On later launches after an update, the app shows all notes newer than the last viewed version after the main interface loads. Closing the window saves the installed version through the Rust core. The notes remain available through **About → What's new**. In `npm run tauri:dev -- --mock`, a synthetic preview opens at startup and can be reopened from the same location without changing release-note acknowledgement state.
+On the first launch of a new installation, the Rust core saves the installed version without showing a window. Migration `0018_release_notes_seen.sql` marks existing installations as eligible for the first release with this feature. On later launches after an update, the app shows all notes newer than the last viewed version after the main interface loads. Closing the window saves the installed version through the Rust core. The notes remain available through **About → Release notes**. In `npm run tauri:dev -- --mock`, a synthetic preview opens at startup and can be reopened from the same location without changing release-note acknowledgement state.
 
 ## Version policy
 

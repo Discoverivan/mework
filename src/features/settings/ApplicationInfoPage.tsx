@@ -127,7 +127,7 @@ export function ApplicationInfoPage({ version, updateCheckRequest = 0, mockMode 
           </div>
         </CardHeader>
       </Card>
-      <ReleaseNotesDialog open={releaseNotesOpen} onOpenChange={setReleaseNotesOpen} releases={releaseNotes} />
+      <ReleaseNotesDialog open={releaseNotesOpen} onOpenChange={setReleaseNotesOpen} releases={releaseNotes} mode="history" />
       <StatusToast message={updateInstallError ?? (updateStatus === "error" ? t("general.updateCheckError") : updateStatus === "current" ? t("general.current") : undefined)}
         variant={updateInstallError || updateStatus === "error" ? "error" : "success"}
         onDismiss={() => {

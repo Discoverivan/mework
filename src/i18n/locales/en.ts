@@ -14,7 +14,7 @@ export const en = {
   "releaseNotes.title": "What's new in mework",
   "releaseNotes.version": "Version {version}",
   "releaseNotes.done": "Got it",
-  "releaseNotes.open": "What's new",
+  "releaseNotes.open": "Release notes",
   "inbox.title": "Inbox",
   "inbox.search": "Search inbox",
   "inbox.searchPlaceholder": "Search title, reason, or issue",

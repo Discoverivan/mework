@@ -267,12 +267,13 @@ describe("mework application shell", () => {
     fireEvent.click(screen.getByRole("button", { name: "Open About mework and check for updates" }));
     expect(await screen.findByRole("heading", { name: "About", level: 1 })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Application mework", level: 2 })).toBeInTheDocument();
-    const releaseNotesButton = screen.getByRole("button", { name: "What's new" });
-    expect(releaseNotesButton).toHaveAttribute("title", "What's new");
-    expect(releaseNotesButton).not.toHaveTextContent("What's new");
+    const releaseNotesButton = screen.getByRole("button", { name: "Release notes" });
+    expect(releaseNotesButton).toHaveAttribute("title", "Release notes");
+    expect(releaseNotesButton).not.toHaveTextContent("Release notes");
     expect(releaseNotesButton.querySelector("svg.lucide-notebook-text")).not.toBeNull();
     expect(releaseNotesButton.nextElementSibling).toBe(screen.getByRole("button", { name: "GitHub releases" }));
     fireEvent.click(releaseNotesButton);
+    expect(await screen.findByRole("heading", { name: "Release notes" })).toBeInTheDocument();
     expect(await screen.findByText("Open past changes again from About.")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Got it" }));
     expect(window.location.hash).toBe("#settings/application-info");
