@@ -1,10 +1,11 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { GeneralSettingsPage } from "./GeneralSettingsPage";
+import { ApplicationInfoPage } from "../ApplicationInfoPage";
 import { APP_EVENT, subscribeAppEvent } from "@/app/app-events";
 import { I18nProvider } from "@/i18n/I18nProvider";
 
-const { generalSettingsMock, commandBoardTerminalPreferencesMock, saveCommandBoardTerminalPreferenceMock, openNotificationSettingsMock, requestNotificationPermissionMock, saveAppearanceSettingsMock, saveButtonStyleMock, saveGeneralSettingsMock, sendNotificationTestMock, updaterCheckMock, installAvailableUpdateMock } = vi.hoisted(() => ({
+const { generalSettingsMock, commandBoardTerminalPreferencesMock, saveCommandBoardTerminalPreferenceMock, openNotificationSettingsMock, requestNotificationPermissionMock, saveAppearanceSettingsMock, saveButtonStyleMock, saveGeneralSettingsMock, sendNotificationTestMock, updaterCheckMock, installAvailableUpdateMock, openUrlMock } = vi.hoisted(() => ({
   generalSettingsMock: vi.fn(),
   commandBoardTerminalPreferencesMock: vi.fn(),
   saveCommandBoardTerminalPreferenceMock: vi.fn(),
@@ -16,9 +17,11 @@ const { generalSettingsMock, commandBoardTerminalPreferencesMock, saveCommandBoa
   sendNotificationTestMock: vi.fn(),
   updaterCheckMock: vi.fn(),
   installAvailableUpdateMock: vi.fn(),
+  openUrlMock: vi.fn(),
 }));
 
 vi.mock("@tauri-apps/plugin-updater", () => ({ check: updaterCheckMock }));
+vi.mock("@tauri-apps/plugin-opener", () => ({ openUrl: openUrlMock }));
 
 vi.mock("./api", () => ({
   AiResponseLanguage: {
@@ -257,7 +260,9 @@ describe("GeneralSettingsPage", () => {
     const unsubscribe = subscribeAppEvent(APP_EVENT.updateAvailabilityChanged, updateAvailabilityListener);
 
     try {
-      render(<GeneralSettingsPage />);
+      render(<ApplicationInfoPage version="0.1.0" />);
+      fireEvent.click(screen.getByRole("button", { name: "GitHub releases" }));
+      expect(openUrlMock).toHaveBeenCalledWith("https://github.com/Discoverivan/mework/releases");
 
       fireEvent.click(await screen.findByRole("button", { name: "Check for updates" }));
       const updateButton = await screen.findByRole("button", { name: "Update to 0.1.5" });
@@ -278,18 +283,17 @@ describe("GeneralSettingsPage", () => {
     }
   });
 
-  it("checks immediately when General Settings is opened from the version indicator", async () => {
+  it("checks immediately when About mework is opened from the version indicator", async () => {
     updaterCheckMock.mockResolvedValue({ version: "0.1.5", body: "ignored" });
-
-    const page = render(<GeneralSettingsPage updateCheckRequest={0} />);
-    page.rerender(<GeneralSettingsPage updateCheckRequest={1} />);
+    const page = render(<ApplicationInfoPage updateCheckRequest={0} />);
+    page.rerender(<ApplicationInfoPage updateCheckRequest={1} />);
 
     await waitFor(() => expect(updaterCheckMock).toHaveBeenCalledOnce());
     expect(screen.getByText("New version 0.1.5 found")).toBeInTheDocument();
   });
 
   it("checks for application updates and reports when the app is current", async () => {
-    render(<GeneralSettingsPage />);
+    render(<ApplicationInfoPage />);
 
     const button = await screen.findByRole("button", { name: "Check for updates" });
     expect(button).toHaveAttribute("title", "Check for updates");
@@ -303,7 +307,7 @@ describe("GeneralSettingsPage", () => {
 
   it("reports an update-check failure in a temporary toast instead of the updates card", async () => {
     updaterCheckMock.mockRejectedValue(new Error("temporary updater failure"));
-    render(<GeneralSettingsPage />);
+    render(<ApplicationInfoPage />);
 
     fireEvent.click(await screen.findByRole("button", { name: "Check for updates" }));
 

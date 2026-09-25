@@ -107,6 +107,17 @@ body,
   font-size: 13px;
 }
 
+:root[data-button-style="quiet"] .settings-nav-children a:is(:hover, :focus-visible, [aria-current="page"]),
+:root[data-button-style="quiet"] .sidebar-version:is(:hover, :focus-visible),
+:root[data-button-style="quiet"] .theme-picker:is(:hover, :focus-visible, [data-state="open"]) {
+  background: transparent;
+  color: var(--primary);
+}
+
+:root[data-button-style="quiet"] .settings-nav-children a[aria-current="page"] {
+  font-weight: 600;
+}
+
 .sidebar-footer {
   display: flex;
   align-items: center;

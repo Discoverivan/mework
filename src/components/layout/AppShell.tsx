@@ -1,11 +1,11 @@
 import type { ReactNode } from "react";
-import { openUrl } from "@tauri-apps/plugin-opener";
 import {
   BarChart3,
   CalendarDays,
   Command,
   DatabaseZap,
   GitPullRequest,
+  Info,
   Monitor,
   Settings2,
   Moon,
@@ -32,6 +32,7 @@ export type AppSection =
   | "developer-my-pull-requests"
   | "developer-command-board"
   | "settings-general"
+  | "settings-application-info"
   | "settings-ai"
   | "settings-integrations"
   | "settings-projects"
@@ -39,7 +40,7 @@ export type AppSection =
 
 type NavigationItem = {
   section: AppSection;
-  labelKey: "nav.createTask" | "nav.taskTracker" | "nav.sprintTasks" | "nav.confluenceSearch" | "nav.prsToReview" | "nav.yourPrs" | "nav.commandBoard" | "nav.general" | "nav.aiSettings" | "nav.dataIntegrations" | "nav.teamSettings" | "nav.statistics";
+  labelKey: "nav.createTask" | "nav.taskTracker" | "nav.sprintTasks" | "nav.confluenceSearch" | "nav.prsToReview" | "nav.yourPrs" | "nav.commandBoard" | "nav.general" | "nav.applicationInfo" | "nav.aiSettings" | "nav.dataIntegrations" | "nav.teamSettings" | "nav.statistics";
   href: string;
   icon: LucideIcon;
 };
@@ -51,7 +52,7 @@ interface AppShellProps {
   themeChanging?: boolean;
   version?: string;
   updateAvailableVersion?: string | null;
-  onOpenUpdateSettings?: () => void;
+  onOpenApplicationInfo?: () => void;
   onNavigate?: (section: AppSection) => void;
   activeSection?: AppSection;
   unreadPullRequestCount?: number;
@@ -78,9 +79,8 @@ const settingsNavigation: NavigationItem[] = [
   { section: "settings-integrations", labelKey: "nav.dataIntegrations", href: "#settings/integrations", icon: DatabaseZap },
   { section: "settings-projects", labelKey: "nav.teamSettings", href: "#settings/projects", icon: UsersRound },
   { section: "settings-statistics", labelKey: "nav.statistics", href: "#settings/statistics", icon: BarChart3 },
+  { section: "settings-application-info", labelKey: "nav.applicationInfo", href: "#settings/application-info", icon: Info },
 ];
-
-const GITHUB_RELEASES_URL = "https://github.com/Discoverivan/mework/releases";
 
 export function AppShell({
   children,
@@ -89,7 +89,7 @@ export function AppShell({
   themeChanging = false,
   version,
   updateAvailableVersion,
-  onOpenUpdateSettings,
+  onOpenApplicationInfo,
   onNavigate,
   activeSection,
   unreadPullRequestCount = 0,
@@ -138,12 +138,14 @@ export function AppShell({
           onClick={() => onNavigate?.(item.section)}
         >
           <Icon className="size-4 shrink-0" aria-hidden="true" />
-          <span className="min-w-0 flex-1 truncate">{label}</span>
-          {itemUnreadCount > 0 ? (
-            <span className="sidebar-unread-badge" aria-label={unreadBadgeLabel}>
-              {displayUnreadCount}
-            </span>
-          ) : null}
+          <span className="inline-flex min-w-0 items-center gap-2">
+            <span className="min-w-0 truncate">{label}</span>
+            {itemUnreadCount > 0 ? (
+              <span className="sidebar-unread-badge shrink-0" aria-label={unreadBadgeLabel}>
+                {displayUnreadCount}
+              </span>
+            ) : null}
+          </span>
         </a>
       </Button>
     );
@@ -208,27 +210,16 @@ export function AppShell({
               <SelectItem value="dark"><span className="flex items-center gap-2"><Moon className="size-4" aria-hidden="true" />{t("general.themeDark")}</span></SelectItem>
             </SelectContent>
           </Select>
-          {version === "dev" ? (
-            <Button
-              type="button"
-              variant="ghost"
-              className="sidebar-version h-7 px-2 py-0 leading-none"
-              aria-label={t("nav.openReleases")}
-              title={`${t("nav.developmentBuild")} · ${t("nav.openReleases")}`}
-              onClick={() => void openUrl(GITHUB_RELEASES_URL)}
-            >
-              dev
-            </Button>
-          ) : version && versionLabel ? (
+          {version && versionLabel ? (
             <Button
               type="button"
               variant="ghost"
               className="sidebar-version h-7 px-2 py-0 leading-none"
               aria-label={updateActionLabel}
               title={updateActionLabel}
-              onClick={onOpenUpdateSettings}
+              onClick={onOpenApplicationInfo}
             >
-              {versionLabel}
+              {version === "dev" ? "dev" : versionLabel}
               {updateAvailableVersion ? (
                 <span className="sidebar-update-dot ml-1.5 inline-block size-2 shrink-0 rounded-full bg-primary" aria-hidden="true" />
               ) : null}
