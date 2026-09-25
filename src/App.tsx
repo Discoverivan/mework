@@ -34,6 +34,7 @@ function routeFromHash(hash: string): AppRoute {
   if (hash === "#developer/my-pull-requests") return "developer-my-pull-requests";
   if (hash === "#developer/command-board") return "developer-command-board";
   if (hash === "#settings/general") return "settings-general";
+  if (hash === "#settings/application-info") return "settings-application-info";
   if (hash === "#settings/ai") return "settings-ai";
   if (hash === "#settings/projects") return "settings-projects";
   if (hash === "#settings/statistics") return "settings-statistics";
@@ -239,7 +240,7 @@ function AppContent() {
   }, []);
 
   useEffect(() => {
-    if (route !== "settings-general" || !pendingUpdateCheck) return;
+    if (route !== "settings-application-info" || !pendingUpdateCheck) return;
     setPendingUpdateCheck(false);
     setUpdateCheckRequest((current) => current + 1);
   }, [pendingUpdateCheck, route]);
@@ -248,11 +249,11 @@ function AppContent() {
     setRoute(section);
   }
 
-  function openUpdateSettings() {
-    setRoute("settings-general");
+  function openApplicationInfo() {
+    setRoute("settings-application-info");
     setPendingUpdateCheck(true);
-    if (window.location.hash !== "#settings/general") {
-      window.location.hash = "#settings/general";
+    if (window.location.hash !== "#settings/application-info") {
+      window.location.hash = "#settings/application-info";
     }
   }
 
@@ -271,14 +272,14 @@ function AppContent() {
           }}
           version={appVersion}
           updateAvailableVersion={availableUpdateVersion}
-          onOpenUpdateSettings={openUpdateSettings}
+          onOpenApplicationInfo={openApplicationInfo}
           onNavigate={navigate}
           activeSection={route}
           unreadPullRequestCount={unreadPullRequestCount}
           unreadAuthoredPullRequestCount={unreadAuthoredPullRequestCount}
           unreadTaskTrackerCount={unreadTaskTrackerCount}
         >
-          <AppRoutes route={route} updateCheckRequest={updateCheckRequest} mockMode={mockMode} />
+          <AppRoutes route={route} updateCheckRequest={updateCheckRequest} mockMode={mockMode} version={appVersion} />
         </AppShell>
       ) : null}
       {import.meta.env.DEV && mockMode ? <DevOverlay /> : null}

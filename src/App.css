@@ -107,12 +107,29 @@ body,
   font-size: 13px;
 }
 
+:root[data-button-style="quiet"] .settings-nav-children a:is(:hover, :focus-visible, [aria-current="page"]),
+:root[data-button-style="quiet"] .sidebar-version:is(:hover, :focus-visible),
+:root[data-button-style="quiet"] .theme-picker:is(:hover, :focus-visible, [data-state="open"]) {
+  background: transparent;
+  color: var(--primary);
+}
+
+:root[data-button-style="quiet"] .settings-nav-children a[aria-current="page"] {
+  font-weight: 600;
+}
+
+:root[data-button-style="filled"] .theme-picker:is(:hover, :focus-visible, [data-state="open"]) {
+  background: var(--accent);
+  color: var(--accent-foreground);
+}
+
 .sidebar-footer {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 8px;
   margin-top: auto;
+  padding-top: 16px;
   color: var(--muted-foreground);
 }
 
