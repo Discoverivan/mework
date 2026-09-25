@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { checkForAvailableUpdate } from "@/components/shared/update-check";
 import { installAvailableUpdate } from "@/components/shared/update-install";
 import { StatusToast } from "@/components/shared/StatusToast";
+import { ReleaseNotesDialog } from "@/components/shared/ReleaseNotesDialog";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -31,6 +32,7 @@ import {
 import { APP_EVENT, emitAppEvent } from "@/app/app-events";
 import { useI18n } from "@/i18n/context";
 import { AppLanguage } from "@/i18n/types";
+import { allReleaseNotes } from "@/release-notes";
 
 function errorMessage(error: unknown, fallback: string): string {
   const message = error instanceof Error ? error.message : typeof error === "string" ? error : fallback;
@@ -58,6 +60,7 @@ export function GeneralSettingsPage({ updateCheckRequest = 0 }: GeneralSettingsP
   const [availableUpdateVersion, setAvailableUpdateVersion] = useState<string>();
   const [installingUpdate, setInstallingUpdate] = useState(false);
   const [updateInstallError, setUpdateInstallError] = useState<string | null>(null);
+  const [releaseNotesOpen, setReleaseNotesOpen] = useState(false);
   const [openingSettings, setOpeningSettings] = useState(false);
   const [requestingPermission, setRequestingPermission] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -596,6 +599,11 @@ export function GeneralSettingsPage({ updateCheckRequest = 0 }: GeneralSettingsP
               </CardDescription>
             </div>
             <div className="flex shrink-0 items-center gap-2">
+              {allReleaseNotes().length > 0 ? (
+                <Button type="button" variant="outline" size="sm" onClick={() => setReleaseNotesOpen(true)}>
+                  {t("releaseNotes.open")}
+                </Button>
+              ) : null}
               {updateStatus === "available" ? <span className="text-sm text-muted-foreground">{t("general.updateAvailable", { version: availableUpdateVersion ?? "" })}</span> : null}
               {updateStatus === "available" ? (
                 <Button
@@ -632,6 +640,7 @@ export function GeneralSettingsPage({ updateCheckRequest = 0 }: GeneralSettingsP
           </div>
         </CardHeader>
       </Card>
+      <ReleaseNotesDialog open={releaseNotesOpen} onOpenChange={setReleaseNotesOpen} releases={allReleaseNotes()} />
       <StatusToast
         message={updateInstallError
           ?? (updateStatus === "error"

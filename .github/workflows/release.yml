@@ -29,6 +29,8 @@ on:
       - "vitest.config.ts"
       - "tsconfig*.json"
       - "components.json"
+      - "CHANGELOG.md"
+      - "scripts/build-release-notes.mjs"
       - "rust-toolchain.toml"
 
 concurrency:
@@ -101,6 +103,9 @@ jobs:
               raise SystemExit("Release version must be valid SemVer")
           PY
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Validate release notes
+        run: node scripts/build-release-notes.mjs "${{ steps.release_version.outputs.version }}"
 
       - name: Verify updater signing secret
         env:
@@ -195,6 +200,10 @@ jobs:
 
       - name: Install frontend dependencies
         run: npm ci
+
+      - name: Bundle release notes
+        shell: bash
+        run: node scripts/build-release-notes.mjs "${{ needs.prepare_release.outputs.version }}"
 
       - name: Select macOS signing mode
         id: macos_signing
@@ -338,6 +347,14 @@ jobs:
       GITHUB_REPOSITORY: ${{ github.repository }}
       RELEASE_TAG: mework-v${{ needs.prepare_release.outputs.version }}
     steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Generate release notes
+        run: node scripts/build-release-notes.mjs "${{ needs.prepare_release.outputs.version }}"
+
       - name: Download updater manifest
         shell: bash
         run: gh release download "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --pattern latest.json
@@ -357,9 +374,23 @@ jobs:
               raise SystemExit(f"latest.json is missing required platforms: {', '.join(missing)}")
           PY
 
+      - name: Add release notes to updater manifest
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+
+          path = Path("latest.json")
+          manifest = json.loads(path.read_text())
+          manifest["notes"] = Path(".release/update-notes.txt").read_text().strip()
+          path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + "\n")
+          PY
+          gh release upload "$RELEASE_TAG" latest.json --repo "$GITHUB_REPOSITORY" --clobber
+
       - name: Publish release
         shell: bash
-        run: gh release edit "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --draft=false
+        run: gh release edit "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --notes-file .release/release-body.md --draft=false
 
   cleanup_failed_release:
     name: Cleanup failed release

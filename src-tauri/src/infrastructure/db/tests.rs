@@ -75,6 +75,31 @@ async fn migration_creates_settings_table() {
 }
 
 #[tokio::test]
+async fn release_notes_migration_marks_existing_installations_for_the_next_launch() {
+    let (_temp_dir, pool) = test_database().await;
+    sqlx::query(
+        "INSERT INTO settings (key, value_json, schema_version, created_at, updated_at)
+         VALUES ('general.settings', '{}', 1, '2026-01-01', '2026-01-01')",
+    )
+    .execute(&pool)
+    .await
+    .expect("existing general settings");
+
+    sqlx::query(include_str!("../../../migrations/0017_release_notes_seen.sql"))
+        .execute(&pool)
+        .await
+        .expect("release notes migration");
+
+    let version: String = sqlx::query_scalar(
+        "SELECT value_json FROM settings WHERE key = 'release_notes.last_seen_version'",
+    )
+    .fetch_one(&pool)
+    .await
+    .expect("existing installation marker");
+    assert_eq!(version, "\"0.0.0\"");
+}
+
+#[tokio::test]
 async fn migration_allows_a_confluence_integration() {
     let (_temp_dir, pool) = test_database().await;
 

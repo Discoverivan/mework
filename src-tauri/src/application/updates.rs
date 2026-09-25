@@ -1,6 +1,59 @@
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
+use serde::Serialize;
+use sqlx::SqlitePool;
+use tauri::{AppHandle, Runtime};
+
+use crate::infrastructure::db::repositories;
+
+const RELEASE_NOTES_SEEN_KEY: &str = "release_notes.last_seen_version";
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReleaseNotesState {
+    pub current_version: String,
+    pub last_seen_version: String,
+}
+
+pub async fn release_notes_state<R: Runtime>(
+    app: &AppHandle<R>,
+    pool: &SqlitePool,
+) -> Result<ReleaseNotesState, String> {
+    let current_version = app.package_info().version.to_string();
+    sqlx::query(
+        "INSERT INTO settings (key, value_json, schema_version, created_at, updated_at)
+         VALUES (?, ?, 1, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+         ON CONFLICT(key) DO NOTHING",
+    )
+    .bind(RELEASE_NOTES_SEEN_KEY)
+    .bind(serde_json::to_string(&current_version).map_err(|_| "failed to encode version")?)
+    .execute(pool)
+    .await
+    .map_err(|_| "failed to initialize release notes state")?;
+    let stored = repositories::get_setting(pool, RELEASE_NOTES_SEEN_KEY)
+        .await
+        .map_err(|_| "failed to load release notes state")?
+        .ok_or("release notes state is missing")?;
+    let last_seen_version = serde_json::from_str(&stored)
+        .map_err(|_| "invalid release notes state")?;
+    Ok(ReleaseNotesState {
+        current_version,
+        last_seen_version,
+    })
+}
+
+pub async fn mark_release_notes_seen<R: Runtime>(
+    app: &AppHandle<R>,
+    pool: &SqlitePool,
+) -> Result<(), String> {
+    let current_version = serde_json::to_string(&app.package_info().version.to_string())
+        .map_err(|_| "failed to encode version")?;
+    repositories::upsert_setting(pool, RELEASE_NOTES_SEEN_KEY, &current_version, 1)
+        .await
+        .map_err(|_| "failed to save release notes state".to_owned())
+}
+
 pub const UPDATE_CHECK_INTERVAL: Duration = Duration::from_secs(24 * 60 * 60);
 pub const UPDATE_CHECK_RETRY_INTERVAL: Duration = Duration::from_secs(60 * 60);
 pub const UPDATE_CHECK_TIMEOUT: Duration = Duration::from_secs(10);

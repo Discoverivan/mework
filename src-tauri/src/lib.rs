@@ -409,6 +409,8 @@ pub fn run() {
             commands::general::notification_request_permission,
             commands::general::notification_open_settings,
             commands::updates::background_update_version,
+            commands::updates::release_notes_state,
+            commands::updates::mark_release_notes_seen,
             commands::create_task::ai_task_draft,
             commands::create_task::jira_task_team_members,
             commands::create_task::jira_task_create,

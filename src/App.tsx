@@ -3,7 +3,9 @@ import { getVersion } from "@tauri-apps/api/app";
 import { AppShell, type AppSection } from "./components/layout/AppShell";
 import { SplashScreen } from "./components/shared/SplashScreen";
 import { UpdateBanner } from "./components/shared/UpdateBanner";
+import { ReleaseNotesDialog } from "./components/shared/ReleaseNotesDialog";
 import { getBackgroundUpdateVersion } from "./components/shared/update-check";
+import { getReleaseNotesState, markReleaseNotesSeen, releaseNotesSince, type ReleaseNote } from "./release-notes";
 import { AppRoutes, type AppRoute } from "./app/routes";
 import { PresenterView } from "./features/daily/PresenterView";
 import { DevOverlay } from "./features/dev/DevOverlay";
@@ -59,6 +61,31 @@ function AppContent() {
   const [availableUpdateVersion, setAvailableUpdateVersion] = useState<string | null>(null);
   const [updateCheckRequest, setUpdateCheckRequest] = useState(0);
   const [pendingUpdateCheck, setPendingUpdateCheck] = useState(false);
+  const [newReleaseNotes, setNewReleaseNotes] = useState<ReleaseNote[]>([]);
+  const [releaseNotesOpen, setReleaseNotesOpen] = useState(false);
+
+  useEffect(() => {
+    if (!ready || !mockModeLoaded || mockMode || import.meta.env.DEV) return;
+    let active = true;
+    void getReleaseNotesState().then(({ currentVersion, lastSeenVersion }) => {
+      if (!active) return;
+      const notes = releaseNotesSince(lastSeenVersion, currentVersion);
+      if (notes.length > 0) {
+        setNewReleaseNotes(notes);
+        setReleaseNotesOpen(true);
+      }
+    }).catch(() => {
+      // Release notes are optional if local state is unavailable.
+    });
+    return () => { active = false; };
+  }, [ready, mockModeLoaded, mockMode]);
+
+  function handleReleaseNotesOpenChange(open: boolean) {
+    setReleaseNotesOpen(open);
+    if (!open) void markReleaseNotesSeen().catch(() => {
+      // A failed save allows the notes to reappear on the next launch.
+    });
+  }
 
   useEffect(() => {
     if (import.meta.env.DEV) return;
@@ -276,6 +303,7 @@ function AppContent() {
       {import.meta.env.DEV && mockMode ? <DevOverlay /> : null}
       <SplashScreen visible={!ready} />
       <UpdateBanner enabled={ready && !import.meta.env.DEV && !mockMode} updateVersion={availableUpdateVersion} />
+      <ReleaseNotesDialog open={releaseNotesOpen} onOpenChange={handleReleaseNotesOpenChange} releases={newReleaseNotes} />
     </>
   );
 }
