@@ -1,4 +1,6 @@
 pub mod ai;
+pub mod ai_usage_statistics;
+pub mod app_badge;
 pub mod command_board;
 pub mod confluence;
 pub mod create_task;

@@ -13,6 +13,7 @@ use uuid::Uuid;
 
 use super::developer::MyPullRequestDto;
 use crate::application::ai::codex_command;
+use crate::application::ai_usage_statistics;
 use crate::infrastructure::db::repositories;
 
 const REVIEW_STATE_SETTING_KEY: &str = "developer.pull_request_reviews";
@@ -25,6 +26,12 @@ const MAX_REVIEW_COMMENTS_PER_SEVERITY: usize = 3;
 
 static ACTIVE_REVIEW_RUNS: OnceLock<Mutex<HashSet<String>>> = OnceLock::new();
 static REVIEW_STATE_LOCK: OnceLock<tokio::sync::Mutex<()>> = OnceLock::new();
+
+struct ReviewUsageContext {
+    provider_id: String,
+    model: String,
+    usage: Option<ai_usage_statistics::AiTokenUsageCounts>,
+}
 
 fn active_review_runs() -> &'static Mutex<HashSet<String>> {
     ACTIVE_REVIEW_RUNS.get_or_init(|| Mutex::new(HashSet::new()))
@@ -358,9 +365,20 @@ pub async fn start_review_with_diff<R: Runtime>(
     let worker_key = key.clone();
     let worker_run_id = run.run_id.clone();
     let finish_run_id = worker_run_id.clone();
+    let usage = ReviewUsageContext {
+        provider_id: match ai_settings.provider {
+            Some(crate::application::ai::AiProviderId::CodexCli) => "codex-cli",
+            Some(crate::application::ai::AiProviderId::ClaudeCodeCli) => "claude-code-cli",
+            Some(crate::application::ai::AiProviderId::OpenAiCompatible) => "openai-compatible",
+            None => "unknown",
+        }
+        .to_owned(),
+        model: ai_settings.model.clone(),
+        usage: None,
+    };
     tauri::async_runtime::spawn(async move {
         let execution = tauri::async_runtime::spawn_blocking(move || {
-            execute_review(
+            execute_review_with_usage(
                 &request,
                 &worker_run_id,
                 &ai_settings,
@@ -370,9 +388,14 @@ pub async fn start_review_with_diff<R: Runtime>(
             )
         })
         .await;
-        let outcome = match execution {
-            Ok(result) => result,
-            Err(_) => Err("AI review worker failed".to_owned()),
+        let (outcome, usage_counts) = match execution {
+            Ok(Ok((result, usage_counts))) => (Ok(result), usage_counts),
+            Ok(Err(error)) => (Err(error), None),
+            Err(_) => (Err("AI review worker failed".to_owned()), None),
+        };
+        let usage = ReviewUsageContext {
+            usage: usage_counts,
+            ..usage
         };
         finish_review(
             &worker_pool,
@@ -380,6 +403,7 @@ pub async fn start_review_with_diff<R: Runtime>(
             &worker_key,
             &finish_run_id,
             outcome,
+            usage,
         )
         .await;
     });
@@ -442,7 +466,16 @@ async fn finish_review<R: Runtime>(
     key: &str,
     run_id: &str,
     outcome: Result<PullRequestReviewResult, String>,
+    usage: ReviewUsageContext,
 ) {
+    let ReviewUsageContext {
+        provider_id,
+        model,
+        usage,
+    } = usage;
+    if let Some(usage) = usage {
+        let _ = ai_usage_statistics::record_now(pool, &provider_id, &model, usage).await;
+    }
     let _guard = review_state_lock().lock().await;
     let mut state = match load_state(pool).await {
         Ok(value) => value,
@@ -451,28 +484,30 @@ async fn finish_review<R: Runtime>(
             return;
         }
     };
-    let Some(run) = state.reviews.get_mut(key) else {
-        deactivate_review_run(run_id);
-        return;
-    };
-    if run.run_id != run_id {
-        deactivate_review_run(run_id);
-        return;
-    };
-    run.finished_at = Some(now_millis());
-    match outcome {
-        Ok(result) => {
-            run.status = PullRequestReviewStatus::Completed;
-            run.result = Some(result);
-            run.error = None;
+    let payload = {
+        let Some(run) = state.reviews.get_mut(key) else {
+            deactivate_review_run(run_id);
+            return;
+        };
+        if run.run_id != run_id {
+            deactivate_review_run(run_id);
+            return;
+        };
+        run.finished_at = Some(now_millis());
+        match outcome {
+            Ok(result) => {
+                run.status = PullRequestReviewStatus::Completed;
+                run.result = Some(result);
+                run.error = None;
+            }
+            Err(error) => {
+                run.status = PullRequestReviewStatus::Failed;
+                run.result = None;
+                run.error = Some(error);
+            }
         }
-        Err(error) => {
-            run.status = PullRequestReviewStatus::Failed;
-            run.result = None;
-            run.error = Some(error);
-        }
-    }
-    let payload = run.clone();
+        run.clone()
+    };
     if save_state(pool, &state).await.is_ok() {
         let _ = app.emit(
             "pull_request_review_changed",
@@ -613,6 +648,7 @@ fn validate_request(request: &PullRequestReviewRequest) -> Result<(), String> {
     Ok(())
 }
 
+#[allow(dead_code)]
 fn execute_review(
     request: &PullRequestReviewRequest,
     run_id: &str,
@@ -621,9 +657,34 @@ fn execute_review(
     diff: &str,
     output_language: crate::application::general::AppLanguage,
 ) -> Result<PullRequestReviewResult, String> {
+    execute_review_with_usage(
+        request,
+        run_id,
+        ai_settings,
+        openai_runtime,
+        diff,
+        output_language,
+    )
+    .map(|(result, _)| result)
+}
+
+fn execute_review_with_usage(
+    request: &PullRequestReviewRequest,
+    run_id: &str,
+    ai_settings: &crate::application::ai::AiSettings,
+    openai_runtime: Option<crate::application::ai::OpenAiCompatibleRuntimeConfig>,
+    diff: &str,
+    output_language: crate::application::general::AppLanguage,
+) -> Result<
+    (
+        PullRequestReviewResult,
+        Option<ai_usage_statistics::AiTokenUsageCounts>,
+    ),
+    String,
+> {
     let workdir = std::env::temp_dir().join(format!("mework-pr-review-{run_id}"));
     fs::create_dir_all(&workdir).map_err(|_| "Failed to prepare AI review workspace".to_owned())?;
-    let result = execute_review_in_workspace(
+    let result = execute_review_in_workspace_with_usage(
         request,
         &workdir,
         ai_settings,
@@ -635,6 +696,8 @@ fn execute_review(
     result
 }
 
+#[cfg(test)]
+#[allow(dead_code)]
 fn execute_review_in_workspace(
     request: &PullRequestReviewRequest,
     workdir: &Path,
@@ -643,6 +706,31 @@ fn execute_review_in_workspace(
     diff: &str,
     output_language: crate::application::general::AppLanguage,
 ) -> Result<PullRequestReviewResult, String> {
+    execute_review_in_workspace_with_usage(
+        request,
+        workdir,
+        ai_settings,
+        openai_runtime,
+        diff,
+        output_language,
+    )
+    .map(|(result, _)| result)
+}
+
+fn execute_review_in_workspace_with_usage(
+    request: &PullRequestReviewRequest,
+    workdir: &Path,
+    ai_settings: &crate::application::ai::AiSettings,
+    openai_runtime: Option<&crate::application::ai::OpenAiCompatibleRuntimeConfig>,
+    diff: &str,
+    output_language: crate::application::general::AppLanguage,
+) -> Result<
+    (
+        PullRequestReviewResult,
+        Option<ai_usage_statistics::AiTokenUsageCounts>,
+    ),
+    String,
+> {
     let manifest_path = workdir.join("manifest.json");
     let diff_path = workdir.join("pull-request.diff");
     let prompt_path = workdir.join("prompt.txt");
@@ -684,7 +772,7 @@ fn execute_review_in_workspace(
     if ai_settings.provider == Some(crate::application::ai::AiProviderId::OpenAiCompatible) {
         let runtime = openai_runtime
             .ok_or_else(|| "OpenAI-compatible API configuration is unavailable".to_owned())?;
-        return execute_openai_review(
+        return execute_openai_review_with_usage(
             runtime,
             &ai_settings.model,
             &manifest,
@@ -695,13 +783,13 @@ fn execute_review_in_workspace(
 
     if ai_settings.provider == Some(crate::application::ai::AiProviderId::ClaudeCodeCli) {
         let prompt = openai_review_prompt(&manifest, diff, output_language)?;
-        let output = crate::application::claude_code::run_structured(
+        let (output, usage) = crate::application::claude_code::run_structured_with_usage(
             &ai_settings.model,
             review_result_schema(),
             &prompt,
             workdir,
         )?;
-        return parse_review_result(&output);
+        return parse_review_result(&output).map(|result| (result, usage));
     }
 
     let codex = crate::application::ai::resolve_codex_binary()
@@ -729,6 +817,7 @@ fn execute_review_in_workspace(
             "read-only",
             "--color",
             "never",
+            "--json",
             "--model",
             &ai_settings.model,
             "--config",
@@ -756,9 +845,11 @@ fn execute_review_in_workspace(
     }
     let result_bytes = fs::read(&output_path)
         .map_err(|_| "Codex CLI did not return a review result".to_owned())?;
-    parse_review_result(&result_bytes)
+    let usage = ai_usage_statistics::parse_cli_usage(&output.stdout);
+    parse_review_result(&result_bytes).map(|result| (result, usage))
 }
 
+#[allow(dead_code)]
 fn execute_openai_review(
     runtime: &crate::application::ai::OpenAiCompatibleRuntimeConfig,
     model: &str,
@@ -766,6 +857,23 @@ fn execute_openai_review(
     diff: &str,
     output_language: crate::application::general::AppLanguage,
 ) -> Result<PullRequestReviewResult, String> {
+    execute_openai_review_with_usage(runtime, model, manifest, diff, output_language)
+        .map(|(result, _)| result)
+}
+
+fn execute_openai_review_with_usage(
+    runtime: &crate::application::ai::OpenAiCompatibleRuntimeConfig,
+    model: &str,
+    manifest: &serde_json::Value,
+    diff: &str,
+    output_language: crate::application::general::AppLanguage,
+) -> Result<
+    (
+        PullRequestReviewResult,
+        Option<ai_usage_statistics::AiTokenUsageCounts>,
+    ),
+    String,
+> {
     let prompt = openai_review_prompt(manifest, diff, output_language)?;
     tauri::async_runtime::block_on(request_openai_review(
         runtime,
@@ -780,7 +888,13 @@ async fn request_openai_review(
     model: &str,
     prompt: String,
     output_language: crate::application::general::AppLanguage,
-) -> Result<PullRequestReviewResult, String> {
+) -> Result<
+    (
+        PullRequestReviewResult,
+        Option<ai_usage_statistics::AiTokenUsageCounts>,
+    ),
+    String,
+> {
     let client = crate::application::ai::openai_http_client(
         Duration::from_secs(15 * 60),
         runtime.allow_insecure_tls,
@@ -792,7 +906,7 @@ async fn request_openai_review(
     let payload = serde_json::json!({
         "model": model,
         "max_tokens": crate::application::ai::OPENAI_MAX_OUTPUT_TOKENS,
-        "stream": true,
+        "stream": false,
         "messages": [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": prompt}
@@ -844,7 +958,11 @@ async fn request_openai_review(
         .and_then(|payload| openai_response_content(&payload))
         .or_else(|| crate::application::ai::openai_stream_message_content(&body))
         .ok_or_else(|| "OpenAI-compatible API returned no review content".to_owned())?;
-    parse_review_result(content.as_bytes())
+    let usage = serde_json::from_slice::<serde_json::Value>(&body)
+        .ok()
+        .and_then(|payload| ai_usage_statistics::parse_response_usage(&payload))
+        .or_else(|| ai_usage_statistics::parse_sse_usage(&body));
+    parse_review_result(content.as_bytes()).map(|result| (result, usage))
 }
 
 fn openai_review_prompt(
@@ -1092,7 +1210,7 @@ fn now_millis() -> i64 {
 #[cfg(test)]
 mod tests {
     #[cfg(unix)]
-    use super::{execute_review_in_workspace, PullRequestReviewRequest};
+    use super::PullRequestReviewRequest;
     use super::{
         migrate_legacy_state, openai_review_prompt, parse_review_result, pull_request_review_key,
         request_openai_review, review_prompt, validate_result, PullRequestReviewComment,
@@ -1163,19 +1281,17 @@ mod tests {
             "comments": []
         })
         .to_string();
-        let response_body = format!(
-            "data: {}\n\ndata: [DONE]\n\n",
-            serde_json::json!({
-                "choices": [{"delta": {"content": response_content}}]
-            })
-        );
+        let response_body = serde_json::json!({
+            "choices": [{"message": {"content": response_content}}],
+            "usage": {"prompt_tokens": 70, "completion_tokens": 15, "total_tokens": 85}
+        });
         Mock::given(method("POST"))
             .and(path("/v1/chat/completions"))
             .and(header("authorization", "Bearer synthetic-token"))
             .and(body_json(serde_json::json!({
                 "model": "example-model",
                 "max_tokens": 30_000,
-                "stream": true,
+                "stream": false,
                 "messages": [
                     {
                         "role": "system",
@@ -1186,8 +1302,8 @@ mod tests {
             })))
             .respond_with(
                 ResponseTemplate::new(200)
-                    .insert_header("content-type", "text/event-stream")
-                    .set_body_string(response_body),
+                    .insert_header("content-type", "application/json")
+                    .set_body_json(response_body),
             )
             .mount(&server)
             .await;
@@ -1197,7 +1313,7 @@ mod tests {
             token: "synthetic-token".to_owned(),
             allow_insecure_tls: false,
         };
-        let result = request_openai_review(
+        let (result, usage) = request_openai_review(
             &runtime,
             "example-model",
             "Review this diff".to_owned(),
@@ -1207,6 +1323,16 @@ mod tests {
         .unwrap();
         assert_eq!(result.verdict, PullRequestReviewVerdict::Ok);
         assert!(result.comments.is_empty());
+        assert_eq!(
+            usage,
+            Some(
+                crate::application::ai_usage_statistics::AiTokenUsageCounts {
+                    input_tokens: 70,
+                    output_tokens: 15,
+                    total_tokens: 85,
+                }
+            )
+        );
     }
 
     #[cfg(unix)]
@@ -1220,7 +1346,7 @@ mod tests {
         let codex = root.join("codex");
         fs::write(
             &codex,
-            "#!/bin/sh\noutput=''\nwhile [ \"$#\" -gt 0 ]; do\n  if [ \"$1\" = \"--output-last-message\" ]; then output=\"$2\"; shift 2; else shift; fi\ndone\nprintf '%s' '{\"verdict\":\"ok\",\"description\":\"Adds an example change.\",\"summary\":\"No substantial findings\",\"comments\":[]}' > \"$output\"\n",
+            "#!/bin/sh\noutput=''\nwhile [ \"$#\" -gt 0 ]; do\n  if [ \"$1\" = \"--output-last-message\" ]; then output=\"$2\"; shift 2; else shift; fi\ndone\nprintf '%s' '{\"verdict\":\"ok\",\"description\":\"Adds an example change.\",\"summary\":\"No substantial findings\",\"comments\":[]}' > \"$output\"\nprintf '%s\\n' '{\"type\":\"turn.completed\",\"usage\":{\"input_tokens\":40,\"cached_input_tokens\":20,\"output_tokens\":8}}'\n",
         )
         .unwrap();
         let mut permissions = fs::metadata(&codex).unwrap().permissions();
@@ -1259,7 +1385,7 @@ mod tests {
             reasoning: AiReasoning::Medium,
             fast_mode: false,
         };
-        let result = execute_review_in_workspace(
+        let (result, codex_usage) = super::execute_review_in_workspace_with_usage(
             &request,
             &PathBuf::from(&root),
             &ai_settings,
@@ -1268,6 +1394,16 @@ mod tests {
             AppLanguage::Russian,
         )
         .unwrap();
+        assert_eq!(
+            codex_usage,
+            Some(
+                crate::application::ai_usage_statistics::AiTokenUsageCounts {
+                    input_tokens: 40,
+                    output_tokens: 8,
+                    total_tokens: 48,
+                }
+            )
+        );
 
         assert!(fs::read_to_string(root.join("pull-request.diff"))
             .unwrap()
@@ -1280,7 +1416,7 @@ mod tests {
         let claude = root.join("claude");
         fs::write(
             &claude,
-            "#!/bin/sh\ncat > claude-input.txt\nprintf '%s\\n' '{\"structured_output\":{\"verdict\":\"ok\",\"description\":\"Adds an example change.\",\"summary\":\"No substantial findings\",\"comments\":[]}}'\n",
+            "#!/bin/sh\ncat > claude-input.txt\nprintf '%s\\n' '{\"structured_output\":{\"verdict\":\"ok\",\"description\":\"Adds an example change.\",\"summary\":\"No substantial findings\",\"comments\":[]},\"modelUsage\":{\"claude-sonnet-4-5\":{\"inputTokens\":50,\"outputTokens\":10,\"cacheReadInputTokens\":25,\"cacheCreationInputTokens\":5,\"costUSD\":0.02}}}'\n",
         )
         .unwrap();
         let mut permissions = fs::metadata(&claude).unwrap().permissions();
@@ -1293,7 +1429,7 @@ mod tests {
             model: "sonnet".to_owned(),
             ..ai_settings
         };
-        let claude_result = execute_review_in_workspace(
+        let (claude_result, claude_usage) = super::execute_review_in_workspace_with_usage(
             &request,
             &PathBuf::from(&root),
             &claude_settings,
@@ -1306,6 +1442,16 @@ mod tests {
         assert!(fs::read_to_string(root.join("claude-input.txt"))
             .unwrap()
             .contains("return true"));
+        assert_eq!(
+            claude_usage,
+            Some(
+                crate::application::ai_usage_statistics::AiTokenUsageCounts {
+                    input_tokens: 80,
+                    output_tokens: 10,
+                    total_tokens: 90,
+                }
+            )
+        );
         assert_eq!(claude_result.verdict, PullRequestReviewVerdict::Ok);
         let _ = fs::remove_dir_all(&root);
         assert_eq!(result.verdict, PullRequestReviewVerdict::Ok);

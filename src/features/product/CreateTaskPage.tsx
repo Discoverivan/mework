@@ -777,18 +777,6 @@ export function CreateTaskPage() {
             {teams.map((team) => <SelectItem key={team.id} value={team.id}>{team.name}</SelectItem>)}
           </SelectContent>
         </Select>
-        <Select
-          value={selectedSprintId}
-          onValueChange={setSelectedSprintId}
-          disabled={!selectedTeamId || selectedContext?.sprintsLoading || !selectedContext?.sprints.length}
-        >
-          <SelectTrigger id="create-task-sprint-select" aria-label={t("task.newTaskSprint")}>
-            <SelectValue placeholder={selectedContext?.sprintsLoading ? t("task.loadingSprints") : t("task.noSprints")} />
-          </SelectTrigger>
-          <SelectContent>
-            {(selectedContext?.sprints ?? []).map((sprint) => <SelectItem key={sprint.id} value={sprint.id}>{sprint.name}</SelectItem>)}
-          </SelectContent>
-        </Select>
         <div className="ml-auto flex items-center gap-2">
           <Button
             type="button"

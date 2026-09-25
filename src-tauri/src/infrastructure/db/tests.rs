@@ -72,6 +72,15 @@ async fn migration_creates_settings_table() {
     assert!(monitor_columns
         .iter()
         .any(|row| row.get::<String, _>("name") == "exceeds_limit"));
+
+    let usage_columns = sqlx::query("PRAGMA table_info(ai_token_usage)")
+        .fetch_all(&pool)
+        .await
+        .expect("AI token usage columns should exist");
+    assert_eq!(usage_columns.len(), 6);
+    assert!(usage_columns
+        .iter()
+        .any(|row| row.get::<String, _>("name") == "total_tokens"));
 }
 
 #[tokio::test]
@@ -86,7 +95,7 @@ async fn release_notes_migration_marks_existing_installations_for_the_next_launc
     .expect("existing general settings");
 
     sqlx::query(include_str!(
-        "../../../migrations/0017_release_notes_seen.sql"
+        "../../../migrations/0018_release_notes_seen.sql"
     ))
     .execute(&pool)
     .await

@@ -14,6 +14,7 @@ vi.mock("../features/developer/MyPullRequestsPage", () => ({ MyPullRequestsPage:
 vi.mock("../features/developer/AuthoredPullRequestsPage", () => ({ AuthoredPullRequestsPage: () => <div>Authored pull requests screen</div> }));
 vi.mock("../features/developer/CommandBoardPage", () => ({ CommandBoardPage: () => <div>Command Board screen</div> }));
 vi.mock("../features/settings/SettingsPage", () => ({ SettingsPage: ({ section }: { section: string }) => <div>{section} settings screen</div> }));
+vi.mock("../features/settings/statistics/StatisticsPage", () => ({ StatisticsPage: () => <div>Statistics screen</div> }));
 
 function renderRoutes(route: Parameters<typeof AppRoutes>[0]["route"]) {
   return render(<I18nProvider><AppRoutes route={route} mockMode /></I18nProvider>);
@@ -33,6 +34,7 @@ describe("AppRoutes mock mode", () => {
       ["settings-ai", "ai settings screen"],
       ["settings-integrations", "integrations settings screen"],
       ["settings-projects", "projects settings screen"],
+      ["settings-statistics", "Statistics screen"],
     ] as const;
 
     for (const [route, expectedScreen] of cases) {

@@ -140,6 +140,21 @@
   }
 }
 
+  .app-icon-button,
+  .app-action-text {
+    --app-action-color: var(--primary);
+  }
+
+  .app-icon-button:is([data-action-tone="add"], [data-action-tone="success"]),
+  .app-action-text:is([data-action-tone="add"], [data-action-tone="success"]) {
+    --app-action-color: var(--success);
+  }
+
+  .app-icon-button:is([data-action-tone="delete"], [data-button-variant="destructive"]),
+  .app-action-text[data-action-tone="delete"] {
+    --app-action-color: var(--destructive);
+  }
+
   .app-icon-button:not(:disabled) {
     cursor: pointer;
   }
@@ -150,21 +165,9 @@
     color: var(--muted-foreground);
   }
 
-  :root[data-button-style="quiet"] .app-icon-button:hover {
+  :root[data-button-style="quiet"] .app-icon-button:not(:disabled):is(:hover, :focus-visible, [aria-pressed="true"]) {
     background: transparent;
-    color: var(--primary);
-  }
-
-  :root[data-button-style="quiet"] .app-icon-button[data-action-tone="delete"]:hover {
-    color: var(--destructive);
-  }
-
-  :root[data-button-style="quiet"] .app-icon-button[data-action-tone="neutral"]:hover {
-    color: var(--foreground);
-  }
-
-  :root[data-button-style="quiet"] .app-icon-button[aria-pressed="true"] {
-    color: var(--primary);
+    color: var(--app-action-color);
   }
 
   :root[data-button-style="quiet"] .app-icon-button svg {
@@ -184,23 +187,8 @@
 
   :root[data-button-style="filled"] .app-icon-button:not(:disabled):is(:hover, :focus-visible),
   :root[data-button-style="filled"] .app-icon-button[aria-pressed="true"] {
-    background: color-mix(in srgb, var(--primary) 14%, var(--secondary));
-    color: var(--primary);
-  }
-
-  :root[data-button-style="filled"] .app-icon-button:not(:disabled):is([data-action-tone="delete"], [data-button-variant="destructive"]):is(:hover, :focus-visible) {
-    background: color-mix(in srgb, var(--destructive) 14%, var(--secondary));
-    color: var(--destructive);
-  }
-
-  :root[data-button-style="filled"] .app-icon-button[data-action-tone="success"]:not(:disabled):is(:hover, :focus-visible) {
-    background: color-mix(in srgb, var(--success) 14%, var(--secondary));
-    color: var(--success);
-  }
-
-  :root[data-button-style="filled"] .app-icon-button[data-action-tone="neutral"]:not(:disabled):is(:hover, :focus-visible) {
-    background: color-mix(in srgb, var(--foreground) 7%, var(--secondary));
-    color: var(--foreground);
+    background: color-mix(in srgb, var(--app-action-color) 14%, var(--secondary));
+    color: var(--app-action-color);
   }
 
   :root[data-button-style="filled"] .app-icon-button[data-action-tone="edit"] svg,
@@ -220,11 +208,7 @@
     color: var(--muted-foreground);
   }
 
-  :root[data-button-style="quiet"] .app-action-text:hover {
+  :root[data-button-style="quiet"] .app-action-text:not(:disabled):is(:hover, :focus-visible) {
     background: transparent;
-    color: var(--primary);
-  }
-
-  :root[data-button-style="quiet"] .app-action-text[data-action-tone="delete"]:hover {
-    color: var(--destructive);
+    color: var(--app-action-color);
   }

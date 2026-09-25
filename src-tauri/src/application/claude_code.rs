@@ -10,6 +10,7 @@ use serde_json::Value;
 use super::ai::{
     local_cli_command, usable_cli_path, AiProviderDto, AiProviderId, AiProviderStatus,
 };
+use super::ai_usage_statistics::{parse_response_usage, AiTokenUsageCounts};
 
 const MODELS: [&str; 3] = ["sonnet", "opus", "haiku"];
 
@@ -167,6 +168,15 @@ pub fn run_structured(
     prompt: &str,
     workdir: &Path,
 ) -> Result<Vec<u8>, String> {
+    run_structured_with_usage(model, schema, prompt, workdir).map(|(output, _)| output)
+}
+
+pub fn run_structured_with_usage(
+    model: &str,
+    schema: &str,
+    prompt: &str,
+    workdir: &Path,
+) -> Result<(Vec<u8>, Option<AiTokenUsageCounts>), String> {
     if !MODELS.contains(&model) {
         return Err("Selected Claude Code model is invalid".to_owned());
     }
@@ -207,10 +217,12 @@ pub fn run_structured(
     }
     let response: Value = serde_json::from_slice(&output.stdout)
         .map_err(|_| "Claude Code CLI returned invalid JSON".to_owned())?;
+    let usage = parse_response_usage(&response);
     let structured = response
         .get("structured_output")
         .ok_or_else(|| "Claude Code CLI returned no structured result".to_owned())?;
     serde_json::to_vec(structured)
+        .map(|output| (output, usage))
         .map_err(|_| "Claude Code CLI returned invalid structured output".to_owned())
 }
 

@@ -16,7 +16,7 @@ describe("AppShell product navigation", () => {
     );
 
     expect(document.querySelector(".app-brand img")).toHaveAttribute("src", "/mework-icon.png");
-    expect(document.querySelectorAll("nav a svg")).toHaveLength(11);
+    expect(document.querySelectorAll("nav a svg")).toHaveLength(12);
     expect(screen.getByText("Product")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Create task" })).toHaveAttribute("href", "#product/create-task");
     expect(screen.getByRole("link", { name: "Task tracker" })).toHaveAttribute("href", "#product/task-tracker");
@@ -35,6 +35,10 @@ describe("AppShell product navigation", () => {
     expect(screen.getByRole("link", { name: "Sprint tasks" }).querySelector("svg")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "AI settings" })).toHaveAttribute("href", "#settings/ai");
     expect(screen.getByRole("link", { name: "Data integrations" })).toHaveAttribute("href", "#settings/integrations");
+    expect(screen.getByRole("link", { name: "Team settings" })).toHaveAttribute("href", "#settings/projects");
+    expect(screen.getByRole("link", { name: "Statistics" })).toHaveAttribute("href", "#settings/statistics");
+    const settingsLinks = Array.from(document.querySelectorAll(".settings-nav-group[aria-labelledby='settings-nav-title'] .settings-nav-children a"));
+    expect(settingsLinks.slice(-2).map((link) => link.textContent)).toEqual(["Team settings", "Statistics"]);
     expect(screen.getByText("3")).toBeInTheDocument();
     expect(screen.getByText("5")).toBeInTheDocument();
     expect(screen.queryByRole("link", { name: "Inbox" })).not.toBeInTheDocument();

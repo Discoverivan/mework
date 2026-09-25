@@ -270,6 +270,19 @@ describe("MyPullRequestsPage", () => {
     expect(screen.queryByRole("button", { name: "Read" })).not.toBeInTheDocument();
   });
 
+  it("does not count pull requests excluded by permanent filters", async () => {
+    getSettingsMock.mockResolvedValueOnce({
+      ...emptySettings,
+      repositoryBlacklist: ["DEMO/sample-repository"],
+    });
+
+    await renderFlatPage();
+
+    expect(await screen.findByRole("heading", { name: "Example documentation change" })).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Example pull request" })).not.toBeInTheDocument();
+    expect(screen.getByText("1 review request")).toBeInTheDocument();
+  });
+
   it("filters the list to pull requests pending my review", async () => {
     const pendingPullRequest = { ...pullRequests[0], myDecision: "not_reviewed" as const, title: "Pending example pull request" };
     listMyPullRequestsMock.mockResolvedValueOnce({

@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sqlx::SqlitePool;
 
-use crate::application::{ai, general, planning};
+use crate::application::{ai, ai_usage_statistics, general, planning};
 use crate::domain::models::IntegrationKind;
 use crate::infrastructure::db::{planning_repositories, repositories};
 
@@ -106,11 +106,21 @@ pub async fn generate_draft(
     } else {
         None
     };
-    tauri::async_runtime::spawn_blocking(move || {
-        execute_draft(&settings, openai_runtime, &prompt, output_language)
+    let provider_id = settings.provider.map(|provider| match provider {
+        ai::AiProviderId::CodexCli => "codex-cli",
+        ai::AiProviderId::ClaudeCodeCli => "claude-code-cli",
+        ai::AiProviderId::OpenAiCompatible => "openai-compatible",
+    });
+    let model = settings.model.clone();
+    let (draft, usage) = tauri::async_runtime::spawn_blocking(move || {
+        execute_draft_with_usage(&settings, openai_runtime, &prompt, output_language)
     })
     .await
-    .map_err(|_| "AI task generation failed".to_owned())?
+    .map_err(|_| "AI task generation failed".to_owned())??;
+    if let (Some(provider_id), Some(usage)) = (provider_id, usage) {
+        let _ = ai_usage_statistics::record_now(pool, provider_id, &model, usage).await;
+    }
+    Ok(draft)
 }
 
 pub async fn list_team_members(
@@ -459,16 +469,33 @@ fn jira_wiki_description(value: &str) -> String {
         .join("\n")
 }
 
+#[allow(dead_code)]
 fn execute_draft(
     settings: &ai::AiSettings,
     openai_runtime: Option<ai::OpenAiCompatibleRuntimeConfig>,
     prompt: &str,
     output_language: general::AppLanguage,
 ) -> Result<TaskDraftDto, String> {
+    execute_draft_with_usage(settings, openai_runtime, prompt, output_language)
+        .map(|(draft, _)| draft)
+}
+
+fn execute_draft_with_usage(
+    settings: &ai::AiSettings,
+    openai_runtime: Option<ai::OpenAiCompatibleRuntimeConfig>,
+    prompt: &str,
+    output_language: general::AppLanguage,
+) -> Result<
+    (
+        TaskDraftDto,
+        Option<ai_usage_statistics::AiTokenUsageCounts>,
+    ),
+    String,
+> {
     let workdir = std::env::temp_dir().join(format!("mework-task-{}", uuid::Uuid::now_v7()));
     fs::create_dir_all(&workdir)
         .map_err(|_| "AI task workspace could not be prepared".to_owned())?;
-    let result = execute_draft_in_workspace(
+    let result = execute_draft_in_workspace_with_usage(
         settings,
         openai_runtime.as_ref(),
         prompt,
@@ -479,6 +506,8 @@ fn execute_draft(
     result
 }
 
+#[cfg(test)]
+#[allow(dead_code)]
 fn execute_draft_in_workspace(
     settings: &ai::AiSettings,
     openai_runtime: Option<&ai::OpenAiCompatibleRuntimeConfig>,
@@ -486,6 +515,29 @@ fn execute_draft_in_workspace(
     output_language: general::AppLanguage,
     workdir: &PathBuf,
 ) -> Result<TaskDraftDto, String> {
+    execute_draft_in_workspace_with_usage(
+        settings,
+        openai_runtime,
+        prompt,
+        output_language,
+        workdir,
+    )
+    .map(|(draft, _)| draft)
+}
+
+fn execute_draft_in_workspace_with_usage(
+    settings: &ai::AiSettings,
+    openai_runtime: Option<&ai::OpenAiCompatibleRuntimeConfig>,
+    prompt: &str,
+    output_language: general::AppLanguage,
+    workdir: &PathBuf,
+) -> Result<
+    (
+        TaskDraftDto,
+        Option<ai_usage_statistics::AiTokenUsageCounts>,
+    ),
+    String,
+> {
     let schema_path = workdir.join("task-schema.json");
     let prompt_path = workdir.join("task-prompt.txt");
     let output_path = workdir.join("task-result.json");
@@ -496,10 +548,15 @@ fn execute_draft_in_workspace(
     if settings.provider == Some(ai::AiProviderId::OpenAiCompatible) {
         let runtime = openai_runtime
             .ok_or_else(|| "OpenAI-compatible API configuration is unavailable".to_owned())?;
-        return execute_openai_task_draft(runtime, &settings.model, prompt, output_language);
+        return execute_openai_task_draft_with_usage(
+            runtime,
+            &settings.model,
+            prompt,
+            output_language,
+        );
     }
     if settings.provider == Some(ai::AiProviderId::ClaudeCodeCli) {
-        let output = crate::application::claude_code::run_structured(
+        let (output, usage) = crate::application::claude_code::run_structured_with_usage(
             &settings.model,
             task_draft_schema(),
             &task_prompt(prompt, output_language),
@@ -513,7 +570,7 @@ fn execute_draft_in_workspace(
             "AI description",
             50_000,
         )?);
-        return Ok(draft);
+        return Ok((draft, usage));
     }
     let codex = ai::resolve_codex_binary()
         .ok_or_else(|| "Codex CLI executable was not found".to_owned())?;
@@ -536,6 +593,7 @@ fn execute_draft_in_workspace(
             "read-only",
             "--color",
             "never",
+            "--json",
             "--model",
             &settings.model,
             "--config",
@@ -574,15 +632,34 @@ fn execute_draft_in_workspace(
         50_000,
     )?);
     required_text(&draft.description, "AI description", 50_000)?;
-    Ok(draft)
+    let usage = ai_usage_statistics::parse_cli_usage(&output.stdout);
+    Ok((draft, usage))
 }
 
+#[cfg(test)]
+#[allow(dead_code)]
 fn execute_openai_task_draft(
     runtime: &ai::OpenAiCompatibleRuntimeConfig,
     model: &str,
     prompt: &str,
     output_language: general::AppLanguage,
 ) -> Result<TaskDraftDto, String> {
+    execute_openai_task_draft_with_usage(runtime, model, prompt, output_language)
+        .map(|(draft, _)| draft)
+}
+
+fn execute_openai_task_draft_with_usage(
+    runtime: &ai::OpenAiCompatibleRuntimeConfig,
+    model: &str,
+    prompt: &str,
+    output_language: general::AppLanguage,
+) -> Result<
+    (
+        TaskDraftDto,
+        Option<ai_usage_statistics::AiTokenUsageCounts>,
+    ),
+    String,
+> {
     let prompt = task_prompt(prompt, output_language);
     let output_language_name = output_language.prompt_name();
     let content = tauri::async_runtime::block_on(async {
@@ -594,7 +671,7 @@ fn execute_openai_task_draft(
         let payload = json!({
             "model": model,
             "max_tokens": ai::OPENAI_MAX_OUTPUT_TOKENS,
-            "stream": true,
+            "stream": false,
             "messages": [
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": prompt}
@@ -640,12 +717,21 @@ fn execute_openai_task_draft(
                 detail
             ));
         }
-        let content = serde_json::from_slice::<Value>(&body)
-            .ok()
-            .and_then(|payload| openai_message_content(&payload))
+        let response_value = serde_json::from_slice::<Value>(&body).ok();
+        let content = response_value
+            .as_ref()
+            .and_then(openai_message_content)
             .or_else(|| ai::openai_stream_message_content(&body));
-        content.ok_or_else(|| "OpenAI-compatible API returned no task content".to_owned())
+        let usage = response_value
+            .as_ref()
+            .and_then(ai_usage_statistics::parse_response_usage)
+            .or_else(|| ai_usage_statistics::parse_sse_usage(&body));
+        content
+            .map(|content| (content, usage))
+            .ok_or_else(|| "OpenAI-compatible API returned no task content".to_owned())
     })?;
+
+    let (content, usage) = content;
 
     let mut draft: TaskDraftDto = serde_json::from_str(&content)
         .map_err(|_| "OpenAI-compatible API returned invalid task JSON".to_owned())?;
@@ -656,7 +742,7 @@ fn execute_openai_task_draft(
         50_000,
     )?);
     required_text(&draft.description, "AI description", 50_000)?;
-    Ok(draft)
+    Ok((draft, usage))
 }
 
 fn openai_message_content(value: &Value) -> Option<String> {
@@ -716,7 +802,7 @@ mod tests {
         let binary = directory.path().join("claude");
         fs::write(
             &binary,
-            "#!/bin/sh\ncat > claude-input.txt\nprintf '%s\\n' '{\"structured_output\":{\"summary\":\"Add example filter\",\"description\":\"*Goal*\\n\\nAdd an example filter\"}}'\n",
+            "#!/bin/sh\ncat > claude-input.txt\nprintf '%s\\n' '{\"structured_output\":{\"summary\":\"Add example filter\",\"description\":\"*Goal*\\n\\nAdd an example filter\"},\"modelUsage\":{\"claude-sonnet-4-5\":{\"inputTokens\":20,\"outputTokens\":5,\"cacheReadInputTokens\":10,\"cacheCreationInputTokens\":2,\"costUSD\":0.01}}}'\n",
         )
         .unwrap();
         let mut permissions = fs::metadata(&binary).unwrap().permissions();
@@ -731,7 +817,7 @@ mod tests {
             fast_mode: false,
         };
 
-        let draft = super::execute_draft_in_workspace(
+        let (draft, usage) = super::execute_draft_in_workspace_with_usage(
             &settings,
             None,
             "Add an example filter",
@@ -743,10 +829,71 @@ mod tests {
         std::env::remove_var("MEWORK_CLAUDE_BIN");
         assert_eq!(draft.summary, "Add example filter");
         assert_eq!(draft.description, "*Goal*\n\nAdd an example filter");
+        assert_eq!(
+            usage,
+            Some(
+                crate::application::ai_usage_statistics::AiTokenUsageCounts {
+                    input_tokens: 32,
+                    output_tokens: 5,
+                    total_tokens: 37,
+                }
+            )
+        );
         assert!(
             fs::read_to_string(directory.path().join("claude-input.txt"))
                 .unwrap()
                 .contains("Add an example filter")
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn creates_task_draft_with_codex_cli_and_reports_usage() {
+        use crate::application::ai::{AiProviderId, AiReasoning, AiSettings};
+        use std::{fs, os::unix::fs::PermissionsExt};
+
+        let _lock = crate::application::ai::test_process_env_lock()
+            .lock()
+            .unwrap();
+        let directory = tempfile::tempdir().unwrap();
+        let binary = directory.path().join("codex");
+        fs::write(
+            &binary,
+            "#!/bin/sh\noutput=''\nwhile [ \"$#\" -gt 0 ]; do\n  if [ \"$1\" = \"--output-last-message\" ]; then output=\"$2\"; shift 2; else shift; fi\ndone\ncat >/dev/null\nprintf '%s' '{\"summary\":\"Add audit filter\",\"description\":\"*Goal*\\n\\nAdd audit filtering\"}' > \"$output\"\nprintf '%s\\n' '{\"type\":\"turn.completed\",\"usage\":{\"input_tokens\":40,\"cached_input_tokens\":15,\"output_tokens\":8}}'\n",
+        )
+        .unwrap();
+        let mut permissions = fs::metadata(&binary).unwrap().permissions();
+        permissions.set_mode(0o755);
+        fs::set_permissions(&binary, permissions).unwrap();
+        std::env::set_var("MEWORK_CODEX_BIN", &binary);
+
+        let settings = AiSettings {
+            provider: Some(AiProviderId::CodexCli),
+            provider_instance_id: None,
+            model: "gpt-5.5".to_owned(),
+            reasoning: AiReasoning::Medium,
+            fast_mode: false,
+        };
+        let (draft, usage) = super::execute_draft_in_workspace_with_usage(
+            &settings,
+            None,
+            "Create an audit filter",
+            AppLanguage::English,
+            &directory.path().to_path_buf(),
+        )
+        .unwrap();
+
+        std::env::remove_var("MEWORK_CODEX_BIN");
+        assert_eq!(draft.summary, "Add audit filter");
+        assert_eq!(
+            usage,
+            Some(
+                crate::application::ai_usage_statistics::AiTokenUsageCounts {
+                    input_tokens: 40,
+                    output_tokens: 8,
+                    total_tokens: 48,
+                }
+            )
         );
     }
 
@@ -865,19 +1012,17 @@ mod tests {
         };
 
         let server = MockServer::start().await;
-        let response_body = format!(
-            "data: {}\n\ndata: [DONE]\n\n",
-            serde_json::json!({
-                "choices": [{"delta": {"content": r#"{"summary":"Add audit filtering","description":"h1. Goal\n\n* Add audit filtering"}"#}}]
-            })
-        );
+        let response_body = serde_json::json!({
+            "choices": [{"message": {"content": r#"{"summary":"Add audit filtering","description":"h1. Goal\n\n* Add audit filtering"}"#}}],
+            "usage": {"prompt_tokens": 111, "completion_tokens": 9, "total_tokens": 120}
+        });
         Mock::given(method("POST"))
             .and(path("/v1/chat/completions"))
             .and(header("authorization", "Bearer synthetic-token"))
             .and(body_json(serde_json::json!({
                 "model": "example-model",
                 "max_tokens": 30_000,
-                "stream": true,
+                "stream": false,
                 "messages": [
                     {
                         "role": "system",
@@ -891,8 +1036,8 @@ mod tests {
             })))
             .respond_with(
                 ResponseTemplate::new(200)
-                    .insert_header("content-type", "text/event-stream")
-                    .set_body_string(response_body),
+                    .insert_header("content-type", "application/json")
+                    .set_body_json(response_body),
             )
             .mount(&server)
             .await;
@@ -902,8 +1047,8 @@ mod tests {
             token: "synthetic-token".to_owned(),
             allow_insecure_tls: false,
         };
-        let draft = tokio::task::spawn_blocking(move || {
-            super::execute_openai_task_draft(
+        let (draft, usage) = tokio::task::spawn_blocking(move || {
+            super::execute_openai_task_draft_with_usage(
                 &runtime,
                 "example-model",
                 "Create an audit filter",
@@ -916,5 +1061,15 @@ mod tests {
 
         assert_eq!(draft.summary, "Add audit filtering");
         assert_eq!(draft.description, "h1. Goal\n\n* Add audit filtering");
+        assert_eq!(
+            usage,
+            Some(
+                crate::application::ai_usage_statistics::AiTokenUsageCounts {
+                    input_tokens: 111,
+                    output_tokens: 9,
+                    total_tokens: 120,
+                }
+            )
+        );
     }
 }

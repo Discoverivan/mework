@@ -1,4 +1,5 @@
 pub mod ai;
+pub mod ai_usage_statistics;
 pub mod authored_pull_requests;
 pub mod claude_code;
 pub mod command_board;

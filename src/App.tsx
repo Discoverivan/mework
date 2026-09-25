@@ -19,6 +19,7 @@ import { I18nProvider } from "@/i18n/I18nProvider";
 import { useI18n } from "@/i18n/context";
 import { APP_EVENT, emitAppEvent, subscribeAppEvent } from "@/app/app-events";
 import { startNativeEventBridge } from "@/app/native-event-bridge";
+import { setAppBadgeCount } from "./app/app-badge";
 import "./App.css";
 import "./presenter.css";
 import "./daily-status.css";
@@ -37,6 +38,7 @@ function routeFromHash(hash: string): AppRoute {
   if (hash === "#settings/general") return "settings-general";
   if (hash === "#settings/ai") return "settings-ai";
   if (hash === "#settings/projects") return "settings-projects";
+  if (hash === "#settings/statistics") return "settings-statistics";
   if (hash === "#settings" || hash === "#settings/integrations") return "settings-integrations";
   return "developer-pull-requests";
 }
@@ -58,6 +60,7 @@ function AppContent() {
     () => loadTaskTrackerReadCheckpoints(),
   );
   const unreadTaskTrackerCount = countUnreadTaskTrackerIssues(taskTrackerMonitors, taskTrackerReadCheckpoints);
+  const unreadAppBadgeCount = unreadPullRequestCount + unreadAuthoredPullRequestCount + unreadTaskTrackerCount;
   const [availableUpdateVersion, setAvailableUpdateVersion] = useState<string | null>(null);
   const [updateCheckRequest, setUpdateCheckRequest] = useState(0);
   const [pendingUpdateCheck, setPendingUpdateCheck] = useState(false);
@@ -250,6 +253,11 @@ function AppContent() {
       unsubscribeReadState();
     };
   }, []);
+
+  useEffect(() => {
+    if (!ready) return;
+    void setAppBadgeCount(unreadAppBadgeCount).catch(() => undefined);
+  }, [ready, unreadAppBadgeCount]);
 
   useEffect(() => {
     const onHashChange = () => setRoute(routeFromHash(window.location.hash));
