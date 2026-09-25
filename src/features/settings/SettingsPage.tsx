@@ -763,8 +763,8 @@ export function SettingsPage({ section = "integrations", updateCheckRequest = 0 
           <section className="space-y-4" aria-label={t("nav.aiSettings")}>
           <Card>
             <CardHeader className="space-y-4 px-4 pb-4 pt-3.5">
-              <div className="grid gap-4 md:grid-cols-4">
-                <div className="grid gap-2.5">
+              <div className="flex flex-wrap items-end gap-4">
+                <div className="grid min-w-0 max-w-full gap-2.5">
                   <Label htmlFor="ai-provider">{t("settings.ai.provider")}</Label>
                   <Select value={selectedAiProvider?.instanceId ?? aiDraft.provider ?? "__none__"} onValueChange={updateAiProvider} disabled={aiData === null || aiLoading || aiSaving}>
                     <SelectTrigger id="ai-provider" aria-label={t("settings.ai.provider")} className="h-9">
@@ -796,7 +796,7 @@ export function SettingsPage({ section = "integrations", updateCheckRequest = 0 
                     </SelectContent>
                   </Select>
                 </div>
-                <div className="grid gap-2.5">
+                <div className="grid min-w-0 max-w-full gap-2.5">
                   <Label htmlFor="ai-model">{t("settings.ai.model")}</Label>
                   <Select value={aiDraft.model} onValueChange={(value) => updateAiSetting("model", value)} disabled={!aiDraft.provider || !selectedAiProvider || aiSaving || (selectedAiProvider.models.length === 0)}>
                     <SelectTrigger id="ai-model" aria-label={t("settings.ai.model")} className="h-9">
@@ -807,7 +807,7 @@ export function SettingsPage({ section = "integrations", updateCheckRequest = 0 
                     </SelectContent>
                   </Select>
                 </div>
-                {aiDraft.provider === "codex-cli" ? <div className="grid gap-2.5">
+                {aiDraft.provider === "codex-cli" ? <div className="grid min-w-0 max-w-full gap-2.5">
                   <Label htmlFor="ai-reasoning">{t("settings.ai.reasoning")}</Label>
                   <Select value={aiDraft.reasoning} onValueChange={updateAiReasoning} disabled={!aiDraft.provider || aiSaving}>
                     <SelectTrigger id="ai-reasoning" aria-label={t("settings.ai.reasoning")} className="h-9"><SelectValue /></SelectTrigger>
@@ -816,7 +816,7 @@ export function SettingsPage({ section = "integrations", updateCheckRequest = 0 
                     </SelectContent>
                   </Select>
                 </div> : null}
-                {aiDraft.provider === "codex-cli" ? <div className="flex items-center gap-2 md:pt-6">
+                {aiDraft.provider === "codex-cli" ? <div className="flex h-9 items-center gap-2">
                   <input
                     id="ai-fast-mode"
                     type="checkbox"
@@ -939,7 +939,7 @@ export function SettingsPage({ section = "integrations", updateCheckRequest = 0 
               <div className="grid gap-2">
                 <Label htmlFor="ai-provider-kind">{t("settings.aiProviders.type")}</Label>
                 <div className="flex gap-2">
-                  <div className="min-w-0 flex-1">
+                  <div className="min-w-0 max-w-full">
                     <Select value={addAiKind} onValueChange={(value) => setAddAiKind(value as "codex-cli" | "claude-code-cli")} disabled={addingAi}>
                       <SelectTrigger id="ai-provider-kind" aria-label={t("settings.aiProviders.type")} className="h-9"><SelectValue /></SelectTrigger>
                       <SelectContent>
