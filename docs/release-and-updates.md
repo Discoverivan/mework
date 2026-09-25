@@ -50,6 +50,23 @@ https://github.com/<owner>/<repository>/releases/latest/download/latest.json
 
 If a local signed build is needed, replace the endpoint in `src-tauri/tauri.conf.json` with the real repository URL before building.
 
+## Release notes and first launch after an update
+
+Before an application release, append short user-facing entries to `CHANGELOG.md`. Each entry consists of two lines:
+
+```markdown
+- **EN:** Find saved items faster with the new filter.
+  **RU:** Новый фильтр помогает быстрее находить сохранённые элементы.
+```
+
+Several entries can be added together before a release. Keep both languages concise and describe the outcome for the user, not commits or implementation details. Keep the file append-only: the release workflow compares its contents at consecutive Git tags to assign new entries to each version. A release without new entries fails before building artifacts. Because `master` publishes automatically, add the entries before merging the changes you want to release.
+
+`scripts/build-release-notes.mjs <version>` builds a versioned catalog for the application, a bilingual GitHub Release body, and updater `notes` metadata from the newly appended lines. The release workflow runs it after calculating the version, before each platform build, and before publishing the draft. The catalog is bundled with the application, so the post-update window works offline and can include multiple skipped versions. The committed `src/release-notes/generated.json` is an empty development placeholder; CI replaces it in the build copy.
+
+For a manual release build, run the script with the release version before building the app. Keep the generated catalog in that build; it is not a source version bump.
+
+On the first launch of a new installation, the Rust core saves the installed version without showing a window. Migration `0018_release_notes_seen.sql` marks existing installations as eligible for the first release with this feature. On later launches after an update, the app shows all notes newer than the last viewed version after the main interface loads. Closing the window saves the installed version through the Rust core. The notes remain available through **About → Release notes**. In `npm run tauri:dev -- --mock`, a synthetic preview opens at startup and can be reopened from the same location without changing release-note acknowledgement state.
+
 ## Version policy
 
 Application changes merged into `master` are release inputs. The source base version remains unchanged. The workflow creates the first release from that base version and then increments only the patch component from the latest `mework-vX.Y.Z` tag. Each release is represented by a matching `mework-vX.Y.Z` tag and `mework vX.Y.Z` GitHub Release. For a minor or major release, start the workflow manually with an explicit SemVer `version` input; the next automatic patch release continues from that tag.

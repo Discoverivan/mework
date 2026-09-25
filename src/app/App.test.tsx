@@ -25,7 +25,7 @@ vi.mock("../features/developer/MyPullRequestsPage", () => ({
 vi.mock("../features/developer/AuthoredPullRequestsPage", () => ({
   AuthoredPullRequestsPage: () => <h1>Pull requests authored by you</h1>,
 }));
-const { devOverlayEnabledMock, getDevOverlayStateMock, addDevMockTaskMock, setDevMockTaskStatusMock, addDevMockPullRequestMock, resetDevMockScenarioMock, getAiSettingsMock, getPullRequestUnreadCountsMock, refreshAuthoredPullRequestsMock, refreshMyPullRequestsMock, refreshAllIntegrationsHealthMock, listTaskTrackerMonitorsMock, setAppBadgeCountMock, nativeThemeMock, onThemeChangedMock, updaterCheckMock } = vi.hoisted(() => ({
+const { devOverlayEnabledMock, getDevOverlayStateMock, addDevMockTaskMock, setDevMockTaskStatusMock, addDevMockPullRequestMock, resetDevMockScenarioMock, getAiSettingsMock, getPullRequestUnreadCountsMock, refreshAuthoredPullRequestsMock, refreshMyPullRequestsMock, refreshAllIntegrationsHealthMock, listTaskTrackerMonitorsMock, setAppBadgeCountMock, nativeThemeMock, onThemeChangedMock, releaseNotesStateMock, releaseNotesSinceMock, markReleaseNotesSeenMock, updaterCheckMock } = vi.hoisted(() => ({
   devOverlayEnabledMock: vi.fn().mockResolvedValue(false),
   getDevOverlayStateMock: vi.fn().mockResolvedValue({
     monitors: [],
@@ -48,7 +48,17 @@ const { devOverlayEnabledMock, getDevOverlayStateMock, addDevMockTaskMock, setDe
   setAppBadgeCountMock: vi.fn().mockResolvedValue(undefined),
   nativeThemeMock: vi.fn().mockResolvedValue("dark"),
   onThemeChangedMock: vi.fn().mockResolvedValue(vi.fn()),
+  releaseNotesStateMock: vi.fn(),
+  releaseNotesSinceMock: vi.fn(),
+  markReleaseNotesSeenMock: vi.fn(),
   updaterCheckMock: vi.fn().mockResolvedValue(null),
+}));
+
+vi.mock("../release-notes", () => ({
+  getReleaseNotesState: releaseNotesStateMock,
+  releaseNotesSince: releaseNotesSinceMock,
+  markReleaseNotesSeen: markReleaseNotesSeenMock,
+  allReleaseNotes: () => [],
 }));
 
 vi.mock("@tauri-apps/plugin-updater", () => ({ check: updaterCheckMock }));
@@ -194,8 +204,32 @@ describe("mework application shell", () => {
     nativeThemeMock.mockResolvedValue("dark");
     onThemeChangedMock.mockReset();
     onThemeChangedMock.mockResolvedValue(vi.fn());
+    releaseNotesStateMock.mockReset();
+    releaseNotesStateMock.mockResolvedValue({ currentVersion: "0.2.22", lastSeenVersion: "0.2.22" });
+    releaseNotesSinceMock.mockReset();
+    releaseNotesSinceMock.mockReturnValue([]);
+    markReleaseNotesSeenMock.mockReset();
+    markReleaseNotesSeenMock.mockResolvedValue(undefined);
     updaterCheckMock.mockReset();
     updaterCheckMock.mockResolvedValue(null);
+  });
+
+  it("shows release notes after an update and records acknowledgement", async () => {
+    vi.stubEnv("DEV", false);
+    releaseNotesStateMock.mockResolvedValue({ currentVersion: "0.2.22", lastSeenVersion: "0.2.21" });
+    releaseNotesSinceMock.mockReturnValue([
+      { version: "0.2.22", entries: [{ en: "Find saved items faster.", ru: "Быстрее находите сохранённое." }] },
+    ]);
+    try {
+      render(<App />);
+
+      expect(await screen.findByRole("heading", { name: "What's new in mework" })).toBeInTheDocument();
+      expect(screen.getByText("Find saved items faster.")).toBeInTheDocument();
+      fireEvent.click(screen.getByRole("button", { name: "Got it" }));
+      await waitFor(() => expect(markReleaseNotesSeenMock).toHaveBeenCalledOnce());
+    } finally {
+      vi.unstubAllEnvs();
+    }
   });
 
   it("keeps the splash visible until integration checks settle", async () => {
@@ -217,6 +251,12 @@ describe("mework application shell", () => {
 
     render(<App />);
 
+    expect(await screen.findByRole("heading", { name: "What's new in mework" })).toBeInTheDocument();
+    expect(screen.getByText("See a summary of changes after an update.")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Got it" }));
+    expect(markReleaseNotesSeenMock).not.toHaveBeenCalled();
+    expect(releaseNotesStateMock).not.toHaveBeenCalled();
+
     const overlayLauncher = await screen.findByRole("button", { name: "Open development scenario" });
     fireEvent.click(overlayLauncher);
     expect(await screen.findByRole("heading", { name: "Development scenario" })).toBeInTheDocument();
@@ -225,7 +265,17 @@ describe("mework application shell", () => {
     expect(refreshMyPullRequestsMock).not.toHaveBeenCalled();
     expect(refreshAuthoredPullRequestsMock).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("button", { name: "Open About mework and check for updates" }));
-    expect(await screen.findByRole("heading", { name: "About mework" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "About", level: 1 })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Application mework", level: 2 })).toBeInTheDocument();
+    const releaseNotesButton = screen.getByRole("button", { name: "Release notes" });
+    expect(releaseNotesButton).toHaveAttribute("title", "Release notes");
+    expect(releaseNotesButton).not.toHaveTextContent("Release notes");
+    expect(releaseNotesButton.querySelector("svg.lucide-notebook-text")).not.toBeNull();
+    expect(releaseNotesButton.nextElementSibling).toBe(screen.getByRole("button", { name: "GitHub releases" }));
+    fireEvent.click(releaseNotesButton);
+    expect(await screen.findByRole("heading", { name: "Release notes" })).toBeInTheDocument();
+    expect(await screen.findByText("Open past changes again from About.")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Got it" }));
     expect(window.location.hash).toBe("#settings/application-info");
     await waitFor(() => expect(updaterCheckMock).toHaveBeenCalledOnce());
     expect(await screen.findByText("You're up to date.")).toBeInTheDocument();

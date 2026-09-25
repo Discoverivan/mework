@@ -3,6 +3,7 @@ node_modules/
 dist/
 .vite/
 coverage/
+.release/
 
 # Rust/Tauri build output
 src-tauri/target/
