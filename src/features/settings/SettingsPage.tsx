@@ -212,10 +212,9 @@ export type SettingsSection = "general" | "ai" | "integrations" | "projects";
 
 interface SettingsPageProps {
   section?: SettingsSection;
-  updateCheckRequest?: number;
 }
 
-export function SettingsPage({ section = "integrations", updateCheckRequest = 0 }: SettingsPageProps) {
+export function SettingsPage({ section = "integrations" }: SettingsPageProps) {
   const { t } = useI18n();
   const [integrations, setIntegrations] = useState<IntegrationRedacted[]>([]);
   const [aiData, setAiData] = useState<AiSettingsPageData>(INITIAL_AI_DATA);
@@ -756,7 +755,7 @@ export function SettingsPage({ section = "integrations", updateCheckRequest = 0 
         </Alert>
       ) : null}
 
-      {section === "general" ? <GeneralSettingsPage updateCheckRequest={updateCheckRequest} /> : null}
+      {section === "general" ? <GeneralSettingsPage /> : null}
 
       {section === "ai" ? (
         <div className="space-y-8">

@@ -6,6 +6,7 @@ import { MyPullRequestsPage } from "../features/developer/MyPullRequestsPage";
 import { AuthoredPullRequestsPage } from "../features/developer/AuthoredPullRequestsPage";
 import { CommandBoardPage } from "../features/developer/CommandBoardPage";
 import { SettingsPage } from "../features/settings/SettingsPage";
+import { ApplicationInfoPage } from "../features/settings/ApplicationInfoPage";
 import { StatisticsPage } from "../features/settings/statistics/StatisticsPage";
 import { ConfluenceSearchPage } from "../features/confluence/ConfluenceSearchPage";
 
@@ -19,6 +20,7 @@ export type AppRoute =
   | "developer-my-pull-requests"
   | "developer-command-board"
   | "settings-general"
+  | "settings-application-info"
   | "settings-ai"
   | "settings-integrations"
   | "settings-projects"
@@ -28,9 +30,10 @@ interface AppRoutesProps {
   route: AppRoute;
   updateCheckRequest?: number;
   mockMode?: boolean;
+  version?: string;
 }
 
-export function AppRoutes({ route, updateCheckRequest = 0, mockMode = false }: AppRoutesProps) {
+export function AppRoutes({ route, updateCheckRequest = 0, mockMode = false, version }: AppRoutesProps) {
   if (mockMode) {
     if (route === "product-task-tracker") return <TaskTrackerPage mockMode />;
     if (route === "developer-pull-requests") return <MyPullRequestsPage />;
@@ -91,10 +94,11 @@ export function AppRoutes({ route, updateCheckRequest = 0, mockMode = false }: A
     );
   }
   if (route === "developer-command-board") return <CommandBoardPage />;
+  if (route === "settings-application-info") return <ApplicationInfoPage version={version} updateCheckRequest={updateCheckRequest} />;
   if (route === "settings-statistics") return <StatisticsPage />;
   if (route === "settings-general" || route === "settings-ai" || route === "settings-integrations" || route === "settings-projects") {
     const section = route === "settings-general" ? "general" : route === "settings-ai" ? "ai" : route === "settings-projects" ? "projects" : "integrations";
-    return <SettingsPage section={section} updateCheckRequest={updateCheckRequest} />;
+    return <SettingsPage section={section} />;
   }
 
   return <SettingsPage section="integrations" />;

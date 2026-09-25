@@ -25,7 +25,7 @@ vi.mock("../features/developer/MyPullRequestsPage", () => ({
 vi.mock("../features/developer/AuthoredPullRequestsPage", () => ({
   AuthoredPullRequestsPage: () => <h1>Pull requests authored by you</h1>,
 }));
-const { devOverlayEnabledMock, getDevOverlayStateMock, addDevMockTaskMock, setDevMockTaskStatusMock, addDevMockPullRequestMock, resetDevMockScenarioMock, getAiSettingsMock, getPullRequestUnreadCountsMock, refreshAuthoredPullRequestsMock, refreshMyPullRequestsMock, refreshAllIntegrationsHealthMock, listTaskTrackerMonitorsMock, setAppBadgeCountMock, nativeThemeMock, onThemeChangedMock, releaseNotesStateMock, releaseNotesSinceMock, markReleaseNotesSeenMock } = vi.hoisted(() => ({
+const { devOverlayEnabledMock, getDevOverlayStateMock, addDevMockTaskMock, setDevMockTaskStatusMock, addDevMockPullRequestMock, resetDevMockScenarioMock, getAiSettingsMock, getPullRequestUnreadCountsMock, refreshAuthoredPullRequestsMock, refreshMyPullRequestsMock, refreshAllIntegrationsHealthMock, listTaskTrackerMonitorsMock, setAppBadgeCountMock, nativeThemeMock, onThemeChangedMock, releaseNotesStateMock, releaseNotesSinceMock, markReleaseNotesSeenMock, updaterCheckMock } = vi.hoisted(() => ({
   devOverlayEnabledMock: vi.fn().mockResolvedValue(false),
   getDevOverlayStateMock: vi.fn().mockResolvedValue({
     monitors: [],
@@ -51,13 +51,17 @@ const { devOverlayEnabledMock, getDevOverlayStateMock, addDevMockTaskMock, setDe
   releaseNotesStateMock: vi.fn(),
   releaseNotesSinceMock: vi.fn(),
   markReleaseNotesSeenMock: vi.fn(),
+  updaterCheckMock: vi.fn().mockResolvedValue(null),
 }));
 
 vi.mock("../release-notes", () => ({
   getReleaseNotesState: releaseNotesStateMock,
   releaseNotesSince: releaseNotesSinceMock,
   markReleaseNotesSeen: markReleaseNotesSeenMock,
+  allReleaseNotes: () => [],
 }));
+
+vi.mock("@tauri-apps/plugin-updater", () => ({ check: updaterCheckMock }));
 
 vi.mock("@tauri-apps/api/window", () => ({
   getCurrentWindow: () => ({ theme: nativeThemeMock, onThemeChanged: onThemeChangedMock }),
@@ -206,6 +210,8 @@ describe("mework application shell", () => {
     releaseNotesSinceMock.mockReturnValue([]);
     markReleaseNotesSeenMock.mockReset();
     markReleaseNotesSeenMock.mockResolvedValue(undefined);
+    updaterCheckMock.mockReset();
+    updaterCheckMock.mockResolvedValue(null);
   });
 
   it("shows release notes after an update and records acknowledgement", async () => {
@@ -252,6 +258,13 @@ describe("mework application shell", () => {
     expect(refreshAllIntegrationsHealthMock).not.toHaveBeenCalled();
     expect(refreshMyPullRequestsMock).not.toHaveBeenCalled();
     expect(refreshAuthoredPullRequestsMock).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Open About mework and check for updates" }));
+    expect(await screen.findByRole("heading", { name: "About mework" })).toBeInTheDocument();
+    expect(window.location.hash).toBe("#settings/application-info");
+    await waitFor(() => expect(updaterCheckMock).toHaveBeenCalledOnce());
+    expect(await screen.findByText("You're up to date.")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Open About mework and check for updates" }));
+    await waitFor(() => expect(updaterCheckMock).toHaveBeenCalledTimes(2));
   });
 
   it("keeps the daily presenter available in mock mode", async () => {

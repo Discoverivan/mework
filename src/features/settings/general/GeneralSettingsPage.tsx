@@ -1,13 +1,7 @@
-import type { Update } from "@tauri-apps/plugin-updater";
-
-import { AlertTriangle, BellRing, CheckCircle2, Download, RefreshCw } from "lucide-react";
+import { AlertTriangle, BellRing, CheckCircle2, RefreshCw } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
-import { checkForAvailableUpdate } from "@/components/shared/update-check";
-import { installAvailableUpdate } from "@/components/shared/update-install";
-import { StatusToast } from "@/components/shared/StatusToast";
-import { ReleaseNotesDialog } from "@/components/shared/ReleaseNotesDialog";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -29,21 +23,15 @@ import {
   AiResponseLanguage,
   type ThemePreference,
 } from "./api";
-import { APP_EVENT, emitAppEvent } from "@/app/app-events";
 import { useI18n } from "@/i18n/context";
 import { AppLanguage } from "@/i18n/types";
-import { allReleaseNotes } from "@/release-notes";
 
 function errorMessage(error: unknown, fallback: string): string {
   const message = error instanceof Error ? error.message : typeof error === "string" ? error : fallback;
   return message.replace(/(?:token|pat|password|secret|authorization)[^\n]*/gi, "credential details redacted");
 }
 
-interface GeneralSettingsPageProps {
-  updateCheckRequest?: number;
-}
-
-export function GeneralSettingsPage({ updateCheckRequest = 0 }: GeneralSettingsPageProps) {
+export function GeneralSettingsPage() {
   const { appearanceSaving, buttonStyle, buttonStyleSaving, language, themePreference, t, updateAppearance, updateButtonStyle } = useI18n();
   const [settings, setSettings] = useState<GeneralSettings | null>(null);
   const [terminalPreferences, setTerminalPreferences] = useState<CommandBoardTerminalPreferences | null>(null);
@@ -54,13 +42,6 @@ export function GeneralSettingsPage({ updateCheckRequest = 0 }: GeneralSettingsP
   const [saving, setSaving] = useState(false);
   const [testingNotification, setTestingNotification] = useState<NotificationTestKind | null>(null);
   const [testedNotification, setTestedNotification] = useState<NotificationTestKind | null>(null);
-  const [checkingUpdates, setCheckingUpdates] = useState(false);
-  const [updateStatus, setUpdateStatus] = useState<"idle" | "current" | "available" | "error">("idle");
-  const [availableUpdate, setAvailableUpdate] = useState<Update | null>(null);
-  const [availableUpdateVersion, setAvailableUpdateVersion] = useState<string>();
-  const [installingUpdate, setInstallingUpdate] = useState(false);
-  const [updateInstallError, setUpdateInstallError] = useState<string | null>(null);
-  const [releaseNotesOpen, setReleaseNotesOpen] = useState(false);
   const [openingSettings, setOpeningSettings] = useState(false);
   const [requestingPermission, setRequestingPermission] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -211,50 +192,6 @@ export function GeneralSettingsPage({ updateCheckRequest = 0 }: GeneralSettingsP
       setNotificationError(errorMessage(permissionError, t("common.unknownError")));
     } finally {
       setRequestingPermission(false);
-    }
-  }
-
-  const handleCheckForUpdates = useCallback(async () => {
-    setCheckingUpdates(true);
-    setUpdateStatus("idle");
-    setAvailableUpdate(null);
-    setAvailableUpdateVersion(undefined);
-    setUpdateInstallError(null);
-    try {
-      const update = await checkForAvailableUpdate();
-      if (update) {
-        setAvailableUpdate(update);
-        setAvailableUpdateVersion(update.version);
-        setUpdateStatus("available");
-        emitAppEvent(APP_EVENT.updateAvailabilityChanged, update.version);
-      } else {
-        setUpdateStatus("current");
-        emitAppEvent(APP_EVENT.updateAvailabilityChanged, null);
-      }
-    } catch {
-      setUpdateStatus("error");
-    } finally {
-      setCheckingUpdates(false);
-    }
-  }, []);
-
-  const handledUpdateCheckRequestRef = useRef(updateCheckRequest);
-  useEffect(() => {
-    if (updateCheckRequest <= handledUpdateCheckRequestRef.current) return;
-    handledUpdateCheckRequestRef.current = updateCheckRequest;
-    void handleCheckForUpdates();
-  }, [handleCheckForUpdates, updateCheckRequest]);
-
-  async function handleInstallUpdate() {
-    if (!availableUpdate) return;
-    setInstallingUpdate(true);
-    setUpdateInstallError(null);
-    try {
-      await installAvailableUpdate(availableUpdate);
-    } catch {
-      setUpdateInstallError(t("general.updateInstallError"));
-    } finally {
-      setInstallingUpdate(false);
     }
   }
 
@@ -588,70 +525,6 @@ export function GeneralSettingsPage({ updateCheckRequest = 0 }: GeneralSettingsP
           {testedNotification ? t("general.testSent") : ""}
         </span>
       </Card>
-
-      <Card>
-        <CardHeader className="space-y-4 px-4 py-3.5">
-          <div className="flex items-center justify-between gap-4">
-            <div className="-translate-y-px">
-              <h3 className="text-base font-semibold leading-tight">{t("general.updates")}</h3>
-              <CardDescription className="mt-1 leading-snug">
-                {t("general.updatesDescription")}
-              </CardDescription>
-            </div>
-            <div className="flex shrink-0 items-center gap-2">
-              {allReleaseNotes().length > 0 ? (
-                <Button type="button" variant="outline" size="sm" onClick={() => setReleaseNotesOpen(true)}>
-                  {t("releaseNotes.open")}
-                </Button>
-              ) : null}
-              {updateStatus === "available" ? <span className="text-sm text-muted-foreground">{t("general.updateAvailable", { version: availableUpdateVersion ?? "" })}</span> : null}
-              {updateStatus === "available" ? (
-                <Button
-                  type="button"
-                  size="icon"
-                  className="h-9 w-9"
-                  onClick={() => void handleInstallUpdate()}
-                  disabled={checkingUpdates || installingUpdate}
-                  aria-label={installingUpdate
-                    ? t("general.updating", { version: availableUpdateVersion ?? "" })
-                    : t("general.updateNow", { version: availableUpdateVersion ?? "" })}
-                  title={installingUpdate
-                    ? t("general.updating", { version: availableUpdateVersion ?? "" })
-                    : t("general.updateNow", { version: availableUpdateVersion ?? "" })}
-                >
-                  {installingUpdate
-                    ? <RefreshCw className="animate-spin" aria-hidden="true" />
-                    : <Download aria-hidden="true" />}
-                </Button>
-              ) : null}
-              <Button
-                type="button"
-                variant="outline"
-                size="icon"
-                className="h-9 w-9"
-                onClick={() => void handleCheckForUpdates()}
-                disabled={checkingUpdates || installingUpdate}
-                aria-label={checkingUpdates ? t("general.checking") : t("general.checkUpdates")}
-                title={checkingUpdates ? t("general.checking") : t("general.checkUpdates")}
-              >
-                <RefreshCw className={checkingUpdates ? "animate-spin" : undefined} aria-hidden="true" />
-              </Button>
-            </div>
-          </div>
-        </CardHeader>
-      </Card>
-      <ReleaseNotesDialog open={releaseNotesOpen} onOpenChange={setReleaseNotesOpen} releases={allReleaseNotes()} />
-      <StatusToast
-        message={updateInstallError
-          ?? (updateStatus === "error"
-            ? t("general.updateCheckError")
-            : updateStatus === "current" ? t("general.current") : undefined)}
-        variant={updateInstallError || updateStatus === "error" ? "error" : "success"}
-        onDismiss={() => {
-          setUpdateStatus((current) => current === "current" || current === "error" ? "idle" : current);
-          setUpdateInstallError(null);
-        }}
-      />
     </section>
   );
 }
