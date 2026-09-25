@@ -85,10 +85,12 @@ async fn release_notes_migration_marks_existing_installations_for_the_next_launc
     .await
     .expect("existing general settings");
 
-    sqlx::query(include_str!("../../../migrations/0017_release_notes_seen.sql"))
-        .execute(&pool)
-        .await
-        .expect("release notes migration");
+    sqlx::query(include_str!(
+        "../../../migrations/0017_release_notes_seen.sql"
+    ))
+    .execute(&pool)
+    .await
+    .expect("release notes migration");
 
     let version: String = sqlx::query_scalar(
         "SELECT value_json FROM settings WHERE key = 'release_notes.last_seen_version'",

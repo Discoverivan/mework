@@ -35,8 +35,8 @@ pub async fn release_notes_state<R: Runtime>(
         .await
         .map_err(|_| "failed to load release notes state")?
         .ok_or("release notes state is missing")?;
-    let last_seen_version = serde_json::from_str(&stored)
-        .map_err(|_| "invalid release notes state")?;
+    let last_seen_version =
+        serde_json::from_str(&stored).map_err(|_| "invalid release notes state")?;
     Ok(ReleaseNotesState {
         current_version,
         last_seen_version,
