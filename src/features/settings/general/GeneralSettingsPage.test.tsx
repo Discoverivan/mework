@@ -261,7 +261,13 @@ describe("GeneralSettingsPage", () => {
 
     try {
       render(<ApplicationInfoPage version="0.1.0" />);
-      fireEvent.click(screen.getByRole("button", { name: "GitHub releases" }));
+      expect(screen.getByRole("heading", { name: "Version" })).toBeInTheDocument();
+      const releasesButton = screen.getByRole("button", { name: "GitHub releases" });
+      expect(releasesButton).toHaveAttribute("title", "GitHub releases");
+      expect(releasesButton).not.toHaveTextContent("GitHub releases");
+      expect(releasesButton.querySelector("svg.lucide-external-link")).not.toBeNull();
+      expect(screen.getByText("v0.1.0").parentElement?.parentElement).toContainElement(releasesButton);
+      fireEvent.click(releasesButton);
       expect(openUrlMock).toHaveBeenCalledWith("https://github.com/Discoverivan/mework/releases");
 
       fireEvent.click(await screen.findByRole("button", { name: "Check for updates" }));
@@ -275,6 +281,7 @@ describe("GeneralSettingsPage", () => {
       expect(updateButton.querySelector("svg.lucide-download")).not.toBeNull();
       const checkButton = screen.getByRole("button", { name: "Check for updates" });
       expect(updateButton.parentElement).toContainElement(checkButton);
+      expect(updateButton.parentElement).toContainElement(releasesButton);
       expect(updateButton.nextElementSibling).toBe(checkButton);
       fireEvent.click(updateButton);
       await waitFor(() => expect(installAvailableUpdateMock).toHaveBeenCalledWith(update));
@@ -305,7 +312,7 @@ describe("GeneralSettingsPage", () => {
     expect(currentStatus).toHaveClass("fixed");
   });
 
-  it("reports an update-check failure in a temporary toast instead of the updates card", async () => {
+  it("reports an update-check failure in a temporary toast", async () => {
     updaterCheckMock.mockRejectedValue(new Error("temporary updater failure"));
     render(<ApplicationInfoPage />);
 
@@ -314,6 +321,5 @@ describe("GeneralSettingsPage", () => {
     const errorToast = (await screen.findByText("Unable to check for updates.")).closest('[role="alert"]');
     if (!errorToast) throw new Error("Expected update error toast");
     expect(errorToast).toHaveClass("fixed");
-    expect(errorToast.closest(".space-y-4.px-4.py-3\\.5")).toBeNull();
   });
 });

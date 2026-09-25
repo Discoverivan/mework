@@ -6,6 +6,7 @@ import { UpdateBanner } from "./components/shared/UpdateBanner";
 import { ReleaseNotesDialog } from "./components/shared/ReleaseNotesDialog";
 import { getBackgroundUpdateVersion } from "./components/shared/update-check";
 import { getReleaseNotesState, markReleaseNotesSeen, releaseNotesSince, type ReleaseNote } from "./release-notes";
+import { mockReleaseNotes } from "./release-notes/mock";
 import { AppRoutes, type AppRoute } from "./app/routes";
 import { PresenterView } from "./features/daily/PresenterView";
 import { DevOverlay } from "./features/dev/DevOverlay";
@@ -69,7 +70,13 @@ function AppContent() {
   const [releaseNotesOpen, setReleaseNotesOpen] = useState(false);
 
   useEffect(() => {
-    if (!ready || !mockModeLoaded || mockMode || import.meta.env.DEV) return;
+    if (!ready || !mockModeLoaded) return;
+    if (import.meta.env.DEV && mockMode) {
+      setNewReleaseNotes(mockReleaseNotes);
+      setReleaseNotesOpen(true);
+      return;
+    }
+    if (mockMode || import.meta.env.DEV) return;
     let active = true;
     void getReleaseNotesState().then(({ currentVersion, lastSeenVersion }) => {
       if (!active) return;
@@ -86,7 +93,7 @@ function AppContent() {
 
   function handleReleaseNotesOpenChange(open: boolean) {
     setReleaseNotesOpen(open);
-    if (!open) void markReleaseNotesSeen().catch(() => {
+    if (!open && !mockMode) void markReleaseNotesSeen().catch(() => {
       // A failed save allows the notes to reappear on the next launch.
     });
   }

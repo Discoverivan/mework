@@ -105,6 +105,8 @@ npm run tauri:dev -- --mock
 
 Mock mode is debug-build-only and resets a dedicated `mework-mock.sqlite` database on every launch, then seeds synthetic Jira/Bitbucket/Confluence integration settings plus sample Task Tracker monitors and issues. The regular DEV database is preserved; only non-secret AI settings are copied. Mework's mock path skips OS-keyring preload and access: an OpenAI-compatible API key entered during a mock session is held in memory only and must be re-entered after restart. Configured local AI CLIs can still be used; any authentication prompts originating inside those external tools are separate from Mework's keyring access. All application screens remain available without data-integration calls; provider polling and external writes are disabled. The overlay can add synthetic Jira tasks and PRs and change task status. Running `npm run tauri:dev` without `--mock` retains the normal integration behavior.
 
+Mock mode also opens a synthetic **What's new** preview at startup. Close it with **Got it**, then reopen it from **About → What's new**. The preview uses sample versions and does not mark any real release notes as seen.
+
 See [`AGENTS.md`](AGENTS.md) for repository boundaries and safety rules. Architecture decisions live in [`docs/adr/`](docs/adr/).
 
 ## GitHub Pages

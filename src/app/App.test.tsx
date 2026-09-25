@@ -251,6 +251,12 @@ describe("mework application shell", () => {
 
     render(<App />);
 
+    expect(await screen.findByRole("heading", { name: "What's new in mework" })).toBeInTheDocument();
+    expect(screen.getByText("See a summary of changes after an update.")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Got it" }));
+    expect(markReleaseNotesSeenMock).not.toHaveBeenCalled();
+    expect(releaseNotesStateMock).not.toHaveBeenCalled();
+
     const overlayLauncher = await screen.findByRole("button", { name: "Open development scenario" });
     fireEvent.click(overlayLauncher);
     expect(await screen.findByRole("heading", { name: "Development scenario" })).toBeInTheDocument();
@@ -259,7 +265,16 @@ describe("mework application shell", () => {
     expect(refreshMyPullRequestsMock).not.toHaveBeenCalled();
     expect(refreshAuthoredPullRequestsMock).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("button", { name: "Open About mework and check for updates" }));
-    expect(await screen.findByRole("heading", { name: "About mework" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "About", level: 1 })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Application mework", level: 2 })).toBeInTheDocument();
+    const releaseNotesButton = screen.getByRole("button", { name: "What's new" });
+    expect(releaseNotesButton).toHaveAttribute("title", "What's new");
+    expect(releaseNotesButton).not.toHaveTextContent("What's new");
+    expect(releaseNotesButton.querySelector("svg.lucide-notebook-text")).not.toBeNull();
+    expect(releaseNotesButton.nextElementSibling).toBe(screen.getByRole("button", { name: "GitHub releases" }));
+    fireEvent.click(releaseNotesButton);
+    expect(await screen.findByText("Open past changes again from About.")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Got it" }));
     expect(window.location.hash).toBe("#settings/application-info");
     await waitFor(() => expect(updaterCheckMock).toHaveBeenCalledOnce());
     expect(await screen.findByText("You're up to date.")).toBeInTheDocument();

@@ -94,7 +94,7 @@ export function AppRoutes({ route, updateCheckRequest = 0, mockMode = false, ver
     );
   }
   if (route === "developer-command-board") return <CommandBoardPage />;
-  if (route === "settings-application-info") return <ApplicationInfoPage version={version} updateCheckRequest={updateCheckRequest} />;
+  if (route === "settings-application-info") return <ApplicationInfoPage version={version} updateCheckRequest={updateCheckRequest} mockMode={mockMode} />;
   if (route === "settings-statistics") return <StatisticsPage />;
   if (route === "settings-general" || route === "settings-ai" || route === "settings-integrations" || route === "settings-projects") {
     const section = route === "settings-general" ? "general" : route === "settings-ai" ? "ai" : route === "settings-projects" ? "projects" : "integrations";
