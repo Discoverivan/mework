@@ -180,7 +180,6 @@ export function MyPullRequestsPage() {
   const [saving, setSaving] = useState(false);
   const [autoReviewSaving, setAutoReviewSaving] = useState(false);
   const [settingsError, setSettingsError] = useState<string>();
-  const [total, setTotal] = useState<number>();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string>();
   const [polling, setPolling] = useState(false);
@@ -207,7 +206,6 @@ export function MyPullRequestsPage() {
       });
       return sortPullRequests(nextValues);
     });
-    setTotal(page.total ?? undefined);
     if (page.lastUpdatedAt != null) {
       setLastSyncAt(page.lastUpdatedAt);
       setNow(page.lastUpdatedAt);
@@ -614,7 +612,7 @@ export function MyPullRequestsPage() {
         description={!loading && !error ? (
           <PullRequestStatus
             kind="review"
-            count={total ?? pullRequests.length}
+            count={filteredPullRequests.length}
             activeFilterCount={settings.repositoryBlacklist.length + settings.creatorBlacklist.length + settings.repositoryWhitelist.length + settings.creatorWhitelist.length}
             sortOrder={displayPreferences.sortOrder}
             lastSyncAt={lastSyncAt}
