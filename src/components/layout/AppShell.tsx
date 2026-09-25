@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import {
+  BarChart3,
   CalendarDays,
   Command,
   DatabaseZap,
@@ -33,11 +34,12 @@ export type AppSection =
   | "settings-general"
   | "settings-ai"
   | "settings-integrations"
-  | "settings-projects";
+  | "settings-projects"
+  | "settings-statistics";
 
 type NavigationItem = {
   section: AppSection;
-  labelKey: "nav.createTask" | "nav.taskTracker" | "nav.sprintTasks" | "nav.confluenceSearch" | "nav.prsToReview" | "nav.yourPrs" | "nav.commandBoard" | "nav.general" | "nav.aiSettings" | "nav.dataIntegrations" | "nav.teamSettings";
+  labelKey: "nav.createTask" | "nav.taskTracker" | "nav.sprintTasks" | "nav.confluenceSearch" | "nav.prsToReview" | "nav.yourPrs" | "nav.commandBoard" | "nav.general" | "nav.aiSettings" | "nav.dataIntegrations" | "nav.teamSettings" | "nav.statistics";
   href: string;
   icon: LucideIcon;
 };
@@ -75,6 +77,7 @@ const settingsNavigation: NavigationItem[] = [
   { section: "settings-ai", labelKey: "nav.aiSettings", href: "#settings/ai", icon: Sparkles },
   { section: "settings-integrations", labelKey: "nav.dataIntegrations", href: "#settings/integrations", icon: DatabaseZap },
   { section: "settings-projects", labelKey: "nav.teamSettings", href: "#settings/projects", icon: UsersRound },
+  { section: "settings-statistics", labelKey: "nav.statistics", href: "#settings/statistics", icon: BarChart3 },
 ];
 
 const GITHUB_RELEASES_URL = "https://github.com/Discoverivan/mework/releases";

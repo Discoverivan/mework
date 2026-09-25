@@ -6,6 +6,7 @@ import { MyPullRequestsPage } from "../features/developer/MyPullRequestsPage";
 import { AuthoredPullRequestsPage } from "../features/developer/AuthoredPullRequestsPage";
 import { CommandBoardPage } from "../features/developer/CommandBoardPage";
 import { SettingsPage } from "../features/settings/SettingsPage";
+import { StatisticsPage } from "../features/settings/statistics/StatisticsPage";
 import { ConfluenceSearchPage } from "../features/confluence/ConfluenceSearchPage";
 
 export type AppRoute =
@@ -20,7 +21,8 @@ export type AppRoute =
   | "settings-general"
   | "settings-ai"
   | "settings-integrations"
-  | "settings-projects";
+  | "settings-projects"
+  | "settings-statistics";
 
 interface AppRoutesProps {
   route: AppRoute;
@@ -89,6 +91,7 @@ export function AppRoutes({ route, updateCheckRequest = 0, mockMode = false }: A
     );
   }
   if (route === "developer-command-board") return <CommandBoardPage />;
+  if (route === "settings-statistics") return <StatisticsPage />;
   if (route === "settings-general" || route === "settings-ai" || route === "settings-integrations" || route === "settings-projects") {
     const section = route === "settings-general" ? "general" : route === "settings-ai" ? "ai" : route === "settings-projects" ? "projects" : "integrations";
     return <SettingsPage section={section} updateCheckRequest={updateCheckRequest} />;

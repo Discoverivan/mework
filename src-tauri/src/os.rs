@@ -1,3 +1,4 @@
+pub mod app_badge;
 pub mod autostart;
 pub mod menu;
 pub mod notifications;

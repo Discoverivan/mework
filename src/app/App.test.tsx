@@ -14,6 +14,10 @@ vi.mock("../features/settings/SettingsPage", () => ({
   SettingsPage: ({ section }: { section?: string }) => <h1>{section === "projects" ? "Team settings" : section === "ai" ? "AI settings" : section === "general" ? "General" : "Data integrations"}</h1>,
 }));
 
+vi.mock("../features/settings/statistics/StatisticsPage", () => ({
+  StatisticsPage: () => <h1>Statistics</h1>,
+}));
+
 vi.mock("../features/developer/MyPullRequestsPage", () => ({
   MyPullRequestsPage: () => <h1>Pull requests awaiting your review</h1>,
 }));
@@ -21,7 +25,7 @@ vi.mock("../features/developer/MyPullRequestsPage", () => ({
 vi.mock("../features/developer/AuthoredPullRequestsPage", () => ({
   AuthoredPullRequestsPage: () => <h1>Pull requests authored by you</h1>,
 }));
-const { devOverlayEnabledMock, getDevOverlayStateMock, addDevMockTaskMock, setDevMockTaskStatusMock, addDevMockPullRequestMock, resetDevMockScenarioMock, getAiSettingsMock, getPullRequestUnreadCountsMock, refreshAuthoredPullRequestsMock, refreshMyPullRequestsMock, refreshAllIntegrationsHealthMock, listTaskTrackerMonitorsMock, nativeThemeMock, onThemeChangedMock } = vi.hoisted(() => ({
+const { devOverlayEnabledMock, getDevOverlayStateMock, addDevMockTaskMock, setDevMockTaskStatusMock, addDevMockPullRequestMock, resetDevMockScenarioMock, getAiSettingsMock, getPullRequestUnreadCountsMock, refreshAuthoredPullRequestsMock, refreshMyPullRequestsMock, refreshAllIntegrationsHealthMock, listTaskTrackerMonitorsMock, setAppBadgeCountMock, nativeThemeMock, onThemeChangedMock } = vi.hoisted(() => ({
   devOverlayEnabledMock: vi.fn().mockResolvedValue(false),
   getDevOverlayStateMock: vi.fn().mockResolvedValue({
     monitors: [],
@@ -41,6 +45,7 @@ const { devOverlayEnabledMock, getDevOverlayStateMock, addDevMockTaskMock, setDe
   refreshMyPullRequestsMock: vi.fn().mockResolvedValue({ values: [], total: 0, hasMore: false }),
   refreshAllIntegrationsHealthMock: vi.fn().mockResolvedValue([]),
   listTaskTrackerMonitorsMock: vi.fn().mockResolvedValue([]),
+  setAppBadgeCountMock: vi.fn().mockResolvedValue(undefined),
   nativeThemeMock: vi.fn().mockResolvedValue("dark"),
   onThemeChangedMock: vi.fn().mockResolvedValue(vi.fn()),
 }));
@@ -53,6 +58,10 @@ vi.mock("../features/developer/api", () => ({
   getPullRequestUnreadCounts: getPullRequestUnreadCountsMock,
   refreshAuthoredPullRequests: refreshAuthoredPullRequestsMock,
   refreshMyPullRequests: refreshMyPullRequestsMock,
+}));
+
+vi.mock("./app-badge", () => ({
+  setAppBadgeCount: setAppBadgeCountMock,
 }));
 
 vi.mock("../features/dev/api", () => ({
@@ -176,6 +185,8 @@ describe("mework application shell", () => {
     refreshAllIntegrationsHealthMock.mockClear();
     listTaskTrackerMonitorsMock.mockReset();
     listTaskTrackerMonitorsMock.mockResolvedValue([]);
+    setAppBadgeCountMock.mockReset();
+    setAppBadgeCountMock.mockResolvedValue(undefined);
     nativeThemeMock.mockReset();
     nativeThemeMock.mockResolvedValue("dark");
     onThemeChangedMock.mockReset();
@@ -317,6 +328,13 @@ describe("mework application shell", () => {
     expect(await screen.findByRole("heading", { name: "AI settings" })).toBeInTheDocument();
   });
 
+  it("opens Statistics from its dedicated hash route", async () => {
+    window.location.hash = "#settings/statistics";
+    render(<App />);
+
+    expect(await screen.findByRole("heading", { name: "Statistics" })).toBeInTheDocument();
+  });
+
   it("shows unread authored pull requests on the My Pull Requests navigation item", async () => {
     refreshAllIntegrationsHealthMock.mockResolvedValueOnce([{
       id: "bitbucket-1",
@@ -376,6 +394,32 @@ describe("mework application shell", () => {
       ]);
     });
     expect(await screen.findByRole("link", { name: "Task tracker, 2 unread" })).toBe(taskTrackerLink);
+  });
+
+  it("sets the app icon badge to the sum of all sidebar unread counts", async () => {
+    getPullRequestUnreadCountsMock.mockResolvedValue({ reviewer: 2, authored: 3 });
+    listTaskTrackerMonitorsMock.mockResolvedValue([
+      trackerMonitor("badge-monitor", "badge-checkpoint", 5),
+    ]);
+
+    render(<App />);
+
+    expect(await screen.findByRole("link", { name: "PRs to review, 2 unread" })).toBeInTheDocument();
+    expect(await screen.findByRole("link", { name: "Your PRs, 3 unread" })).toBeInTheDocument();
+    expect(await screen.findByRole("link", { name: "Task tracker, 5 unread" })).toBeInTheDocument();
+    await waitFor(() => expect(setAppBadgeCountMock).toHaveBeenLastCalledWith(10));
+
+    getPullRequestUnreadCountsMock.mockResolvedValue({ reviewer: 4, authored: 3 });
+    act(() => emitAppEvent(APP_EVENT.pullRequestActivityChanged));
+    await waitFor(() => expect(setAppBadgeCountMock).toHaveBeenLastCalledWith(12));
+
+    act(() => {
+      emitAppEvent(APP_EVENT.taskTrackerReadStateChanged, {
+        monitorId: "badge-monitor",
+        checkpoint: "badge-checkpoint",
+      });
+    });
+    await waitFor(() => expect(setAppBadgeCountMock).toHaveBeenLastCalledWith(7));
   });
 
   it("does not let an older PR cache read overwrite the count after a newer activity event", async () => {
