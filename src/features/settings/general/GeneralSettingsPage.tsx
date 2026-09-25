@@ -301,7 +301,7 @@ export function GeneralSettingsPage({ updateCheckRequest = 0 }: GeneralSettingsP
                 {t("general.languageUiDescription")}
               </CardDescription>
             </div>
-            <div className="w-full sm:w-48">
+            <div className="w-full sm:w-auto">
               <Select value={language} onValueChange={(value) => void handlePreferencesChange({ language: value as AppLanguage })} disabled={loading || saving || appearanceSaving}>
                 <SelectTrigger id="general-language" aria-label={t("general.languageUi")}><SelectValue /></SelectTrigger>
                 <SelectContent>
@@ -321,7 +321,7 @@ export function GeneralSettingsPage({ updateCheckRequest = 0 }: GeneralSettingsP
                 {t("general.aiResponseLanguageDescription")}
               </CardDescription>
             </div>
-            <div className="w-full sm:w-48">
+            <div className="w-full sm:w-auto">
               <Select value={settings?.aiResponseLanguage ?? AiResponseLanguage.SameAsUi} onValueChange={(value) => void handlePreferencesChange({ aiResponseLanguage: value as AiResponseLanguage })} disabled={loading || saving || settings === null}>
                 <SelectTrigger id="general-ai-response-language" aria-label={t("general.aiResponseLanguage")}><SelectValue /></SelectTrigger>
                 <SelectContent>
@@ -346,7 +346,7 @@ export function GeneralSettingsPage({ updateCheckRequest = 0 }: GeneralSettingsP
                 {t("general.themeDescription")}
               </CardDescription>
             </div>
-            <div className="w-full sm:w-48">
+            <div className="w-full sm:w-auto">
               <Select value={themePreference} onValueChange={(value) => void handlePreferencesChange({ themePreference: value as ThemePreference })} disabled={loading || saving || appearanceSaving}>
                 <SelectTrigger id="general-theme" aria-label={t("general.theme")}><SelectValue /></SelectTrigger>
                 <SelectContent>
@@ -365,7 +365,7 @@ export function GeneralSettingsPage({ updateCheckRequest = 0 }: GeneralSettingsP
               <Label htmlFor="general-button-style" alignment="inline" className="font-medium">{t("general.buttonStyle")}</Label>
               <CardDescription className="mt-1 leading-snug">{t("general.buttonStyleDescription")}</CardDescription>
             </div>
-            <div className="w-full sm:w-48">
+            <div className="w-full sm:w-auto">
               <Select value={buttonStyle} onValueChange={(value) => {
                   setError(null);
                   void updateButtonStyle(value as ButtonStyle).catch((saveError) =>
@@ -394,7 +394,7 @@ export function GeneralSettingsPage({ updateCheckRequest = 0 }: GeneralSettingsP
                 {t("general.terminalDescription")}
               </CardDescription>
             </div>
-            <div className="w-full sm:w-48">
+            <div className="w-full sm:w-auto">
               <Select value={terminalPreferences?.selectedTerminal ?? ""} onValueChange={(value) => void handleTerminalPreferenceChange(value)} disabled={loading || terminalLoading || terminalSaving || terminalPreferences === null}>
                 <SelectTrigger id="general-terminal" aria-label={t("general.terminal")}>
                   <SelectValue placeholder={terminalLoading ? t("general.terminalLoading") : t("general.terminalOptionsUnavailable")} />

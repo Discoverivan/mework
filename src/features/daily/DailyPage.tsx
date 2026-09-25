@@ -337,7 +337,7 @@ export function DailyPage() {
       <div className="flex flex-wrap items-center gap-2">
         {!loadingProjects && projects.length > 0 ? (
           <Select value={selectedProjectId} onValueChange={setSelectedProjectId}>
-            <SelectTrigger id="daily-team-select" aria-label={t("daily.team")} className="w-48">
+            <SelectTrigger id="daily-team-select" aria-label={t("daily.team")}>
               <SelectValue placeholder={t("daily.selectTeam")} />
             </SelectTrigger>
             <SelectContent>
@@ -354,7 +354,7 @@ export function DailyPage() {
               if (selectedProjectId) void refreshWorkspace(selectedProjectId, sprintId);
             }}
           >
-            <SelectTrigger id="sprint-tasks-sprint-select" aria-label={t("daily.sprint")} className="w-56" disabled={loadingWorkspace}>
+            <SelectTrigger id="sprint-tasks-sprint-select" aria-label={t("daily.sprint")} disabled={loadingWorkspace}>
               <SelectValue placeholder={t("daily.selectSprint")} />
             </SelectTrigger>
             <SelectContent>
