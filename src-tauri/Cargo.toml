@@ -40,7 +40,7 @@ objc2-foundation = "0.3"
 objc2-user-notifications = { version = "0.3", features = ["UNError", "UNNotificationSettings", "UNNotificationContent", "UNNotificationRequest", "UNNotificationSound", "UNNotificationTrigger", "block2"] }
 
 [target.'cfg(windows)'.dependencies]
-dirs = "6"
+dirs = "7"
 
 [target.'cfg(any(target_os = "macos", windows, target_os = "linux"))'.dependencies]
 tauri-plugin-single-instance = "2"

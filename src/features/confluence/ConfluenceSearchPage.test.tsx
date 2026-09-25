@@ -59,11 +59,10 @@ describe("ConfluenceSearchPage smoke test", () => {
   it("searches the connected Confluence integration and renders a page result", async () => {
     render(<ConfluenceSearchPage />);
 
-    await waitFor(() => expect(listIntegrationsMock).toHaveBeenCalled());
+    const scope = await screen.findByRole("combobox", { name: "Search scope" });
     expect(screen.getByRole("heading", { name: "Knowledge search" })).toBeInTheDocument();
     expect(screen.getByText("Search scope").closest("label")).toHaveClass("pl-1");
     expect(screen.getByText("Search query").closest("label")).toHaveClass("pl-1");
-    const scope = screen.getByRole("combobox", { name: "Search scope" });
     expect(scope).toHaveClass("appearance-none", "pr-9");
     expect(scope.nextElementSibling).toHaveClass("right-2");
     fireEvent.change(screen.getByRole("textbox", { name: "Search query" }), {
@@ -92,7 +91,7 @@ describe("ConfluenceSearchPage smoke test", () => {
       details: { provider: "confluence", operation: "search", method: "GET", endpoint: "/rest/api/search", httpStatus: 403 },
     });
     render(<ConfluenceSearchPage />);
-    await waitFor(() => expect(listIntegrationsMock).toHaveBeenCalled());
+    await screen.findByRole("combobox", { name: "Search scope" });
     fireEvent.change(screen.getByRole("textbox", { name: "Search query" }), { target: { value: "release notes" } });
     fireEvent.click(screen.getByRole("button", { name: "Search" }));
     expect(await screen.findByText(/Unable to search Confluence: Confluence access was denied/)).toBeInTheDocument();
