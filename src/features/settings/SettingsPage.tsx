@@ -28,6 +28,7 @@ import type {
   AiReasoning,
   AiSettings,
   AiSettingsPageData,
+  AiSettingsProfile,
   IntegrationHealth,
   IntegrationHealthStatus,
   IntegrationKind,
@@ -207,6 +208,92 @@ function aiProviderReady(provider: AiProvider | undefined, model: string): boole
     && provider.status === "connected"
     && provider.models.includes(model);
 }
+
+function AiOverrideEditor({
+  idPrefix,
+  profile,
+  providers,
+  inheritedLabel,
+  providerLabel,
+  modelLabel,
+  reasoningLabel,
+  fastModeLabel,
+  noModelsLabel,
+  unavailableLabel,
+  onChange,
+  disabled,
+}: {
+  idPrefix: string;
+  profile: AiSettingsProfile | null | undefined;
+  providers: AiProvider[];
+  inheritedLabel: string;
+  providerLabel: string;
+  modelLabel: string;
+  reasoningLabel: string;
+  fastModeLabel: string;
+  noModelsLabel: string;
+  unavailableLabel: string;
+  onChange: (profile: AiSettingsProfile | null) => void;
+  disabled: boolean;
+}) {
+  const selected = providers.find((candidate) => candidate.id === profile?.provider
+    && (candidate.id !== "openai-compatible" || (candidate.instanceId ?? "legacy") === (profile.providerInstanceId ?? "legacy")));
+  const selectorValue = selected?.instanceId ?? profile?.provider ?? "__inherit__";
+
+  return (
+    <div className="flex flex-wrap items-end gap-4">
+      <div className="grid min-w-0 max-w-full gap-2.5">
+        <Label htmlFor={`${idPrefix}-provider`}>{providerLabel}</Label>
+        <Select value={selectorValue} onValueChange={(value) => {
+          if (value === "__inherit__") { onChange(null); return; }
+          const candidate = providers.find((item) => (item.instanceId ?? item.id) === value);
+          if (!candidate) return;
+          const next: AiSettingsProfile = {
+            provider: candidate.id,
+            ...(candidate.instanceId ? { providerInstanceId: candidate.instanceId } : {}),
+            model: modelForAiProvider(candidate, profile?.model ?? ""),
+            reasoning: profile?.reasoning ?? "medium",
+            fastMode: profile?.fastMode ?? false,
+          };
+          onChange(next);
+        }} disabled={disabled}>
+          <SelectTrigger id={`${idPrefix}-provider`} aria-label={providerLabel} className="h-9"><SelectValue /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="__inherit__">{inheritedLabel}</SelectItem>
+            {providers.map((candidate) => (
+              <SelectItem key={candidate.instanceId ?? candidate.id} value={candidate.instanceId ?? candidate.id} disabled={!candidate.available}>
+                {candidate.name}{candidate.baseUrl ? ` · ${candidate.baseUrl}` : ""}{candidate.available ? "" : ` (${unavailableLabel})`}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+      {profile && selected ? <>
+        <div className="grid min-w-0 max-w-full gap-2.5">
+          <Label htmlFor={`${idPrefix}-model`}>{modelLabel}</Label>
+          <Select value={profile.model} onValueChange={(model) => onChange({ ...profile, model })} disabled={disabled || selected.models.length === 0}>
+            <SelectTrigger id={`${idPrefix}-model`} aria-label={modelLabel} className="h-9"><SelectValue placeholder={noModelsLabel} /></SelectTrigger>
+            <SelectContent>{selected.models.map((model) => <SelectItem key={model} value={model}>{model}</SelectItem>)}</SelectContent>
+          </Select>
+        </div>
+        {profile.provider === "codex-cli" ? <>
+          <div className="grid min-w-0 max-w-full gap-2.5">
+            <Label htmlFor={`${idPrefix}-reasoning`}>{reasoningLabel}</Label>
+            <Select value={profile.reasoning} onValueChange={(reasoning) => onChange({ ...profile, reasoning: reasoning as AiReasoning })} disabled={disabled}>
+              <SelectTrigger id={`${idPrefix}-reasoning`} aria-label={reasoningLabel} className="h-9"><SelectValue /></SelectTrigger>
+              <SelectContent>{AI_REASONING_OPTIONS.map((reasoning) => <SelectItem key={reasoning} value={reasoning}>{reasoning}</SelectItem>)}</SelectContent>
+            </Select>
+          </div>
+          <div className="flex h-9 items-center gap-2">
+            <input id={`${idPrefix}-fast-mode`} type="checkbox" checked={profile.fastMode} onChange={(event) => onChange({ ...profile, fastMode: event.target.checked })} disabled={disabled} className="size-4 accent-primary" />
+            <Label htmlFor={`${idPrefix}-fast-mode`} alignment="inline" className="font-medium">{fastModeLabel}</Label>
+          </div>
+        </> : null}
+      </> : null}
+    </div>
+  );
+}
+
 
 export type SettingsSection = "general" | "ai" | "integrations" | "projects";
 
@@ -427,7 +514,9 @@ export function SettingsPage({ section = "integrations" }: SettingsPageProps) {
       && (aiDraft.providerInstanceId ?? null) === (aiData.settings.providerInstanceId ?? null)
       && aiDraft.model === aiData.settings.model
       && aiDraft.reasoning === aiData.settings.reasoning
-      && aiDraft.fastMode === aiData.settings.fastMode;
+      && aiDraft.fastMode === aiData.settings.fastMode
+      && JSON.stringify(aiDraft.taskCreation ?? null) === JSON.stringify(aiData.settings.taskCreation ?? null)
+      && JSON.stringify(aiDraft.pullRequestReview ?? null) === JSON.stringify(aiData.settings.pullRequestReview ?? null);
     if (unchanged || !aiDraft.provider || !aiReady || aiDeleting) return;
 
     const timer = window.setTimeout(() => {
@@ -503,6 +592,10 @@ export function SettingsPage({ section = "integrations" }: SettingsPageProps) {
     setAiDraft((current) => ({ ...current, [field]: value }));
     setAiSaved(false);
     setAiError(null);
+  }
+
+  function updateAiProfile(field: "taskCreation" | "pullRequestReview", profile: AiSettingsProfile | null) {
+    updateAiSetting(field, profile);
   }
 
   function updateAiProvider(value: string) {
@@ -764,9 +857,9 @@ export function SettingsPage({ section = "integrations" }: SettingsPageProps) {
             <CardHeader className="space-y-4 px-4 pb-4 pt-3.5">
               <div className="flex flex-wrap items-end gap-4">
                 <div className="grid min-w-0 max-w-full gap-2.5">
-                  <Label htmlFor="ai-provider">{t("settings.ai.provider")}</Label>
+                  <Label htmlFor="ai-provider">{t("settings.ai.defaultProvider")}</Label>
                   <Select value={selectedAiProvider?.instanceId ?? aiDraft.provider ?? "__none__"} onValueChange={updateAiProvider} disabled={aiData === null || aiLoading || aiSaving}>
-                    <SelectTrigger id="ai-provider" aria-label={t("settings.ai.provider")} className="h-9">
+                    <SelectTrigger id="ai-provider" aria-label={t("settings.ai.defaultProvider")} className="h-9">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
@@ -843,6 +936,47 @@ export function SettingsPage({ section = "integrations" }: SettingsPageProps) {
               ) : null}
             </CardHeader>
           </Card>
+
+          <details className="rounded-md border bg-card px-4 py-3">
+            <summary className="cursor-pointer text-sm font-medium">{t("settings.ai.overridesTitle")}</summary>
+            <p className="mt-2 text-sm text-muted-foreground">{t("settings.ai.overridesDescription")}</p>
+            <div className="mt-4 flex flex-col gap-4">
+              <section className="flex flex-col gap-2" aria-label={t("settings.ai.taskCreation")}>
+                <h3 className="text-sm font-medium">{t("settings.ai.taskCreation")}</h3>
+                <AiOverrideEditor
+                  idPrefix="ai-task"
+                  profile={aiDraft.taskCreation}
+                  providers={aiData.providers}
+                  inheritedLabel={t("settings.ai.inheritDefault")}
+                  providerLabel={t("settings.ai.taskProvider")}
+                  modelLabel={t("settings.ai.taskModel")}
+                  reasoningLabel={t("settings.ai.taskReasoning")}
+                  fastModeLabel={t("settings.ai.taskFastMode")}
+                  noModelsLabel={t("settings.ai.noModels", { provider: t("settings.ai.selectedProvider") })}
+                  unavailableLabel={t("settings.ai.unavailableSuffix")}
+                  onChange={(profile) => updateAiProfile("taskCreation", profile)}
+                  disabled={aiData === null || aiLoading || aiSaving}
+                />
+              </section>
+              <section className="flex flex-col gap-2" aria-label={t("settings.ai.pullRequestReview")}>
+                <h3 className="text-sm font-medium">{t("settings.ai.pullRequestReview")}</h3>
+                <AiOverrideEditor
+                  idPrefix="ai-review"
+                  profile={aiDraft.pullRequestReview}
+                  providers={aiData.providers}
+                  inheritedLabel={t("settings.ai.inheritDefault")}
+                  providerLabel={t("settings.ai.reviewProvider")}
+                  modelLabel={t("settings.ai.reviewModel")}
+                  reasoningLabel={t("settings.ai.reviewReasoning")}
+                  fastModeLabel={t("settings.ai.reviewFastMode")}
+                  noModelsLabel={t("settings.ai.noModels", { provider: t("settings.ai.selectedProvider") })}
+                  unavailableLabel={t("settings.ai.unavailableSuffix")}
+                  onChange={(profile) => updateAiProfile("pullRequestReview", profile)}
+                  disabled={aiData === null || aiLoading || aiSaving}
+                />
+              </section>
+            </div>
+          </details>
         </section>
 
         <section className="space-y-4" aria-labelledby="ai-providers-title">
