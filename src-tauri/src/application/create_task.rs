@@ -93,7 +93,7 @@ pub async fn generate_draft(
     if prompt.chars().count() > 20_000 {
         return Err("Task description is too long".to_owned());
     }
-    let settings = ai::ensure_review_ready(pool).await?;
+    let settings = ai::settings_for_activity(pool, ai::AiActivity::TaskCreation).await?;
     let general_settings = general::load(pool).await?;
     let output_language = general_settings
         .ai_response_language
@@ -815,6 +815,8 @@ mod tests {
             model: "sonnet".to_owned(),
             reasoning: AiReasoning::Medium,
             fast_mode: false,
+            task_creation: None,
+            pull_request_review: None,
         };
 
         let (draft, usage) = super::execute_draft_in_workspace_with_usage(
@@ -873,6 +875,8 @@ mod tests {
             model: "gpt-5.5".to_owned(),
             reasoning: AiReasoning::Medium,
             fast_mode: false,
+            task_creation: None,
+            pull_request_review: None,
         };
         let (draft, usage) = super::execute_draft_in_workspace_with_usage(
             &settings,

@@ -300,7 +300,11 @@ pub async fn start_review_with_diff<R: Runtime>(
     diff: String,
 ) -> Result<PullRequestReviewDto, String> {
     validate_request(&request)?;
-    let ai_settings = crate::application::ai::ensure_review_ready(pool).await?;
+    let ai_settings = crate::application::ai::settings_for_activity(
+        pool,
+        crate::application::ai::AiActivity::PullRequestReview,
+    )
+    .await?;
     let general_settings = crate::application::general::load(pool).await?;
     let output_language = general_settings
         .ai_response_language
@@ -1384,6 +1388,8 @@ mod tests {
             model: "gpt-5.5".to_owned(),
             reasoning: AiReasoning::Medium,
             fast_mode: false,
+            task_creation: None,
+            pull_request_review: None,
         };
         let (result, codex_usage) = super::execute_review_in_workspace_with_usage(
             &request,

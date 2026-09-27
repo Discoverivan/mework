@@ -125,6 +125,31 @@ pub struct AiSettings {
     pub model: String,
     pub reasoning: AiReasoning,
     pub fast_mode: bool,
+    #[serde(default)]
+    pub task_creation: Option<AiSettingsProfile>,
+    #[serde(default)]
+    pub pull_request_review: Option<AiSettingsProfile>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct AiSettingsProfile {
+    pub provider: AiProviderId,
+    #[serde(default)]
+    pub provider_instance_id: Option<String>,
+    pub model: String,
+    pub reasoning: AiReasoning,
+    pub fast_mode: bool,
+}
+
+impl AiSettingsProfile {
+    fn apply_to(&self, settings: &mut AiSettings) {
+        settings.provider = Some(self.provider);
+        settings.provider_instance_id = self.provider_instance_id.clone();
+        settings.model = self.model.clone();
+        settings.reasoning = self.reasoning;
+        settings.fast_mode = self.fast_mode;
+    }
 }
 
 impl Default for AiSettings {
@@ -135,6 +160,8 @@ impl Default for AiSettings {
             model: String::new(),
             reasoning: AiReasoning::Medium,
             fast_mode: false,
+            task_creation: None,
+            pull_request_review: None,
         }
     }
 }
@@ -297,9 +324,25 @@ pub async fn dto(pool: &SqlitePool) -> Result<AiSettingsPageDto, String> {
     let mut providers = Vec::new();
     let added_cli = load_added_cli_providers(pool).await?;
     let show_codex = added_cli.contains(&AiProviderId::CodexCli)
-        || settings.provider == Some(AiProviderId::CodexCli);
+        || settings.provider == Some(AiProviderId::CodexCli)
+        || settings
+            .task_creation
+            .as_ref()
+            .is_some_and(|profile| profile.provider == AiProviderId::CodexCli)
+        || settings
+            .pull_request_review
+            .as_ref()
+            .is_some_and(|profile| profile.provider == AiProviderId::CodexCli);
     let show_claude = added_cli.contains(&AiProviderId::ClaudeCodeCli)
-        || settings.provider == Some(AiProviderId::ClaudeCodeCli);
+        || settings.provider == Some(AiProviderId::ClaudeCodeCli)
+        || settings
+            .task_creation
+            .as_ref()
+            .is_some_and(|profile| profile.provider == AiProviderId::ClaudeCodeCli)
+        || settings
+            .pull_request_review
+            .as_ref()
+            .is_some_and(|profile| profile.provider == AiProviderId::ClaudeCodeCli);
     let (codex, claude) = tokio::join!(
         async {
             if show_codex {
@@ -388,12 +431,30 @@ pub async fn delete_provider(
     instance_id: Option<String>,
 ) -> Result<AiSettingsPageDto, String> {
     let mut settings = load(pool).await?;
-    let selected = settings.provider == Some(provider)
-        && (provider != AiProviderId::OpenAiCompatible
-            || settings.provider_instance_id.as_deref().unwrap_or("legacy")
-                == instance_id.as_deref().unwrap_or("legacy"));
-    if selected {
-        settings = AiSettings::default();
+    let mut changed = false;
+    let matches_provider = |selected_provider: Option<AiProviderId>,
+                            selected_instance: Option<&str>| {
+        selected_provider == Some(provider)
+            && (provider != AiProviderId::OpenAiCompatible
+                || selected_instance.unwrap_or("legacy")
+                    == instance_id.as_deref().unwrap_or("legacy"))
+    };
+    if matches_provider(settings.provider, settings.provider_instance_id.as_deref()) {
+        settings.provider = None;
+        settings.provider_instance_id = None;
+        settings.model.clear();
+        changed = true;
+    }
+    for profile in [
+        &mut settings.task_creation,
+        &mut settings.pull_request_review,
+    ] {
+        if profile.as_ref().is_some_and(|item| {
+            matches_provider(Some(item.provider), item.provider_instance_id.as_deref())
+        }) {
+            *profile = None;
+            changed = true;
+        }
     }
 
     let configs = if provider == AiProviderId::OpenAiCompatible {
@@ -459,7 +520,7 @@ pub async fn delete_provider(
         }
     } else {
         let mut added = added_cli.expect("CLI providers were loaded");
-        if !added.contains(&provider) && settings.provider != Some(provider) && !selected {
+        if !added.contains(&provider) && !changed {
             return Err("AI provider was not found".to_owned());
         }
         added.retain(|item| *item != provider);
@@ -468,7 +529,7 @@ pub async fn delete_provider(
         sqlx::query("UPDATE settings SET value_json = ?, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE key = ?")
             .bind(value).bind(ADDED_CLI_PROVIDERS_KEY).execute(&mut *tx).await.map_err(|_| "failed to delete AI provider".to_owned())?;
     }
-    if selected {
+    if changed {
         let value = serde_json::to_string(&settings)
             .map_err(|_| "failed to serialize AI settings".to_owned())?;
         sqlx::query("UPDATE settings SET value_json = ?, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE key = ?")
@@ -480,24 +541,50 @@ pub async fn delete_provider(
     dto(pool).await
 }
 
-pub async fn ensure_review_ready(pool: &SqlitePool) -> Result<AiSettings, String> {
+#[derive(Debug, Clone, Copy)]
+pub enum AiActivity {
+    TaskCreation,
+    PullRequestReview,
+}
+
+pub async fn settings_for_activity(
+    pool: &SqlitePool,
+    activity: AiActivity,
+) -> Result<AiSettings, String> {
     let data = dto(pool).await?;
-    let Some(provider) = data.settings.provider else {
+    let settings = effective_settings(data.settings, activity);
+    validate_selected_settings(&settings, &data.providers)?;
+    Ok(settings)
+}
+
+fn effective_settings(mut settings: AiSettings, activity: AiActivity) -> AiSettings {
+    let profile = match activity {
+        AiActivity::TaskCreation => settings.task_creation.clone(),
+        AiActivity::PullRequestReview => settings.pull_request_review.clone(),
+    };
+    if let Some(profile) = profile {
+        profile.apply_to(&mut settings);
+    }
+    settings.task_creation = None;
+    settings.pull_request_review = None;
+    settings
+}
+
+fn validate_selected_settings(
+    settings: &AiSettings,
+    providers: &[AiProviderDto],
+) -> Result<(), String> {
+    let Some(provider) = settings.provider else {
         return Err(
             "Select a connected AI provider in Settings → Integrations before starting a review"
                 .to_owned(),
         );
     };
-    let Some(provider_status) = data.providers.iter().find(|item| {
+    let Some(provider_status) = providers.iter().find(|item| {
         item.id == provider
             && (provider != AiProviderId::OpenAiCompatible
                 || item.instance_id.as_deref()
-                    == Some(
-                        data.settings
-                            .provider_instance_id
-                            .as_deref()
-                            .unwrap_or("legacy"),
-                    ))
+                    == Some(settings.provider_instance_id.as_deref().unwrap_or("legacy")))
     }) else {
         return Err("Selected AI provider is unavailable".to_owned());
     };
@@ -510,14 +597,14 @@ pub async fn ensure_review_ready(pool: &SqlitePool) -> Result<AiSettings, String
     if !provider_status
         .models
         .iter()
-        .any(|model| model == &data.settings.model)
+        .any(|model| model == &settings.model)
     {
         return Err(
             "Selected AI model is not available. Refresh Settings → Integrations and choose an available model"
                 .to_owned(),
         );
     }
-    Ok(data.settings)
+    Ok(())
 }
 
 pub fn inspect_codex_cli() -> AiProviderDto {
@@ -1056,28 +1143,53 @@ fn safe_first_line(bytes: &[u8]) -> Option<String> {
 }
 
 async fn validate_settings(pool: &SqlitePool, settings: &AiSettings) -> Result<(), String> {
-    if settings.model.trim().is_empty() {
+    let providers = dto(pool).await?.providers;
+    validate_provider_selection(
+        settings.provider,
+        settings.provider_instance_id.as_deref(),
+        &settings.model,
+        &providers,
+        "Select an AI provider before saving",
+    )?;
+    for profile in [
+        settings.task_creation.as_ref(),
+        settings.pull_request_review.as_ref(),
+    ]
+    .into_iter()
+    .flatten()
+    {
+        validate_provider_selection(
+            Some(profile.provider),
+            profile.provider_instance_id.as_deref(),
+            &profile.model,
+            &providers,
+            "Select an AI provider before saving",
+        )?;
+    }
+    Ok(())
+}
+
+fn validate_provider_selection(
+    provider: Option<AiProviderId>,
+    instance_id: Option<&str>,
+    model: &str,
+    providers: &[AiProviderDto],
+    missing_provider_error: &str,
+) -> Result<(), String> {
+    if model.trim().is_empty() {
         return Err("Selected AI model is invalid".to_owned());
     }
-    let provider = match settings.provider {
-        Some(provider) => provider,
-        None => return Err("Select an AI provider before saving".to_owned()),
-    };
-    let providers = dto(pool).await?.providers;
+    let provider = provider.ok_or_else(|| missing_provider_error.to_owned())?;
     let Some(provider_status) = providers.iter().find(|item| {
         item.id == provider
             && (provider != AiProviderId::OpenAiCompatible
-                || item.instance_id.as_deref()
-                    == Some(settings.provider_instance_id.as_deref().unwrap_or("legacy")))
+                || item.instance_id.as_deref() == Some(instance_id.unwrap_or("legacy")))
     }) else {
         return Err("Selected AI provider is unavailable".to_owned());
     };
     if !provider_status.available
         || provider_status.status != AiProviderStatus::Connected
-        || !provider_status
-            .models
-            .iter()
-            .any(|model| model == &settings.model)
+        || !provider_status.models.iter().any(|known| known == model)
     {
         return Err("Selected AI model is invalid".to_owned());
     }
@@ -1802,6 +1914,8 @@ mod tests {
             model: "example-model".to_owned(),
             reasoning: AiReasoning::Medium,
             fast_mode: false,
+            task_creation: None,
+            pull_request_review: None,
         };
         crate::infrastructure::db::repositories::upsert_setting(
             &pool,
@@ -1889,6 +2003,41 @@ mod tests {
     }
 
     #[test]
+    fn selects_activity_override_and_keeps_legacy_settings_compatible() {
+        let legacy: AiSettings = serde_json::from_str(
+            r#"{"provider":"codex-cli","model":"example-model","reasoning":"medium","fastMode":false}"#,
+        )
+        .unwrap();
+        assert!(legacy.task_creation.is_none());
+        assert!(legacy.pull_request_review.is_none());
+
+        let settings = AiSettings {
+            provider: Some(AiProviderId::CodexCli),
+            provider_instance_id: None,
+            model: "example-model".to_owned(),
+            reasoning: AiReasoning::Medium,
+            fast_mode: false,
+            task_creation: None,
+            pull_request_review: Some(super::AiSettingsProfile {
+                provider: AiProviderId::ClaudeCodeCli,
+                provider_instance_id: None,
+                model: "sonnet".to_owned(),
+                reasoning: AiReasoning::High,
+                fast_mode: true,
+            }),
+        };
+        let task = super::effective_settings(settings.clone(), super::AiActivity::TaskCreation);
+        let review = super::effective_settings(settings, super::AiActivity::PullRequestReview);
+        assert_eq!(task.provider, Some(AiProviderId::CodexCli));
+        assert_eq!(task.model, "example-model");
+        assert_eq!(review.provider, Some(AiProviderId::ClaudeCodeCli));
+        assert_eq!(review.model, "sonnet");
+        assert_eq!(review.reasoning, AiReasoning::High);
+        assert!(review.fast_mode);
+        assert!(review.pull_request_review.is_none());
+    }
+
+    #[test]
     fn serializes_provider_and_reasoning_for_renderer_contract() {
         let settings = AiSettings {
             provider: Some(AiProviderId::CodexCli),
@@ -1896,6 +2045,8 @@ mod tests {
             model: "gpt-5.5".to_owned(),
             reasoning: AiReasoning::High,
             fast_mode: true,
+            task_creation: None,
+            pull_request_review: None,
         };
         let value = serde_json::to_value(settings).unwrap();
         assert_eq!(value["provider"], "codex-cli");
