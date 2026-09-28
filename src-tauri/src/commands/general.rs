@@ -26,6 +26,7 @@ pub async fn general_settings(
     general::dto(&state, &app).await
 }
 
+#[allow(clippy::too_many_arguments)]
 #[tauri::command]
 pub async fn general_settings_save(
     app: AppHandle,
