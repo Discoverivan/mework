@@ -17,30 +17,9 @@ pub async fn ai_task_draft(
 
 #[tauri::command]
 pub async fn jira_task_team_members(
-    mode: State<'_, DevMockMode>,
     state: State<'_, SqlitePool>,
     managed_project_id: String,
 ) -> Result<Vec<JiraTaskMemberDto>, String> {
-    if mode.is_enabled() {
-        if managed_project_id != "mock-managed-project" {
-            return Err("Mock managed project was not found".to_owned());
-        }
-        return mode.mock_team_members().map(|members| {
-            members
-                .into_iter()
-                .filter(|member| member.active)
-                .map(|member| JiraTaskMemberDto {
-                    id: member.account_id,
-                    display_name: member
-                        .alias
-                        .filter(|value| !value.trim().is_empty())
-                        .unwrap_or(member.display_name),
-                    avatar_url: None,
-                    active: true,
-                })
-                .collect()
-        });
-    }
     create_task::list_team_members(&state, &managed_project_id).await
 }
 
@@ -51,19 +30,14 @@ pub async fn jira_task_create(
     state: State<'_, SqlitePool>,
     request: JiraTaskCreateRequest,
 ) -> Result<JiraCreatedTaskDto, String> {
+    let created = create_task::create_task(&state, request).await?;
     if mode.is_enabled() {
-        let snapshot = mode.add_task(&request.summary)?;
-        let issue = snapshot.monitors[0]
-            .issues
-            .last()
-            .ok_or_else(|| "Mock task could not be created".to_owned())?;
+        let snapshot = mode.snapshot()?;
+        if let Some(monitor) = snapshot.monitors.first() {
+            crate::application::dev_overlay::persist_mock_task_tracker_snapshot(&state, monitor)
+                .await?;
+        }
         let _ = app.emit("task_tracker_updated", &snapshot.monitors);
-        return Ok(JiraCreatedTaskDto {
-            id: issue.key.clone(),
-            key: issue.key.clone(),
-            url: issue.issue_url.clone(),
-            warning: None,
-        });
     }
-    create_task::create_task(&state, request).await
+    Ok(created)
 }

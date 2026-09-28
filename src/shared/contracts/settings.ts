@@ -18,6 +18,7 @@ export interface AiSettings {
   fastMode: boolean;
   taskCreation?: AiSettingsProfile | null;
   pullRequestReview?: AiSettingsProfile | null;
+  tokenBurner?: AiSettingsProfile | null;
 }
 
 export interface AiProvider {

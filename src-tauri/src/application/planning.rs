@@ -19,7 +19,8 @@ use crate::domain::planning::models::{
 };
 use crate::domain::planning::state_machine::PlanningStateMachine;
 use crate::infrastructure::credentials::keyring::{
-    CredentialError, CredentialStore, OsKeyring, DEV_KEYRING_SERVICE, PRODUCTION_KEYRING_SERVICE,
+    integration_credential_store, CredentialError, CredentialStore, DEV_KEYRING_SERVICE,
+    PRODUCTION_KEYRING_SERVICE,
 };
 use crate::infrastructure::db::{planning_repositories, repositories};
 use crate::infrastructure::integrations::jira::{
@@ -1660,7 +1661,7 @@ pub(crate) async fn planning_credential_store(
     pool: &SqlitePool,
 ) -> Result<Box<dyn CredentialStore>, PlanningCommandError> {
     let _ = pool;
-    Ok(Box::new(OsKeyring::new(KEYRING_SERVICE)))
+    Ok(integration_credential_store(KEYRING_SERVICE))
 }
 
 pub async fn apply_and_lock(

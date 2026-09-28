@@ -15,12 +15,24 @@ vi.mock("../features/developer/AuthoredPullRequestsPage", () => ({ AuthoredPullR
 vi.mock("../features/developer/CommandBoardPage", () => ({ CommandBoardPage: () => <div>Command Board screen</div> }));
 vi.mock("../features/settings/SettingsPage", () => ({ SettingsPage: ({ section }: { section: string }) => <div>{section} settings screen</div> }));
 vi.mock("../features/settings/statistics/StatisticsPage", () => ({ StatisticsPage: () => <div>Statistics screen</div> }));
+vi.mock("../features/token-burner/TokenBurnerPage", () => ({ TokenBurnerPage: () => <div>Model-testing screen</div> }));
 
-function renderRoutes(route: Parameters<typeof AppRoutes>[0]["route"]) {
-  return render(<I18nProvider><AppRoutes route={route} mockMode /></I18nProvider>);
+function renderRoutes(route: Parameters<typeof AppRoutes>[0]["route"], modelTestingEnabled = false) {
+  return render(<I18nProvider><AppRoutes route={route} mockMode modelTestingEnabled={modelTestingEnabled} /></I18nProvider>);
 }
 
 describe("AppRoutes mock mode", () => {
+  it("does not mount Model-testing through a direct route while the opt-in is disabled", () => {
+    renderRoutes("developer-model-testing");
+    expect(screen.getByText("general settings screen")).toBeInTheDocument();
+    expect(screen.queryByText("Model-testing screen")).not.toBeInTheDocument();
+  });
+
+  it("mounts Model-testing only when its opt-in is enabled", () => {
+    renderRoutes("developer-model-testing", true);
+    expect(screen.getByText("Model-testing screen")).toBeInTheDocument();
+  });
+
   it("makes every application screen accessible in mock mode without integration gates", () => {
     const cases = [
       ["product-create-task", "Create task screen"],

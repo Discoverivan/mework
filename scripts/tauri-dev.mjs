@@ -22,7 +22,16 @@ if (mockMode) childEnv.MEWORK_DEV_MOCK_MODE = "1";
 const tauriCli = path.join(repositoryRoot, "node_modules", "@tauri-apps", "cli", "tauri.js");
 const child = spawn(
   process.execPath,
-  [tauriCli, "dev", "--config", "src-tauri/tauri.dev.conf.json", "--", "--bin", "mework-dev"],
+  [
+    tauriCli,
+    "dev",
+    "--config",
+    "src-tauri/tauri.dev.conf.json",
+    ...(mockMode ? ["--features", "dev-mock-rest"] : []),
+    "--",
+    "--bin",
+    "mework-dev",
+  ],
   { cwd: repositoryRoot, env: childEnv, stdio: "inherit" },
 );
 

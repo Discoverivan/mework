@@ -46,7 +46,28 @@ pub fn run() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .setup(|app| {
             let mock_mode_enabled = crate::application::dev_overlay::current_mock_mode_requested();
-            app.manage(crate::application::dev_overlay::DevMockMode::new(mock_mode_enabled));
+            let mock_mode = crate::application::dev_overlay::DevMockMode::new(mock_mode_enabled);
+            #[cfg(feature = "dev-mock-rest")]
+            let mock_urls = if mock_mode_enabled {
+                let server = tauri::async_runtime::block_on(
+                    crate::application::mock_rest::MockIntegrationServer::start(mock_mode.clone()),
+                )
+                .map_err(std::io::Error::other)?;
+                let urls = server.urls().clone();
+                app.manage(server);
+                Some(urls)
+            } else {
+                None
+            };
+            #[cfg(not(feature = "dev-mock-rest"))]
+            let mock_urls: Option<crate::application::dev_overlay::MockIntegrationUrls> = None;
+            #[cfg(not(feature = "dev-mock-rest"))]
+            if mock_mode_enabled {
+                return Err(std::io::Error::other(
+                    "Mock mode requires the dev-mock-rest Cargo feature; use the --mock development launcher",
+                ).into());
+            }
+            app.manage(mock_mode);
 
             #[cfg(target_os = "macos")]
             crate::os::notifications::setup();
@@ -69,22 +90,17 @@ pub fn run() {
                 &database_path,
             ))?;
             if mock_mode_enabled {
-                let regular_database_path =
-                    app_data_dir.join(crate::infrastructure::db::DATABASE_FILENAME);
-                if regular_database_path.exists() {
-                    let regular_pool = tauri::async_runtime::block_on(
-                        crate::infrastructure::db::open_database(&regular_database_path),
-                    )?;
-                    tauri::async_runtime::block_on(
-                        crate::application::ai::copy_configuration_to_mock(&regular_pool, &pool),
-                    )
-                    .map_err(std::io::Error::other)?;
-                }
                 tauri::async_runtime::block_on(
-                    crate::application::dev_overlay::seed_mock_settings(&pool),
+                    crate::application::dev_overlay::seed_mock_settings(&pool, mock_urls.as_ref()),
+                )
+                .map_err(std::io::Error::other)?;
+                tauri::async_runtime::block_on(
+                    crate::application::ai::initialize_mock_cli_providers(&pool),
                 )
                 .map_err(std::io::Error::other)?;
             }
+            tauri::async_runtime::block_on(crate::application::token_burner::recover_interrupted(&pool))
+                .map_err(std::io::Error::other)?;
             if !mock_mode_enabled
                 && tauri::async_runtime::block_on(
                     crate::commands::integrations::preload_all_credentials(&pool),
@@ -107,6 +123,7 @@ pub fn run() {
                 );
             }
             app.manage(pool.clone());
+            app.manage(std::sync::Arc::new(crate::application::token_burner::TokenBurnerRuntime::default()));
             if !mock_mode_enabled {
                 let background_pool = pool.clone();
                 let background_app = app.handle().clone();
@@ -429,6 +446,17 @@ pub fn run() {
             commands::ai::ai_cli_candidate_inspect,
             commands::ai::ai_provider_delete,
             commands::ai_usage_statistics::ai_usage_statistics,
+            commands::token_burner::token_burner_settings,
+            commands::token_burner::token_burner_settings_save,
+            commands::token_burner::token_burner_snapshot,
+            commands::token_burner::token_burner_repositories,
+            commands::token_burner::token_burner_ai_provider_summary,
+            commands::token_burner::token_burner_start,
+            commands::token_burner::token_burner_pause,
+            commands::token_burner::token_burner_resume,
+            commands::token_burner::token_burner_stop,
+            commands::token_burner::token_burner_reset_daily_target,
+            commands::token_burner::token_burner_integration_available,
             commands::inbox::inbox_list,
             commands::inbox::inbox_update_state,
             commands::integrations::integration_list,

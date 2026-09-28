@@ -7,6 +7,10 @@ edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
+[features]
+default = []
+dev-mock-rest = ["dep:wiremock"]
+
 [lib]
 # The `_lib` suffix may seem redundant but it is necessary
 # to make the lib name unique and wouldn't conflict with the bin name.
@@ -32,6 +36,7 @@ uuid = { version = "1.26.0", features = ["v7", "serde"] }
 time = { version = "0.3.55", features = ["formatting"] }
 tauri-plugin-dialog = "2"
 tauri-plugin-notification = "2"
+wiremock = { version = "0.6.5", optional = true }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 block2 = "0.6"
@@ -51,6 +56,13 @@ keyring = "4.2.0"
 tempfile = "3.27.0"
 wiremock = "0.6.5"
 
-# macOS 27 rejects stripped release proc-macro dylibs (notably sqlx_macros).
+[profile.dev]
+debug = 0
+incremental = false
+
+# macOS 27 rejects stripped proc-macro dylibs (notably sqlx_macros).
+[profile.dev.build-override]
+strip = false
+
 [profile.release.build-override]
 strip = false

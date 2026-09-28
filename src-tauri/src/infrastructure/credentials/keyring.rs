@@ -18,6 +18,40 @@ pub trait CredentialStore: Send + Sync {
     fn delete(&self, credential_ref: &str) -> Result<(), CredentialError>;
 }
 
+pub fn integration_credential_store(service: &str) -> Box<dyn CredentialStore> {
+    let mock_mode = cfg!(debug_assertions)
+        && cfg!(feature = "dev-mock-rest")
+        && std::env::var("MEWORK_DEV_MOCK_MODE").as_deref() == Ok("1");
+    if mock_mode {
+        Box::new(MockIntegrationCredentialStore)
+    } else {
+        Box::new(OsKeyring::new(service))
+    }
+}
+
+struct MockIntegrationCredentialStore;
+
+impl CredentialStore for MockIntegrationCredentialStore {
+    fn save(&self, _credential_ref: &str, _secret: &str) -> Result<(), CredentialError> {
+        Err(CredentialError::Backend)
+    }
+
+    fn load(&self, credential_ref: &str) -> Result<String, CredentialError> {
+        if ["mock-jira", "mock-bitbucket", "mock-confluence"]
+            .iter()
+            .any(|integration| credential_ref.starts_with(&format!("mock://{integration}/")))
+        {
+            Ok("synthetic-mock-token".to_owned())
+        } else {
+            Err(CredentialError::NotFound)
+        }
+    }
+
+    fn delete(&self, _credential_ref: &str) -> Result<(), CredentialError> {
+        Err(CredentialError::Backend)
+    }
+}
+
 pub const DEV_KEYRING_SERVICE: &str = "com.discoverivan.app.mework.dev";
 pub const PRODUCTION_KEYRING_SERVICE: &str = "com.discoverivan.app.mework";
 const BUNDLE_CREDENTIAL_REF: &str = "__mework_credential_bundle__";

@@ -17,7 +17,7 @@ use crate::{
     domain::models::{Integration, IntegrationKind},
     infrastructure::{
         credentials::keyring::{
-            CredentialStore, OsKeyring, DEV_KEYRING_SERVICE, PRODUCTION_KEYRING_SERVICE,
+            integration_credential_store, DEV_KEYRING_SERVICE, PRODUCTION_KEYRING_SERVICE,
         },
         db::repositories,
         integrations::jira::models::JiraIssue,
@@ -835,7 +835,7 @@ async fn fetch_issues_with_limit(
     jql: &str,
     limit: Option<usize>,
 ) -> Result<(Vec<JiraIssueSnapshot>, bool), String> {
-    let store = OsKeyring::new(KEYRING_SERVICE);
+    let store = integration_credential_store(KEYRING_SERVICE);
     let secret = store
         .load(&integration.credential_ref)
         .map_err(|_| "Jira credentials are unavailable".to_owned())?;

@@ -100,6 +100,8 @@ pub struct GeneralSettings {
     pub theme_preference: ThemePreference,
     #[serde(default)]
     pub button_style: ButtonStyle,
+    #[serde(default)]
+    pub extra_functions_enabled: bool,
 }
 
 impl Default for GeneralSettings {
@@ -113,6 +115,7 @@ impl Default for GeneralSettings {
             ai_response_language: AiResponseLanguage::SameAsUi,
             theme_preference: ThemePreference::System,
             button_style: ButtonStyle::Filled,
+            extra_functions_enabled: false,
         }
     }
 }
@@ -128,6 +131,7 @@ pub struct GeneralSettingsDto {
     pub ai_response_language: AiResponseLanguage,
     pub theme_preference: ThemePreference,
     pub button_style: ButtonStyle,
+    pub extra_functions_enabled: bool,
     pub notification_permission: NotificationPermission,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub permission_check_error: Option<String>,
@@ -150,6 +154,14 @@ pub async fn initialize_if_missing(
     pool: &SqlitePool,
     system_language: AppLanguage,
 ) -> Result<(), String> {
+    initialize_if_missing_with_extra_functions(pool, system_language, false).await
+}
+
+pub async fn initialize_if_missing_with_extra_functions(
+    pool: &SqlitePool,
+    system_language: AppLanguage,
+    extra_functions_enabled: bool,
+) -> Result<(), String> {
     let _guard = general_settings_write_lock().lock().await;
     let value = repositories::get_setting(pool, GENERAL_SETTINGS_KEY)
         .await
@@ -157,6 +169,7 @@ pub async fn initialize_if_missing(
     if value.is_none() {
         let settings = GeneralSettings {
             language: system_language,
+            extra_functions_enabled,
             ..GeneralSettings::default()
         };
         save(pool, &settings).await?;
@@ -194,6 +207,7 @@ pub async fn save_general_preferences(
     authored_notifications_enabled: bool,
     task_tracker_notifications_enabled: bool,
     ai_response_language: AiResponseLanguage,
+    extra_functions_enabled: bool,
 ) -> Result<(), String> {
     update(pool, |settings| {
         settings.notifications_enabled = notifications_enabled;
@@ -201,6 +215,7 @@ pub async fn save_general_preferences(
         settings.authored_notifications_enabled = authored_notifications_enabled;
         settings.task_tracker_notifications_enabled = task_tracker_notifications_enabled;
         settings.ai_response_language = ai_response_language;
+        settings.extra_functions_enabled = extra_functions_enabled;
     })
     .await
 }
@@ -240,6 +255,7 @@ pub async fn dto<R: Runtime>(
         ai_response_language: settings.ai_response_language,
         theme_preference: settings.theme_preference,
         button_style: settings.button_style,
+        extra_functions_enabled: settings.extra_functions_enabled,
         notification_permission,
         permission_check_error,
     })
@@ -314,9 +330,10 @@ pub fn open_notification_settings() -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::{
-        initialize_if_missing, load, save_appearance_preferences, save_button_style,
-        save_general_preferences, AiResponseLanguage, AppLanguage, ButtonStyle, GeneralSettings,
-        NotificationTestKind, ThemePreference,
+        initialize_if_missing, initialize_if_missing_with_extra_functions, load,
+        save_appearance_preferences, save_button_style, save_general_preferences,
+        AiResponseLanguage, AppLanguage, ButtonStyle, GeneralSettings, NotificationTestKind,
+        ThemePreference,
     };
     use sqlx::sqlite::SqlitePoolOptions;
 
@@ -337,6 +354,7 @@ mod tests {
         assert_eq!(settings.ai_response_language, AiResponseLanguage::SameAsUi);
         assert_eq!(settings.theme_preference, ThemePreference::System);
         assert_eq!(settings.button_style, ButtonStyle::Filled);
+        assert!(!settings.extra_functions_enabled);
     }
 
     #[test]
@@ -358,7 +376,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn initializes_missing_settings_from_the_system_language_once() {
+    async fn initializes_mock_extra_functions_and_system_language_once() {
         let pool = SqlitePoolOptions::new()
             .max_connections(1)
             .connect("sqlite::memory:")
@@ -377,14 +395,16 @@ mod tests {
         .await
         .unwrap();
 
-        initialize_if_missing(&pool, AppLanguage::Russian)
+        initialize_if_missing_with_extra_functions(&pool, AppLanguage::Russian, true)
             .await
             .unwrap();
         initialize_if_missing(&pool, AppLanguage::English)
             .await
             .unwrap();
 
-        assert_eq!(load(&pool).await.unwrap().language, AppLanguage::Russian);
+        let settings = load(&pool).await.unwrap();
+        assert_eq!(settings.language, AppLanguage::Russian);
+        assert!(settings.extra_functions_enabled);
     }
 
     #[tokio::test]
@@ -418,6 +438,7 @@ mod tests {
             true,
             false,
             AiResponseLanguage::Russian,
+            true,
         )
         .await
         .unwrap();
@@ -431,5 +452,6 @@ mod tests {
         assert!(!settings.review_notifications_enabled);
         assert!(settings.authored_notifications_enabled);
         assert!(!settings.task_tracker_notifications_enabled);
+        assert!(settings.extra_functions_enabled);
     }
 }

@@ -817,6 +817,7 @@ mod tests {
             fast_mode: false,
             task_creation: None,
             pull_request_review: None,
+            token_burner: None,
         };
 
         let (draft, usage) = super::execute_draft_in_workspace_with_usage(
@@ -877,6 +878,7 @@ mod tests {
             fast_mode: false,
             task_creation: None,
             pull_request_review: None,
+            token_burner: None,
         };
         let (draft, usage) = super::execute_draft_in_workspace_with_usage(
             &settings,

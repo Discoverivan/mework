@@ -9,6 +9,7 @@ import { SettingsPage } from "../features/settings/SettingsPage";
 import { ApplicationInfoPage } from "../features/settings/ApplicationInfoPage";
 import { StatisticsPage } from "../features/settings/statistics/StatisticsPage";
 import { ConfluenceSearchPage } from "../features/confluence/ConfluenceSearchPage";
+import { TokenBurnerPage } from "../features/token-burner/TokenBurnerPage";
 
 export type AppRoute =
   | "product-create-task"
@@ -24,16 +25,18 @@ export type AppRoute =
   | "settings-ai"
   | "settings-integrations"
   | "settings-projects"
-  | "settings-statistics";
+  | "settings-statistics"
+  | "developer-model-testing";
 
 interface AppRoutesProps {
   route: AppRoute;
   updateCheckRequest?: number;
   mockMode?: boolean;
+  modelTestingEnabled?: boolean;
   version?: string;
 }
 
-export function AppRoutes({ route, updateCheckRequest = 0, mockMode = false, version }: AppRoutesProps) {
+export function AppRoutes({ route, updateCheckRequest = 0, mockMode = false, modelTestingEnabled = false, version }: AppRoutesProps) {
   if (mockMode) {
     if (route === "product-task-tracker") return <TaskTrackerPage mockMode />;
     if (route === "developer-pull-requests") return <MyPullRequestsPage />;
@@ -94,11 +97,18 @@ export function AppRoutes({ route, updateCheckRequest = 0, mockMode = false, ver
     );
   }
   if (route === "developer-command-board") return <CommandBoardPage />;
+  if (route === "developer-model-testing") {
+    return modelTestingEnabled ? <TokenBurnerPage /> : <SettingsPage section="general" />;
+  }
   if (route === "settings-application-info") return <ApplicationInfoPage version={version} updateCheckRequest={updateCheckRequest} />;
   if (route === "settings-statistics") return <StatisticsPage />;
   if (route === "settings-general" || route === "settings-ai" || route === "settings-integrations" || route === "settings-projects") {
     const section = route === "settings-general" ? "general" : route === "settings-ai" ? "ai" : route === "settings-projects" ? "projects" : "integrations";
-    return <SettingsPage section={section} />;
+    const focusActivity = typeof window !== "undefined"
+      && new URLSearchParams(window.location.hash.split("?")[1] ?? "").get("focus") === "token-burner"
+      ? "token-burner"
+      : undefined;
+    return <SettingsPage section={section} focusActivity={focusActivity} />;
   }
 
   return <SettingsPage section="integrations" />;
