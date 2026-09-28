@@ -428,11 +428,11 @@ fn make_bitbucket_client(
     token: String,
     allow_insecure_tls: bool,
 ) -> Result<BitbucketDcClient, String> {
-    let mut builder = reqwest::Client::builder().timeout(Duration::from_secs(30));
     if allow_insecure_tls {
-        builder = builder.danger_accept_invalid_certs(true);
+        return Err("Model-testing requires a valid Bitbucket TLS certificate".to_owned());
     }
-    let http = builder
+    let http = reqwest::Client::builder()
+        .timeout(Duration::from_secs(30))
         .build()
         .map_err(|_| "Bitbucket transport is unavailable".to_owned())?;
     BitbucketDcClient::with_bearer_token_and_client(base_url, token, http)
@@ -1447,6 +1447,18 @@ mod tests {
             .await
             .unwrap();
         assert!(!reserve_request_budget(&pool, "second", 500).await.unwrap());
+    }
+
+    #[test]
+    fn rejects_bitbucket_integrations_with_insecure_tls_for_model_testing() {
+        let error = make_bitbucket_client(
+            "https://bitbucket.example.invalid",
+            "synthetic-token".to_owned(),
+            true,
+        )
+        .err()
+        .unwrap();
+        assert!(error.contains("valid Bitbucket TLS certificate"));
     }
 
     #[test]
