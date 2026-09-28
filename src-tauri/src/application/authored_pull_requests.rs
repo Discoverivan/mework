@@ -13,7 +13,7 @@ use crate::application::developer::{
 use crate::application::developer_review;
 use crate::domain::models::{IntegrationHealthStatus, IntegrationKind};
 use crate::infrastructure::credentials::keyring::{
-    CredentialStore, OsKeyring, DEV_KEYRING_SERVICE, PRODUCTION_KEYRING_SERVICE,
+    integration_credential_store, DEV_KEYRING_SERVICE, PRODUCTION_KEYRING_SERVICE,
 };
 use crate::infrastructure::db::repositories;
 use crate::infrastructure::integrations::bitbucket_dc::client::BitbucketDcClient;
@@ -100,7 +100,7 @@ pub async fn sync_authored_pull_requests_with_notifications(
     let mut all_values = Vec::new();
     let mut notifications = Vec::new();
 
-    let keyring = OsKeyring::new(KEYRING_SERVICE);
+    let keyring = integration_credential_store(KEYRING_SERVICE);
 
     for integration in integrations.into_iter().filter(|value| {
         value.kind == IntegrationKind::Bitbucket

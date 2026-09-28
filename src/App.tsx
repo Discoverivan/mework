@@ -13,6 +13,7 @@ import { listTaskTrackerMonitors } from "@/shared/contracts/task-tracker";
 import type { TaskTrackerMonitor } from "@/shared/contracts/task-tracker";
 import { countUnreadTaskTrackerIssues, loadTaskTrackerReadCheckpoints, type TaskTrackerReadCheckpoints } from "./features/product/task-tracker-read-state";
 import { refreshAllIntegrationsHealth } from "./features/settings/api";
+import { generalSettings } from "./features/settings/general/api";
 import { I18nProvider } from "@/i18n/I18nProvider";
 import { useI18n } from "@/i18n/context";
 import { APP_EVENT, emitAppEvent, subscribeAppEvent } from "@/app/app-events";
@@ -33,9 +34,10 @@ function routeFromHash(hash: string): AppRoute {
   if (hash === "#developer/pull-requests") return "developer-pull-requests";
   if (hash === "#developer/my-pull-requests") return "developer-my-pull-requests";
   if (hash === "#developer/command-board") return "developer-command-board";
+  if (hash === "#developer/model-testing") return "developer-model-testing";
   if (hash === "#settings/general") return "settings-general";
   if (hash === "#settings/application-info") return "settings-application-info";
-  if (hash === "#settings/ai") return "settings-ai";
+  if (hash === "#settings/ai" || hash.startsWith("#settings/ai?")) return "settings-ai";
   if (hash === "#settings/projects") return "settings-projects";
   if (hash === "#settings/statistics") return "settings-statistics";
   if (hash === "#settings" || hash === "#settings/integrations") return "settings-integrations";
@@ -52,6 +54,8 @@ function AppContent() {
   const [ready, setReady] = useState(false);
   const [mockMode, setMockMode] = useState(false);
   const [mockModeLoaded, setMockModeLoaded] = useState(false);
+  const [modelTestingEnabled, setModelTestingEnabled] = useState(false);
+  const [modelTestingPreferenceLoaded, setModelTestingPreferenceLoaded] = useState(false);
   const [unreadPullRequestCount, setUnreadPullRequestCount] = useState(0);
   const [unreadAuthoredPullRequestCount, setUnreadAuthoredPullRequestCount] = useState(0);
   const [taskTrackerMonitors, setTaskTrackerMonitors] = useState<TaskTrackerMonitor[]>([]);
@@ -124,7 +128,15 @@ function AppContent() {
           // Browser-only development falls back to the normal integration flow.
         }
       }
+      let modelTestingPreference = false;
+      try {
+        modelTestingPreference = (await generalSettings()).extraFunctionsEnabled;
+      } catch {
+        // Keep optional developer features hidden if settings could not be loaded.
+      }
       if (!active) return;
+      setModelTestingEnabled(modelTestingPreference);
+      setModelTestingPreferenceLoaded(true);
       setMockMode(isMockMode);
       setMockModeLoaded(true);
       if (isMockMode) {
@@ -239,6 +251,19 @@ function AppContent() {
     return () => window.removeEventListener("hashchange", onHashChange);
   }, []);
 
+  useEffect(() => subscribeAppEvent(
+    APP_EVENT.extraFunctionsEnabledChanged,
+    setModelTestingEnabled,
+  ), []);
+
+  useEffect(() => {
+    if (!modelTestingPreferenceLoaded || route !== "developer-model-testing" || modelTestingEnabled) return;
+    setRoute("settings-general");
+    if (window.location.hash !== "#settings/general") {
+      window.location.hash = "#settings/general";
+    }
+  }, [modelTestingEnabled, modelTestingPreferenceLoaded, route]);
+
   useEffect(() => {
     if (route !== "settings-application-info" || !pendingUpdateCheck) return;
     setPendingUpdateCheck(false);
@@ -278,8 +303,15 @@ function AppContent() {
           unreadPullRequestCount={unreadPullRequestCount}
           unreadAuthoredPullRequestCount={unreadAuthoredPullRequestCount}
           unreadTaskTrackerCount={unreadTaskTrackerCount}
+          modelTestingEnabled={modelTestingEnabled}
         >
-          <AppRoutes route={route} updateCheckRequest={updateCheckRequest} mockMode={mockMode} version={appVersion} />
+          <AppRoutes
+            route={route}
+            updateCheckRequest={updateCheckRequest}
+            mockMode={mockMode}
+            modelTestingEnabled={modelTestingEnabled}
+            version={appVersion}
+          />
         </AppShell>
       ) : null}
       {import.meta.env.DEV && mockMode ? <DevOverlay /> : null}

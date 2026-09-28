@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 use crate::application::developer_review::{self, PullRequestReviewDto};
 use crate::domain::models::{IntegrationHealthStatus, IntegrationKind};
 use crate::infrastructure::credentials::keyring::{
-    CredentialStore, OsKeyring, DEV_KEYRING_SERVICE, PRODUCTION_KEYRING_SERVICE,
+    integration_credential_store, DEV_KEYRING_SERVICE, PRODUCTION_KEYRING_SERVICE,
 };
 use crate::infrastructure::db::repositories;
 use crate::infrastructure::integrations::bitbucket_dc::client::{
@@ -351,7 +351,7 @@ pub async fn search_bitbucket_repositories(
             false,
         )
     })?;
-    let keyring = OsKeyring::new(KEYRING_SERVICE);
+    let keyring = integration_credential_store(KEYRING_SERVICE);
     let mut result = Vec::new();
     let mut seen = std::collections::HashSet::new();
 
@@ -428,7 +428,7 @@ pub async fn search_bitbucket_users(
             false,
         )
     })?;
-    let keyring = OsKeyring::new(KEYRING_SERVICE);
+    let keyring = integration_credential_store(KEYRING_SERVICE);
     let mut result = Vec::new();
     let mut seen = std::collections::HashSet::new();
 
@@ -531,7 +531,7 @@ pub async fn pull_request_diff(
                 false,
             )
         })?;
-    let keyring = OsKeyring::new(KEYRING_SERVICE);
+    let keyring = integration_credential_store(KEYRING_SERVICE);
     let secret = keyring.load(&integration.credential_ref).map_err(|_| {
         command_error(
             "missing_credential",
@@ -643,7 +643,7 @@ pub async fn sync_my_pull_requests_with_notifications(
             }
         }
     }
-    let keyring = OsKeyring::new(KEYRING_SERVICE);
+    let keyring = integration_credential_store(KEYRING_SERVICE);
     let mut all_values = Vec::new();
     let mut notifications = Vec::new();
 
@@ -948,7 +948,7 @@ async fn bitbucket_action_context(
                 false,
             )
         })?;
-    let keyring = OsKeyring::new(KEYRING_SERVICE);
+    let keyring = integration_credential_store(KEYRING_SERVICE);
     let secret = keyring.load(&integration.credential_ref).map_err(|_| {
         command_error(
             "missing_credential",

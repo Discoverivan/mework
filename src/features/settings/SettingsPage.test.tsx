@@ -355,6 +355,41 @@ describe("SettingsPage integrations smoke tests", () => {
     await waitFor(() => expect(addAiCliProviderMock).toHaveBeenCalledWith("codex-cli"));
   });
 
+  it("opens and saves the Model-testing CLI override independently of the default AI provider", async () => {
+    const settings = {
+      provider: null,
+      model: "",
+      reasoning: "medium" as const,
+      fastMode: false,
+      taskCreation: null,
+      pullRequestReview: null,
+      tokenBurner: null,
+    };
+    getAiSettingsMock.mockResolvedValue({
+      settings,
+      providers: [{
+        id: "codex-cli",
+        name: "Codex CLI",
+        status: "connected",
+        available: true,
+        models: ["example-codex-model"],
+      }],
+    });
+    render(<SettingsPage section="ai" focusActivity="token-burner" />);
+
+    await screen.findByRole("heading", { name: "AI settings" });
+    expect(screen.getByRole("heading", { name: "Model-testing" })).toBeInTheDocument();
+    const overrides = screen.getByText("Activity-specific settings").closest("details");
+    expect(overrides).toHaveAttribute("open");
+    fireEvent.click(screen.getByRole("combobox", { name: "Model-testing provider" }));
+    fireEvent.click(screen.getByRole("option", { name: /Codex CLI/ }));
+
+    await waitFor(() => expect(saveAiSettingsMock).toHaveBeenCalledWith(expect.objectContaining({
+      provider: null,
+      tokenBurner: expect.objectContaining({ provider: "codex-cli", model: "example-codex-model" }),
+    })));
+  });
+
   it("keeps safe OpenAI-compatible authorization errors readable", async () => {
     getAiSettingsMock.mockResolvedValue({
       ...codexAiSettings,

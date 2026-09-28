@@ -6,14 +6,17 @@ describe("AppShell product navigation", () => {
   it("renders the available destinations with icons and no removed sections", () => {
     const onThemeChange = vi.fn();
     render(
-      <AppShell themePreference="system" onThemeChange={onThemeChange} version="0.1.9" activeSection="developer-pull-requests" unreadPullRequestCount={3} unreadAuthoredPullRequestCount={5}>
+      <AppShell themePreference="system" onThemeChange={onThemeChange} version="0.1.9" activeSection="developer-pull-requests" unreadPullRequestCount={3} unreadAuthoredPullRequestCount={5} modelTestingEnabled>
         <div>Content</div>
       </AppShell>,
     );
 
     expect(document.querySelector(".app-brand img")).toHaveAttribute("src", "/mework-icon.png");
-    expect(document.querySelectorAll("nav a svg")).toHaveLength(13);
+    expect(document.querySelectorAll("nav a svg")).toHaveLength(14);
     expect(screen.getByText("Product")).toBeInTheDocument();
+    const tokenBurnerLink = screen.getByRole("link", { name: "Model-testing" });
+    expect(tokenBurnerLink).toHaveAttribute("href", "#developer/model-testing");
+    expect(tokenBurnerLink.querySelector("svg.lucide-flask-conical")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Create task" })).toHaveAttribute("href", "#product/create-task");
     expect(screen.getByRole("link", { name: "Task tracker" })).toHaveAttribute("href", "#product/task-tracker");
     expect(screen.getByRole("link", { name: "Sprint tasks" })).toHaveAttribute("href", "#product/daily");
@@ -48,6 +51,11 @@ describe("AppShell product navigation", () => {
     fireEvent.click(themePicker);
     fireEvent.click(screen.getByRole("option", { name: "Dark" }));
     expect(onThemeChange).toHaveBeenCalledWith("dark");
+  });
+
+  it("hides optional model testing from Developer by default", () => {
+    render(<AppShell onThemeChange={vi.fn()}><div>Content</div></AppShell>);
+    expect(screen.queryByRole("link", { name: "Model-testing" })).not.toBeInTheDocument();
   });
 
   it("opens About mework from the version and marks an available update", () => {

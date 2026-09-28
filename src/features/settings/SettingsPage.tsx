@@ -176,6 +176,7 @@ const DEFAULT_AI_SETTINGS: AiSettings = {
   model: "",
   reasoning: "medium",
   fastMode: false,
+  tokenBurner: null,
 };
 
 const INITIAL_AI_DATA: AiSettingsPageData = { settings: DEFAULT_AI_SETTINGS, providers: [] };
@@ -299,9 +300,10 @@ export type SettingsSection = "general" | "ai" | "integrations" | "projects";
 
 interface SettingsPageProps {
   section?: SettingsSection;
+  focusActivity?: "token-burner";
 }
 
-export function SettingsPage({ section = "integrations" }: SettingsPageProps) {
+export function SettingsPage({ section = "integrations", focusActivity }: SettingsPageProps) {
   const { t } = useI18n();
   const [integrations, setIntegrations] = useState<IntegrationRedacted[]>([]);
   const [aiData, setAiData] = useState<AiSettingsPageData>(INITIAL_AI_DATA);
@@ -516,8 +518,29 @@ export function SettingsPage({ section = "integrations" }: SettingsPageProps) {
       && aiDraft.reasoning === aiData.settings.reasoning
       && aiDraft.fastMode === aiData.settings.fastMode
       && JSON.stringify(aiDraft.taskCreation ?? null) === JSON.stringify(aiData.settings.taskCreation ?? null)
-      && JSON.stringify(aiDraft.pullRequestReview ?? null) === JSON.stringify(aiData.settings.pullRequestReview ?? null);
-    if (unchanged || !aiDraft.provider || !aiReady || aiDeleting) return;
+      && JSON.stringify(aiDraft.pullRequestReview ?? null) === JSON.stringify(aiData.settings.pullRequestReview ?? null)
+      && JSON.stringify(aiDraft.tokenBurner ?? null) === JSON.stringify(aiData.settings.tokenBurner ?? null);
+    const defaultSettingsUnchanged = aiDraft.provider === aiData.settings.provider
+      && (aiDraft.providerInstanceId ?? null) === (aiData.settings.providerInstanceId ?? null)
+      && aiDraft.model === aiData.settings.model
+      && aiDraft.reasoning === aiData.settings.reasoning
+      && aiDraft.fastMode === aiData.settings.fastMode;
+    const profileChanges = [
+      [aiDraft.taskCreation, aiData.settings.taskCreation],
+      [aiDraft.pullRequestReview, aiData.settings.pullRequestReview],
+      [aiDraft.tokenBurner, aiData.settings.tokenBurner],
+    ] as const;
+    const changedProfilesReady = profileChanges.some(([draft, saved]) =>
+      JSON.stringify(draft ?? null) !== JSON.stringify(saved ?? null))
+      && profileChanges.every(([draft, saved]) => {
+        if (JSON.stringify(draft ?? null) === JSON.stringify(saved ?? null) || !draft) return true;
+        const provider = aiData.providers.find((candidate) => candidate.id === draft.provider
+          && (candidate.id !== "openai-compatible" || (candidate.instanceId ?? "legacy") === (draft.providerInstanceId ?? "legacy")));
+        return aiProviderReady(provider, draft.model);
+      });
+    const canSave = (Boolean(aiDraft.provider) && aiReady)
+      || (defaultSettingsUnchanged && changedProfilesReady);
+    if (unchanged || !canSave || aiDeleting) return;
 
     const timer = window.setTimeout(() => {
       setAiSaving(true);
@@ -594,7 +617,7 @@ export function SettingsPage({ section = "integrations" }: SettingsPageProps) {
     setAiError(null);
   }
 
-  function updateAiProfile(field: "taskCreation" | "pullRequestReview", profile: AiSettingsProfile | null) {
+  function updateAiProfile(field: "taskCreation" | "pullRequestReview" | "tokenBurner", profile: AiSettingsProfile | null) {
     updateAiSetting(field, profile);
   }
 
@@ -937,7 +960,7 @@ export function SettingsPage({ section = "integrations" }: SettingsPageProps) {
             </CardHeader>
           </Card>
 
-          <details className="rounded-md border bg-card px-4 py-3">
+          <details open={focusActivity === "token-burner" || undefined} className="rounded-md border bg-card px-4 py-3">
             <summary className="cursor-pointer text-sm font-medium">{t("settings.ai.overridesTitle")}</summary>
             <p className="mt-2 text-sm text-muted-foreground">{t("settings.ai.overridesDescription")}</p>
             <div className="mt-4 flex flex-col gap-4">
@@ -972,6 +995,24 @@ export function SettingsPage({ section = "integrations" }: SettingsPageProps) {
                   noModelsLabel={t("settings.ai.noModels", { provider: t("settings.ai.selectedProvider") })}
                   unavailableLabel={t("settings.ai.unavailableSuffix")}
                   onChange={(profile) => updateAiProfile("pullRequestReview", profile)}
+                  disabled={aiData === null || aiLoading || aiSaving}
+                />
+              </section>
+              <section className="flex flex-col gap-2" aria-label={t("settings.ai.tokenBurner")}>
+                <h3 className="text-sm font-medium">{t("settings.ai.tokenBurner")}</h3>
+                <p className="text-sm text-muted-foreground">{t("settings.ai.tokenBurnerHint")}</p>
+                <AiOverrideEditor
+                  idPrefix="ai-token-burner"
+                  profile={aiDraft.tokenBurner}
+                  providers={aiData.providers}
+                  inheritedLabel={t("settings.ai.inheritDefault")}
+                  providerLabel={t("settings.ai.tokenBurnerProvider")}
+                  modelLabel={t("settings.ai.tokenBurnerModel")}
+                  reasoningLabel={t("settings.ai.reviewReasoning")}
+                  fastModeLabel={t("settings.ai.reviewFastMode")}
+                  noModelsLabel={t("settings.ai.noModels", { provider: t("settings.ai.selectedProvider") })}
+                  unavailableLabel={t("settings.ai.unavailableSuffix")}
+                  onChange={(profile) => updateAiProfile("tokenBurner", profile)}
                   disabled={aiData === null || aiLoading || aiSaving}
                 />
               </section>

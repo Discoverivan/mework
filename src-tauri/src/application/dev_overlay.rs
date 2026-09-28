@@ -1,4 +1,4 @@
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 use serde::Serialize;
 use serde_json::json;
@@ -27,6 +27,13 @@ use sqlx::SqlitePool;
 
 pub const MOCK_INTEGRATION_ID: &str = "mock-bitbucket";
 
+#[derive(Debug, Clone)]
+pub struct MockIntegrationUrls {
+    pub jira: String,
+    pub bitbucket: String,
+    pub confluence: String,
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DevOverlaySnapshot {
@@ -35,10 +42,10 @@ pub struct DevOverlaySnapshot {
     pub authored_pull_requests: MyPullRequestsPageDto,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct DevMockMode {
     enabled: bool,
-    scenario: Mutex<Scenario>,
+    scenario: Arc<Mutex<Scenario>>,
 }
 
 #[derive(Debug, Clone)]
@@ -53,7 +60,7 @@ impl DevMockMode {
     pub fn new(enabled: bool) -> Self {
         Self {
             enabled,
-            scenario: Mutex::new(Scenario::default()),
+            scenario: Arc::new(Mutex::new(Scenario::default())),
         }
     }
 
@@ -85,7 +92,7 @@ impl DevMockMode {
                 "mock-jira",
                 IntegrationKind::Jira,
                 "https://jira.example.invalid",
-                json!({ "deployment": "data_center" }),
+                json!({ "deployment": "cloud" }),
             ),
             (
                 "mock-bitbucket",
@@ -889,13 +896,23 @@ async fn seed_mock_task_tracker(pool: &SqlitePool) -> Result<(), String> {
     Ok(())
 }
 
-pub async fn seed_mock_settings(pool: &SqlitePool) -> Result<(), String> {
+pub async fn seed_mock_settings(
+    pool: &SqlitePool,
+    mock_urls: Option<&MockIntegrationUrls>,
+) -> Result<(), String> {
     let mode = DevMockMode::new(true);
     for fixture in mode.mock_integrations()? {
+        let base_url = mock_urls
+            .map(|urls| match fixture.kind {
+                IntegrationKind::Jira => urls.jira.clone(),
+                IntegrationKind::Bitbucket => urls.bitbucket.clone(),
+                IntegrationKind::Confluence => urls.confluence.clone(),
+            })
+            .unwrap_or_else(|| fixture.base_url.clone());
         let integration = Integration {
             id: fixture.id,
             kind: fixture.kind,
-            base_url: fixture.base_url,
+            base_url,
             account_key: fixture.account_key,
             credential_ref: fixture.credential_ref,
             enabled: fixture.enabled,
@@ -913,6 +930,56 @@ pub async fn seed_mock_settings(pool: &SqlitePool) -> Result<(), String> {
         repositories::insert_integration(pool, &integration)
             .await
             .map_err(|_| "failed to seed mock integration settings".to_owned())?;
+    }
+    let managed_project = mode
+        .mock_managed_projects()?
+        .into_iter()
+        .next()
+        .ok_or_else(|| "mock managed project fixture is missing".to_owned())?;
+    crate::application::planning::save_managed_project(
+        pool,
+        crate::application::planning::ManagedProjectRequest {
+            id: Some(managed_project.id.clone()),
+            integration_id: managed_project.integration_id,
+            jira_project_id: managed_project.project_id,
+            jira_project_key: managed_project.project_key,
+            jira_project_name: managed_project.project_name,
+            confluence_space: managed_project.confluence_space,
+            board_id: managed_project.board_id,
+            source_sprint_id: managed_project.source_sprint_id,
+            source_sprint_name: managed_project.source_sprint_name,
+            story_points_field_id: managed_project.story_points_field_id,
+            competency_field_id: managed_project.competency_field_id,
+            subtask_issue_type_id: managed_project.subtask_issue_type_id,
+            default_team_preset_id: managed_project.default_team_preset_id,
+            default_task_sprint_id: managed_project.default_task_sprint_id,
+            default_task_sprint_name: managed_project.default_task_sprint_name,
+            default_epic_link_key: managed_project.default_epic_link_key,
+            default_epic_link_summary: managed_project.default_epic_link_summary,
+            epic_link_jql: managed_project.epic_link_jql,
+            enabled: managed_project.enabled,
+        },
+    )
+    .await
+    .map_err(|_| "failed to seed mock managed project".to_owned())?;
+    for member in mode.mock_team_members()? {
+        crate::application::planning::add_team_member(
+            pool,
+            crate::application::planning::TeamMemberAddRequest {
+                managed_project_id: managed_project.id.clone(),
+                account_id: member.account_id,
+                display_name: member.display_name,
+                alias: member.alias,
+                avatar_url: member.avatar_url,
+                role: member
+                    .tags
+                    .first()
+                    .cloned()
+                    .unwrap_or_else(|| "example".to_owned()),
+            },
+        )
+        .await
+        .map_err(|_| "failed to seed mock planning team".to_owned())?;
     }
     repositories::upsert_setting(
         pool,
@@ -956,11 +1023,34 @@ mod tests {
     #[tokio::test]
     async fn startup_seed_writes_mock_integrations_to_the_database() {
         let temp_dir = tempfile::tempdir().expect("temporary mock app data");
+        let regular_pool = open_database(&temp_dir.path().join("mework.sqlite"))
+            .await
+            .expect("regular development database");
+        repositories::upsert_setting(
+            &regular_pool,
+            "ai.settings",
+            r#"{"provider":"codex-cli","model":"example-model"}"#,
+            1,
+        )
+        .await
+        .expect("save regular development AI setting");
+        let regular_ai_settings = repositories::get_setting(&regular_pool, "ai.settings")
+            .await
+            .expect("read regular development AI setting");
+        drop(regular_pool);
+
         let pool = open_database(&temp_dir.path().join("mework-mock.sqlite"))
             .await
             .expect("mock database migrations");
 
-        seed_mock_settings(&pool).await.expect("seed mock settings");
+        let mock_urls = super::MockIntegrationUrls {
+            jira: "http://127.0.0.1:43210/jira/".to_owned(),
+            bitbucket: "http://127.0.0.1:43210/bitbucket/".to_owned(),
+            confluence: "http://127.0.0.1:43210/confluence/".to_owned(),
+        };
+        seed_mock_settings(&pool, Some(&mock_urls))
+            .await
+            .expect("seed mock settings");
 
         let integrations = repositories::list_integrations(&pool)
             .await
@@ -973,13 +1063,39 @@ mod tests {
             ids,
             ["mock-jira", "mock-bitbucket", "mock-confluence"].into()
         );
-        assert!(integrations
-            .iter()
-            .all(|integration| integration.base_url.ends_with(".example.invalid")));
+        assert_eq!(
+            integrations
+                .iter()
+                .map(|integration| integration.base_url.as_str())
+                .collect::<std::collections::HashSet<_>>(),
+            [
+                mock_urls.jira.as_str(),
+                mock_urls.bitbucket.as_str(),
+                mock_urls.confluence.as_str(),
+            ]
+            .into()
+        );
         let settings = repositories::get_setting(&pool, "dev.mock.settings")
             .await
             .expect("read mock settings");
         assert!(settings.unwrap().contains("synthetic"));
+        assert!(repositories::get_setting(&pool, "ai.settings")
+            .await
+            .expect("mock AI settings before CLI detection")
+            .is_none());
+        assert!(repositories::get_setting(&pool, "ai.openai-compatible")
+            .await
+            .expect("mock API providers")
+            .is_none());
+        let regular_pool = open_database(&temp_dir.path().join("mework.sqlite"))
+            .await
+            .expect("reopen regular development database");
+        assert_eq!(
+            repositories::get_setting(&regular_pool, "ai.settings")
+                .await
+                .expect("regular AI settings remain intact"),
+            regular_ai_settings
+        );
 
         let monitors = crate::application::task_tracker::list_monitors(&pool)
             .await
@@ -1001,7 +1117,9 @@ mod tests {
         let pool = open_database(&temp_dir.path().join("mework-mock.sqlite"))
             .await
             .expect("mock database migrations");
-        seed_mock_settings(&pool).await.expect("seed mock settings");
+        seed_mock_settings(&pool, None)
+            .await
+            .expect("seed mock settings");
         let mode = DevMockMode::new(true);
 
         let snapshot = mode
