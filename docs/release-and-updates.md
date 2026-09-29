@@ -50,6 +50,32 @@ https://github.com/<owner>/<repository>/releases/latest/download/latest.json
 
 If a local signed build is needed, replace the endpoint in `src-tauri/tauri.conf.json` with the real repository URL before building.
 
+## Release notes and first launch after an update
+
+For each application PR, put notes under `## Release notes` in its description. The primary format is Markdown between `<!-- release-notes:<lang> -->` and `<!-- /release-notes:<lang> -->` markers on separate lines. Language codes are not limited to English and Russian. For example:
+
+```markdown
+## Release notes
+
+<!-- release-notes:en -->
+### Added
+
+- A new way to browse earlier releases.
+<!-- /release-notes:en -->
+
+<!-- release-notes:ru -->
+### Добавлено
+
+- Появился просмотр предыдущих релизов.
+<!-- /release-notes:ru -->
+```
+
+As an alternative, attach a `release-notes.<lang>.md` file through GitHub and put its generated Markdown link alone inside the matching language block instead of inline text. Links outside `## Release notes` or outside the matching language block are ignored. When both inline text and a file link appear in one block, inline text takes precedence. Use only nonempty sections from Added, Changed, Fixed, and Removed (translated for each language); do not add separators or repeat the version heading. Category headings inside the PR use `###`; the workflow lifts them to `##` in standalone assets. Attached files use `##` directly. Do not commit source notes to the repository. After the PR is merged into `master`, the workflow reads its description and uploads the notes as `release-notes.<lang>.md` assets. The English note, when present, becomes the release description. Missing notes do not block publication: the description is then an English placeholder, and notes can be added to the published release later. A manual workflow run also publishes without PR notes. `latest.json` remains Tauri Updater's version, download URL, and signature manifest; the in-app notes dialog reads GitHub Releases. The application does not bundle a release-note catalog.
+
+The Rust core reads published GitHub Releases through the public REST API. For each release it prefers the asset matching the saved application language, then the English asset, then the English release description. The renderer receives Markdown through typed Tauri commands and renders it without raw HTML. The Rust core stores the installed version and any pending update range in `release-notes-state.json` under the application data directory. It keeps the fetched release catalog and content in separate files there; their TTL is configured in `src-tauri/release-notes-config.json` (one hour by default). Expired content is refreshed from GitHub and remains available from the cache when the network is unavailable.
+
+The first run of this scheme records the installed version without opening a window, because earlier builds did not record the version from which they were updated. On subsequent updates, the app opens the newest note in the update range after the main interface loads. The right arrow moves to an older release within that range; the left arrow returns to a newer one. Closing a successfully loaded window acknowledges the range. If loading fails, the range stays pending for another attempt. **About → Release notes** starts at the latest installed release and uses the same navigation across all available releases. Only the selected note is needed to open either window; the next two older notes are prefetched and further content is fetched as the user navigates. In `npm run tauri:dev -- --mock`, synthetic notes exercise the same UI without changing real update state.
+
 ## Version policy
 
 Application changes merged into `master` are release inputs. The source base version remains unchanged. The workflow creates the first release from that base version and then increments only the patch component from the latest `mework-vX.Y.Z` tag. Each release is represented by a matching `mework-vX.Y.Z` tag and `mework vX.Y.Z` GitHub Release. For a minor or major release, start the workflow manually with an explicit SemVer `version` input; the next automatic patch release continues from that tag.

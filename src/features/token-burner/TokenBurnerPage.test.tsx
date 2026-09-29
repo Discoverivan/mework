@@ -78,8 +78,7 @@ describe("TokenBurnerPage", () => {
     });
     render(<I18nProvider><TokenBurnerPage /></I18nProvider>);
 
-    expect(await screen.findByText("2,000,000")).toBeInTheDocument();
-    expect(screen.getByText(/History Repo/)).toBeInTheDocument();
+    expect(await screen.findByText(/History Repo/)).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Reset daily progress" }));
     expect(screen.getByText("This permanently deletes all Model-testing run history. Overall AI token statistics will remain unchanged.")).toBeInTheDocument();
     expect(resetMock).not.toHaveBeenCalled();

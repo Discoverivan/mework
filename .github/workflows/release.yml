@@ -29,6 +29,7 @@ on:
       - "vitest.config.ts"
       - "tsconfig*.json"
       - "components.json"
+      - "scripts/collect-pr-release-notes.py"
       - "rust-toolchain.toml"
 
 concurrency:
@@ -332,12 +333,18 @@ jobs:
       - publish_tauri
     permissions:
       contents: write
+      pull-requests: read
     runs-on: ubuntu-latest
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       GITHUB_REPOSITORY: ${{ github.repository }}
       RELEASE_TAG: mework-v${{ needs.prepare_release.outputs.version }}
     steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
       - name: Download updater manifest
         shell: bash
         run: gh release download "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --pattern latest.json
@@ -356,6 +363,24 @@ jobs:
           if missing:
               raise SystemExit(f"latest.json is missing required platforms: {', '.join(missing)}")
           PY
+
+      - name: Collect optional PR release notes
+        if: github.event_name == 'push'
+        run: python3 scripts/collect-pr-release-notes.py "$RUNNER_TEMP/release-notes"
+
+      - name: Add available release notes
+        shell: bash
+        run: |
+          shopt -s nullglob
+          notes=("$RUNNER_TEMP"/release-notes/release-notes.*.md)
+          if [ "${#notes[@]}" -gt 0 ]; then
+            gh release upload "$RELEASE_TAG" "${notes[@]}" --repo "$GITHUB_REPOSITORY" --clobber
+          fi
+          if [ -f "$RUNNER_TEMP/release-notes/release-notes.en.md" ]; then
+            gh release edit "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --notes-file "$RUNNER_TEMP/release-notes/release-notes.en.md"
+          else
+            gh release edit "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --notes "Release notes will be added soon."
+          fi
 
       - name: Publish release
         shell: bash
