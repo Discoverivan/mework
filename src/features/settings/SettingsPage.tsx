@@ -740,6 +740,18 @@ export function SettingsPage({ section = "integrations", focusActivity, mockMode
     }
   }
 
+  function handleCliMenuOpenChange(open: boolean) {
+    setAddAiMenuOpen(open);
+    if (open) {
+      setCliAddError(null);
+      setCliInspections({});
+    } else {
+      for (const { id } of CLI_PROVIDER_OPTIONS) {
+        cliInspectionRevisionRef.current[id] = (cliInspectionRevisionRef.current[id] ?? 0) + 1;
+      }
+    }
+  }
+
   async function handleDeleteAiProvider() {
     if (!deletingAiProvider) return;
     setAiDeleting(true);
@@ -1002,7 +1014,7 @@ export function SettingsPage({ section = "integrations", focusActivity, mockMode
                   </SelectContent>
                 </Select>
                 {selectedAiGroup === "cli" ? (
-                  <DropdownMenu open={addAiMenuOpen} onOpenChange={(open) => { setAddAiMenuOpen(open); if (open) { setCliAddError(null); setCliInspections({}); } }}>
+                  <DropdownMenu open={addAiMenuOpen} onOpenChange={handleCliMenuOpenChange}>
                     <DropdownMenuTrigger asChild>
                       <Button type="button" variant="ghost" size="icon" actionTone="add" className="ml-auto h-9 w-9 text-muted-foreground hover:bg-transparent hover:text-primary" aria-label={t("settings.aiProviders.addCli")} title={t("settings.aiProviders.addCli")} disabled={allCliAdded || addingAi}>
                         <Plus className="size-4" aria-hidden="true" />
