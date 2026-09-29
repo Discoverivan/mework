@@ -6,6 +6,7 @@ import {
   DatabaseZap,
   GitPullRequest,
   Info,
+  FlaskConical,
   Monitor,
   Settings2,
   Moon,
@@ -36,11 +37,12 @@ export type AppSection =
   | "settings-ai"
   | "settings-integrations"
   | "settings-projects"
-  | "settings-statistics";
+  | "settings-statistics"
+  | "developer-model-testing";
 
 type NavigationItem = {
   section: AppSection;
-  labelKey: "nav.createTask" | "nav.taskTracker" | "nav.sprintTasks" | "nav.confluenceSearch" | "nav.prsToReview" | "nav.yourPrs" | "nav.commandBoard" | "nav.general" | "nav.applicationInfo" | "nav.aiSettings" | "nav.dataIntegrations" | "nav.teamSettings" | "nav.statistics";
+  labelKey: "nav.createTask" | "nav.taskTracker" | "nav.sprintTasks" | "nav.confluenceSearch" | "nav.prsToReview" | "nav.yourPrs" | "nav.commandBoard" | "nav.general" | "nav.applicationInfo" | "nav.aiSettings" | "nav.dataIntegrations" | "nav.teamSettings" | "nav.statistics" | "nav.tokenBurner";
   href: string;
   icon: LucideIcon;
 };
@@ -58,6 +60,7 @@ interface AppShellProps {
   unreadPullRequestCount?: number;
   unreadAuthoredPullRequestCount?: number;
   unreadTaskTrackerCount?: number;
+  modelTestingEnabled?: boolean;
 }
 
 const productNavigation: NavigationItem[] = [
@@ -72,6 +75,13 @@ const developerNavigation: NavigationItem[] = [
   { section: "developer-my-pull-requests", labelKey: "nav.yourPrs", href: "#developer/my-pull-requests", icon: GitPullRequest },
   { section: "developer-command-board", labelKey: "nav.commandBoard", href: "#developer/command-board", icon: Command },
 ];
+
+const modelTestingNavigation: NavigationItem = {
+  section: "developer-model-testing",
+  labelKey: "nav.tokenBurner",
+  href: "#developer/model-testing",
+  icon: FlaskConical,
+};
 
 const settingsNavigation: NavigationItem[] = [
   { section: "settings-general", labelKey: "nav.general", href: "#settings/general", icon: Settings2 },
@@ -95,6 +105,7 @@ export function AppShell({
   unreadPullRequestCount = 0,
   unreadAuthoredPullRequestCount = 0,
   unreadTaskTrackerCount = 0,
+  modelTestingEnabled = false,
 }: AppShellProps) {
   const { resolvedTheme, themePreference: contextThemePreference, t } = useI18n();
   const selectedTheme = themePreference ?? contextThemePreference;
@@ -163,6 +174,7 @@ export function AppShell({
             <span id="developer-nav-title" className="settings-nav-heading">{t("nav.developer")}</span>
             <div className="settings-nav-children">
               {developerNavigation.map(renderNavigationItem)}
+              {modelTestingEnabled ? renderNavigationItem(modelTestingNavigation) : null}
             </div>
           </div>
           <div className="settings-nav-group" aria-labelledby="product-nav-title">

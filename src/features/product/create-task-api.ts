@@ -7,6 +7,13 @@ export interface TaskDraft {
   description: string;
   epicLink?: string | null;
   assignee?: string | null;
+  sources?: TaskDraftSource[];
+}
+
+export interface TaskDraftSource {
+  title: string;
+  url: string;
+  kind: "Jira" | "Confluence";
 }
 
 export interface JiraTaskMember {
@@ -23,8 +30,8 @@ export interface CreatedJiraTask {
   warning?: string;
 }
 
-export const generateTaskDraft = (prompt: string) =>
-  invoke<TaskDraft>("ai_task_draft", { request: { prompt } });
+export const generateTaskDraft = (prompt: string, existingSources: TaskDraftSource[] = []) =>
+  invoke<TaskDraft>("ai_task_draft", { request: { prompt, existingSources } });
 
 export const listJiraTaskTeamMembers = (managedProjectId: string) =>
   invoke<JiraTaskMember[]>("jira_task_team_members", { managedProjectId });

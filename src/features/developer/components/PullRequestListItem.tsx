@@ -156,6 +156,7 @@ export function PullRequestListItem({
   const review = pullRequest.review;
   const reviewRunning = reviewStarting || review?.status === "running";
   const reviewCompleted = review?.status === "completed" && review.result != null;
+  const reviewFailed = review?.status === "failed";
   const needsAction = mode === "author" && (pullRequest.needsAction || (pullRequest.reviewSummary?.needsWork ?? 0) > 0);
   const reviewSummary = pullRequest.reviewSummary ?? { approved: 0, needsWork: 0, comments: 0 };
 
@@ -239,11 +240,11 @@ export function PullRequestListItem({
               type="button"
               variant={reviewCompleted ? "default" : "outline"}
               size="sm"
-              onClick={() => reviewCompleted ? onOpenResults(pullRequest) : onStartReview(pullRequest)}
-              disabled={reviewRunning || (!reviewCompleted && !aiReviewReady)}
-              title={reviewCompleted ? undefined : !aiReviewReady ? t("pr.aiProviderRequired") : review?.status === "failed" ? review.error ?? undefined : undefined}
+              onClick={() => reviewCompleted || reviewFailed ? onOpenResults(pullRequest) : onStartReview(pullRequest)}
+              disabled={reviewRunning || (!reviewCompleted && !reviewFailed && !aiReviewReady)}
+              title={reviewCompleted || reviewFailed ? undefined : !aiReviewReady ? t("pr.aiProviderRequired") : undefined}
             >
-              {reviewRunning ? <><Loader2 aria-hidden="true" className="animate-spin" /> {t("pr.aiReviewRunning")}</> : reviewCompleted ? completedLabel ?? t("pr.reviewResults") : <><Sparkles aria-hidden="true" /> {t("pr.aiReview")}</>}
+              {reviewRunning ? <><Loader2 aria-hidden="true" className="animate-spin" /> {t("pr.aiReviewRunning")}</> : reviewFailed ? <><CircleAlert aria-hidden="true" /> {t("pr.aiReviewError")}</> : reviewCompleted ? completedLabel ?? t("pr.reviewResults") : <><Sparkles aria-hidden="true" /> {t("pr.aiReview")}</>}
             </Button>
           </div>
         </div>

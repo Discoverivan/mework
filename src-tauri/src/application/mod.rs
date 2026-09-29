@@ -14,10 +14,13 @@ pub mod general;
 pub mod inbox;
 pub mod integration_error;
 pub mod integrations;
+#[cfg(feature = "dev-mock-rest")]
+pub mod mock_rest;
 pub mod notifications;
 pub mod planning;
 pub mod polling;
 pub mod release_notes;
 pub mod task_tracker;
+pub mod token_burner;
 pub mod updates;
 pub mod workflow;

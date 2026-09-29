@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { CheckCircle2, CircleAlert, ExternalLink, Loader2, RefreshCw, Send } from "lucide-react";
 
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
@@ -154,6 +155,13 @@ export function PullRequestReviewDialog({
           </div>
         </DialogHeader>
         <DialogBody className="max-h-[70vh] space-y-5 overflow-y-auto">
+          {review?.status === "failed" ? (
+            <Alert variant="destructive">
+              <CircleAlert aria-hidden="true" />
+              <AlertTitle>{t("pr.aiReviewError")}</AlertTitle>
+              <AlertDescription className="break-words">{review.error || t("pr.dialog.unknownReviewError")}</AlertDescription>
+            </Alert>
+          ) : null}
           {result ? (
             <>
               <section aria-labelledby="ai-summary-title" className="rounded-xl border bg-muted/20 p-4">
@@ -223,6 +231,11 @@ export function PullRequestReviewDialog({
           ) : null}
         </DialogBody>
         <DialogFooter className="items-center justify-between gap-2 sm:justify-between">
+          {review?.status === "failed" ? (
+            <Button type="button" variant="outline" size="sm" onClick={() => onOpenChange(false)}>
+              {t("pr.dialog.closeError")}
+            </Button>
+          ) : null}
           <Button
             type="button"
             variant="ghost"
@@ -237,7 +250,7 @@ export function PullRequestReviewDialog({
             disabled={!pullRequest}
           >
             <RefreshCw aria-hidden="true" className="size-4" />
-            {t("pr.dialog.rerun")}
+            {t(review?.status === "failed" ? "pr.dialog.retryReview" : "pr.dialog.rerun")}
           </Button>
           {reviewerActions ? (
             <div className="flex items-center gap-2">

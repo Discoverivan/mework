@@ -1,6 +1,7 @@
 import type { AiSettingsPageData, IntegrationRedacted } from "@/shared/contracts/settings";
 import type { MyPullRequestPage, PullRequestReviewChangedEvent } from "@/shared/contracts/developer";
 import type { TaskTrackerMonitor } from "@/shared/contracts/task-tracker";
+import type { TokenBurnerSnapshot } from "@/shared/contracts/token-burner";
 import type { TaskTrackerReadStateChanged } from "@/features/product/task-tracker-read-state";
 
 export const APP_EVENT = {
@@ -14,6 +15,8 @@ export const APP_EVENT = {
   taskTrackerUpdated: "task-tracker:updated",
   taskTrackerReadStateChanged: "task-tracker:read-state-changed",
   updateAvailabilityChanged: "updates:availability-changed",
+  tokenBurnerChanged: "token-burner:changed",
+  extraFunctionsEnabledChanged: "settings:extra-functions-enabled-changed",
 } as const;
 
 interface AppEventMap {
@@ -27,6 +30,8 @@ interface AppEventMap {
   [APP_EVENT.taskTrackerUpdated]: TaskTrackerMonitor[];
   [APP_EVENT.taskTrackerReadStateChanged]: TaskTrackerReadStateChanged;
   [APP_EVENT.updateAvailabilityChanged]: string | null;
+  [APP_EVENT.tokenBurnerChanged]: TokenBurnerSnapshot;
+  [APP_EVENT.extraFunctionsEnabledChanged]: boolean;
 }
 
 type AppEventName = keyof AppEventMap;

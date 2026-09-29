@@ -1,4 +1,4 @@
-import type { DailyPresenterState, DailyWorkspace } from "@/shared/contracts/developer";
+import type { DailyIssueTransition, DailyPresenterState, DailyWorkspace } from "@/shared/contracts/developer";
 import { invoke } from "@tauri-apps/api/core";
 
 const PRESENTER_STATE_KEY = "mework.daily.presenter.state";
@@ -22,6 +22,23 @@ export const loadJiraAvatarData = (managedProjectId: string, avatarUrl: string) 
 
 export const refreshDailyWorkspace = (managedProjectId: string, sprintId: string) =>
   invoke<DailyWorkspace["subtasks"]>("daily_workspace_refresh", { managedProjectId, sprintId });
+
+export const loadDailyIssueTransitions = (managedProjectId: string, sprintId: string, issueKey: string) =>
+  invoke<DailyIssueTransition[]>("daily_issue_transitions", { managedProjectId, sprintId, issueKey });
+
+export const transitionDailyIssue = (
+  managedProjectId: string,
+  sprintId: string,
+  issueKey: string,
+  transitionId: string,
+  idempotencyKey: string,
+) => invoke<void>("daily_issue_transition", {
+  managedProjectId,
+  sprintId,
+  issueKey,
+  transitionId,
+  idempotencyKey,
+});
 
 export const openPresenterView = () => invoke<void>("open_presenter_view");
 export const closePresenterView = () => invoke<void>("close_presenter_view");

@@ -10,7 +10,8 @@ use crate::application::integrations::settings::{
     self, IntegrationDto, IntegrationSaveRequest, IntegrationSaveResult,
 };
 use crate::infrastructure::credentials::keyring::{
-    CredentialStore, OsKeyring, DEV_KEYRING_SERVICE, PRODUCTION_KEYRING_SERVICE,
+    integration_credential_store, CredentialStore, OsKeyring, DEV_KEYRING_SERVICE,
+    PRODUCTION_KEYRING_SERVICE,
 };
 use crate::infrastructure::db::repositories;
 
@@ -23,7 +24,7 @@ const KEYRING_SERVICE: &str = if cfg!(debug_assertions) {
 pub(crate) async fn credential_store(
     _state: &SqlitePool,
 ) -> Result<Box<dyn CredentialStore>, String> {
-    Ok(Box::new(OsKeyring::new(KEYRING_SERVICE)))
+    Ok(integration_credential_store(KEYRING_SERVICE))
 }
 
 pub(crate) async fn preload_all_credentials(state: &SqlitePool) -> Result<(), String> {
@@ -95,17 +96,9 @@ pub async fn integration_save(
 
 #[tauri::command]
 pub async fn integration_health_check(
-    mode: State<'_, DevMockMode>,
     state: State<'_, SqlitePool>,
     id: String,
 ) -> Result<IntegrationDto, String> {
-    if mode.is_enabled() {
-        return mode
-            .mock_integrations()?
-            .into_iter()
-            .find(|integration| integration.id == id)
-            .ok_or_else(|| "Mock integration was not found".to_owned());
-    }
     let store = credential_store(&state).await?;
     let checker = ReqwestHealthChecker::new();
     settings::refresh_integration_health(&state, store.as_ref(), &checker, &id)
@@ -115,12 +108,8 @@ pub async fn integration_health_check(
 
 #[tauri::command]
 pub async fn integration_health_check_all(
-    mode: State<'_, DevMockMode>,
     state: State<'_, SqlitePool>,
 ) -> Result<Vec<IntegrationDto>, String> {
-    if mode.is_enabled() {
-        return mode.mock_integrations();
-    }
     let store = credential_store(&state).await?;
     let checker = ReqwestHealthChecker::new();
     settings::refresh_all_integration_health(&state, store.as_ref(), &checker)

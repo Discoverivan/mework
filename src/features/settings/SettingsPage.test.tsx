@@ -33,7 +33,7 @@ const saveIntegrationMock = vi.mocked(saveIntegration);
 const saveOpenAiCompatibleProviderMock = vi.mocked(saveOpenAiCompatibleProvider);
 
 function selectAiProvider(name: string) {
-  fireEvent.click(screen.getByRole("combobox", { name: "AI provider" }));
+  fireEvent.click(screen.getByRole("combobox", { name: "Default AI provider" }));
   fireEvent.click(screen.getByRole("option", { name }));
 }
 
@@ -153,6 +153,34 @@ describe("SettingsPage integrations smoke tests", () => {
     }));
   });
 
+  it("saves an activity-specific provider and model override", async () => {
+    getAiSettingsMock.mockResolvedValue({
+      ...codexAiSettings,
+      settings: { ...codexAiSettings.settings, provider: "codex-cli" },
+      providers: [
+        ...codexAiSettings.providers,
+        { id: "claude-code-cli", name: "Claude Code CLI", status: "connected", available: true, models: ["sonnet"] },
+      ],
+    });
+    render(<SettingsPage section="ai" />);
+
+    await screen.findByRole("heading", { name: "AI settings" });
+    fireEvent.click(screen.getByText("Activity-specific settings"));
+    const providerSelector = screen.getByRole("combobox", { name: "Task creation provider" });
+    fireEvent.click(providerSelector);
+    fireEvent.click(screen.getByRole("option", { name: "Claude Code CLI" }));
+
+    await waitFor(() => expect(saveAiSettingsMock).toHaveBeenCalledWith(expect.objectContaining({
+      provider: "codex-cli",
+      taskCreation: {
+        provider: "claude-code-cli",
+        model: "sonnet",
+        reasoning: "medium",
+        fastMode: false,
+      },
+    })));
+  });
+
   it("selects the only available model when an AI provider is chosen", async () => {
     getAiSettingsMock.mockResolvedValue({
       settings: {
@@ -176,7 +204,7 @@ describe("SettingsPage integrations smoke tests", () => {
     render(<SettingsPage section="ai" />);
 
     await screen.findByRole("heading", { name: "AI settings" });
-    fireEvent.click(screen.getByRole("combobox", { name: "AI provider" }));
+    fireEvent.click(screen.getByRole("combobox", { name: "Default AI provider" }));
     const selectedOption = screen.getByRole("option", { name: "Not selected" });
     expect(selectedOption).toHaveAttribute("data-state", "checked");
     expect(selectedOption.querySelector("svg.lucide-check")).toBeNull();
@@ -301,7 +329,7 @@ describe("SettingsPage integrations smoke tests", () => {
     fireEvent.click(screen.getByRole("button", { name: "Delete" }));
     await waitFor(() => expect(deleteAiProviderMock).toHaveBeenCalledWith("openai-compatible", provider.instanceId));
     expect(await screen.findByRole("heading", { name: "No AI providers yet" })).toBeInTheDocument();
-    expect(screen.getByRole("combobox", { name: "AI provider" })).toHaveTextContent("Not selected");
+    expect(screen.getByRole("combobox", { name: "Default AI provider" })).toHaveTextContent("Not selected");
   });
 
   it("removes a CLI provider and enables adding it again", async () => {
@@ -325,6 +353,41 @@ describe("SettingsPage integrations smoke tests", () => {
     await waitFor(() => expect(screen.getByRole("button", { name: "Add" })).toBeEnabled());
     fireEvent.click(screen.getByRole("button", { name: "Add" }));
     await waitFor(() => expect(addAiCliProviderMock).toHaveBeenCalledWith("codex-cli"));
+  });
+
+  it("opens and saves the Model-testing CLI override independently of the default AI provider", async () => {
+    const settings = {
+      provider: null,
+      model: "",
+      reasoning: "medium" as const,
+      fastMode: false,
+      taskCreation: null,
+      pullRequestReview: null,
+      tokenBurner: null,
+    };
+    getAiSettingsMock.mockResolvedValue({
+      settings,
+      providers: [{
+        id: "codex-cli",
+        name: "Codex CLI",
+        status: "connected",
+        available: true,
+        models: ["example-codex-model"],
+      }],
+    });
+    render(<SettingsPage section="ai" focusActivity="token-burner" />);
+
+    await screen.findByRole("heading", { name: "AI settings" });
+    expect(screen.getByRole("heading", { name: "Model-testing" })).toBeInTheDocument();
+    const overrides = screen.getByText("Activity-specific settings").closest("details");
+    expect(overrides).toHaveAttribute("open");
+    fireEvent.click(screen.getByRole("combobox", { name: "Model-testing provider" }));
+    fireEvent.click(screen.getByRole("option", { name: /Codex CLI/ }));
+
+    await waitFor(() => expect(saveAiSettingsMock).toHaveBeenCalledWith(expect.objectContaining({
+      provider: null,
+      tokenBurner: expect.objectContaining({ provider: "codex-cli", model: "example-codex-model" }),
+    })));
   });
 
   it("keeps safe OpenAI-compatible authorization errors readable", async () => {

@@ -1,12 +1,11 @@
 use std::{
-    collections::HashMap,
     env,
     ffi::OsStr,
     fs,
     io::{BufRead, BufReader, Write},
     path::{Path, PathBuf},
     process::{ChildStdin, Command, Stdio},
-    sync::{mpsc, Mutex, OnceLock},
+    sync::{mpsc, OnceLock},
     thread,
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
@@ -125,6 +124,33 @@ pub struct AiSettings {
     pub model: String,
     pub reasoning: AiReasoning,
     pub fast_mode: bool,
+    #[serde(default)]
+    pub task_creation: Option<AiSettingsProfile>,
+    #[serde(default)]
+    pub pull_request_review: Option<AiSettingsProfile>,
+    #[serde(default)]
+    pub token_burner: Option<AiSettingsProfile>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct AiSettingsProfile {
+    pub provider: AiProviderId,
+    #[serde(default)]
+    pub provider_instance_id: Option<String>,
+    pub model: String,
+    pub reasoning: AiReasoning,
+    pub fast_mode: bool,
+}
+
+impl AiSettingsProfile {
+    fn apply_to(&self, settings: &mut AiSettings) {
+        settings.provider = Some(self.provider);
+        settings.provider_instance_id = self.provider_instance_id.clone();
+        settings.model = self.model.clone();
+        settings.reasoning = self.reasoning;
+        settings.fast_mode = self.fast_mode;
+    }
 }
 
 impl Default for AiSettings {
@@ -135,6 +161,9 @@ impl Default for AiSettings {
             model: String::new(),
             reasoning: AiReasoning::Medium,
             fast_mode: false,
+            task_creation: None,
+            pull_request_review: None,
+            token_burner: None,
         }
     }
 }
@@ -174,29 +203,45 @@ pub struct AiSettingsPageDto {
     pub providers: Vec<AiProviderDto>,
 }
 
-/// Copy only non-secret AI configuration from the regular DEV database into
-/// the disposable mock database. Credential values remain in the OS keyring.
-pub async fn copy_configuration_to_mock(
-    source: &SqlitePool,
-    destination: &SqlitePool,
-) -> Result<(), String> {
-    for (key, version) in [
-        (AI_SETTINGS_KEY, AI_SETTINGS_SCHEMA_VERSION),
-        (
-            OPENAI_COMPATIBLE_SETTINGS_KEY,
-            OPENAI_COMPATIBLE_SETTINGS_SCHEMA_VERSION,
-        ),
-    ] {
-        if let Some(value) = repositories::get_setting(source, key)
-            .await
-            .map_err(|_| "failed to read AI configuration for mock mode".to_owned())?
-        {
-            repositories::upsert_setting(destination, key, &value, version)
-                .await
-                .map_err(|_| "failed to copy AI configuration to mock mode".to_owned())?;
-        }
+pub async fn initialize_mock_cli_providers(pool: &SqlitePool) -> Result<(), String> {
+    let cli_providers = [AiProviderId::CodexCli, AiProviderId::ClaudeCodeCli];
+    let providers_json = serde_json::to_string(&cli_providers)
+        .map_err(|_| "failed to initialize mock AI providers".to_owned())?;
+    repositories::upsert_setting(pool, ADDED_CLI_PROVIDERS_KEY, &providers_json, 1)
+        .await
+        .map_err(|_| "failed to initialize mock AI providers".to_owned())?;
+
+    let providers = dto(pool).await?.providers;
+    let settings = default_mock_ai_settings(&providers);
+    let settings_json = serde_json::to_string(&settings)
+        .map_err(|_| "failed to initialize mock AI settings".to_owned())?;
+    repositories::upsert_setting(
+        pool,
+        AI_SETTINGS_KEY,
+        &settings_json,
+        AI_SETTINGS_SCHEMA_VERSION,
+    )
+    .await
+    .map_err(|_| "failed to initialize mock AI settings".to_owned())
+}
+
+fn default_mock_ai_settings(providers: &[AiProviderDto]) -> AiSettings {
+    let selected = [AiProviderId::CodexCli, AiProviderId::ClaudeCodeCli]
+        .into_iter()
+        .find_map(|id| {
+            providers.iter().find(|provider| {
+                provider.id == id
+                    && provider.available
+                    && provider.status == AiProviderStatus::Connected
+                    && !provider.models.is_empty()
+            })
+        });
+    let mut settings = AiSettings::default();
+    if let Some(provider) = selected {
+        settings.provider = Some(provider.id);
+        settings.model = provider.models[0].clone();
     }
-    Ok(())
+    settings
 }
 
 pub async fn load(pool: &SqlitePool) -> Result<AiSettings, String> {
@@ -297,9 +342,33 @@ pub async fn dto(pool: &SqlitePool) -> Result<AiSettingsPageDto, String> {
     let mut providers = Vec::new();
     let added_cli = load_added_cli_providers(pool).await?;
     let show_codex = added_cli.contains(&AiProviderId::CodexCli)
-        || settings.provider == Some(AiProviderId::CodexCli);
+        || settings.provider == Some(AiProviderId::CodexCli)
+        || settings
+            .task_creation
+            .as_ref()
+            .is_some_and(|profile| profile.provider == AiProviderId::CodexCli)
+        || settings
+            .pull_request_review
+            .as_ref()
+            .is_some_and(|profile| profile.provider == AiProviderId::CodexCli)
+        || settings
+            .token_burner
+            .as_ref()
+            .is_some_and(|profile| profile.provider == AiProviderId::CodexCli);
     let show_claude = added_cli.contains(&AiProviderId::ClaudeCodeCli)
-        || settings.provider == Some(AiProviderId::ClaudeCodeCli);
+        || settings.provider == Some(AiProviderId::ClaudeCodeCli)
+        || settings
+            .task_creation
+            .as_ref()
+            .is_some_and(|profile| profile.provider == AiProviderId::ClaudeCodeCli)
+        || settings
+            .pull_request_review
+            .as_ref()
+            .is_some_and(|profile| profile.provider == AiProviderId::ClaudeCodeCli)
+        || settings
+            .token_burner
+            .as_ref()
+            .is_some_and(|profile| profile.provider == AiProviderId::ClaudeCodeCli);
     let (codex, claude) = tokio::join!(
         async {
             if show_codex {
@@ -388,12 +457,31 @@ pub async fn delete_provider(
     instance_id: Option<String>,
 ) -> Result<AiSettingsPageDto, String> {
     let mut settings = load(pool).await?;
-    let selected = settings.provider == Some(provider)
-        && (provider != AiProviderId::OpenAiCompatible
-            || settings.provider_instance_id.as_deref().unwrap_or("legacy")
-                == instance_id.as_deref().unwrap_or("legacy"));
-    if selected {
-        settings = AiSettings::default();
+    let mut changed = false;
+    let matches_provider = |selected_provider: Option<AiProviderId>,
+                            selected_instance: Option<&str>| {
+        selected_provider == Some(provider)
+            && (provider != AiProviderId::OpenAiCompatible
+                || selected_instance.unwrap_or("legacy")
+                    == instance_id.as_deref().unwrap_or("legacy"))
+    };
+    if matches_provider(settings.provider, settings.provider_instance_id.as_deref()) {
+        settings.provider = None;
+        settings.provider_instance_id = None;
+        settings.model.clear();
+        changed = true;
+    }
+    for profile in [
+        &mut settings.task_creation,
+        &mut settings.pull_request_review,
+        &mut settings.token_burner,
+    ] {
+        if profile.as_ref().is_some_and(|item| {
+            matches_provider(Some(item.provider), item.provider_instance_id.as_deref())
+        }) {
+            *profile = None;
+            changed = true;
+        }
     }
 
     let configs = if provider == AiProviderId::OpenAiCompatible {
@@ -459,7 +547,7 @@ pub async fn delete_provider(
         }
     } else {
         let mut added = added_cli.expect("CLI providers were loaded");
-        if !added.contains(&provider) && settings.provider != Some(provider) && !selected {
+        if !added.contains(&provider) && !changed {
             return Err("AI provider was not found".to_owned());
         }
         added.retain(|item| *item != provider);
@@ -468,7 +556,7 @@ pub async fn delete_provider(
         sqlx::query("UPDATE settings SET value_json = ?, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE key = ?")
             .bind(value).bind(ADDED_CLI_PROVIDERS_KEY).execute(&mut *tx).await.map_err(|_| "failed to delete AI provider".to_owned())?;
     }
-    if selected {
+    if changed {
         let value = serde_json::to_string(&settings)
             .map_err(|_| "failed to serialize AI settings".to_owned())?;
         sqlx::query("UPDATE settings SET value_json = ?, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE key = ?")
@@ -480,24 +568,53 @@ pub async fn delete_provider(
     dto(pool).await
 }
 
-pub async fn ensure_review_ready(pool: &SqlitePool) -> Result<AiSettings, String> {
+#[derive(Debug, Clone, Copy)]
+pub enum AiActivity {
+    TaskCreation,
+    PullRequestReview,
+    TokenBurner,
+}
+
+pub async fn settings_for_activity(
+    pool: &SqlitePool,
+    activity: AiActivity,
+) -> Result<AiSettings, String> {
     let data = dto(pool).await?;
-    let Some(provider) = data.settings.provider else {
+    let settings = effective_settings(data.settings, activity);
+    validate_selected_settings(&settings, &data.providers)?;
+    Ok(settings)
+}
+
+fn effective_settings(mut settings: AiSettings, activity: AiActivity) -> AiSettings {
+    let profile = match activity {
+        AiActivity::TaskCreation => settings.task_creation.clone(),
+        AiActivity::PullRequestReview => settings.pull_request_review.clone(),
+        AiActivity::TokenBurner => settings.token_burner.clone(),
+    };
+    if let Some(profile) = profile {
+        profile.apply_to(&mut settings);
+    }
+    settings.task_creation = None;
+    settings.pull_request_review = None;
+    settings.token_burner = None;
+    settings
+}
+
+fn validate_selected_settings(
+    settings: &AiSettings,
+    providers: &[AiProviderDto],
+) -> Result<(), String> {
+    let Some(provider) = settings.provider else {
         return Err(
             "Select a connected AI provider in Settings → Integrations before starting a review"
                 .to_owned(),
         );
     };
-    let Some(provider_status) = data.providers.iter().find(|item| {
+    let Some(provider_status) = providers.iter().find(|item| {
         item.id == provider
             && (provider != AiProviderId::OpenAiCompatible
                 || item.instance_id.as_deref()
-                    == Some(
-                        data.settings
-                            .provider_instance_id
-                            .as_deref()
-                            .unwrap_or("legacy"),
-                    ))
+                    == Some(settings.provider_instance_id.as_deref().unwrap_or("legacy")))
     }) else {
         return Err("Selected AI provider is unavailable".to_owned());
     };
@@ -510,14 +627,14 @@ pub async fn ensure_review_ready(pool: &SqlitePool) -> Result<AiSettings, String
     if !provider_status
         .models
         .iter()
-        .any(|model| model == &data.settings.model)
+        .any(|model| model == &settings.model)
     {
         return Err(
             "Selected AI model is not available. Refresh Settings → Integrations and choose an available model"
                 .to_owned(),
         );
     }
-    Ok(data.settings)
+    Ok(())
 }
 
 pub fn inspect_codex_cli() -> AiProviderDto {
@@ -1056,79 +1173,69 @@ fn safe_first_line(bytes: &[u8]) -> Option<String> {
 }
 
 async fn validate_settings(pool: &SqlitePool, settings: &AiSettings) -> Result<(), String> {
-    if settings.model.trim().is_empty() {
+    let providers = dto(pool).await?.providers;
+    if settings.provider.is_some() {
+        validate_provider_selection(
+            settings.provider,
+            settings.provider_instance_id.as_deref(),
+            &settings.model,
+            &providers,
+            "Select an AI provider before saving",
+        )?;
+    } else if settings.task_creation.is_none()
+        && settings.pull_request_review.is_none()
+        && settings.token_burner.is_none()
+    {
+        return Err("Select an AI provider before saving".to_owned());
+    }
+    for profile in [
+        settings.task_creation.as_ref(),
+        settings.pull_request_review.as_ref(),
+        settings.token_burner.as_ref(),
+    ]
+    .into_iter()
+    .flatten()
+    {
+        validate_provider_selection(
+            Some(profile.provider),
+            profile.provider_instance_id.as_deref(),
+            &profile.model,
+            &providers,
+            "Select an AI provider before saving",
+        )?;
+    }
+    Ok(())
+}
+
+fn validate_provider_selection(
+    provider: Option<AiProviderId>,
+    instance_id: Option<&str>,
+    model: &str,
+    providers: &[AiProviderDto],
+    missing_provider_error: &str,
+) -> Result<(), String> {
+    if model.trim().is_empty() {
         return Err("Selected AI model is invalid".to_owned());
     }
-    let provider = match settings.provider {
-        Some(provider) => provider,
-        None => return Err("Select an AI provider before saving".to_owned()),
-    };
-    let providers = dto(pool).await?.providers;
+    let provider = provider.ok_or_else(|| missing_provider_error.to_owned())?;
     let Some(provider_status) = providers.iter().find(|item| {
         item.id == provider
             && (provider != AiProviderId::OpenAiCompatible
-                || item.instance_id.as_deref()
-                    == Some(settings.provider_instance_id.as_deref().unwrap_or("legacy")))
+                || item.instance_id.as_deref() == Some(instance_id.unwrap_or("legacy")))
     }) else {
         return Err("Selected AI provider is unavailable".to_owned());
     };
     if !provider_status.available
         || provider_status.status != AiProviderStatus::Connected
-        || !provider_status
-            .models
-            .iter()
-            .any(|model| model == &settings.model)
+        || !provider_status.models.iter().any(|known| known == model)
     {
         return Err("Selected AI model is invalid".to_owned());
     }
     Ok(())
 }
 
-#[derive(Debug, Default)]
-struct MockAiCredentialStore;
-
-static MOCK_AI_CREDENTIALS: OnceLock<Mutex<HashMap<String, String>>> = OnceLock::new();
-
-impl CredentialStore for MockAiCredentialStore {
-    fn save(&self, credential_ref: &str, secret: &str) -> Result<(), CredentialError> {
-        MOCK_AI_CREDENTIALS
-            .get_or_init(|| Mutex::new(HashMap::new()))
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
-            .insert(credential_ref.to_owned(), secret.to_owned());
-        Ok(())
-    }
-
-    fn load(&self, credential_ref: &str) -> Result<String, CredentialError> {
-        MOCK_AI_CREDENTIALS
-            .get_or_init(|| Mutex::new(HashMap::new()))
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
-            .get(credential_ref)
-            .cloned()
-            .ok_or(CredentialError::NotFound)
-    }
-
-    fn delete(&self, credential_ref: &str) -> Result<(), CredentialError> {
-        MOCK_AI_CREDENTIALS
-            .get_or_init(|| Mutex::new(HashMap::new()))
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
-            .remove(credential_ref);
-        Ok(())
-    }
-}
-
 fn openai_credential_store() -> Box<dyn CredentialStore> {
-    openai_credential_store_for_mode(crate::application::dev_overlay::current_mock_mode_requested())
-}
-
-fn openai_credential_store_for_mode(mock_mode: bool) -> Box<dyn CredentialStore> {
-    if mock_mode {
-        Box::new(MockAiCredentialStore)
-    } else {
-        Box::new(OsKeyring::new(AI_KEYRING_SERVICE))
-    }
+    Box::new(OsKeyring::new(AI_KEYRING_SERVICE))
 }
 
 async fn load_openai_configs(
@@ -1687,95 +1794,42 @@ pub fn test_process_env_lock() -> &'static std::sync::Mutex<()> {
 #[cfg(test)]
 mod tests {
     use super::{
-        copy_configuration_to_mock, delete_provider, load, load_openai_models,
-        normalize_openai_base_url, openai_credential_store_for_mode,
-        parse_codex_model_list_response, parse_openai_model_list_response, safe_first_line,
-        safe_openai_error_detail, AiProviderId, AiReasoning, AiSettings,
-        OpenAiCompatibleProviderConfig, ADDED_CLI_PROVIDERS_KEY, AI_SETTINGS_KEY,
-        AI_SETTINGS_SCHEMA_VERSION, OPENAI_COMPATIBLE_SETTINGS_KEY,
-        OPENAI_COMPATIBLE_SETTINGS_SCHEMA_VERSION,
+        default_mock_ai_settings, delete_provider, load, load_openai_models,
+        normalize_openai_base_url, parse_codex_model_list_response,
+        parse_openai_model_list_response, safe_first_line, safe_openai_error_detail, AiProviderDto,
+        AiProviderId, AiProviderStatus, AiReasoning, AiSettings, OpenAiCompatibleProviderConfig,
+        ADDED_CLI_PROVIDERS_KEY, AI_SETTINGS_KEY,
     };
     #[cfg(unix)]
-    use super::{inspect_codex_cli, query_codex_models_with_timeout, AiProviderStatus};
-    use crate::infrastructure::credentials::keyring::CredentialError;
+    use super::{inspect_codex_cli, query_codex_models_with_timeout};
     use sqlx::sqlite::SqlitePoolOptions;
 
-    #[tokio::test]
-    async fn copies_only_ai_configuration_to_the_disposable_mock_database() {
-        let temp_dir = tempfile::tempdir().expect("temporary app data");
-        let source = crate::infrastructure::db::open_database(&temp_dir.path().join("dev.sqlite"))
-            .await
-            .expect("regular dev database");
-        let mock = crate::infrastructure::db::open_database(&temp_dir.path().join("mock.sqlite"))
-            .await
-            .expect("mock database");
-        crate::infrastructure::db::repositories::upsert_setting(
-            &source,
-            AI_SETTINGS_KEY,
-            r#"{"provider":"openai-compatible","model":"example-model","reasoning":"medium","fastMode":false}"#,
-            AI_SETTINGS_SCHEMA_VERSION,
-        )
-        .await
-        .expect("save AI settings");
-        crate::infrastructure::db::repositories::upsert_setting(
-            &source,
-            OPENAI_COMPATIBLE_SETTINGS_KEY,
-            r#"{"baseUrl":"https://ai.example.invalid/v1","credentialRef":"ai-openai-compatible","allowInsecureTls":false}"#,
-            OPENAI_COMPATIBLE_SETTINGS_SCHEMA_VERSION,
-        )
-        .await
-        .expect("save AI provider configuration");
-        crate::infrastructure::db::repositories::upsert_setting(
-            &source,
-            "general.preferences",
-            r#"{"language":"en"}"#,
-            1,
-        )
-        .await
-        .expect("save unrelated setting");
-
-        copy_configuration_to_mock(&source, &mock)
-            .await
-            .expect("copy AI configuration");
-
-        assert!(
-            crate::infrastructure::db::repositories::get_setting(&mock, AI_SETTINGS_KEY)
-                .await
-                .expect("read copied AI settings")
-                .is_some()
-        );
-        assert!(crate::infrastructure::db::repositories::get_setting(
-            &mock,
-            OPENAI_COMPATIBLE_SETTINGS_KEY
-        )
-        .await
-        .expect("read copied AI provider config")
-        .is_some());
-        assert!(
-            crate::infrastructure::db::repositories::get_setting(&mock, "general.preferences")
-                .await
-                .expect("read uncopied settings")
-                .is_none()
-        );
-    }
-
     #[test]
-    fn mock_ai_credentials_are_ephemeral_instead_of_using_the_os_keyring() {
-        let store = openai_credential_store_for_mode(true);
-        let credential_ref = "mock-test-credential";
-        assert_eq!(store.load(credential_ref), Err(CredentialError::NotFound));
+    fn mock_ai_defaults_to_codex_when_both_cli_providers_are_connected() {
+        let connected = |id, name: &str, models: &[&str]| AiProviderDto {
+            id,
+            instance_id: None,
+            name: name.to_owned(),
+            status: AiProviderStatus::Connected,
+            available: true,
+            models: models.iter().map(|model| (*model).to_owned()).collect(),
+            executable_path: None,
+            version: None,
+            base_url: None,
+            allow_insecure_tls: None,
+            message: None,
+        };
+        let settings = default_mock_ai_settings(&[
+            connected(AiProviderId::ClaudeCodeCli, "Claude Code CLI", &["sonnet"]),
+            connected(
+                AiProviderId::CodexCli,
+                "Codex CLI",
+                &["example-codex-model"],
+            ),
+        ]);
 
-        store
-            .save(credential_ref, "ephemeral-test-value")
-            .expect("mock credential should stay in memory");
-        assert_eq!(
-            store.load(credential_ref),
-            Ok("ephemeral-test-value".to_owned())
-        );
-        store
-            .delete(credential_ref)
-            .expect("mock credential should be removable");
-        assert_eq!(store.load(credential_ref), Err(CredentialError::NotFound));
+        assert_eq!(settings.provider, Some(AiProviderId::CodexCli));
+        assert_eq!(settings.model, "example-codex-model");
     }
 
     #[test]
@@ -1802,6 +1856,9 @@ mod tests {
             model: "example-model".to_owned(),
             reasoning: AiReasoning::Medium,
             fast_mode: false,
+            task_creation: None,
+            pull_request_review: None,
+            token_burner: None,
         };
         crate::infrastructure::db::repositories::upsert_setting(
             &pool,
@@ -1889,6 +1946,54 @@ mod tests {
     }
 
     #[test]
+    fn selects_activity_override_and_keeps_legacy_settings_compatible() {
+        let legacy: AiSettings = serde_json::from_str(
+            r#"{"provider":"codex-cli","model":"example-model","reasoning":"medium","fastMode":false}"#,
+        )
+        .unwrap();
+        assert!(legacy.task_creation.is_none());
+        assert!(legacy.pull_request_review.is_none());
+
+        let settings = AiSettings {
+            provider: Some(AiProviderId::CodexCli),
+            provider_instance_id: None,
+            model: "example-model".to_owned(),
+            reasoning: AiReasoning::Medium,
+            fast_mode: false,
+            task_creation: None,
+            pull_request_review: Some(super::AiSettingsProfile {
+                provider: AiProviderId::ClaudeCodeCli,
+                provider_instance_id: None,
+                model: "sonnet".to_owned(),
+                reasoning: AiReasoning::High,
+                fast_mode: true,
+            }),
+            token_burner: Some(super::AiSettingsProfile {
+                provider: AiProviderId::OpenAiCompatible,
+                provider_instance_id: Some("provider-id".to_owned()),
+                model: "example-review-model".to_owned(),
+                reasoning: AiReasoning::Medium,
+                fast_mode: false,
+            }),
+        };
+        let task = super::effective_settings(settings.clone(), super::AiActivity::TaskCreation);
+        let review =
+            super::effective_settings(settings.clone(), super::AiActivity::PullRequestReview);
+        let burner = super::effective_settings(settings, super::AiActivity::TokenBurner);
+        assert_eq!(task.provider, Some(AiProviderId::CodexCli));
+        assert_eq!(task.model, "example-model");
+        assert_eq!(review.provider, Some(AiProviderId::ClaudeCodeCli));
+        assert_eq!(review.model, "sonnet");
+        assert_eq!(review.reasoning, AiReasoning::High);
+        assert!(review.fast_mode);
+        assert!(review.pull_request_review.is_none());
+        assert_eq!(burner.provider, Some(AiProviderId::OpenAiCompatible));
+        assert_eq!(burner.provider_instance_id.as_deref(), Some("provider-id"));
+        assert_eq!(burner.model, "example-review-model");
+        assert!(burner.token_burner.is_none());
+    }
+
+    #[test]
     fn serializes_provider_and_reasoning_for_renderer_contract() {
         let settings = AiSettings {
             provider: Some(AiProviderId::CodexCli),
@@ -1896,6 +2001,9 @@ mod tests {
             model: "gpt-5.5".to_owned(),
             reasoning: AiReasoning::High,
             fast_mode: true,
+            task_creation: None,
+            pull_request_review: None,
+            token_burner: None,
         };
         let value = serde_json::to_value(settings).unwrap();
         assert_eq!(value["provider"], "codex-cli");

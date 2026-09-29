@@ -126,6 +126,12 @@ pub struct PullRequestReviewStateRequest {
     pub latest_commit: Option<String>,
 }
 
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PullRequestReviewStatesRequest {
+    pub requests: Vec<PullRequestReviewStateRequest>,
+}
+
 pub fn request_from_pull_request(pull_request: &MyPullRequestDto) -> PullRequestReviewRequest {
     PullRequestReviewRequest {
         integration_id: pull_request.integration_id.clone(),
@@ -202,6 +208,50 @@ pub fn pull_request_review_key(
     format!("{integration_id}:{project_key}:{repository_slug}:{pull_request_id}")
 }
 
+pub async fn get_review_states(
+    pool: &SqlitePool,
+    requests: Vec<PullRequestReviewStateRequest>,
+) -> Result<HashMap<String, PullRequestReviewDto>, String> {
+    for request in &requests {
+        validate_state_request(request)?;
+    }
+    let _guard = review_state_lock().lock().await;
+    let mut state = load_state(pool).await?;
+    let active = active_review_runs()
+        .lock()
+        .map_err(|_| "review state lock is poisoned".to_owned())?
+        .clone();
+    let mut changed = false;
+    let mut results = HashMap::new();
+
+    for request in requests {
+        let key = pull_request_review_key(
+            &request.integration_id,
+            &request.project_key,
+            &request.repository_slug,
+            &request.pull_request_id,
+        );
+        let Some(mut record) = state.reviews.get(&key).cloned() else {
+            continue;
+        };
+        if record.status == PullRequestReviewStatus::Running && !active.contains(&record.run_id) {
+            record.status = PullRequestReviewStatus::Failed;
+            record.error = Some("Review was interrupted before completion".to_owned());
+            record.finished_at = Some(now_millis());
+            state.reviews.insert(key.clone(), record.clone());
+            changed = true;
+        }
+        if record.reviewed_commit == request.latest_commit {
+            results.insert(key, record);
+        }
+    }
+
+    if changed {
+        save_state(pool, &state).await?;
+    }
+    Ok(results)
+}
+
 pub async fn get_review_state(
     pool: &SqlitePool,
     request: PullRequestReviewStateRequest,
@@ -213,26 +263,7 @@ pub async fn get_review_state(
         &request.repository_slug,
         &request.pull_request_id,
     );
-    let _guard = review_state_lock().lock().await;
-    let mut state = load_state(pool).await?;
-    let Some(mut record) = state.reviews.get(&key).cloned() else {
-        return Ok(None);
-    };
-    let active = active_review_runs()
-        .lock()
-        .map_err(|_| "review state lock is poisoned".to_owned())?
-        .contains(&record.run_id);
-    if record.status == PullRequestReviewStatus::Running && !active {
-        record.status = PullRequestReviewStatus::Failed;
-        record.error = Some("Review was interrupted before completion".to_owned());
-        record.finished_at = Some(now_millis());
-        state.reviews.insert(key, record.clone());
-        save_state(pool, &state).await?;
-    }
-    if record.reviewed_commit != request.latest_commit {
-        return Ok(None);
-    }
-    Ok(Some(record))
+    Ok(get_review_states(pool, vec![request]).await?.remove(&key))
 }
 
 pub async fn attach_review_states(
@@ -300,7 +331,11 @@ pub async fn start_review_with_diff<R: Runtime>(
     diff: String,
 ) -> Result<PullRequestReviewDto, String> {
     validate_request(&request)?;
-    let ai_settings = crate::application::ai::ensure_review_ready(pool).await?;
+    let ai_settings = crate::application::ai::settings_for_activity(
+        pool,
+        crate::application::ai::AiActivity::PullRequestReview,
+    )
+    .await?;
     let general_settings = crate::application::general::load(pool).await?;
     let output_language = general_settings
         .ai_response_language
@@ -895,6 +930,181 @@ async fn request_openai_review(
     ),
     String,
 > {
+    request_openai_review_with_max_tokens(
+        runtime,
+        model,
+        prompt,
+        output_language,
+        crate::application::ai::OPENAI_MAX_OUTPUT_TOKENS as u32,
+    )
+    .await
+}
+
+pub(crate) async fn request_token_burner_review(
+    settings: &crate::application::ai::AiSettings,
+    openai_runtime: Option<&crate::application::ai::OpenAiCompatibleRuntimeConfig>,
+    prompt: String,
+    max_output_tokens: u32,
+) -> Result<
+    (
+        Result<PullRequestReviewResult, String>,
+        Option<ai_usage_statistics::AiTokenUsageCounts>,
+    ),
+    String,
+> {
+    if settings.provider == Some(crate::application::ai::AiProviderId::OpenAiCompatible) {
+        let runtime = openai_runtime
+            .ok_or_else(|| "OpenAI-compatible API configuration is unavailable".to_owned())?;
+        let (content, usage) = request_openai_review_content_with_max_tokens(
+            runtime,
+            &settings.model,
+            prompt,
+            crate::application::general::AppLanguage::English,
+            max_output_tokens,
+        )
+        .await?;
+        let parsed = content
+            .ok_or_else(|| "OpenAI-compatible API returned no review content".to_owned())
+            .and_then(|content| parse_review_result(content.as_bytes()));
+        return Ok((parsed, usage));
+    }
+
+    let settings = settings.clone();
+    let workdir = std::env::temp_dir().join(format!("mework-model-testing-{}", Uuid::now_v7()));
+    tauri::async_runtime::spawn_blocking(move || {
+        fs::create_dir(&workdir).map_err(|_| "Unable to prepare AI review workspace".to_owned())?;
+        let result = execute_cli_review_prompt_with_usage(&settings, &prompt, &workdir);
+        let _ = fs::remove_dir_all(&workdir);
+        result.map(|(review, usage)| (Ok(review), usage))
+    })
+    .await
+    .map_err(|_| "AI review request failed".to_owned())?
+}
+
+fn execute_cli_review_prompt_with_usage(
+    settings: &crate::application::ai::AiSettings,
+    prompt: &str,
+    workdir: &Path,
+) -> Result<
+    (
+        PullRequestReviewResult,
+        Option<ai_usage_statistics::AiTokenUsageCounts>,
+    ),
+    String,
+> {
+    match settings.provider {
+        Some(crate::application::ai::AiProviderId::ClaudeCodeCli) => {
+            let (output, usage) = crate::application::claude_code::run_structured_with_usage(
+                &settings.model,
+                review_result_schema(),
+                prompt,
+                workdir,
+            )?;
+            parse_review_result(&output).map(|review| (review, usage))
+        }
+        Some(crate::application::ai::AiProviderId::CodexCli) => {
+            let prompt_path = workdir.join("prompt.txt");
+            let schema_path = workdir.join("review-schema.json");
+            let output_path = workdir.join("review-result.json");
+            fs::write(&prompt_path, prompt)
+                .map_err(|_| "Failed to prepare AI review prompt".to_owned())?;
+            fs::write(&schema_path, review_result_schema())
+                .map_err(|_| "Failed to prepare review result schema".to_owned())?;
+            let codex = crate::application::ai::resolve_codex_binary()
+                .ok_or_else(|| "Codex CLI executable was not found".to_owned())?;
+            let reasoning = settings.reasoning.as_str();
+            let service_tier = if settings.fast_mode {
+                "fast"
+            } else {
+                "default"
+            };
+            let fast_mode = if settings.fast_mode { "true" } else { "false" };
+            let mut command = codex_command(codex);
+            command
+                .args([
+                    "--ask-for-approval",
+                    "never",
+                    "exec",
+                    "--skip-git-repo-check",
+                    "--ephemeral",
+                    "--sandbox",
+                    "read-only",
+                    "--color",
+                    "never",
+                    "--json",
+                    "--model",
+                    &settings.model,
+                    "--config",
+                    &format!("model_reasoning_effort=\"{reasoning}\""),
+                    "--config",
+                    &format!("service_tier=\"{service_tier}\""),
+                    "--config",
+                    &format!("features.fast_mode={fast_mode}"),
+                    "--output-schema",
+                    schema_path.to_string_lossy().as_ref(),
+                    "--output-last-message",
+                    output_path.to_string_lossy().as_ref(),
+                    "-",
+                ])
+                .current_dir(workdir)
+                .stdin(std::process::Stdio::from(
+                    fs::File::open(&prompt_path)
+                        .map_err(|_| "Failed to open AI review prompt".to_owned())?,
+                ));
+            let output = command
+                .output()
+                .map_err(|_| "Unable to start Codex CLI review".to_owned())?;
+            if !output.status.success() {
+                return Err(codex_failure_message(&output));
+            }
+            let bytes = fs::read(&output_path)
+                .map_err(|_| "Codex CLI did not return a review result".to_owned())?;
+            let usage = ai_usage_statistics::parse_cli_usage(&output.stdout);
+            parse_review_result(&bytes).map(|review| (review, usage))
+        }
+        _ => Err("Select a connected AI provider in AI Settings".to_owned()),
+    }
+}
+
+async fn request_openai_review_with_max_tokens(
+    runtime: &crate::application::ai::OpenAiCompatibleRuntimeConfig,
+    model: &str,
+    prompt: String,
+    output_language: crate::application::general::AppLanguage,
+    max_output_tokens: u32,
+) -> Result<
+    (
+        PullRequestReviewResult,
+        Option<ai_usage_statistics::AiTokenUsageCounts>,
+    ),
+    String,
+> {
+    let (content, usage) = request_openai_review_content_with_max_tokens(
+        runtime,
+        model,
+        prompt,
+        output_language,
+        max_output_tokens,
+    )
+    .await?;
+    let content =
+        content.ok_or_else(|| "OpenAI-compatible API returned no review content".to_owned())?;
+    parse_review_result(content.as_bytes()).map(|result| (result, usage))
+}
+
+async fn request_openai_review_content_with_max_tokens(
+    runtime: &crate::application::ai::OpenAiCompatibleRuntimeConfig,
+    model: &str,
+    prompt: String,
+    output_language: crate::application::general::AppLanguage,
+    max_output_tokens: u32,
+) -> Result<
+    (
+        Option<String>,
+        Option<ai_usage_statistics::AiTokenUsageCounts>,
+    ),
+    String,
+> {
     let client = crate::application::ai::openai_http_client(
         Duration::from_secs(15 * 60),
         runtime.allow_insecure_tls,
@@ -905,7 +1115,7 @@ async fn request_openai_review(
     );
     let payload = serde_json::json!({
         "model": model,
-        "max_tokens": crate::application::ai::OPENAI_MAX_OUTPUT_TOKENS,
+        "max_tokens": max_output_tokens,
         "stream": false,
         "messages": [
             {"role": "system", "content": system_prompt},
@@ -956,13 +1166,12 @@ async fn request_openai_review(
     let content = serde_json::from_slice::<serde_json::Value>(&body)
         .ok()
         .and_then(|payload| openai_response_content(&payload))
-        .or_else(|| crate::application::ai::openai_stream_message_content(&body))
-        .ok_or_else(|| "OpenAI-compatible API returned no review content".to_owned())?;
+        .or_else(|| crate::application::ai::openai_stream_message_content(&body));
     let usage = serde_json::from_slice::<serde_json::Value>(&body)
         .ok()
         .and_then(|payload| ai_usage_statistics::parse_response_usage(&payload))
         .or_else(|| ai_usage_statistics::parse_sse_usage(&body));
-    parse_review_result(content.as_bytes()).map(|result| (result, usage))
+    Ok((content, usage))
 }
 
 fn openai_review_prompt(
@@ -1020,7 +1229,9 @@ fn codex_failure_message(output: &std::process::Output) -> String {
         .code()
         .map(|code| code.to_string())
         .unwrap_or_else(|| "terminated by signal".to_owned());
-    let detail = String::from_utf8_lossy(&output.stderr)
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let detail = stderr
         .lines()
         .map(str::trim)
         .find(|line| {
@@ -1030,23 +1241,46 @@ fn codex_failure_message(output: &std::process::Output) -> String {
                 || lower.contains("failed")
                 || lower.contains("unsupported"))
                 && !lower.ends_with('{')
-                && !lower.contains("token")
-                && !lower.contains("secret")
-                && !lower.contains("authorization")
-                && !lower.contains("cookie")
         })
-        .map(|line| {
-            line.chars()
-                .filter(|character| !character.is_control())
-                .take(320)
-                .collect::<String>()
-        });
+        .and_then(safe_codex_failure_detail)
+        .or_else(|| codex_json_failure_detail(&stdout));
     match detail {
-        Some(detail) if !detail.is_empty() => {
-            format!("Codex CLI review failed (exit {status}): {detail}")
-        }
-        _ => format!("Codex CLI review failed (exit {status})"),
+        Some(detail) => format!("Codex CLI review failed (exit {status}): {detail}"),
+        None => format!("Codex CLI review failed (exit {status})"),
     }
+}
+
+fn codex_json_failure_detail(stdout: &str) -> Option<String> {
+    stdout.lines().find_map(|line| {
+        let event: serde_json::Value = serde_json::from_str(line).ok()?;
+        let event_type = event.get("type")?.as_str()?;
+        if event_type != "turn.failed" && event_type != "error" {
+            return None;
+        }
+        let message = event
+            .pointer("/error/message")
+            .and_then(serde_json::Value::as_str)
+            .or_else(|| event.get("error").and_then(serde_json::Value::as_str))
+            .or_else(|| event.get("message").and_then(serde_json::Value::as_str))?;
+        safe_codex_failure_detail(message)
+    })
+}
+
+fn safe_codex_failure_detail(detail: &str) -> Option<String> {
+    let lower = detail.to_ascii_lowercase();
+    if lower.contains("token")
+        || lower.contains("secret")
+        || lower.contains("authorization")
+        || lower.contains("cookie")
+    {
+        return None;
+    }
+    let detail = detail
+        .chars()
+        .filter(|character| !character.is_control())
+        .take(320)
+        .collect::<String>();
+    (!detail.is_empty()).then_some(detail)
 }
 
 fn review_prompt(
@@ -1230,6 +1464,22 @@ mod tests {
     }
 
     #[test]
+    fn extracts_safe_codex_failure_details_from_json_events() {
+        assert_eq!(
+            super::codex_json_failure_detail(
+                r#"{"type":"turn.started"}
+{"type":"turn.failed","error":{"message":"The selected model is unavailable."}}"#,
+            )
+            .as_deref(),
+            Some("The selected model is unavailable.")
+        );
+        assert!(super::codex_json_failure_detail(
+            r#"{"type":"turn.failed","error":{"message":"Invalid API token: synthetic-token"}}"#,
+        )
+        .is_none());
+    }
+
+    #[test]
     fn review_prompts_use_the_selected_language_for_generated_text() {
         let manifest = serde_json::json!({ "title": "Synthetic pull request" });
         let diff = "diff --git a/src/example.rs b/src/example.rs\\n+fn example() {}\\n";
@@ -1384,6 +1634,9 @@ mod tests {
             model: "gpt-5.5".to_owned(),
             reasoning: AiReasoning::Medium,
             fast_mode: false,
+            task_creation: None,
+            pull_request_review: None,
+            token_burner: None,
         };
         let (result, codex_usage) = super::execute_review_in_workspace_with_usage(
             &request,
@@ -1396,6 +1649,26 @@ mod tests {
         .unwrap();
         assert_eq!(
             codex_usage,
+            Some(
+                crate::application::ai_usage_statistics::AiTokenUsageCounts {
+                    input_tokens: 40,
+                    output_tokens: 8,
+                    total_tokens: 48,
+                }
+            )
+        );
+        let model_testing_workdir = root.join("model-testing");
+        fs::create_dir(&model_testing_workdir).unwrap();
+        let (model_testing_result, model_testing_usage) =
+            super::execute_cli_review_prompt_with_usage(
+                &ai_settings,
+                "Review the supplied synthetic diff.",
+                &model_testing_workdir,
+            )
+            .unwrap();
+        assert_eq!(model_testing_result.verdict, PullRequestReviewVerdict::Ok);
+        assert_eq!(
+            model_testing_usage,
             Some(
                 crate::application::ai_usage_statistics::AiTokenUsageCounts {
                     input_tokens: 40,

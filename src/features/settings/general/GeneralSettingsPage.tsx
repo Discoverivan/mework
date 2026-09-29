@@ -25,6 +25,7 @@ import {
 } from "./api";
 import { useI18n } from "@/i18n/context";
 import { AppLanguage } from "@/i18n/types";
+import { APP_EVENT, emitAppEvent } from "@/app/app-events";
 
 function errorMessage(error: unknown, fallback: string): string {
   const message = error instanceof Error ? error.message : typeof error === "string" ? error : fallback;
@@ -106,6 +107,7 @@ export function GeneralSettingsPage() {
       reviewNotificationsEnabled: settings.reviewNotificationsEnabled,
       authoredNotificationsEnabled: settings.authoredNotificationsEnabled,
       taskTrackerNotificationsEnabled: settings.taskTrackerNotificationsEnabled,
+      extraFunctionsEnabled: settings.extraFunctionsEnabled,
       language: settings.language,
       aiResponseLanguage: settings.aiResponseLanguage ?? AiResponseLanguage.SameAsUi,
       themePreference: settings.themePreference,
@@ -125,6 +127,9 @@ export function GeneralSettingsPage() {
           })
         : await saveGeneralSettings(requested);
       setSettings(saved);
+      if (changes.extraFunctionsEnabled !== undefined) {
+        emitAppEvent(APP_EVENT.extraFunctionsEnabledChanged, saved.extraFunctionsEnabled);
+      }
     } catch (saveError) {
       setSettings(previous);
       setError(t("general.saveError", { error: errorMessage(saveError, t("common.unknownError")) }));
@@ -524,6 +529,28 @@ export function GeneralSettingsPage() {
         <span className="sr-only" role="status" aria-live="polite">
           {testedNotification ? t("general.testSent") : ""}
         </span>
+      </Card>
+
+      <Card>
+        <CardHeader className="px-4 pb-0 pt-3.5">
+          <CardTitle className="text-base font-semibold leading-tight">{t("general.extraFunctions")}</CardTitle>
+          <CardDescription className="mt-1 leading-snug">{t("general.extraFunctionsDescription")}</CardDescription>
+        </CardHeader>
+        <CardContent className="flex flex-wrap items-center justify-between gap-4 px-4 pb-3.5 pt-4">
+          <div className="min-w-0">
+            <Label htmlFor="general-model-testing-enabled" alignment="inline" className="font-medium">
+              {t("general.modelTesting")}
+            </Label>
+            <CardDescription className="mt-1 leading-snug">{t("general.modelTestingDescription")}</CardDescription>
+          </div>
+          <Switch
+            id="general-model-testing-enabled"
+            size="md"
+            checked={settings?.extraFunctionsEnabled ?? false}
+            onCheckedChange={(checked) => void handlePreferencesChange({ extraFunctionsEnabled: checked })}
+            disabled={loading || saving}
+          />
+        </CardContent>
       </Card>
     </section>
   );

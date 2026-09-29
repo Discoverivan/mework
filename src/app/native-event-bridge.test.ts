@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { MyPullRequestPage } from "@/shared/contracts/developer";
 import type { TaskTrackerMonitor } from "@/shared/contracts/task-tracker";
+import type { TokenBurnerSnapshot } from "@/shared/contracts/token-burner";
 import { APP_EVENT, subscribeAppEvent } from "./app-events";
 import { startNativeEventBridge } from "./native-event-bridge";
 
@@ -26,18 +27,27 @@ describe("native event bridge", () => {
     const page: MyPullRequestPage = { values: [], total: 0, hasMore: false };
     const listener = vi.fn();
     const taskTrackerListener = vi.fn();
+    const burnerListener = vi.fn();
     const unsubscribe = subscribeAppEvent(APP_EVENT.reviewerPullRequestsUpdated, listener);
     const unsubscribeTaskTracker = subscribeAppEvent(APP_EVENT.taskTrackerUpdated, taskTrackerListener);
+    const unsubscribeBurner = subscribeAppEvent(APP_EVENT.tokenBurnerChanged, burnerListener);
     const stop = await startNativeEventBridge();
 
     nativeListeners.get("pull_request_review_updated")?.({ payload: page });
     const monitors: TaskTrackerMonitor[] = [];
     nativeListeners.get("task_tracker_updated")?.({ payload: monitors });
+    const burner: TokenBurnerSnapshot = {
+      settings: { dailyTarget: 2_000_000, delayBetweenRequestsSeconds: 10, repository: null, pullRequestStrategy: "awaiting_my_review" },
+      status: "idle", tokensUsedToday: 0, activeForMs: 0, previousSessionInterrupted: false, activeIterations: [], completedIterations: [],
+    };
+    nativeListeners.get("token_burner_changed")?.({ payload: burner });
 
     expect(listener).toHaveBeenCalledWith(page);
     expect(taskTrackerListener).toHaveBeenCalledWith(monitors);
+    expect(burnerListener).toHaveBeenCalledWith(burner);
     stop();
     unsubscribe();
     unsubscribeTaskTracker();
+    unsubscribeBurner();
   });
 });

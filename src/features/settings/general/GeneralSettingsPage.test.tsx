@@ -56,6 +56,7 @@ describe("GeneralSettingsPage", () => {
       reviewNotificationsEnabled: true,
       authoredNotificationsEnabled: true,
       taskTrackerNotificationsEnabled: true,
+      extraFunctionsEnabled: false,
       notificationPermission: "denied",
     };
     generalSettingsMock.mockResolvedValue(initialSettings);
@@ -95,6 +96,18 @@ describe("GeneralSettingsPage", () => {
     installAvailableUpdateMock.mockResolvedValue(undefined);
   });
 
+  it("persists the opt-in developer feature toggle and notifies the app", async () => {
+    const onChanged = vi.fn();
+    const unsubscribe = subscribeAppEvent(APP_EVENT.extraFunctionsEnabledChanged, onChanged);
+    render(<I18nProvider><GeneralSettingsPage /></I18nProvider>);
+    const toggle = await screen.findByRole("switch", { name: "Model-testing" });
+    expect(toggle).not.toBeChecked();
+    fireEvent.click(toggle);
+    await waitFor(() => expect(saveGeneralSettingsMock).toHaveBeenLastCalledWith(expect.objectContaining({ extraFunctionsEnabled: true })));
+    await waitFor(() => expect(onChanged).toHaveBeenCalledWith(true));
+    unsubscribe();
+  });
+
   it("shows the permission banner and supports settings and test notification controls", async () => {
     render(
       <I18nProvider>
@@ -122,6 +135,7 @@ describe("GeneralSettingsPage", () => {
       reviewNotificationsEnabled: true,
       authoredNotificationsEnabled: true,
       taskTrackerNotificationsEnabled: false,
+      extraFunctionsEnabled: false,
       language: "english",
       aiResponseLanguage: "sameAsUi",
       themePreference: "system",
@@ -161,6 +175,7 @@ describe("GeneralSettingsPage", () => {
       reviewNotificationsEnabled: false,
       authoredNotificationsEnabled: true,
       taskTrackerNotificationsEnabled: false,
+      extraFunctionsEnabled: false,
       language: "english",
       aiResponseLanguage: "sameAsUi",
       themePreference: "light",

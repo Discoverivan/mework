@@ -46,7 +46,16 @@ pub fn run() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .setup(|app| {
             let mock_mode_enabled = crate::application::dev_overlay::current_mock_mode_requested();
-            app.manage(crate::application::dev_overlay::DevMockMode::new(mock_mode_enabled));
+            let mock_mode = crate::application::dev_overlay::DevMockMode::new(mock_mode_enabled);
+            let mock_urls = if mock_mode_enabled {
+                Some(
+                    crate::application::dev_overlay::mock_integration_urls_from_env()
+                        .map_err(std::io::Error::other)?,
+                )
+            } else {
+                None
+            };
+            app.manage(mock_mode);
 
             #[cfg(target_os = "macos")]
             crate::os::notifications::setup();
@@ -69,22 +78,31 @@ pub fn run() {
                 &database_path,
             ))?;
             if mock_mode_enabled {
-                let regular_database_path =
-                    app_data_dir.join(crate::infrastructure::db::DATABASE_FILENAME);
-                if regular_database_path.exists() {
-                    let regular_pool = tauri::async_runtime::block_on(
-                        crate::infrastructure::db::open_database(&regular_database_path),
-                    )?;
-                    tauri::async_runtime::block_on(
-                        crate::application::ai::copy_configuration_to_mock(&regular_pool, &pool),
-                    )
-                    .map_err(std::io::Error::other)?;
-                }
                 tauri::async_runtime::block_on(
-                    crate::application::dev_overlay::seed_mock_settings(&pool),
+                    crate::application::dev_overlay::seed_mock_settings(&pool, mock_urls.as_ref()),
                 )
                 .map_err(std::io::Error::other)?;
+                tauri::async_runtime::block_on(
+                    crate::application::ai::initialize_mock_cli_providers(&pool),
+                )
+                .map_err(std::io::Error::other)?;
+                let startup_app = app.handle().clone();
+                tauri::async_runtime::block_on(async {
+                    let monitors = crate::application::task_tracker::list_monitors(&pool).await?;
+                    for monitor in monitors {
+                        crate::application::task_tracker::check_now(
+                            &pool,
+                            &startup_app,
+                            &monitor.id,
+                        )
+                        .await?;
+                    }
+                    Ok::<(), String>(())
+                })
+                .map_err(std::io::Error::other)?;
             }
+            tauri::async_runtime::block_on(crate::application::token_burner::recover_interrupted(&pool))
+                .map_err(std::io::Error::other)?;
             if !mock_mode_enabled
                 && tauri::async_runtime::block_on(
                     crate::commands::integrations::preload_all_credentials(&pool),
@@ -108,6 +126,7 @@ pub fn run() {
             }
             app.manage(pool.clone());
             app.manage(crate::application::release_notes::ReleaseNotesRequestState::default());
+            app.manage(std::sync::Arc::new(crate::application::token_burner::TokenBurnerRuntime::default()));
             if !mock_mode_enabled {
                 let background_pool = pool.clone();
                 let background_app = app.handle().clone();
@@ -374,6 +393,8 @@ pub fn run() {
             commands::planning::jira_avatar_data,
             commands::daily::daily_workspace,
             commands::daily::daily_workspace_refresh,
+            commands::daily::daily_issue_transitions,
+            commands::daily::daily_issue_transition,
             commands::presenter::open_presenter_view,
             commands::presenter::update_presenter_view,
             commands::presenter::presenter_view_state,
@@ -388,6 +409,7 @@ pub fn run() {
             commands::developer::authored_pull_requests_mark_all_read,
             commands::developer::pull_request_review_start,
             commands::developer::pull_request_review_state,
+            commands::developer::pull_request_review_states,
             commands::developer::pull_request_review_mark_read,
             commands::developer::pull_request_review_mark_all_read,
             commands::developer::pull_request_review_publish_comment,
@@ -399,6 +421,7 @@ pub fn run() {
             commands::dev_overlay::dev_overlay_enabled,
             commands::dev_overlay::dev_overlay_state,
             commands::dev_overlay::dev_overlay_add_task,
+            commands::dev_overlay::dev_overlay_add_subtask,
             commands::dev_overlay::dev_overlay_set_task_status,
             commands::dev_overlay::dev_overlay_add_pull_request,
             commands::dev_overlay::dev_overlay_reset_scenario,
@@ -435,6 +458,17 @@ pub fn run() {
             commands::ai::ai_cli_candidate_inspect,
             commands::ai::ai_provider_delete,
             commands::ai_usage_statistics::ai_usage_statistics,
+            commands::token_burner::token_burner_settings,
+            commands::token_burner::token_burner_settings_save,
+            commands::token_burner::token_burner_snapshot,
+            commands::token_burner::token_burner_repositories,
+            commands::token_burner::token_burner_ai_provider_summary,
+            commands::token_burner::token_burner_start,
+            commands::token_burner::token_burner_pause,
+            commands::token_burner::token_burner_resume,
+            commands::token_burner::token_burner_stop,
+            commands::token_burner::token_burner_reset_daily_target,
+            commands::token_burner::token_burner_integration_available,
             commands::inbox::inbox_list,
             commands::inbox::inbox_update_state,
             commands::integrations::integration_list,

@@ -4,6 +4,16 @@ use reqwest::{Client, Url};
 use serde::{Deserialize, Serialize};
 
 const MAX_EXCERPT_CHARS: usize = 800;
+pub const MAX_PAGE_TEXT_CHARS: usize = 8_000;
+
+#[derive(Debug, Clone, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct ConfluencePage {
+    pub id: String,
+    pub title: String,
+    pub url: String,
+    pub text: String,
+}
 
 #[derive(Debug)]
 pub enum ConfluenceError {
@@ -38,6 +48,31 @@ pub struct ConfluenceSpace {
 struct SearchResponse {
     #[serde(default)]
     results: Vec<SearchResult>,
+}
+
+#[derive(Debug, Deserialize)]
+struct PageSearchResponse {
+    #[serde(default)]
+    results: Vec<PageResponse>,
+}
+
+#[derive(Debug, Deserialize)]
+struct PageResponse {
+    id: String,
+    title: String,
+    #[serde(rename = "_links")]
+    links: Option<ContentLinks>,
+    body: Option<PageBody>,
+}
+
+#[derive(Debug, Deserialize)]
+struct PageBody {
+    storage: Option<PageStorage>,
+}
+
+#[derive(Debug, Deserialize)]
+struct PageStorage {
+    value: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -171,6 +206,87 @@ impl ConfluenceClient {
             .collect())
     }
 
+    pub async fn get_page(&self, page_id: &str) -> Result<ConfluencePage, ConfluenceError> {
+        if page_id.is_empty() || page_id.len() > 64 || !page_id.chars().all(|c| c.is_ascii_digit())
+        {
+            return Err(ConfluenceError::InvalidQuery);
+        }
+        let mut endpoint = self
+            .base_url
+            .join("rest/api/content")
+            .map_err(|_| ConfluenceError::InvalidBaseUrl)?;
+        endpoint
+            .path_segments_mut()
+            .map_err(|_| ConfluenceError::InvalidBaseUrl)?
+            .push(page_id);
+        endpoint
+            .query_pairs_mut()
+            .append_pair("expand", "body.storage");
+        let response = self
+            .http
+            .get(endpoint)
+            .bearer_auth(&self.token)
+            .send()
+            .await
+            .map_err(|_| ConfluenceError::Transport)?;
+        if !response.status().is_success() {
+            let status = response.status().as_u16();
+            let body =
+                crate::infrastructure::integrations::error_body::read_safe_error_body(response)
+                    .await;
+            return Err(ConfluenceError::Http(status, body));
+        }
+        let page = response
+            .json::<PageResponse>()
+            .await
+            .map_err(|_| ConfluenceError::InvalidResponse)?;
+        Ok(normalize_page(&self.base_url, page))
+    }
+
+    pub async fn get_page_by_title(
+        &self,
+        space_key: &str,
+        title: &str,
+    ) -> Result<ConfluencePage, ConfluenceError> {
+        if space_key.trim().is_empty() || title.trim().is_empty() || title.chars().count() > 300 {
+            return Err(ConfluenceError::InvalidQuery);
+        }
+        let mut endpoint = self
+            .base_url
+            .join("rest/api/content")
+            .map_err(|_| ConfluenceError::InvalidBaseUrl)?;
+        endpoint
+            .query_pairs_mut()
+            .append_pair("spaceKey", space_key)
+            .append_pair("title", title)
+            .append_pair("expand", "body.storage")
+            .append_pair("limit", "1");
+        let response = self
+            .http
+            .get(endpoint)
+            .bearer_auth(&self.token)
+            .send()
+            .await
+            .map_err(|_| ConfluenceError::Transport)?;
+        if !response.status().is_success() {
+            let status = response.status().as_u16();
+            let body =
+                crate::infrastructure::integrations::error_body::read_safe_error_body(response)
+                    .await;
+            return Err(ConfluenceError::Http(status, body));
+        }
+        let mut results = response
+            .json::<PageSearchResponse>()
+            .await
+            .map_err(|_| ConfluenceError::InvalidResponse)?
+            .results;
+        let page = results
+            .drain(..)
+            .find(|page| page.title == title)
+            .ok_or(ConfluenceError::InvalidResponse)?;
+        Ok(normalize_page(&self.base_url, page))
+    }
+
     pub async fn get_space(&self, space_key: &str) -> Result<ConfluenceSpace, ConfluenceError> {
         let space_key = space_key.trim();
         if space_key.is_empty() || space_key.chars().count() > 255 {
@@ -212,6 +328,26 @@ impl ConfluenceClient {
             key: space.key,
             name: plain_text(name.as_deref().unwrap_or_default(), 200),
         })
+    }
+}
+
+fn normalize_page(base_url: &Url, page: PageResponse) -> ConfluencePage {
+    let web_url = page
+        .links
+        .and_then(|links| links.webui)
+        .and_then(|path| same_origin_url(base_url, &path))
+        .unwrap_or_else(|| base_url.to_string());
+    let text = page
+        .body
+        .and_then(|body| body.storage)
+        .and_then(|storage| storage.value)
+        .map(|html| plain_text(&html, MAX_PAGE_TEXT_CHARS))
+        .unwrap_or_default();
+    ConfluencePage {
+        id: page.id,
+        title: plain_text(&page.title, 300),
+        url: web_url,
+        text,
     }
 }
 
@@ -269,12 +405,25 @@ fn same_origin_url(base_url: &Url, value: &str) -> Option<String> {
 fn plain_text(value: &str, max_chars: usize) -> String {
     let value = value.replace("@@@hl@@@", "").replace("@@@endhl@@@", "");
     let mut output = String::new();
+    let mut output_chars = 0;
+    let mut ends_with_whitespace = true;
     let mut in_tag = false;
     for character in value.chars() {
         match character {
-            '<' => in_tag = true,
+            '<' => {
+                in_tag = true;
+                if output_chars < max_chars && !ends_with_whitespace {
+                    output.push(' ');
+                    output_chars += 1;
+                    ends_with_whitespace = true;
+                }
+            }
             '>' if in_tag => in_tag = false,
-            _ if !in_tag && output.chars().count() < max_chars => output.push(character),
+            _ if !in_tag && output_chars < max_chars => {
+                output.push(character);
+                output_chars += 1;
+                ends_with_whitespace = character.is_whitespace();
+            }
             _ => {}
         }
     }

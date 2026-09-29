@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { DailyPresenterState, DailyWorkspace } from "@/shared/contracts/developer";
 import type { ManagedProject } from "@/shared/contracts/planning";
 import { listManagedProjects } from "../planning/api";
-import { loadDailyWorkspace, openPresenterView, publishPresenterState, refreshDailyWorkspace, subscribePresenterState } from "./api";
+import { loadDailyIssueTransitions, loadDailyWorkspace, openPresenterView, publishPresenterState, refreshDailyWorkspace, subscribePresenterState, transitionDailyIssue } from "./api";
 import { clearDailyWorkspaceCacheForTests } from "./cache";
 import { DailyPage } from "./DailyPage";
 
@@ -18,6 +18,8 @@ vi.mock("../planning/api", () => ({ listManagedProjects: vi.fn() }));
 vi.mock("./api", () => ({
   loadDailyWorkspace: vi.fn(),
   refreshDailyWorkspace: vi.fn(),
+  loadDailyIssueTransitions: vi.fn(),
+  transitionDailyIssue: vi.fn(),
   publishPresenterState: vi.fn(),
   openPresenterView: vi.fn(),
   closePresenterView: vi.fn(),
@@ -27,6 +29,8 @@ vi.mock("./api", () => ({
 const listManagedProjectsMock = vi.mocked(listManagedProjects);
 const loadDailyWorkspaceMock = vi.mocked(loadDailyWorkspace);
 const refreshDailyWorkspaceMock = vi.mocked(refreshDailyWorkspace);
+const loadDailyIssueTransitionsMock = vi.mocked(loadDailyIssueTransitions);
+const transitionDailyIssueMock = vi.mocked(transitionDailyIssue);
 const openPresenterViewMock = vi.mocked(openPresenterView);
 const publishPresenterStateMock = vi.mocked(publishPresenterState);
 const subscribePresenterStateMock = vi.mocked(subscribePresenterState);
@@ -63,6 +67,7 @@ const workspace: DailyWorkspace = {
   sprints: [
     { id: "sprint-1", name: "Sprint 42", state: "active" },
     { id: "sprint-0", name: "Sprint 41", state: "closed" },
+    { id: "sprint-future", name: "Sprint 43", state: "future" },
   ],
   members: [
     { accountId: "test-user-a", displayName: "Test Member A", alias: "Test Author A", active: true, tags: ["backend"], displayOrder: 1 },
@@ -114,6 +119,11 @@ describe("DailyPage smoke test", () => {
     listManagedProjectsMock.mockResolvedValue([project]);
     loadDailyWorkspaceMock.mockResolvedValue(workspace);
     refreshDailyWorkspaceMock.mockResolvedValue(workspace.subtasks);
+    loadDailyIssueTransitionsMock.mockResolvedValue([
+      { id: "transition-review", name: "Send to review", toStatus: "Code Review", requiresFields: false },
+      { id: "transition-close", name: "Close issue", toStatus: "Closed", requiresFields: true },
+    ]);
+    transitionDailyIssueMock.mockResolvedValue(undefined);
     openPresenterViewMock.mockResolvedValue(undefined);
     publishPresenterStateMock.mockResolvedValue(undefined);
     openUrlMock.mockResolvedValue(undefined);
@@ -202,7 +212,24 @@ describe("DailyPage smoke test", () => {
     expect(screen.getByText("1 tasks · 1 in progress · 0 done · 0 backlog")).toBeInTheDocument();
     expect(screen.getByText("DEMO-2")).toBeInTheDocument();
     expect(screen.getByText("SP 3")).toBeInTheDocument();
-    expect(screen.getByText("In Progress")).toHaveClass("daily-status-progress");
+    const statusButton = screen.getByRole("button", { name: "Change status for DEMO-2 (current: In Progress)" });
+    expect(statusButton).toHaveClass("daily-status-progress");
+    fireEvent.pointerDown(statusButton, { button: 0, ctrlKey: false });
+    expect(await screen.findByRole("menuitem", { name: /Code Review/ })).toBeInTheDocument();
+    expect(screen.getByRole("menuitem", { name: /Complete required fields in Jira/ })).toHaveAttribute("aria-disabled", "true");
+    refreshDailyWorkspaceMock.mockResolvedValueOnce(workspace.subtasks.map((task) =>
+      task.key === "DEMO-2" ? { ...task, status: "Code Review" } : task,
+    ));
+    fireEvent.click(screen.getByRole("menuitem", { name: /Code Review/ }));
+    await waitFor(() => expect(transitionDailyIssueMock).toHaveBeenCalledWith(
+      project.id,
+      workspace.selectedSprintId,
+      "DEMO-2",
+      "transition-review",
+      expect.any(String),
+    ));
+    expect(await screen.findByRole("button", { name: "Change status for DEMO-2 (current: Code Review)" })).toBeInTheDocument();
+    expect(screen.getByRole("status")).toHaveTextContent("DEMO-2 moved to Code Review.");
     expect(screen.getByText("Sub-task · Parent DEMO-1")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "DEMO-2" }));
     await waitFor(() => expect(openUrlMock).toHaveBeenCalledWith("https://jira.example.invalid/browse/DEMO-2"));
@@ -233,6 +260,10 @@ describe("DailyPage smoke test", () => {
       sprintBoardUrlsByAssignee: {},
     });
     fireEvent.click(screen.getByRole("combobox", { name: "Sprint" }));
+    expect(screen.getByRole("option", { name: "Sprint 43 (Future)" })).toBeInTheDocument();
+    fireEvent.change(screen.getByRole("searchbox", { name: "Search sprints…" }), { target: { value: "41" } });
+    expect(screen.getByRole("option", { name: "Sprint 41 (Closed)" })).toBeInTheDocument();
+    expect(screen.queryByRole("option", { name: "Sprint 42 (Active)" })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("option", { name: "Sprint 41 (Closed)" }));
     await waitFor(() => expect(loadDailyWorkspaceMock).toHaveBeenLastCalledWith("managed-1", "sprint-0"));
     fireEvent.click(sprintBoardButton);

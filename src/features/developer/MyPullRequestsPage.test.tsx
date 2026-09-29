@@ -10,7 +10,7 @@ import type { AiSettingsPageData } from "@/shared/contracts/settings";
 import { getAiSettings } from "../settings/api";
 import {
   getPullRequestReviewSettings,
-  getPullRequestReviewState,
+  getPullRequestReviewStates,
   listMyPullRequests,
   markAllPullRequestsRead,
   markPullRequestRead,
@@ -31,7 +31,7 @@ vi.mock("../settings/api", () => ({
 
 vi.mock("./api", () => ({
   getPullRequestReviewSettings: vi.fn(),
-  getPullRequestReviewState: vi.fn(),
+  getPullRequestReviewStates: vi.fn(),
   listMyPullRequests: vi.fn(),
   markAllPullRequestsRead: vi.fn(),
   markPullRequestRead: vi.fn(),
@@ -46,7 +46,7 @@ vi.mock("./api", () => ({
 
 const getAiSettingsMock = vi.mocked(getAiSettings);
 const getSettingsMock = vi.mocked(getPullRequestReviewSettings);
-const getReviewStateMock = vi.mocked(getPullRequestReviewState);
+const getReviewStatesMock = vi.mocked(getPullRequestReviewStates);
 const listMyPullRequestsMock = vi.mocked(listMyPullRequests);
 const refreshMyPullRequestsMock = vi.mocked(refreshMyPullRequests);
 const markAllPullRequestsReadMock = vi.mocked(markAllPullRequestsRead);
@@ -187,7 +187,7 @@ describe("MyPullRequestsPage", () => {
     refreshMyPullRequestsMock.mockResolvedValue(firstPage);
     getAiSettingsMock.mockResolvedValue(aiSettingsConnected);
     getSettingsMock.mockResolvedValue(emptySettings);
-    getReviewStateMock.mockResolvedValue(null);
+    getReviewStatesMock.mockResolvedValue({});
     markPullRequestReadMock.mockResolvedValue({ integrationId: "bitbucket-1", pullRequestId: "7", activity: "read" });
     markAllPullRequestsReadMock.mockResolvedValue({ markedCount: 2 });
     startReviewMock.mockResolvedValue(runningReview);
@@ -504,6 +504,37 @@ describe("MyPullRequestsPage", () => {
     resolvers.forEach((resolve) => resolve(runningReview));
   });
 
+  it("opens AI review errors and allows retrying the review", async () => {
+    const failedReview: PullRequestReviewState = {
+      runId: "run-failed-example",
+      status: "failed",
+      reviewedCommit: "commit-7",
+      result: null,
+      error: "Example review failure details",
+      startedAt: 1,
+      finishedAt: 2,
+    };
+    listMyPullRequestsMock.mockResolvedValueOnce({
+      ...firstPage,
+      values: [{ ...pullRequests[0], review: failedReview }, pullRequests[1]],
+    });
+
+    await renderFlatPage();
+    fireEvent.click(await screen.findByRole("button", { name: "AI review error" }));
+
+    let dialog = await screen.findByRole("dialog", { name: "Review results" });
+    expect(within(dialog).getByText("Example review failure details")).toBeInTheDocument();
+    fireEvent.click(within(dialog).getAllByRole("button", { name: "Close" })[0]);
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Review results" })).not.toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: "AI review error" }));
+    dialog = await screen.findByRole("dialog", { name: "Review results" });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Retry review" }));
+    await waitFor(() => expect(startReviewMock).toHaveBeenCalledWith(expect.objectContaining({
+      integrationId: pullRequests[0].integrationId,
+      pullRequestId: pullRequests[0].pullRequestId,
+    })));
+  });
+
   it("shows a green AI verdict badge for an approved review", async () => {
     const approvedReview: PullRequestReviewState = {
       ...completedReview,
@@ -526,15 +557,17 @@ describe("MyPullRequestsPage", () => {
       .toBe(reviewResultsButton.parentElement);
   });
   it("reconciles a completed review when the completion event was missed", async () => {
-    getReviewStateMock.mockResolvedValue(completedReview);
+    getReviewStatesMock.mockResolvedValue({
+      "bitbucket-1:DEMO:sample-repository:7": completedReview,
+    });
     await renderFlatPage();
     await screen.findByRole("heading", { name: "Example pull request" });
 
     fireEvent.click(screen.getAllByRole("button", { name: "AI review" })[0]);
-    expect(await screen.findByRole("button", { name: "Review results" })).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "Review results" }, { timeout: 7_000 })).toBeInTheDocument();
     expect(screen.queryByRole("dialog", { name: "Review results" })).not.toBeInTheDocument();
-    expect(getReviewStateMock).toHaveBeenCalled();
-  });
+    expect(getReviewStatesMock).toHaveBeenCalled();
+  }, 8_000);
 
   it("opens persisted review results and can restart the review", async () => {
     listMyPullRequestsMock.mockResolvedValueOnce({

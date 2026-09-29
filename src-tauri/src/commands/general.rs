@@ -1,9 +1,12 @@
 use sqlx::SqlitePool;
 use tauri::{AppHandle, State};
 
-use crate::application::general::{
-    self, AiResponseLanguage, AppLanguage, ButtonStyle, GeneralSettingsDto, NotificationTestKind,
-    ThemePreference,
+use crate::application::{
+    dev_overlay::DevMockMode,
+    general::{
+        self, AiResponseLanguage, AppLanguage, ButtonStyle, GeneralSettingsDto,
+        NotificationTestKind, ThemePreference,
+    },
 };
 use crate::os::notifications::{self, NotificationPermission};
 
@@ -11,12 +14,19 @@ use crate::os::notifications::{self, NotificationPermission};
 pub async fn general_settings(
     app: AppHandle,
     state: State<'_, SqlitePool>,
+    mock_mode: State<'_, DevMockMode>,
     system_language: AppLanguage,
 ) -> Result<GeneralSettingsDto, String> {
-    general::initialize_if_missing(&state, system_language).await?;
+    general::initialize_if_missing_with_extra_functions(
+        &state,
+        system_language,
+        mock_mode.is_enabled(),
+    )
+    .await?;
     general::dto(&state, &app).await
 }
 
+#[allow(clippy::too_many_arguments)]
 #[tauri::command]
 pub async fn general_settings_save(
     app: AppHandle,
@@ -26,6 +36,7 @@ pub async fn general_settings_save(
     authored_notifications_enabled: bool,
     task_tracker_notifications_enabled: bool,
     ai_response_language: AiResponseLanguage,
+    extra_functions_enabled: bool,
 ) -> Result<GeneralSettingsDto, String> {
     general::save_general_preferences(
         &state,
@@ -34,6 +45,7 @@ pub async fn general_settings_save(
         authored_notifications_enabled,
         task_tracker_notifications_enabled,
         ai_response_language,
+        extra_functions_enabled,
     )
     .await?;
     general::dto(&state, &app).await

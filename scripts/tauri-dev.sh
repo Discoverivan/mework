@@ -24,4 +24,13 @@ if ! node -e 'const [major, minor] = process.versions.node.split(".").map(Number
   exit 1
 fi
 
+if [[ ! -f "$repo_root/node_modules/@tauri-apps/cli/tauri.js" ]]; then
+  if ! command -v npm >/dev/null 2>&1; then
+    print -u2 "npm is required to install project dependencies"
+    exit 1
+  fi
+  print "Project dependencies are missing; running npm ci..."
+  npm ci
+fi
+
 exec node ./scripts/tauri-dev.mjs "$@"

@@ -2,12 +2,23 @@ export type AiProviderId = "codex-cli" | "claude-code-cli" | "openai-compatible"
 export type AiProviderStatus = "loading" | "connected" | "not_configured" | "not_found" | "not_authenticated" | "unavailable";
 export type AiReasoning = "minimal" | "low" | "medium" | "high" | "xhigh";
 
+export interface AiSettingsProfile {
+  provider: AiProviderId;
+  providerInstanceId?: string | null;
+  model: string;
+  reasoning: AiReasoning;
+  fastMode: boolean;
+}
+
 export interface AiSettings {
   provider: AiProviderId | null;
   providerInstanceId?: string | null;
   model: string;
   reasoning: AiReasoning;
   fastMode: boolean;
+  taskCreation?: AiSettingsProfile | null;
+  pullRequestReview?: AiSettingsProfile | null;
+  tokenBurner?: AiSettingsProfile | null;
 }
 
 export interface AiProvider {

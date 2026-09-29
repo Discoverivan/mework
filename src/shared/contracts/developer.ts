@@ -1,5 +1,12 @@
 import type { TeamMember } from "./planning";
 
+export interface DailyIssueTransition {
+  id: string;
+  name: string;
+  toStatus: string;
+  requiresFields: boolean;
+}
+
 export interface DailySubtask {
   id: string;
   key: string;
@@ -94,6 +101,14 @@ export interface PullRequestReviewState {
 export interface PullRequestReviewChangedEvent {
   key: string;
   review: PullRequestReviewState;
+}
+
+export interface PullRequestReviewStateRequest {
+  integrationId: string;
+  projectKey: string;
+  repositorySlug: string;
+  pullRequestId: string;
+  latestCommit?: string;
 }
 
 export interface PullRequestReviewSummary {
