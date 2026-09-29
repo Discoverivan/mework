@@ -435,7 +435,6 @@ export const en = {
   "task.error.create": "Unable to create the Jira task.",
   "task.error.createCode": "Jira task creation failed ({code}).",
   "general.heading": "Application preferences",
-  "general.description": "Configure language, appearance, and notifications.",
   "general.loading": "Loading general settings…",
   "general.unavailable": "General settings unavailable",
   "general.permissionTitle": "Notifications are not allowed",

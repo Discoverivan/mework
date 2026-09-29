@@ -186,11 +186,11 @@ describe("GeneralSettingsPage", () => {
 
     fireEvent.click(uiSelect);
     fireEvent.click(screen.getByRole("option", { name: "Русский" }));
-    expect(await screen.findByRole("heading", { name: "Настройки приложения" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Язык" })).toBeInTheDocument();
 
     fireEvent.click(uiSelect);
     fireEvent.click(screen.getByRole("option", { name: "English" }));
-    expect(await screen.findByRole("heading", { name: "Application preferences" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Language" })).toBeInTheDocument();
   });
 
   it("sends a test notification for Task tracker", async () => {

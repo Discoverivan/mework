@@ -437,7 +437,6 @@ export const ru: Record<TranslationKey, string> = {
   "task.error.create": "Не удалось создать задачу Jira.",
   "task.error.createCode": "Не удалось создать задачу Jira ({code}).",
   "general.heading": "Настройки приложения",
-  "general.description": "Настройте язык, оформление и уведомления.",
   "general.loading": "Загрузка общих настроек…",
   "general.unavailable": "Общие настройки недоступны",
   "general.permissionTitle": "Уведомления не разрешены",

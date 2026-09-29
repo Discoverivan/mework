@@ -206,14 +206,7 @@ export function GeneralSettingsPage() {
     settings.notificationPermission !== "granted";
 
   return (
-    <section className="space-y-4" aria-labelledby="general-settings-title">
-      <div>
-        <h2 id="general-settings-title" className="text-lg font-semibold leading-tight">{t("general.heading")}</h2>
-        <p className="mt-1 text-sm text-muted-foreground">
-          {t("general.description")}
-        </p>
-      </div>
-
+    <section className="space-y-4" aria-label={t("general.heading")}>
       {loading ? (
         <Alert role="status" aria-live="polite">
           <AlertDescription>{t("general.loading")}</AlertDescription>
