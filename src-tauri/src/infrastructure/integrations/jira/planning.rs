@@ -664,8 +664,7 @@ impl JiraPlanningClient {
             let is_last = page.is_last;
             values.extend(page.values);
             start_at = start_at.saturating_add(returned);
-            if returned == 0 || is_last || (total > 0 && start_at >= total) || returned < page_size
-            {
+            if returned == 0 || is_last || (total > 0 && start_at >= total) {
                 break;
             }
         }
@@ -839,14 +838,31 @@ mod tests {
             .and(path("/rest/agile/1.0/board/42/sprint"))
             .and(query_param("state", "active,future,closed"))
             .and(query_param("startAt", "0"))
+            .and(query_param("maxResults", "100"))
             .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
                 "startAt": 0,
-                "maxResults": 100,
+                "maxResults": 2,
                 "total": 3,
                 "values": [
                     { "id": 1, "name": "Example active sprint", "state": "active" },
-                    { "id": 2, "name": "Example future sprint", "state": "future" },
                     { "id": 3, "name": "Example closed sprint", "state": "closed" }
+                ]
+            })))
+            .expect(1)
+            .mount(&server)
+            .await;
+        Mock::given(method("GET"))
+            .and(path("/rest/agile/1.0/board/42/sprint"))
+            .and(query_param("state", "active,future,closed"))
+            .and(query_param("startAt", "2"))
+            .and(query_param("maxResults", "100"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "startAt": 2,
+                "maxResults": 2,
+                "total": 3,
+                "isLast": true,
+                "values": [
+                    { "id": 2, "name": "Example future sprint", "state": "future" }
                 ]
             })))
             .expect(1)
@@ -867,6 +883,7 @@ mod tests {
             .expect("all Jira sprint states should be included");
 
         assert_eq!(sprints.values.len(), 3);
+        assert_eq!(sprints.page_count, 2);
         assert!(sprints.values.iter().any(|sprint| sprint.state == "future"));
     }
 
