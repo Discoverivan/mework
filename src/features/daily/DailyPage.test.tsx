@@ -63,6 +63,7 @@ const workspace: DailyWorkspace = {
   sprints: [
     { id: "sprint-1", name: "Sprint 42", state: "active" },
     { id: "sprint-0", name: "Sprint 41", state: "closed" },
+    { id: "sprint-future", name: "Sprint 43", state: "future" },
   ],
   members: [
     { accountId: "test-user-a", displayName: "Test Member A", alias: "Test Author A", active: true, tags: ["backend"], displayOrder: 1 },
@@ -233,6 +234,7 @@ describe("DailyPage smoke test", () => {
       sprintBoardUrlsByAssignee: {},
     });
     fireEvent.click(screen.getByRole("combobox", { name: "Sprint" }));
+    expect(screen.getByRole("option", { name: "Sprint 43 (Future)" })).toBeInTheDocument();
     fireEvent.change(screen.getByRole("searchbox", { name: "Search sprints…" }), { target: { value: "41" } });
     expect(screen.getByRole("option", { name: "Sprint 41 (Closed)" })).toBeInTheDocument();
     expect(screen.queryByRole("option", { name: "Sprint 42 (Active)" })).not.toBeInTheDocument();

@@ -291,7 +291,10 @@ impl JiraPlanningClient {
         page_size: u64,
     ) -> Result<PlanningPage<PlanningSprint>, JiraError> {
         validate_path_component(board_id)?;
-        let endpoint = self.endpoint(&format!("rest/agile/1.0/board/{board_id}/sprint"))?;
+        let mut endpoint = self.endpoint(&format!("rest/agile/1.0/board/{board_id}/sprint"))?;
+        endpoint
+            .query_pairs_mut()
+            .append_pair("state", "active,future,closed");
         self.paginate(endpoint, page_size, serde_json::from_value)
             .await
     }
@@ -827,6 +830,44 @@ mod tests {
         assert_eq!(issues[0].key, "DEMO-1");
         assert_eq!(issues[0].summary, "First epic");
         assert_eq!(issues[1].key, "DEMO-2");
+    }
+
+    #[tokio::test]
+    async fn lists_all_sprint_states_for_a_board() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/rest/agile/1.0/board/42/sprint"))
+            .and(query_param("state", "active,future,closed"))
+            .and(query_param("startAt", "0"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "startAt": 0,
+                "maxResults": 100,
+                "total": 3,
+                "values": [
+                    { "id": 1, "name": "Example active sprint", "state": "active" },
+                    { "id": 2, "name": "Example future sprint", "state": "future" },
+                    { "id": 3, "name": "Example closed sprint", "state": "closed" }
+                ]
+            })))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        let client = JiraPlanningClient::new_with_dependencies(
+            server.uri(),
+            JiraDeployment::DataCenter,
+            Arc::new(ReqwestPlanningTransport::new(reqwest::Client::new())),
+            None,
+            Some("synthetic-secret".to_owned()),
+        )
+        .expect("valid Jira base URL");
+        let sprints = client
+            .list_sprints("42", 100)
+            .await
+            .expect("all Jira sprint states should be included");
+
+        assert_eq!(sprints.values.len(), 3);
+        assert!(sprints.values.iter().any(|sprint| sprint.state == "future"));
     }
 
     #[tokio::test]
