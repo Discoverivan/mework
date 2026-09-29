@@ -178,11 +178,15 @@ describe("DailyPage smoke test", () => {
     expect(screen.queryByText("Active sprint: Sprint 42")).not.toBeInTheDocument();
     const refreshButton = screen.getByRole("button", { name: "Refresh" });
     const sprintBoardButton = screen.getByRole("button", { name: "Open sprint board in Jira" });
+    const assigneeBoardButton = screen.getByRole("button", { name: "Open sprint board for Test Author A in Jira" });
     const presenterButton = screen.getByRole("button", { name: "Presenter view" });
     const createTaskButton = screen.getByRole("button", { name: "Create task for this sprint" });
     expect(createTaskButton.querySelector("svg.lucide-plus")).toBeInTheDocument();
     fireEvent.click(sprintBoardButton);
+    await waitFor(() => expect(openUrlMock).toHaveBeenCalledWith(workspace.sprintBoardUrl));
+    fireEvent.click(assigneeBoardButton);
     await waitFor(() => expect(openUrlMock).toHaveBeenCalledWith(workspace.sprintBoardUrlsByAssignee["test-user-a"]));
+    expect(assigneeBoardButton.parentElement).toBe(screen.getByRole("button", { name: "Previous team member" }).parentElement);
     fireEvent.click(createTaskButton);
     expect(window.location.hash).toBe("#product/create-task?team=managed-1&sprint=sprint-1");
     expect(refreshButton).toHaveClass("h-9", "w-9");
@@ -208,7 +212,7 @@ describe("DailyPage smoke test", () => {
       refreshButton,
       createTaskButton,
     ]);
-    expect(screen.getByRole("button", { name: /Test Author A/ })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("button", { name: /Test Author A/, pressed: true })).toHaveAttribute("aria-pressed", "true");
     expect(screen.getByText("1 tasks · 1 in progress · 0 done · 0 backlog")).toBeInTheDocument();
     expect(screen.getByText("DEMO-2")).toBeInTheDocument();
     expect(screen.getByText("SP 3")).toBeInTheDocument();

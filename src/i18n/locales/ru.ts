@@ -262,6 +262,7 @@ export const ru: Record<TranslationKey, string> = {
   "daily.sprintState.future": "Будущий",
   "daily.refresh": "Обновить",
   "daily.openSprintBoard": "Открыть доску спринта в Jira",
+  "daily.openAssigneeSprintBoard": "Открыть доску спринта для {assignee} в Jira",
   "daily.createTask": "Создать задачу в этом спринте",
   "daily.refreshing": "Обновление…",
   "daily.presenter.start": "Режим презентации",

@@ -353,6 +353,7 @@ export function DailyPage() {
   }, [owners]);
   const selectedOwner = owners.find((owner) => owner.id === selectedMemberId);
   const selectedMember = selectedOwner?.member;
+  const selectedAssigneeBoardUrl = selectedMember ? workspace?.sprintBoardUrlsByAssignee?.[selectedMember.accountId] : undefined;
   const selectedOwnerIndex = selectedOwner ? owners.findIndex((owner) => owner.id === selectedOwner.id) : -1;
   const selectedSubtasks = useMemo(
     () => workspace ? ownerTasks(workspace, selectedMemberId) : [],
@@ -563,9 +564,7 @@ export function DailyPage() {
             title={t("daily.openSprintBoard")}
             disabled={!workspace || loadingWorkspace}
             onClick={() => {
-              if (workspace) void openJiraIssue(
-                (selectedMember && workspace.sprintBoardUrlsByAssignee?.[selectedMember.accountId]) || workspace.sprintBoardUrl,
-              );
+              if (workspace) void openJiraIssue(workspace.sprintBoardUrl);
             }}
           >
             <ExternalLink aria-hidden="true" />
@@ -715,6 +714,19 @@ export function DailyPage() {
                     </div>
                   </div>
                   <div className="flex shrink-0 items-center gap-1">
+                    {selectedAssigneeBoardUrl ? (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="icon"
+                        className="mr-1 size-9"
+                        aria-label={t("daily.openAssigneeSprintBoard", { assignee: selectedOwner.label })}
+                        title={t("daily.openAssigneeSprintBoard", { assignee: selectedOwner.label })}
+                        onClick={() => void openJiraIssue(selectedAssigneeBoardUrl)}
+                      >
+                        <ExternalLink aria-hidden="true" />
+                      </Button>
+                    ) : null}
                     <Button
                       type="button"
                       variant="outline"
