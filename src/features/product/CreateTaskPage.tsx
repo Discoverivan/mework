@@ -27,7 +27,7 @@ import {
 } from "@/components/ui/select";
 import type { ManagedProject, PlanningSprint, EpicLinkJqlIssue } from "@/shared/contracts/planning";
 import { listManagedProjects, listTargetSprints, previewEpicLinkJql, loadJiraAvatarData } from "../planning/api";
-import type { CreatedJiraTask, JiraTaskIssueType, JiraTaskMember } from "./create-task-api";
+import type { CreatedJiraTask, JiraTaskIssueType, JiraTaskMember, TaskDraftSource } from "./create-task-api";
 import { createJiraTask, generateTaskDraft, listJiraTaskTeamMembers } from "./create-task-api";
 
 import "./create-task.css";
@@ -63,6 +63,7 @@ type TaskCard = {
   id: string;
   createdAt: number;
   prompt: string;
+  sources: TaskDraftSource[];
   teamId?: string;
   issueType: JiraTaskIssueType;
   summary: string;
@@ -133,6 +134,13 @@ function parsePersistedCard(value: unknown): TaskCard | undefined {
     id,
     createdAt,
     prompt,
+    sources: Array.isArray(value.sources) ? value.sources.flatMap((source) => {
+      if (!isRecord(source)) return [];
+      const title = stringValue(source.title);
+      const url = stringValue(source.url);
+      const kind = source.kind;
+      return title && url && (kind === "Jira" || kind === "Confluence") ? [{ title, url, kind }] : [];
+    }) : [],
     ...(stringValue(value.teamId) ? { teamId: stringValue(value.teamId) } : {}),
     issueType,
     summary,
@@ -426,6 +434,7 @@ export function CreateTaskPage() {
       updateCard(id, {
         summary: generated.summary,
         description: generated.description,
+        sources: generated.sources ?? [],
         status: "ready",
         error: undefined,
       });
@@ -468,8 +477,8 @@ export function CreateTaskPage() {
         "Do not rewrite the task summary or invent unrelated requirements.",
         `Current description:\n${card.description}`,
         `Additional context from the user:\n${context}`,
-      ].join("\n\n"));
-      updateCard(card.id, { description: generated.description });
+      ].join("\n\n"), card.sources);
+      updateCard(card.id, { description: generated.description, sources: generated.sources ?? card.sources });
     } catch (error) {
       setDescriptionImproveError(taskErrorMessage(error, t));
       setDescriptionImproveErrorCardId(card.id);
@@ -507,6 +516,7 @@ export function CreateTaskPage() {
         id,
         createdAt: nextCardCreatedAt(current),
         prompt: value,
+        sources: [],
         teamId: selectedTeamId,
         issueType: "Task",
         summary: "",

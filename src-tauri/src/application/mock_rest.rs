@@ -390,6 +390,36 @@ fn confluence_response(origin: &str, method: &str, path: &str, url: &str) -> Res
             }),
         );
     }
+    if method == "GET" && path == "/confluence/rest/api/content" {
+        let title = reqwest::Url::parse(url)
+            .ok()
+            .and_then(|url| {
+                url.query_pairs()
+                    .find(|(name, _)| name == "title")
+                    .map(|(_, value)| value.into_owned())
+            })
+            .unwrap_or_else(|| "MOCK DATA · Example planning notes".to_owned());
+        return json_response(
+            200,
+            json!({"results":[{
+                "id":"10001", "title":title,
+                "_links":{"webui":"/spaces/MOCK/pages/10001"},
+                "body":{"storage":{"value":"<p>Synthetic acceptance criteria and implementation notes.</p>"}}
+            }]}),
+        );
+    }
+    if method == "GET" && path.starts_with("/confluence/rest/api/content/") {
+        let id = path.rsplit('/').next().unwrap_or_default();
+        return json_response(
+            200,
+            json!({
+                "id": id,
+                "title": "MOCK DATA · Example planning notes",
+                "_links": {"webui": format!("/spaces/MOCK/pages/{id}")},
+                "body": {"storage": {"value": "<p>Synthetic acceptance criteria and implementation notes.</p>"}}
+            }),
+        );
+    }
     if method == "GET" && path.starts_with("/confluence/rest/api/space/") {
         let key = path.rsplit('/').next().unwrap_or("MOCK");
         return json_response(200, json!({"id":"1", "key":key, "name":"Example space"}));

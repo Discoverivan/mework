@@ -152,7 +152,11 @@ describe("CreateTaskPage", () => {
 
     await waitFor(() => expect(screen.getByLabelText("Description")).toHaveValue("Improved description"));
     expect(screen.getByLabelText("Summary")).toHaveValue("Initial summary");
-    expect(generateMock).toHaveBeenNthCalledWith(2, expect.stringContaining("Additional context from the user:\nMention the audit actor and date filters."));
+    expect(generateMock).toHaveBeenNthCalledWith(
+      2,
+      expect.stringContaining("Additional context from the user:\nMention the audit actor and date filters."),
+      [],
+    );
     expect(screen.queryByRole("heading", { name: "Improve description with AI" })).not.toBeInTheDocument();
   });
   it("closes the improve dialog and locks description while AI is working", async () => {
