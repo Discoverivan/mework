@@ -2,7 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { APP_EVENT, subscribeAppEvent } from "@/app/app-events";
-import { getAiSettings, refreshAiSettings, saveIntegration } from "./api";
+import { getAiSettings, refreshAiSettings, saveAiSettings, saveIntegration } from "./api";
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
 
@@ -78,6 +78,23 @@ describe("settings integration API smoke test", () => {
     resolveOld(oldSettings);
     expect(await oldRequest).toEqual(oldSettings);
     expect(await getAiSettings()).toEqual(newSettings);
+    expect(invokeMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("keeps a saved AI setting after an older read finishes", async () => {
+    const oldSettings = { settings: { provider: null, model: "", reasoning: "medium" as const, fastMode: false }, providers: [] };
+    const savedSettings = { settings: { ...oldSettings.settings, model: "example-model" }, providers: [] };
+    let resolveOld!: (value: typeof oldSettings) => void;
+    invokeMock.mockReset();
+    invokeMock
+      .mockImplementationOnce(() => new Promise((resolve) => { resolveOld = resolve; }))
+      .mockResolvedValueOnce(savedSettings);
+
+    const oldRequest = refreshAiSettings();
+    expect(await saveAiSettings(savedSettings.settings)).toEqual(savedSettings);
+    resolveOld(oldSettings);
+    expect(await oldRequest).toEqual(oldSettings);
+    expect(await getAiSettings()).toEqual(savedSettings);
     expect(invokeMock).toHaveBeenCalledTimes(2);
   });
 });

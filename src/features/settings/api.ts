@@ -56,6 +56,12 @@ function cacheStableAiSettings(value: AiSettingsPageData): AiSettingsPageData {
   return value;
 }
 
+function cacheMutatedAiSettings(value: AiSettingsPageData): AiSettingsPageData {
+  aiSettingsRequestRevision += 1;
+  aiSettingsRequest = null;
+  return cacheStableAiSettings(value);
+}
+
 export function getAiSettings(): Promise<AiSettingsPageData> {
   if (aiSettingsCache && aiSettingsCache.expiresAt > Date.now()) {
     return Promise.resolve(aiSettingsCache.value);
@@ -80,19 +86,19 @@ export function refreshAiSettings(): Promise<AiSettingsPageData> {
 }
 
 export const saveAiSettings = (settings: AiSettings) =>
-  invoke<AiSettingsPageData>("ai_settings_save", { settings }).then(cacheStableAiSettings);
+  invoke<AiSettingsPageData>("ai_settings_save", { settings }).then(cacheMutatedAiSettings);
 
 export const saveOpenAiCompatibleProvider = (input: OpenAiCompatibleProviderSaveInput) =>
-  invoke<AiSettingsPageData>("ai_openai_compatible_save", { request: input }).then(cacheStableAiSettings);
+  invoke<AiSettingsPageData>("ai_openai_compatible_save", { request: input }).then(cacheMutatedAiSettings);
 
 export const addAiCliProvider = (provider: AiCliProviderId) =>
-  invoke<AiSettingsPageData>("ai_provider_add", { provider }).then(cacheStableAiSettings);
+  invoke<AiSettingsPageData>("ai_provider_add", { provider }).then(cacheMutatedAiSettings);
 
 export const inspectAiCliProvider = (provider: AiCliProviderId) =>
   invoke<AiProvider>("ai_cli_candidate_inspect", { provider });
 
 export const deleteAiProvider = (provider: AiSettings["provider"], instanceId?: string | null) =>
-  invoke<AiSettingsPageData>("ai_provider_delete", { provider, instanceId: instanceId ?? null }).then(cacheStableAiSettings);
+  invoke<AiSettingsPageData>("ai_provider_delete", { provider, instanceId: instanceId ?? null }).then(cacheMutatedAiSettings);
 
 export const listIntegrations = () => invoke<IntegrationRedacted[]>("integration_list");
 
