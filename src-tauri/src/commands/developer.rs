@@ -11,6 +11,7 @@ use crate::application::developer::{
 };
 use crate::application::developer_review::{
     self, PullRequestReviewDto, PullRequestReviewRequest, PullRequestReviewStateRequest,
+    PullRequestReviewStatesRequest,
 };
 
 #[derive(Debug, Clone, Deserialize)]
@@ -136,6 +137,21 @@ pub async fn pull_request_review_state(
         .await
         .map_err(|message| DeveloperCommandError {
             code: "review_state_failed".to_owned(),
+            message,
+            retryable: true,
+            details: None,
+        })
+}
+
+#[tauri::command]
+pub async fn pull_request_review_states(
+    state: State<'_, SqlitePool>,
+    request: PullRequestReviewStatesRequest,
+) -> Result<std::collections::HashMap<String, PullRequestReviewDto>, DeveloperCommandError> {
+    developer_review::get_review_states(&state, request.requests)
+        .await
+        .map_err(|message| DeveloperCommandError {
+            code: "review_states_failed".to_owned(),
             message,
             retryable: true,
             details: None,

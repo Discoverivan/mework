@@ -12,6 +12,7 @@ import { PullRequestDisplayOptionsDialog } from "./components/PullRequestDisplay
 import { PullRequestListItem } from "./components/PullRequestListItem";
 import { PullRequestProjectSection } from "./components/PullRequestProjectSection";
 import { PullRequestReviewDialog } from "./components/PullRequestReviewDialog";
+import { usePullRequestReviewPolling } from "./review-polling";
 import { PullRequestStatus } from "./components/PullRequestStatus";
 import { usePullRequestDisplayPreferences } from "./display-options";
 import {
@@ -24,7 +25,6 @@ import type { PullRequestReviewSettings } from "@/shared/contracts/developer";
 import type {
   MyPullRequest,
   MyPullRequestPage,
-  PullRequestReviewState,
 } from "@/shared/contracts/developer";
 
 import { getAiSettings } from "../settings/api";
@@ -32,7 +32,6 @@ import { APP_EVENT, emitAppEvent, subscribeAppEvent } from "@/app/app-events";
 import { shouldRefreshPullRequestCache } from "./pull-request-cache";
 import {
   getPullRequestReviewSettings,
-  getPullRequestReviewState,
   listAuthoredPullRequests,
   markAllAuthoredPullRequestsRead,
   markAuthoredPullRequestRead,
@@ -198,41 +197,7 @@ export function AuthoredPullRequestsPage() {
     });
   }, []);
 
-  useEffect(() => {
-    const running = pullRequests.filter((item) => item.review?.status === "running");
-    if (running.length === 0) return;
-    let active = true;
-    const reconcile = async () => {
-      const updates = await Promise.all(running.map(async (pullRequest) => {
-        try {
-          return {
-            key: pullRequestKey(pullRequest),
-            runId: pullRequest.review?.runId,
-            review: await getPullRequestReviewState(pullRequest),
-          };
-        } catch {
-          return null;
-        }
-      }));
-      if (!active) return;
-      const available = updates.filter((update): update is {
-        key: string;
-        runId: string;
-        review: PullRequestReviewState;
-      } => update?.review != null && update.runId != null && update.review.runId === update.runId);
-      if (available.length === 0) return;
-      setPullRequests((current) => sortPullRequests(current.map((item) => {
-        const update = available.find((candidate) => candidate.key === pullRequestKey(item));
-        return update && item.review?.runId === update.runId ? { ...item, review: update.review } : item;
-      })));
-    };
-    void reconcile();
-    const timer = window.setInterval(() => void reconcile(), 2_000);
-    return () => {
-      active = false;
-      window.clearInterval(timer);
-    };
-  }, [pullRequests]);
+  usePullRequestReviewPolling(pullRequests, setPullRequests);
 
   async function markRead(pullRequest: MyPullRequest) {
     const key = `${pullRequest.projectKey}/${pullRequest.repositorySlug}/${pullRequest.pullRequestId}`;
@@ -437,7 +402,7 @@ export function AuthoredPullRequestsPage() {
       </div>
 
       <PullRequestReviewDialog
-        open={Boolean(reviewDialogKey && reviewDialogPullRequest?.review?.status === "completed" && reviewDialogPullRequest.review.result)}
+        open={Boolean(reviewDialogKey && (reviewDialogPullRequest?.review?.status === "failed" || (reviewDialogPullRequest?.review?.status === "completed" && reviewDialogPullRequest.review.result)))}
         pullRequest={reviewDialogPullRequest}
         review={reviewDialogPullRequest?.review}
         reviewerActions={false}

@@ -6,7 +6,7 @@ import type { AiSettingsPageData } from "@/shared/contracts/settings";
 import { getAiSettings } from "../settings/api";
 import {
   getPullRequestReviewSettings,
-  getPullRequestReviewState,
+  getPullRequestReviewStates,
   listAuthoredPullRequests,
   markAllAuthoredPullRequestsRead,
   markAuthoredPullRequestRead,
@@ -20,7 +20,7 @@ import { AuthoredPullRequestsPage } from "./AuthoredPullRequestsPage";
 vi.mock("../settings/api", () => ({ getAiSettings: vi.fn() }));
 vi.mock("./api", () => ({
   getPullRequestReviewSettings: vi.fn(),
-  getPullRequestReviewState: vi.fn(),
+  getPullRequestReviewStates: vi.fn(),
   listAuthoredPullRequests: vi.fn(),
   markAllAuthoredPullRequestsRead: vi.fn(),
   markAuthoredPullRequestRead: vi.fn(),
@@ -36,7 +36,7 @@ const markAllAuthoredPullRequestsReadMock = vi.mocked(markAllAuthoredPullRequest
 const markAuthoredPullRequestReadMock = vi.mocked(markAuthoredPullRequestRead);
 const refreshAuthoredPullRequestsMock = vi.mocked(refreshAuthoredPullRequests);
 const saveReviewSettingsMock = vi.mocked(savePullRequestReviewSettings);
-const getReviewStateMock = vi.mocked(getPullRequestReviewState);
+const getReviewStatesMock = vi.mocked(getPullRequestReviewStates);
 const startReviewMock = vi.mocked(startPullRequestReview);
 
 const aiSettings: AiSettingsPageData = {
@@ -115,7 +115,7 @@ describe("AuthoredPullRequestsPage", () => {
     refreshAuthoredPullRequestsMock.mockResolvedValue(page);
     markAllAuthoredPullRequestsReadMock.mockResolvedValue({ markedCount: 1 });
     markAuthoredPullRequestReadMock.mockResolvedValue(true);
-    getReviewStateMock.mockResolvedValue(null);
+    getReviewStatesMock.mockResolvedValue({});
     startReviewMock.mockResolvedValue(completedReview);
   });
 
