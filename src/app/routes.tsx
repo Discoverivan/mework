@@ -108,8 +108,8 @@ export function AppRoutes({ route, updateCheckRequest = 0, mockMode = false, mod
       && new URLSearchParams(window.location.hash.split("?")[1] ?? "").get("focus") === "token-burner"
       ? "token-burner"
       : undefined;
-    return <SettingsPage section={section} focusActivity={focusActivity} />;
+    return <SettingsPage section={section} focusActivity={focusActivity} mockMode={mockMode} />;
   }
 
-  return <SettingsPage section="integrations" />;
+  return <SettingsPage section="integrations" mockMode={mockMode} />;
 }

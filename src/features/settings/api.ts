@@ -69,6 +69,11 @@ export function getAiSettings(): Promise<AiSettingsPageData> {
   return sharedRequest;
 }
 
+export function refreshAiSettings(): Promise<AiSettingsPageData> {
+  aiSettingsCache = null;
+  return getAiSettings();
+}
+
 export const saveAiSettings = (settings: AiSettings) =>
   invoke<AiSettingsPageData>("ai_settings_save", { settings }).then(cacheStableAiSettings);
 

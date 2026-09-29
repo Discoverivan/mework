@@ -1,7 +1,7 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { addAiCliProvider, deleteAiProvider, getAiSettings, inspectAiCliProvider, listIntegrations, saveAiSettings, saveIntegration, saveOpenAiCompatibleProvider } from "./api";
+import { addAiCliProvider, deleteAiProvider, deleteIntegration, getAiSettings, inspectAiCliProvider, listIntegrations, refreshAiSettings, saveAiSettings, saveIntegration, saveOpenAiCompatibleProvider } from "./api";
 import { SettingsPage } from "./SettingsPage";
 
 vi.mock("./api", () => ({
@@ -11,6 +11,7 @@ vi.mock("./api", () => ({
   inspectAiCliProvider: vi.fn(),
   getAiSettings: vi.fn(),
   listIntegrations: vi.fn(),
+  refreshAiSettings: vi.fn(),
   refreshIntegrationHealth: vi.fn(),
   saveAiSettings: vi.fn(),
   saveIntegration: vi.fn(),
@@ -24,22 +25,35 @@ vi.mock("./planning-projects/api", () => ({
 }));
 
 const getAiSettingsMock = vi.mocked(getAiSettings);
+const refreshAiSettingsMock = vi.mocked(refreshAiSettings);
 const addAiCliProviderMock = vi.mocked(addAiCliProvider);
 const inspectAiCliProviderMock = vi.mocked(inspectAiCliProvider);
 const deleteAiProviderMock = vi.mocked(deleteAiProvider);
+const deleteIntegrationMock = vi.mocked(deleteIntegration);
 const listIntegrationsMock = vi.mocked(listIntegrations);
 const saveAiSettingsMock = vi.mocked(saveAiSettings);
 const saveIntegrationMock = vi.mocked(saveIntegration);
 const saveOpenAiCompatibleProviderMock = vi.mocked(saveOpenAiCompatibleProvider);
 
+function defaultAiSettings() {
+  return within(screen.getByRole("region", { name: "Defaults" }));
+}
+
 function selectAiProvider(name: string) {
-  fireEvent.click(screen.getByRole("combobox", { name: "Default AI provider" }));
+  fireEvent.click(defaultAiSettings().getByRole("combobox", { name: "AI provider" }));
   fireEvent.click(screen.getByRole("option", { name }));
 }
 
 function selectAiProviderGroup(name: "CLI" | "API") {
   fireEvent.click(screen.getByRole("combobox", { name: "Provider types" }));
   fireEvent.click(screen.getByRole("option", { name }));
+}
+
+async function selectIntegrationToAdd(name: string) {
+  const addButton = screen.getByRole("button", { name: "Add data integration" });
+  await waitFor(() => expect(addButton).toBeEnabled());
+  fireEvent.pointerDown(addButton, { button: 0, ctrlKey: false });
+  fireEvent.click(screen.getByRole("menuitem", { name }));
 }
 
 const jiraIntegration = {
@@ -76,10 +90,12 @@ describe("SettingsPage integrations smoke tests", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     getAiSettingsMock.mockResolvedValue(codexAiSettings);
+    refreshAiSettingsMock.mockResolvedValue(codexAiSettings);
     addAiCliProviderMock.mockResolvedValue(codexAiSettings);
     inspectAiCliProviderMock.mockResolvedValue(codexAiSettings.providers[0]);
     saveAiSettingsMock.mockImplementation(async (settings) => ({ ...codexAiSettings, settings }));
     listIntegrationsMock.mockResolvedValue([]);
+    deleteIntegrationMock.mockResolvedValue(undefined);
     saveIntegrationMock.mockResolvedValue({ status: "saved", integration: jiraIntegration });
   });
 
@@ -96,9 +112,7 @@ describe("SettingsPage integrations smoke tests", () => {
     render(<SettingsPage />);
     await screen.findByRole("heading", { name: "Data integrations" });
     expect(screen.queryByText("Settings", { exact: true })).not.toBeInTheDocument();
-    const jiraButton = screen.getByRole("button", { name: "Jira" });
-    expect(jiraButton).toHaveClass("cursor-pointer", "hover:bg-accent/50");
-    fireEvent.click(jiraButton);
+    await selectIntegrationToAdd("Jira");
 
     expect(screen.getByRole("textbox", { name: "Base URL" })).toBeInTheDocument();
     expect(screen.getByLabelText("Personal access token")).toBeInTheDocument();
@@ -109,7 +123,7 @@ describe("SettingsPage integrations smoke tests", () => {
     render(<SettingsPage />);
     await screen.findByRole("heading", { name: "Data integrations" });
     expect(screen.queryByText("Settings", { exact: true })).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Jira" }));
+    await selectIntegrationToAdd("Jira");
     fireEvent.change(screen.getByLabelText("Base URL"), {
       target: { value: "https://jira.example.invalid" },
     });
@@ -129,20 +143,91 @@ describe("SettingsPage integrations smoke tests", () => {
     expect(screen.queryByText("test-jira-token")).not.toBeInTheDocument();
   });
 
+  it("offers only unconfigured data integrations and disables adding when all are configured", async () => {
+    const bitbucketIntegration = { ...jiraIntegration, id: "bitbucket-1", kind: "bitbucket" as const, baseUrl: "https://bitbucket.example.invalid" };
+    const confluenceIntegration = { ...jiraIntegration, id: "confluence-1", kind: "confluence" as const, baseUrl: "https://confluence.example.invalid" };
+    listIntegrationsMock.mockResolvedValueOnce([jiraIntegration]);
+    const { unmount } = render(<SettingsPage />);
+
+    await screen.findByRole("group", { name: "Jira integration" });
+    const addButton = screen.getByRole("button", { name: "Add data integration" });
+    fireEvent.pointerDown(addButton, { button: 0, ctrlKey: false });
+    expect(screen.queryByRole("menuitem", { name: "Jira" })).not.toBeInTheDocument();
+    expect(screen.getByRole("menuitem", { name: "Bitbucket" })).toBeInTheDocument();
+    expect(screen.getByRole("menuitem", { name: "Confluence" })).toBeInTheDocument();
+    unmount();
+
+    listIntegrationsMock.mockResolvedValueOnce([jiraIntegration, bitbucketIntegration, confluenceIntegration]);
+    render(<SettingsPage />);
+    await screen.findByRole("group", { name: "Confluence integration" });
+    expect(screen.getByRole("button", { name: "Add data integration" })).toBeDisabled();
+  });
+
+  it("removes a configured data integration from its card", async () => {
+    listIntegrationsMock.mockResolvedValueOnce([jiraIntegration]);
+    render(<SettingsPage />);
+
+    await screen.findByRole("group", { name: "Jira integration" });
+    const deleteButton = screen.getByRole("button", { name: "Delete Jira integration" });
+    expect(deleteButton).toHaveAttribute("data-action-tone", "delete");
+    fireEvent.click(deleteButton);
+    expect(screen.getByText("Delete the Jira integration? You can add it again later.")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Delete integration" }));
+
+    await waitFor(() => expect(deleteIntegrationMock).toHaveBeenCalledWith({ id: "jira-1" }));
+    expect(screen.queryByRole("group", { name: "Jira integration" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Add data integration" })).toBeEnabled();
+  });
+
+  it("opens editing from the configured integration's pencil button", async () => {
+    listIntegrationsMock.mockResolvedValueOnce([jiraIntegration]);
+    render(<SettingsPage />);
+
+    const card = within(await screen.findByRole("group", { name: "Jira integration" }));
+    expect(card.queryByRole("button", { name: "Jira" })).not.toBeInTheDocument();
+    fireEvent.click(card.getByRole("button", { name: "Edit Jira integration" }));
+
+    expect(screen.getByRole("textbox", { name: "Base URL" })).toHaveValue("https://jira.example.com");
+    expect(screen.getByRole("button", { name: "Save integration" })).toBeInTheDocument();
+  });
+
+  it("saves an edit to a synthetic integration in mock mode", async () => {
+    const mockJira = { ...jiraIntegration, id: "mock-jira", baseUrl: "http://127.0.0.1:18372/jira/", credentialRef: "mock://mock-jira/no-credential" };
+    listIntegrationsMock.mockResolvedValueOnce([mockJira]);
+    saveIntegrationMock.mockResolvedValueOnce({ status: "saved", integration: { ...mockJira, allowInsecureTls: true } });
+    render(<SettingsPage mockMode />);
+
+    const card = within(await screen.findByRole("group", { name: "Jira integration" }));
+    fireEvent.click(card.getByRole("button", { name: "Edit Jira integration" }));
+    fireEvent.click(screen.getByRole("checkbox", { name: "Allow insecure TLS connection" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save integration" }));
+
+    await waitFor(() => expect(saveIntegrationMock).toHaveBeenCalledWith(expect.objectContaining({
+      id: "mock-jira",
+      baseUrl: "http://127.0.0.1:18372/jira/",
+      allowInsecureTls: true,
+    })));
+  });
+
   it("shows AI controls above integration cards and saves Codex settings automatically", async () => {
     render(<SettingsPage section="ai" />);
 
     expect(await screen.findByRole("heading", { name: "AI settings" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "AI providers" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "AI providers" }).compareDocumentPosition(
+      screen.getByRole("heading", { name: "Defaults" }),
+    ) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(screen.getByText("Choose the AI provider, model, and options used by default across activities.")).toBeVisible();
+    expect(screen.getByText("By default, activities use the settings above. Add an activity to choose its own provider and model.")).toBeVisible();
     expect(screen.queryByRole("heading", { name: "Data integrations" })).not.toBeInTheDocument();
     expect(screen.getByRole("group", { name: "Codex CLI AI provider" })).toHaveTextContent("Connected");
 
     selectAiProvider("Codex CLI");
-    fireEvent.click(screen.getByRole("combobox", { name: "Model" }));
+    fireEvent.click(defaultAiSettings().getByRole("combobox", { name: "Model" }));
     fireEvent.click(screen.getByRole("option", { name: "gpt-5.5" }));
-    fireEvent.click(screen.getByRole("combobox", { name: "Reasoning" }));
+    fireEvent.click(defaultAiSettings().getByRole("combobox", { name: "Reasoning" }));
     fireEvent.click(screen.getByRole("option", { name: "high" }));
-    fireEvent.click(screen.getByRole("checkbox", { name: "Fast mode" }));
+    fireEvent.click(defaultAiSettings().getByRole("checkbox", { name: "Fast mode" }));
     expect(screen.queryByRole("button", { name: "Save AI settings" })).not.toBeInTheDocument();
 
     await waitFor(() => expect(saveAiSettingsMock).toHaveBeenCalledWith({
@@ -165,8 +250,9 @@ describe("SettingsPage integrations smoke tests", () => {
     render(<SettingsPage section="ai" />);
 
     await screen.findByRole("heading", { name: "AI settings" });
-    fireEvent.click(screen.getByText("Activity-specific settings"));
-    const providerSelector = screen.getByRole("combobox", { name: "Task creation provider" });
+    fireEvent.pointerDown(screen.getByRole("button", { name: "Add activity" }), { button: 0, ctrlKey: false });
+    fireEvent.click(screen.getByRole("menuitem", { name: "Task creation" }));
+    const providerSelector = within(screen.getByRole("region", { name: "Task creation" })).getByRole("combobox", { name: "AI provider" });
     fireEvent.click(providerSelector);
     fireEvent.click(screen.getByRole("option", { name: "Claude Code CLI" }));
 
@@ -179,6 +265,60 @@ describe("SettingsPage integrations smoke tests", () => {
         fastMode: false,
       },
     })));
+    expect(await within(screen.getByRole("region", { name: "Task creation" })).findByText("AI settings saved.")).toBeInTheDocument();
+    expect(defaultAiSettings().queryByText("AI settings saved.")).not.toBeInTheDocument();
+  });
+
+  it("adds each activity once and offers it again after removal", async () => {
+    render(<SettingsPage section="ai" />);
+    await screen.findByRole("heading", { name: "Activity-specific" });
+    const addButton = screen.getByRole("button", { name: "Add activity" });
+
+    fireEvent.pointerDown(addButton, { button: 0, ctrlKey: false });
+    fireEvent.click(screen.getByRole("menuitem", { name: "Task creation" }));
+    expect(screen.getByRole("region", { name: "Task creation" })).toBeInTheDocument();
+
+    fireEvent.pointerDown(addButton, { button: 0, ctrlKey: false });
+    expect(screen.queryByRole("menuitem", { name: "Task creation" })).not.toBeInTheDocument();
+    fireEvent.keyDown(screen.getByRole("menu"), { key: "Escape" });
+
+    fireEvent.click(screen.getByRole("button", { name: "Remove Task creation" }));
+    expect(screen.queryByRole("region", { name: "Task creation" })).not.toBeInTheDocument();
+    fireEvent.pointerDown(addButton, { button: 0, ctrlKey: false });
+    expect(screen.getByRole("menuitem", { name: "Task creation" })).toBeInTheDocument();
+  });
+
+  it("refreshes an AI provider and displays its updated models", async () => {
+    refreshAiSettingsMock.mockResolvedValue({
+      ...codexAiSettings,
+      providers: [{ ...codexAiSettings.providers[0], models: ["gpt-6-astra", "example-new-model"] }],
+    });
+    render(<SettingsPage section="ai" />);
+
+    const provider = within(await screen.findByRole("group", { name: "Codex CLI AI provider" }));
+    fireEvent.click(provider.getByRole("button", { name: "Refresh Codex CLI configuration" }));
+
+    await waitFor(() => expect(refreshAiSettingsMock).toHaveBeenCalledOnce());
+    fireEvent.click(defaultAiSettings().getByRole("combobox", { name: "AI provider" }));
+    fireEvent.click(screen.getByRole("option", { name: "Codex CLI" }));
+    fireEvent.click(defaultAiSettings().getByRole("combobox", { name: "Model" }));
+    expect(screen.getByRole("option", { name: "example-new-model" })).toBeInTheDocument();
+  });
+
+  it("shows an activity-specific save error in its own block", async () => {
+    saveAiSettingsMock.mockRejectedValue(new Error("Synthetic save failure"));
+    render(<SettingsPage section="ai" focusActivity="token-burner" />);
+
+    await screen.findByRole("heading", { name: "AI settings" });
+    const activity = within(screen.getByRole("region", { name: "Model-testing" }));
+    fireEvent.click(activity.getByRole("combobox", { name: "AI provider" }));
+    fireEvent.click(screen.getByRole("option", { name: /Codex CLI/ }));
+    fireEvent.click(activity.getByRole("combobox", { name: "Model" }));
+    fireEvent.click(screen.getByRole("option", { name: "gpt-5.5" }));
+
+    await waitFor(() => expect(saveAiSettingsMock).toHaveBeenCalled());
+    expect(await activity.findByText("Unable to save AI settings: Synthetic save failure")).toBeInTheDocument();
+    expect(defaultAiSettings().queryByText("Unable to save AI settings: Synthetic save failure")).not.toBeInTheDocument();
   });
 
   it("selects the only available model when an AI provider is chosen", async () => {
@@ -204,14 +344,14 @@ describe("SettingsPage integrations smoke tests", () => {
     render(<SettingsPage section="ai" />);
 
     await screen.findByRole("heading", { name: "AI settings" });
-    fireEvent.click(screen.getByRole("combobox", { name: "Default AI provider" }));
+    fireEvent.click(defaultAiSettings().getByRole("combobox", { name: "AI provider" }));
     const selectedOption = screen.getByRole("option", { name: "Not selected" });
     expect(selectedOption).toHaveAttribute("data-state", "checked");
     expect(selectedOption.querySelector("svg.lucide-check")).toBeNull();
     expect(screen.getByTestId("ai-provider-group-separator")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("option", { name: "OpenAI-compatible API · https://api.example.invalid/v1" }));
 
-    expect(screen.getByRole("combobox", { name: "Model" })).toHaveTextContent("example-model");
+    expect(defaultAiSettings().getByRole("combobox", { name: "Model" })).toHaveTextContent("example-model");
     expect(screen.queryByText("No available model selected.")).not.toBeInTheDocument();
     await waitFor(() => expect(saveAiSettingsMock).toHaveBeenCalledWith({
       provider: "openai-compatible",
@@ -240,9 +380,9 @@ describe("SettingsPage integrations smoke tests", () => {
     await screen.findByRole("group", { name: "Claude Code CLI AI provider" });
     expect(screen.getByRole("button", { name: "Add CLI provider" })).toBeDisabled();
     selectAiProvider("Claude Code CLI");
-    expect(screen.queryByRole("combobox", { name: "Reasoning" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("checkbox", { name: "Fast mode" })).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole("combobox", { name: "Model" }));
+    expect(defaultAiSettings().queryByRole("combobox", { name: "Reasoning" })).not.toBeInTheDocument();
+    expect(defaultAiSettings().queryByRole("checkbox", { name: "Fast mode" })).not.toBeInTheDocument();
+    fireEvent.click(defaultAiSettings().getByRole("combobox", { name: "Model" }));
     fireEvent.click(screen.getByRole("option", { name: "sonnet" }));
     await waitFor(() => expect(saveAiSettingsMock).toHaveBeenCalledWith({
       provider: "claude-code-cli",
@@ -329,7 +469,8 @@ describe("SettingsPage integrations smoke tests", () => {
     fireEvent.click(screen.getByRole("button", { name: "Delete" }));
     await waitFor(() => expect(deleteAiProviderMock).toHaveBeenCalledWith("openai-compatible", provider.instanceId));
     expect(await screen.findByRole("heading", { name: "No AI providers yet" })).toBeInTheDocument();
-    expect(screen.getByRole("combobox", { name: "Default AI provider" })).toHaveTextContent("Not selected");
+    expect(screen.getByRole("heading", { name: "Defaults" })).toBeInTheDocument();
+    expect(defaultAiSettings().getByRole("combobox", { name: "AI provider" })).toHaveTextContent("Not selected");
   });
 
   it("removes a CLI provider and enables adding it again", async () => {
@@ -379,9 +520,8 @@ describe("SettingsPage integrations smoke tests", () => {
 
     await screen.findByRole("heading", { name: "AI settings" });
     expect(screen.getByRole("heading", { name: "Model-testing" })).toBeInTheDocument();
-    const overrides = screen.getByText("Activity-specific settings").closest("details");
-    expect(overrides).toHaveAttribute("open");
-    fireEvent.click(screen.getByRole("combobox", { name: "Model-testing provider" }));
+    expect(screen.getByRole("region", { name: "Activity-specific" })).toBeInTheDocument();
+    fireEvent.click(within(screen.getByRole("region", { name: "Model-testing" })).getByRole("combobox", { name: "AI provider" }));
     fireEvent.click(screen.getByRole("option", { name: /Codex CLI/ }));
 
     await waitFor(() => expect(saveAiSettingsMock).toHaveBeenCalledWith(expect.objectContaining({

@@ -1,5 +1,5 @@
 import { AlertTriangle, CheckCircle2, Circle, CircleHelp, Loader2, Pencil, Plus, RefreshCw, Sparkles, Trash2 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import {
   Alert,
   AlertDescription,
@@ -10,6 +10,8 @@ import { Card, CardContent, CardDescription, CardHeader } from "@/components/ui/
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { Separator } from "@/components/ui/separator";
 import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectSeparator, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 import { APP_EVENT, emitAppEvent, subscribeAppEvent } from "@/app/app-events";
@@ -42,6 +44,7 @@ import {
   inspectAiCliProvider,
   getAiSettings,
   listIntegrations,
+  refreshAiSettings,
   refreshIntegrationHealth,
   saveAiSettings,
   saveIntegration,
@@ -170,6 +173,7 @@ const HEALTH_LABEL_KEYS: Record<IntegrationHealthStatus, TranslationKey> = {
 };
 
 const AI_REASONING_OPTIONS: AiReasoning[] = ["minimal", "low", "medium", "high", "xhigh"];
+const ADD_MENU_ITEM_CLASS = "px-3 hover:bg-transparent hover:text-primary focus:bg-transparent focus:text-primary data-[highlighted]:bg-transparent data-[highlighted]:text-primary";
 
 const DEFAULT_AI_SETTINGS: AiSettings = {
   provider: null,
@@ -297,13 +301,22 @@ function AiOverrideEditor({
 
 
 export type SettingsSection = "general" | "ai" | "integrations" | "projects";
+type AiSettingsScope = "default" | "taskCreation" | "pullRequestReview" | "tokenBurner";
+type AiActivity = Exclude<AiSettingsScope, "default">;
+
+const AI_ACTIVITIES: { key: AiActivity; labelKey: TranslationKey; idPrefix: string }[] = [
+  { key: "taskCreation", labelKey: "settings.ai.taskCreation", idPrefix: "ai-task" },
+  { key: "pullRequestReview", labelKey: "settings.ai.pullRequestReview", idPrefix: "ai-review" },
+  { key: "tokenBurner", labelKey: "settings.ai.tokenBurner", idPrefix: "ai-token-burner" },
+];
 
 interface SettingsPageProps {
   section?: SettingsSection;
   focusActivity?: "token-burner";
+  mockMode?: boolean;
 }
 
-export function SettingsPage({ section = "integrations", focusActivity }: SettingsPageProps) {
+export function SettingsPage({ section = "integrations", focusActivity, mockMode = false }: SettingsPageProps) {
   const { t } = useI18n();
   const [integrations, setIntegrations] = useState<IntegrationRedacted[]>([]);
   const [aiData, setAiData] = useState<AiSettingsPageData>(INITIAL_AI_DATA);
@@ -311,6 +324,8 @@ export function SettingsPage({ section = "integrations", focusActivity }: Settin
   const [aiSaving, setAiSaving] = useState(false);
   const [aiError, setAiError] = useState<string | null>(null);
   const [aiSaved, setAiSaved] = useState(false);
+  const [aiStatusScope, setAiStatusScope] = useState<AiSettingsScope>("default");
+  const [visibleAiActivities, setVisibleAiActivities] = useState<AiActivity[]>(focusActivity === "token-burner" ? ["tokenBurner"] : []);
   const aiSaveRevisionRef = useRef(0);
   const [openAiDialogOpen, setOpenAiDialogOpen] = useState(false);
   const [addAiDialogOpen, setAddAiDialogOpen] = useState(false);
@@ -324,11 +339,15 @@ export function SettingsPage({ section = "integrations", focusActivity }: Settin
   const [deletingAiProvider, setDeletingAiProvider] = useState<AiProvider | null>(null);
   const [aiDeleting, setAiDeleting] = useState(false);
   const [aiDeleteError, setAiDeleteError] = useState<string | null>(null);
+  const [refreshingAiProvider, setRefreshingAiProvider] = useState<string | null>(null);
+  const [aiProviderRefreshError, setAiProviderRefreshError] = useState<string | null>(null);
   const [editingOpenAiId, setEditingOpenAiId] = useState<string | undefined>();
   const [openAiForm, setOpenAiForm] = useState<OpenAiCompatibleForm>(emptyOpenAiCompatibleForm);
   const [openAiSaving, setOpenAiSaving] = useState(false);
   const [openAiError, setOpenAiError] = useState<string | null>(null);
   const [selectedKind, setSelectedKind] = useState<IntegrationKind | null>(null);
+  const [deletingIntegrationKind, setDeletingIntegrationKind] = useState<IntegrationKind | null>(null);
+  const [integrationDeleteError, setIntegrationDeleteError] = useState<string | null>(null);
   const [forms, setForms] = useState<Record<IntegrationKind, IntegrationForm>>({
     jira: emptyForm(),
     bitbucket: emptyForm(),
@@ -360,6 +379,7 @@ export function SettingsPage({ section = "integrations", focusActivity }: Settin
           if (!active) return;
           setAiData(loadedAiData);
           setAiDraft(loadedAiData.settings);
+          setVisibleAiActivities(AI_ACTIVITIES.filter(({ key }) => Boolean(loadedAiData.settings[key]) || (key === "tokenBurner" && focusActivity === "token-burner")).map(({ key }) => key));
         })
         .catch(() => {
           if (!active) return;
@@ -396,7 +416,7 @@ export function SettingsPage({ section = "integrations", focusActivity }: Settin
     return () => {
       active = false;
     };
-  }, [retry, section, t]);
+  }, [focusActivity, retry, section, t]);
 
   useEffect(() => {
     if (section !== "ai") return;
@@ -424,6 +444,14 @@ export function SettingsPage({ section = "integrations", focusActivity }: Settin
     () => (selectedKind ? integrations.find((integration) => integration.kind === selectedKind) : undefined),
     [integrations, selectedKind],
   );
+  const integrationToDelete = deletingIntegrationKind
+    ? integrations.find((integration) => integration.kind === deletingIntegrationKind)
+    : undefined;
+  const deletingIntegrationProvider = PROVIDERS.find((candidate) => candidate.kind === deletingIntegrationKind);
+  const availableIntegrationProviders = PROVIDERS.filter((candidate) =>
+    !integrations.some((integration) => integration.kind === candidate.kind));
+  const availableAiActivities = AI_ACTIVITIES.filter(({ key }) => !visibleAiActivities.includes(key));
+  const shownAiActivities = AI_ACTIVITIES.filter(({ key }) => visibleAiActivities.includes(key));
   const selectedAiProvider = aiData.providers.find((provider) => provider.id === aiDraft.provider
     && (provider.id !== "openai-compatible" || (provider.instanceId ?? "legacy") === (aiDraft.providerInstanceId ?? "legacy")));
   const cliProviders = aiData.providers.filter((provider) => provider.id !== "openai-compatible");
@@ -613,6 +641,7 @@ export function SettingsPage({ section = "integrations", focusActivity }: Settin
 
   function updateAiSetting<K extends keyof AiSettings>(field: K, value: AiSettings[K]) {
     setAiDraft((current) => ({ ...current, [field]: value }));
+    setAiStatusScope(field === "taskCreation" || field === "pullRequestReview" || field === "tokenBurner" ? field : "default");
     setAiSaved(false);
     setAiError(null);
   }
@@ -636,7 +665,35 @@ export function SettingsPage({ section = "integrations", focusActivity }: Settin
       return next;
     });
     setAiSaved(false);
+    setAiStatusScope("default");
     setAiError(null);
+  }
+
+  function renderAiStatus(scope: AiSettingsScope) {
+    if (aiStatusScope !== scope) return null;
+    const profile = scope === "taskCreation" ? aiDraft.taskCreation
+      : scope === "pullRequestReview" ? aiDraft.pullRequestReview
+        : scope === "tokenBurner" ? aiDraft.tokenBurner : null;
+    const statusProvider = scope === "default" ? selectedAiProvider : aiData.providers.find((candidate) => candidate.id === profile?.provider
+      && (candidate.id !== "openai-compatible" || (candidate.instanceId ?? "legacy") === (profile?.providerInstanceId ?? "legacy")));
+    const showReadiness = scope === "default"
+      ? Boolean(aiDraft.provider && !aiReady)
+      : Boolean(profile && !aiProviderReady(statusProvider, profile.model));
+    if (!aiError && !aiSaving && !aiSaved && !showReadiness) return null;
+    return (
+      <div className="text-sm" aria-live="polite">
+        {aiError ? <span className="text-destructive">{aiError}</span> : null}
+        {!aiError && aiSaving ? <span className="text-muted-foreground">{t("settings.common.saving")}</span> : null}
+        {!aiError && !aiSaving && aiSaved ? <span className="text-success">{t("settings.ai.saved")}</span> : null}
+        {!aiError && !aiSaved && showReadiness ? (
+          <span className="text-warning">
+            {statusProvider?.status === "connected"
+              ? t("settings.ai.noModelSelected")
+              : statusProvider?.message ?? t("settings.ai.notConnected")}
+          </span>
+        ) : null}
+      </div>
+    );
   }
 
   async function handleAddAiProvider() {
@@ -673,6 +730,20 @@ export function SettingsPage({ section = "integrations", focusActivity }: Settin
       setAiDeleteError(t("settings.aiProviders.deleteError", { error: errorMessage(deleteError, t("common.unknownError")) }));
     } finally {
       setAiDeleting(false);
+    }
+  }
+
+  async function handleRefreshAiProvider(candidate: AiProvider) {
+    setRefreshingAiProvider(candidate.instanceId ?? candidate.id);
+    setAiProviderRefreshError(null);
+    try {
+      const refreshed = await refreshAiSettings();
+      setAiData(refreshed);
+      emitAppEvent(APP_EVENT.aiSettingsChanged, refreshed);
+    } catch (refreshError) {
+      setAiProviderRefreshError(t("settings.aiProviders.refreshError", { provider: candidate.name, error: errorMessage(refreshError, t("common.unknownError")) }));
+    } finally {
+      setRefreshingAiProvider(null);
     }
   }
 
@@ -741,11 +812,11 @@ export function SettingsPage({ section = "integrations", focusActivity }: Settin
       setError(t("settings.error.baseUrlRequired"));
       return;
     }
-    if (!activeForm.baseUrl.trim().startsWith("https://")) {
+    if (!mockMode && !activeForm.baseUrl.trim().startsWith("https://")) {
       setError(t("settings.error.baseUrlHttps"));
       return;
     }
-    if (!selectedIntegration && !activeForm.secret.trim()) {
+    if (!mockMode && !selectedIntegration && !activeForm.secret.trim()) {
       setError(t("settings.error.personalTokenRequired"));
       return;
     }
@@ -813,21 +884,22 @@ export function SettingsPage({ section = "integrations", focusActivity }: Settin
   }
 
   async function handleDelete() {
-    if (!selectedKind || !selectedIntegration || !provider) return;
-    const kind = selectedKind;
+    if (!deletingIntegrationKind || !integrationToDelete || !deletingIntegrationProvider) return;
+    const kind = deletingIntegrationKind;
+    const integrationId = integrationToDelete.id;
 
     setAction("delete");
-    setError(null);
+    setIntegrationDeleteError(null);
     try {
-      await deleteIntegration({ id: selectedIntegration.id });
+      await deleteIntegration({ id: integrationId });
       setIntegrations((current) =>
-        current.filter((integration) => integration.id !== selectedIntegration.id),
+        current.filter((integration) => integration.id !== integrationId),
       );
       setForms((current) => ({ ...current, [kind]: emptyForm() }));
-      setSelectedKind(null);
+      setDeletingIntegrationKind(null);
       emitAppEvent(APP_EVENT.integrationsChanged);
-    } catch (error) {
-      setError(t("settings.error.deleteIntegration", { provider: provider.label, error: errorMessage(error, t("common.unknownError")) }));
+    } catch (deleteError) {
+      setIntegrationDeleteError(t("settings.error.deleteIntegration", { provider: deletingIntegrationProvider.label, error: errorMessage(deleteError, t("common.unknownError")) }));
     } finally {
       setAction(null);
     }
@@ -839,13 +911,27 @@ export function SettingsPage({ section = "integrations", focusActivity }: Settin
         <PageHeader
           title={section === "general" ? t("nav.general") : section === "ai" ? t("nav.aiSettings") : section === "projects" ? t("nav.teamSettings") : t("nav.dataIntegrations")}
           titleId="settings-title"
-          description={section === "ai"
-            ? t("settings.ai.description")
-            : section === "integrations"
+          description={section === "integrations"
               ? t("settings.data.description")
               : section === "projects"
                 ? t("settings.projects.description")
                 : undefined}
+          actions={section === "integrations" ? (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button type="button" variant="ghost" size="icon" actionTone="add" className="h-9 w-9 text-muted-foreground hover:bg-transparent hover:text-primary" aria-label={t("settings.data.add")} title={t("settings.data.add")} disabled={loading || availableIntegrationProviders.length === 0}>
+                  <Plus className="size-4" aria-hidden="true" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                {availableIntegrationProviders.map((candidate) => (
+                  <DropdownMenuItem key={candidate.kind} className={ADD_MENU_ITEM_CLASS} onSelect={() => { setSelectedKind(candidate.kind); setError(null); }}>
+                    {candidate.label}
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          ) : undefined}
         />
       ) : null}
 
@@ -875,219 +961,217 @@ export function SettingsPage({ section = "integrations", focusActivity }: Settin
 
       {section === "ai" ? (
         <div className="space-y-8">
-          <section className="space-y-4" aria-label={t("nav.aiSettings")}>
-          <Card>
-            <CardHeader className="space-y-4 px-4 pb-4 pt-3.5">
-              <div className="flex flex-wrap items-end gap-4">
-                <div className="grid min-w-0 max-w-full gap-2.5">
-                  <Label htmlFor="ai-provider">{t("settings.ai.defaultProvider")}</Label>
-                  <Select value={selectedAiProvider?.instanceId ?? aiDraft.provider ?? "__none__"} onValueChange={updateAiProvider} disabled={aiData === null || aiLoading || aiSaving}>
-                    <SelectTrigger id="ai-provider" aria-label={t("settings.ai.defaultProvider")} className="h-9">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="__none__">{t("settings.ai.notSelected")}</SelectItem>
-                      {cliProviders.length > 0 ? (
-                        <SelectGroup>
-                          <SelectLabel className="cursor-default py-1 pl-2 pr-2 text-xs font-medium text-muted-foreground">{t("settings.aiProviders.cliGroup")}</SelectLabel>
-                          {cliProviders.map((candidate) => (
-                            <SelectItem key={candidate.instanceId ?? candidate.id} value={candidate.instanceId ?? candidate.id} disabled={!candidate.available}>
-                              {candidate.name}{candidate.available ? "" : ` (${t("settings.ai.unavailableSuffix")})`}
-                            </SelectItem>
-                          ))}
-                        </SelectGroup>
-                      ) : null}
-                      {cliProviders.length > 0 && apiProviders.length > 0 ? <SelectSeparator data-testid="ai-provider-group-separator" /> : null}
-                      {apiProviders.length > 0 ? (
-                        <SelectGroup>
-                          <SelectLabel className="cursor-default py-1 pl-2 pr-2 text-xs font-medium text-muted-foreground">{t("settings.aiProviders.apiGroup")}</SelectLabel>
-                          {apiProviders.map((candidate) => (
-                            <SelectItem key={candidate.instanceId ?? candidate.id} value={candidate.instanceId ?? candidate.id} disabled={!candidate.available}>
-                              {candidate.name}{candidate.baseUrl ? ` · ${candidate.baseUrl}` : ""}{candidate.available ? "" : ` (${t("settings.ai.unavailableSuffix")})`}
-                            </SelectItem>
-                          ))}
-                        </SelectGroup>
-                      ) : null}
-                    </SelectContent>
-                  </Select>
+          <section aria-labelledby="ai-providers-title">
+            <div aria-label={t("settings.aiProviders.aria")} className="space-y-3">
+              <div className="flex flex-wrap items-center gap-3">
+                <div className="min-w-[16rem] flex-1">
+                  <h2 id="ai-providers-title" className="text-lg font-semibold leading-tight">{t("settings.aiProviders.title")}</h2>
+                  <p className="mt-1 text-sm text-muted-foreground">{t("settings.aiProviders.description")}</p>
                 </div>
-                <div className="grid min-w-0 max-w-full gap-2.5">
-                  <Label htmlFor="ai-model">{t("settings.ai.model")}</Label>
-                  <Select value={aiDraft.model} onValueChange={(value) => updateAiSetting("model", value)} disabled={!aiDraft.provider || !selectedAiProvider || aiSaving || (selectedAiProvider.models.length === 0)}>
-                    <SelectTrigger id="ai-model" aria-label={t("settings.ai.model")} className="h-9">
-                      <SelectValue placeholder={t("settings.ai.noModels", { provider: selectedAiProvider?.name ?? t("settings.ai.selectedProvider") })} />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {(selectedAiProvider?.models ?? []).map((model) => <SelectItem key={model} value={model}>{model}</SelectItem>)}
-                    </SelectContent>
-                  </Select>
-                </div>
-                {aiDraft.provider === "codex-cli" ? <div className="grid min-w-0 max-w-full gap-2.5">
-                  <Label htmlFor="ai-reasoning">{t("settings.ai.reasoning")}</Label>
-                  <Select value={aiDraft.reasoning} onValueChange={updateAiReasoning} disabled={!aiDraft.provider || aiSaving}>
-                    <SelectTrigger id="ai-reasoning" aria-label={t("settings.ai.reasoning")} className="h-9"><SelectValue /></SelectTrigger>
-                    <SelectContent>
-                      {AI_REASONING_OPTIONS.map((reasoning) => <SelectItem key={reasoning} value={reasoning}>{reasoning}</SelectItem>)}
-                    </SelectContent>
-                  </Select>
-                </div> : null}
-                {aiDraft.provider === "codex-cli" ? <div className="flex h-9 items-center gap-2">
-                  <input
-                    id="ai-fast-mode"
-                    type="checkbox"
-                    checked={aiDraft.fastMode}
-                    onChange={(event) => updateAiSetting("fastMode", event.target.checked)}
-                    disabled={!aiDraft.provider || aiSaving}
-                    className="size-4 accent-primary"
-                  />
-                  <Label htmlFor="ai-fast-mode" alignment="inline" className="font-medium">{t("settings.ai.fastMode")}</Label>
-                </div> : null}
+                <Select value={selectedAiGroup} onValueChange={(value) => setSelectedAiGroup(value as "cli" | "api")}>
+                  <SelectTrigger aria-label={t("settings.aiProviders.groups")} className="h-9 shrink-0"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="cli">{t("settings.aiProviders.cliGroup")}</SelectItem>
+                    <SelectItem value="api">{t("settings.aiProviders.apiGroup")}</SelectItem>
+                  </SelectContent>
+                </Select>
+                <Button type="button" variant="ghost" size="icon" actionTone="add" className="ml-auto h-9 w-9 text-muted-foreground hover:bg-transparent hover:text-primary" aria-label={t(selectedAiGroup === "cli" ? "settings.aiProviders.addCli" : "settings.aiProviders.addApi")} title={t(selectedAiGroup === "cli" ? "settings.aiProviders.addCli" : "settings.aiProviders.addApi")} disabled={selectedAiGroup === "cli" && allCliAdded} onClick={() => {
+                  if (selectedAiGroup === "api") { openOpenAiCompatibleDialog(); return; }
+                  setAddAiKind(cliProviders.some((provider) => provider.id === "codex-cli") ? "claude-code-cli" : "codex-cli");
+                  setAddAiDialogOpen(true);
+                }}>
+                  <Plus className="size-4" aria-hidden="true" />
+                </Button>
               </div>
-              {aiError || aiSaving || aiSaved || (aiDraft.provider && !aiReady) ? (
-                <div className="text-sm" aria-live="polite">
-                  {aiError ? <span className="text-destructive">{aiError}</span> : null}
-                  {!aiError && aiSaving ? <span className="text-muted-foreground">{t("settings.common.saving")}</span> : null}
-                  {!aiError && !aiSaving && aiSaved ? <span className="text-success">{t("settings.ai.saved")}</span> : null}
-                  {!aiError && !aiSaved && aiDraft.provider && !aiReady ? (
-                    <span className="text-warning">
-                      {selectedAiProvider?.status === "connected"
-                        ? t("settings.ai.noModelSelected")
-                        : selectedAiProvider?.message ?? t("settings.ai.notConnected")}
-                    </span>
-                  ) : null}
-                </div>
-              ) : null}
-            </CardHeader>
-          </Card>
-
-          <details open={focusActivity === "token-burner" || undefined} className="rounded-md border bg-card px-4 py-3">
-            <summary className="cursor-pointer text-sm font-medium">{t("settings.ai.overridesTitle")}</summary>
-            <p className="mt-2 text-sm text-muted-foreground">{t("settings.ai.overridesDescription")}</p>
-            <div className="mt-4 flex flex-col gap-4">
-              <section className="flex flex-col gap-2" aria-label={t("settings.ai.taskCreation")}>
-                <h3 className="text-sm font-medium">{t("settings.ai.taskCreation")}</h3>
-                <AiOverrideEditor
-                  idPrefix="ai-task"
-                  profile={aiDraft.taskCreation}
-                  providers={aiData.providers}
-                  inheritedLabel={t("settings.ai.inheritDefault")}
-                  providerLabel={t("settings.ai.taskProvider")}
-                  modelLabel={t("settings.ai.taskModel")}
-                  reasoningLabel={t("settings.ai.taskReasoning")}
-                  fastModeLabel={t("settings.ai.taskFastMode")}
-                  noModelsLabel={t("settings.ai.noModels", { provider: t("settings.ai.selectedProvider") })}
-                  unavailableLabel={t("settings.ai.unavailableSuffix")}
-                  onChange={(profile) => updateAiProfile("taskCreation", profile)}
-                  disabled={aiData === null || aiLoading || aiSaving}
-                />
-              </section>
-              <section className="flex flex-col gap-2" aria-label={t("settings.ai.pullRequestReview")}>
-                <h3 className="text-sm font-medium">{t("settings.ai.pullRequestReview")}</h3>
-                <AiOverrideEditor
-                  idPrefix="ai-review"
-                  profile={aiDraft.pullRequestReview}
-                  providers={aiData.providers}
-                  inheritedLabel={t("settings.ai.inheritDefault")}
-                  providerLabel={t("settings.ai.reviewProvider")}
-                  modelLabel={t("settings.ai.reviewModel")}
-                  reasoningLabel={t("settings.ai.reviewReasoning")}
-                  fastModeLabel={t("settings.ai.reviewFastMode")}
-                  noModelsLabel={t("settings.ai.noModels", { provider: t("settings.ai.selectedProvider") })}
-                  unavailableLabel={t("settings.ai.unavailableSuffix")}
-                  onChange={(profile) => updateAiProfile("pullRequestReview", profile)}
-                  disabled={aiData === null || aiLoading || aiSaving}
-                />
-              </section>
-              <section className="flex flex-col gap-2" aria-label={t("settings.ai.tokenBurner")}>
-                <h3 className="text-sm font-medium">{t("settings.ai.tokenBurner")}</h3>
-                <p className="text-sm text-muted-foreground">{t("settings.ai.tokenBurnerHint")}</p>
-                <AiOverrideEditor
-                  idPrefix="ai-token-burner"
-                  profile={aiDraft.tokenBurner}
-                  providers={aiData.providers}
-                  inheritedLabel={t("settings.ai.inheritDefault")}
-                  providerLabel={t("settings.ai.tokenBurnerProvider")}
-                  modelLabel={t("settings.ai.tokenBurnerModel")}
-                  reasoningLabel={t("settings.ai.reviewReasoning")}
-                  fastModeLabel={t("settings.ai.reviewFastMode")}
-                  noModelsLabel={t("settings.ai.noModels", { provider: t("settings.ai.selectedProvider") })}
-                  unavailableLabel={t("settings.ai.unavailableSuffix")}
-                  onChange={(profile) => updateAiProfile("tokenBurner", profile)}
-                  disabled={aiData === null || aiLoading || aiSaving}
-                />
-              </section>
-            </div>
-          </details>
-        </section>
-
-        <section className="space-y-4" aria-labelledby="ai-providers-title">
-          <div>
-            <h2 id="ai-providers-title" className="text-lg font-semibold leading-tight">{t("settings.aiProviders.title")}</h2>
-            <p className="mt-1 text-sm text-muted-foreground">{t("settings.aiProviders.description")}</p>
-          </div>
-          <div aria-label={t("settings.aiProviders.aria")} className="space-y-3">
-            <div className="flex items-center gap-3">
-              <Select value={selectedAiGroup} onValueChange={(value) => setSelectedAiGroup(value as "cli" | "api")}>
-                <SelectTrigger aria-label={t("settings.aiProviders.groups")}><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="cli">{t("settings.aiProviders.cliGroup")}</SelectItem>
-                  <SelectItem value="api">{t("settings.aiProviders.apiGroup")}</SelectItem>
-                </SelectContent>
-              </Select>
-              <Button type="button" variant="ghost" size="icon" actionTone="add" className="ml-auto h-9 w-9 text-muted-foreground hover:bg-transparent hover:text-primary" aria-label={t(selectedAiGroup === "cli" ? "settings.aiProviders.addCli" : "settings.aiProviders.addApi")} title={t(selectedAiGroup === "cli" ? "settings.aiProviders.addCli" : "settings.aiProviders.addApi")} disabled={selectedAiGroup === "cli" && allCliAdded} onClick={() => {
-                if (selectedAiGroup === "api") { openOpenAiCompatibleDialog(); return; }
-                setAddAiKind(cliProviders.some((provider) => provider.id === "codex-cli") ? "claude-code-cli" : "codex-cli");
-                setAddAiDialogOpen(true);
-              }}>
-                <Plus className="size-4" aria-hidden="true" />
-              </Button>
-            </div>
-            <Card className="min-w-0">
-              <CardContent className="px-4 pb-0 pt-0">
-                {aiData.providers.length === 0 && !loading ? (
-                  <div role="status" aria-labelledby="ai-providers-empty-title" className="flex min-h-14 items-center gap-3 py-2">
-                    <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary" aria-hidden="true"><Sparkles className="size-4" /></span>
-                    <div className="min-w-0">
-                      <h4 id="ai-providers-empty-title" className="text-[15px] font-medium">{t("settings.aiProviders.empty")}</h4>
-                      <p className="text-[13px] text-muted-foreground">{t("settings.aiProviders.emptyDescription")}</p>
-                    </div>
-                  </div>
-                ) : visibleAiProviders.length === 0 ? (
-                  <p className="flex min-h-14 items-center text-[15px] text-muted-foreground">{t(selectedAiGroup === "cli" ? "settings.aiProviders.emptyCli" : "settings.aiProviders.emptyApi")}</p>
-                ) : (
-                  <div>
-                    {visibleAiProviders.map((candidate) => (
-                      <div key={candidate.instanceId ?? candidate.id} role="group" aria-label={`${candidate.name} AI provider`} className="flex min-h-14 min-w-0 flex-wrap items-center gap-3 py-3">
-                        <div className="min-w-0 flex-1">
-                          <p className="truncate text-[13.5px]">{candidate.name}</p>
-                          {candidate.baseUrl || candidate.version || candidate.message ? (
-                            <p className="truncate text-xs text-muted-foreground" title={candidate.baseUrl ?? candidate.message ?? candidate.version}>
-                              {candidate.baseUrl ?? candidate.message ?? candidate.version}
-                            </p>
-                          ) : null}
-                        </div>
-                        <div className="ml-auto flex shrink-0 items-center gap-2">
-                          <span className="mr-1 flex items-center gap-1.5 text-[13px] text-muted-foreground [&_svg]:size-[18px]" title={candidate.message}>
-                            {aiStatusIcon(candidate.status)}
-                            {t(AI_STATUS_LABEL_KEYS[candidate.status])}
-                          </span>
-                          {candidate.id === "openai-compatible" ? (
-                            <Button type="button" size="icon" variant="ghost" actionTone="edit" className="size-8 [&_svg]:size-[18px]" aria-label={t("settings.aiProviders.editLabel", { provider: candidate.baseUrl ?? candidate.name })} title={t("settings.aiProviders.edit")} onClick={() => openOpenAiCompatibleDialog(candidate)} disabled={openAiSaving || aiDeleting || aiSaving}>
-                              <Pencil aria-hidden="true" />
-                            </Button>
-                          ) : null}
-                          <Button type="button" size="icon" variant="ghost" actionTone="delete" className="size-8 text-muted-foreground hover:bg-transparent hover:text-destructive [&_svg]:size-[18px]" aria-label={t("settings.aiProviders.deleteLabel", { provider: candidate.baseUrl ?? candidate.name })} title={t("settings.aiProviders.delete")} onClick={() => { setAiDeleteError(null); setDeletingAiProvider(candidate); }} disabled={openAiSaving || aiDeleting || aiSaving}>
-                            <Trash2 aria-hidden="true" />
-                          </Button>
-                        </div>
+              <Card className="min-w-0">
+                <CardContent className="px-4 pb-0 pt-0">
+                  {aiData.providers.length === 0 && !loading ? (
+                    <div role="status" aria-labelledby="ai-providers-empty-title" className="flex min-h-14 items-center gap-3 py-2">
+                      <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary" aria-hidden="true"><Sparkles className="size-4" /></span>
+                      <div className="min-w-0">
+                        <h4 id="ai-providers-empty-title" className="text-[15px] font-medium">{t("settings.aiProviders.empty")}</h4>
+                        <p className="text-[13px] text-muted-foreground">{t("settings.aiProviders.emptyDescription")}</p>
                       </div>
-                    ))}
+                    </div>
+                  ) : visibleAiProviders.length === 0 ? (
+                    <p className="flex min-h-14 items-center text-[15px] text-muted-foreground">{t(selectedAiGroup === "cli" ? "settings.aiProviders.emptyCli" : "settings.aiProviders.emptyApi")}</p>
+                  ) : (
+                    <div>
+                      {visibleAiProviders.map((candidate, index) => (
+                        <Fragment key={candidate.instanceId ?? candidate.id}>
+                          <div role="group" aria-label={`${candidate.name} AI provider`} className="flex min-h-14 min-w-0 flex-wrap items-center gap-3 py-3">
+                            <div className="min-w-0 flex-1">
+                              <p className="truncate text-[13.5px]">{candidate.name}</p>
+                              {candidate.baseUrl || candidate.version || candidate.message ? (
+                                <p className="truncate text-xs text-muted-foreground" title={candidate.baseUrl ?? candidate.message ?? candidate.version}>
+                                  {candidate.baseUrl ?? candidate.message ?? candidate.version}
+                                </p>
+                              ) : null}
+                            </div>
+                            <div className="ml-auto flex shrink-0 items-center gap-1.5">
+                              <span className="mr-1 flex items-center gap-1.5 text-[13px] text-muted-foreground [&_svg]:size-[18px]" title={candidate.message}>
+                                {aiStatusIcon(candidate.status)}
+                                {t(AI_STATUS_LABEL_KEYS[candidate.status])}
+                              </span>
+                              <Button type="button" size="icon" variant="ghost" className="size-7 [&_svg]:!size-4" aria-label={t("settings.aiProviders.refreshLabel", { provider: candidate.name })} title={t("settings.aiProviders.refreshLabel", { provider: candidate.name })} onClick={() => void handleRefreshAiProvider(candidate)} disabled={refreshingAiProvider !== null || openAiSaving || aiDeleting || aiSaving}>
+                                <RefreshCw className={cn(refreshingAiProvider === (candidate.instanceId ?? candidate.id) && "animate-spin")} aria-hidden="true" />
+                              </Button>
+                              {candidate.id === "openai-compatible" ? (
+                                <Button type="button" size="icon" variant="ghost" actionTone="edit" className="size-7 [&_svg]:!size-4" aria-label={t("settings.aiProviders.editLabel", { provider: candidate.baseUrl ?? candidate.name })} title={t("settings.aiProviders.edit")} onClick={() => openOpenAiCompatibleDialog(candidate)} disabled={openAiSaving || aiDeleting || aiSaving}>
+                                  <Pencil aria-hidden="true" />
+                                </Button>
+                              ) : null}
+                              <Button type="button" size="icon" variant="ghost" actionTone="delete" className="size-7 text-muted-foreground hover:bg-transparent hover:text-destructive [&_svg]:!size-4" aria-label={t("settings.aiProviders.deleteLabel", { provider: candidate.baseUrl ?? candidate.name })} title={t("settings.aiProviders.delete")} onClick={() => { setAiDeleteError(null); setDeletingAiProvider(candidate); }} disabled={openAiSaving || aiDeleting || aiSaving}>
+                                <Trash2 aria-hidden="true" />
+                              </Button>
+                            </div>
+                          </div>
+                          {index < visibleAiProviders.length - 1 ? <Separator /> : null}
+                        </Fragment>
+                      ))}
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+              {aiProviderRefreshError ? <p role="alert" className="text-sm text-destructive">{aiProviderRefreshError}</p> : null}
+            </div>
+          </section>
+
+          <section className="space-y-4" aria-labelledby="ai-defaults-title">
+            <div>
+              <h2 id="ai-defaults-title" className="text-lg font-semibold leading-tight">{t("settings.ai.defaults")}</h2>
+              <p className="mt-1 text-sm text-muted-foreground">{t("settings.ai.defaultsDescription")}</p>
+            </div>
+            <Card>
+              <CardHeader className="space-y-4 px-4 pb-4 pt-3.5">
+                <div className="flex flex-wrap items-end gap-4">
+                  <div className="grid min-w-0 max-w-full gap-2.5">
+                    <Label htmlFor="ai-provider">{t("settings.ai.provider")}</Label>
+                    <Select value={selectedAiProvider?.instanceId ?? aiDraft.provider ?? "__none__"} onValueChange={updateAiProvider} disabled={aiData === null || aiLoading || aiSaving}>
+                      <SelectTrigger id="ai-provider" aria-label={t("settings.ai.provider")} className="h-9">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="__none__">{t("settings.ai.notSelected")}</SelectItem>
+                        {cliProviders.length > 0 ? (
+                          <SelectGroup>
+                            <SelectLabel className="cursor-default py-1 pl-2 pr-2 text-xs font-medium text-muted-foreground">{t("settings.aiProviders.cliGroup")}</SelectLabel>
+                            {cliProviders.map((candidate) => (
+                              <SelectItem key={candidate.instanceId ?? candidate.id} value={candidate.instanceId ?? candidate.id} disabled={!candidate.available}>
+                                {candidate.name}{candidate.available ? "" : ` (${t("settings.ai.unavailableSuffix")})`}
+                              </SelectItem>
+                            ))}
+                          </SelectGroup>
+                        ) : null}
+                        {cliProviders.length > 0 && apiProviders.length > 0 ? <SelectSeparator data-testid="ai-provider-group-separator" /> : null}
+                        {apiProviders.length > 0 ? (
+                          <SelectGroup>
+                            <SelectLabel className="cursor-default py-1 pl-2 pr-2 text-xs font-medium text-muted-foreground">{t("settings.aiProviders.apiGroup")}</SelectLabel>
+                            {apiProviders.map((candidate) => (
+                              <SelectItem key={candidate.instanceId ?? candidate.id} value={candidate.instanceId ?? candidate.id} disabled={!candidate.available}>
+                                {candidate.name}{candidate.baseUrl ? ` · ${candidate.baseUrl}` : ""}{candidate.available ? "" : ` (${t("settings.ai.unavailableSuffix")})`}
+                              </SelectItem>
+                            ))}
+                          </SelectGroup>
+                        ) : null}
+                      </SelectContent>
+                    </Select>
                   </div>
-                )}
+                  <div className="grid min-w-0 max-w-full gap-2.5">
+                    <Label htmlFor="ai-model">{t("settings.ai.model")}</Label>
+                    <Select value={aiDraft.model} onValueChange={(value) => updateAiSetting("model", value)} disabled={!aiDraft.provider || !selectedAiProvider || aiSaving || (selectedAiProvider.models.length === 0)}>
+                      <SelectTrigger id="ai-model" aria-label={t("settings.ai.model")} className="h-9">
+                        <SelectValue placeholder={t("settings.ai.noModels", { provider: selectedAiProvider?.name ?? t("settings.ai.selectedProvider") })} />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {(selectedAiProvider?.models ?? []).map((model) => <SelectItem key={model} value={model}>{model}</SelectItem>)}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  {aiDraft.provider === "codex-cli" ? <div className="grid min-w-0 max-w-full gap-2.5">
+                    <Label htmlFor="ai-reasoning">{t("settings.ai.reasoning")}</Label>
+                    <Select value={aiDraft.reasoning} onValueChange={updateAiReasoning} disabled={!aiDraft.provider || aiSaving}>
+                      <SelectTrigger id="ai-reasoning" aria-label={t("settings.ai.reasoning")} className="h-9"><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        {AI_REASONING_OPTIONS.map((reasoning) => <SelectItem key={reasoning} value={reasoning}>{reasoning}</SelectItem>)}
+                      </SelectContent>
+                    </Select>
+                  </div> : null}
+                  {aiDraft.provider === "codex-cli" ? <div className="flex h-9 items-center gap-2">
+                    <input
+                      id="ai-fast-mode"
+                      type="checkbox"
+                      checked={aiDraft.fastMode}
+                      onChange={(event) => updateAiSetting("fastMode", event.target.checked)}
+                      disabled={!aiDraft.provider || aiSaving}
+                      className="size-4 accent-primary"
+                    />
+                    <Label htmlFor="ai-fast-mode" alignment="inline" className="font-medium">{t("settings.ai.fastMode")}</Label>
+                  </div> : null}
+                </div>
+                {renderAiStatus("default")}
+              </CardHeader>
+            </Card>
+          </section>
+
+          <section className="space-y-4" aria-labelledby="ai-activities-title">
+            <div className="flex items-center gap-3">
+              <div className="min-w-0 flex-1">
+                <h2 id="ai-activities-title" className="text-lg font-semibold leading-tight">{t("settings.ai.overridesTitle")}</h2>
+                <p className="mt-1 text-sm text-muted-foreground">{t("settings.ai.overridesDescription")}</p>
+              </div>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button type="button" variant="ghost" size="icon" actionTone="add" className="size-9 text-muted-foreground hover:bg-transparent" aria-label={t("settings.ai.addActivity")} title={t("settings.ai.addActivity")} disabled={loading || availableAiActivities.length === 0}>
+                    <Plus className="size-4" aria-hidden="true" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  {availableAiActivities.map(({ key, labelKey }) => (
+                    <DropdownMenuItem key={key} className={ADD_MENU_ITEM_CLASS} onSelect={() => setVisibleAiActivities((current) => [...current, key])}>
+                      {t(labelKey)}
+                    </DropdownMenuItem>
+                  ))}
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </div>
+            <Card>
+              <CardContent className="px-4 py-3">
+                {shownAiActivities.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">{t("settings.ai.noActivities")}</p>
+                ) : shownAiActivities.map((activity, index) => {
+                  const { key } = activity;
+                  return <Fragment key={key}>
+                    {index > 0 ? <Separator className="my-4" /> : null}
+                    <section className="space-y-4" aria-label={t(activity.labelKey)}>
+                      <div className="flex items-center justify-between gap-3">
+                        <h3 className="text-sm font-medium">{t(activity.labelKey)}</h3>
+                        <Button type="button" variant="ghost" size="icon" actionTone="delete" className="size-7 text-muted-foreground hover:bg-transparent hover:text-destructive [&_svg]:!size-4" aria-label={t("settings.ai.removeActivity", { activity: t(activity.labelKey) })} title={t("settings.ai.removeActivity", { activity: t(activity.labelKey) })} disabled={aiSaving} onClick={() => { setVisibleAiActivities((current) => current.filter((item) => item !== key)); updateAiProfile(key, null); }}>
+                          <Trash2 aria-hidden="true" />
+                        </Button>
+                      </div>
+                      <AiOverrideEditor
+                        idPrefix={activity.idPrefix}
+                        profile={aiDraft[key]}
+                        providers={aiData.providers}
+                        inheritedLabel={t("settings.ai.inheritDefault")}
+                        providerLabel={t("settings.ai.provider")}
+                        modelLabel={t("settings.ai.model")}
+                        reasoningLabel={t("settings.ai.reasoning")}
+                        fastModeLabel={t("settings.ai.fastMode")}
+                        noModelsLabel={t("settings.ai.noModels", { provider: t("settings.ai.selectedProvider") })}
+                        unavailableLabel={t("settings.ai.unavailableSuffix")}
+                        onChange={(profile) => updateAiProfile(key, profile)}
+                        disabled={aiLoading || aiSaving}
+                      />
+                      {renderAiStatus(key)}
+                    </section>
+                  </Fragment>;
+                })}
+                {aiStatusScope !== "default" && !visibleAiActivities.includes(aiStatusScope) ? renderAiStatus(aiStatusScope) : null}
               </CardContent>
             </Card>
-          </div>
-        </section>
+          </section>
 
         <Dialog open={deletingAiProvider !== null} onOpenChange={(open) => { if (!open && !aiDeleting) setDeletingAiProvider(null); }}>
           <DialogContent>
@@ -1244,9 +1328,13 @@ export function SettingsPage({ section = "integrations", focusActivity }: Settin
         <>
         <section className="space-y-4" aria-label={t("settings.data.title")}>
         <div aria-label={t("settings.data.aria")} className="flex w-full flex-col gap-3">
-          {PROVIDERS.map((candidate) => {
+          {!loading && integrations.length === 0 ? (
+            <Card className="w-full">
+              <CardContent className="flex min-h-14 items-center px-4 py-3 text-sm text-muted-foreground">{t("settings.data.empty")}</CardContent>
+            </Card>
+          ) : null}
+          {PROVIDERS.filter((candidate) => integrations.some((integration) => integration.kind === candidate.kind)).map((candidate) => {
             const integration = integrations.find((item) => item.kind === candidate.kind);
-            const configured = integration !== undefined;
             const selected = selectedKind === candidate.kind;
             const healthStatus = integration ? healthStatusFor(integration) : "unknown";
             return (
@@ -1260,62 +1348,71 @@ export function SettingsPage({ section = "integrations", focusActivity }: Settin
                 )}
               >
                 <CardHeader className="flex-row items-center justify-between space-y-0 gap-4 px-4 pb-4 pt-3.5">
-                  <button
-                    type="button"
-                    className="-m-2 grid min-w-0 flex-1 cursor-pointer gap-1.5 rounded-md p-2 text-left transition-colors hover:bg-accent/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                    aria-label={candidate.label}
-                    aria-pressed={selected}
-                    onClick={() => {
-                      setSelectedKind(candidate.kind);
-                      setError(null);
-                    }}
-                  >
+                  <div className="grid min-w-0 flex-1 gap-1.5">
                     <p className="text-base font-semibold leading-tight">{candidate.label}</p>
                     <CardDescription className="leading-snug">
                       {t(candidate.descriptionKey)}
                     </CardDescription>
-                  </button>
+                  </div>
                   <div className="flex shrink-0 items-center gap-2 text-sm text-muted-foreground">
                     <div className="flex min-w-0 flex-col items-end gap-0.5">
                       <span className="flex items-center gap-1.5">
-                        {!configured ? (
-                          <Circle className="size-4" aria-hidden="true" />
-                        ) : healthStatus === "working" ? (
+                        {healthStatus === "working" ? (
                           <CheckCircle2 className="size-4 text-success" aria-hidden="true" />
                         ) : healthStatus === "unavailable" ? (
                           <AlertTriangle className="size-4 text-warning" aria-hidden="true" />
                         ) : (
                           <CircleHelp className="size-4 text-muted-foreground" aria-hidden="true" />
                         )}
-                        <span>{configured ? t(HEALTH_LABEL_KEYS[healthStatus]) : t("settings.health.notConfigured")}</span>
+                        <span>{t(HEALTH_LABEL_KEYS[healthStatus])}</span>
                       </span>
-                      {configured && healthStatus === "working" && integration.accountDisplayName ? (
+                      {integration && healthStatus === "working" && integration.accountDisplayName ? (
                         <span className="text-xs text-muted-foreground">
                           {t("settings.health.connectedAs", { account: integration.accountDisplayName })}
                         </span>
                       ) : null}
                     </div>
-                    {configured ? (
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon"
-                        className="size-8"
-                        aria-label={t("settings.health.refresh", { provider: candidate.label })}
-                        title={t("settings.health.refresh", { provider: candidate.label })}
-                        disabled={healthCheckKind !== null}
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          void handleHealthCheck(candidate.kind);
-                        }}
-                      >
-                        <RefreshCw
-                          className={cn(
-                            healthCheckKind === candidate.kind && "animate-spin",
-                          )}
-                          aria-hidden="true"
-                        />
-                      </Button>
+                    {integration ? (
+                      <div className="flex items-center gap-1">
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          className="size-8"
+                          aria-label={t("settings.health.refresh", { provider: candidate.label })}
+                          title={t("settings.health.refresh", { provider: candidate.label })}
+                          disabled={healthCheckKind !== null || action !== null}
+                          onClick={() => void handleHealthCheck(candidate.kind)}
+                        >
+                          <RefreshCw className={cn(healthCheckKind === candidate.kind && "animate-spin")} aria-hidden="true" />
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          actionTone="edit"
+                          className="size-8 [&_svg]:size-[18px]"
+                          aria-label={t("settings.integration.editLabel", { provider: candidate.label })}
+                          title={t("settings.integration.edit")}
+                          disabled={healthCheckKind !== null || action !== null}
+                          onClick={() => { setSelectedKind(candidate.kind); setError(null); }}
+                        >
+                          <Pencil aria-hidden="true" />
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          actionTone="delete"
+                          className="size-8 text-muted-foreground hover:bg-transparent hover:text-destructive [&_svg]:size-[18px]"
+                          aria-label={t("settings.integration.deleteLabel", { provider: candidate.label })}
+                          title={t("settings.integration.delete")}
+                          disabled={healthCheckKind !== null || action !== null}
+                          onClick={() => { setIntegrationDeleteError(null); setDeletingIntegrationKind(candidate.kind); }}
+                        >
+                          <Trash2 aria-hidden="true" />
+                        </Button>
+                      </div>
                     ) : null}
                   </div>
                 </CardHeader>
@@ -1402,24 +1499,27 @@ export function SettingsPage({ section = "integrations", focusActivity }: Settin
                   </div>
                 </form>
               </DialogBody>
-              <DialogFooter className="sm:justify-between sm:space-x-0">
-                {selectedIntegration ? (
-                  <Button
-                    type="button"
-                    variant="outline"
-                    className="border-destructive text-destructive hover:bg-destructive/10 hover:text-destructive"
-                    disabled={controlsDisabled}
-                    onClick={() => void handleDelete()}
-                  >
-                    {action === "delete" ? t("settings.integration.deleting") : t("settings.integration.delete")}
-                  </Button>
-                ) : null}
+              <DialogFooter>
                 <Button type="submit" form="integration-settings-form" disabled={controlsDisabled}>
                   {action === "save" ? t("settings.common.saving") : t("settings.integration.save")}
                 </Button>
               </DialogFooter>
             </DialogContent>
           ) : null}
+        </Dialog>
+
+        <Dialog open={deletingIntegrationKind !== null} onOpenChange={(open) => { if (!open && action === null) setDeletingIntegrationKind(null); }}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>{t("settings.integration.delete")}</DialogTitle>
+              <DialogDescription>{t("settings.integration.deleteConfirmation", { provider: deletingIntegrationProvider?.label ?? "" })}</DialogDescription>
+            </DialogHeader>
+            {integrationDeleteError ? <DialogBody><Alert variant="destructive" role="alert"><AlertDescription>{integrationDeleteError}</AlertDescription></Alert></DialogBody> : null}
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={() => setDeletingIntegrationKind(null)} disabled={action !== null}>{t("settings.common.cancel")}</Button>
+              <Button type="button" variant="destructive" onClick={() => void handleDelete()} disabled={action !== null}>{action === "delete" ? t("settings.integration.deleting") : t("settings.integration.delete")}</Button>
+            </DialogFooter>
+          </DialogContent>
         </Dialog>
 
         <Dialog

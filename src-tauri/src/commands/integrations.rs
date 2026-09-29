@@ -4,7 +4,9 @@ use sqlx::SqlitePool;
 use tauri::State;
 
 use crate::application::ai;
-use crate::application::dev_overlay::DevMockMode;
+use crate::application::dev_overlay::{
+    mock_integration_urls_from_env, DevMockMode, MockIntegrationState, MockIntegrationUrls,
+};
 use crate::application::integrations::health::ReqwestHealthChecker;
 use crate::application::integrations::settings::{
     self, IntegrationDto, IntegrationSaveRequest, IntegrationSaveResult,
@@ -85,13 +87,80 @@ pub async fn integration_save(
     request: IntegrationSaveRequest,
 ) -> Result<IntegrationSaveResult, String> {
     if mode.is_enabled() {
-        return Err("Integration changes are disabled in mock mode".to_owned());
+        return save_mock_integration(&state, request, &mock_integration_urls_from_env()?).await;
     }
     let store = credential_store(&state).await?;
     let checker = ReqwestHealthChecker::new();
     settings::save_integration_checked(&state, store.as_ref(), &checker, request)
         .await
         .map_err(|error| error.to_string())
+}
+
+async fn save_mock_integration(
+    state: &SqlitePool,
+    request: IntegrationSaveRequest,
+    urls: &MockIntegrationUrls,
+) -> Result<IntegrationSaveResult, String> {
+    let fixture = MockIntegrationState::new(true)
+        .mock_integrations()?
+        .into_iter()
+        .find(|candidate| candidate.kind == request.kind)
+        .ok_or_else(|| "Mock integration fixture is missing".to_owned())?;
+    let expected_url = match request.kind {
+        crate::domain::models::IntegrationKind::Jira => &urls.jira,
+        crate::domain::models::IntegrationKind::Bitbucket => &urls.bitbucket,
+        crate::domain::models::IntegrationKind::Confluence => &urls.confluence,
+    };
+    if request.base_url.trim_end_matches('/') != expected_url.trim_end_matches('/')
+        || request.id.as_deref().is_some_and(|id| id != fixture.id)
+    {
+        return Err("Mock integrations must use their local mock service URL".to_owned());
+    }
+    let existing = repositories::list_integrations(&state)
+        .await
+        .map_err(|_| "failed to load mock integrations".to_owned())?;
+    if existing
+        .iter()
+        .any(|item| item.kind == request.kind && item.id != fixture.id)
+    {
+        return Err("A mock integration of this type already exists".to_owned());
+    }
+    let integration = crate::domain::models::Integration {
+        id: fixture.id.clone(),
+        kind: fixture.kind,
+        base_url: expected_url.clone(),
+        account_key: fixture.account_key,
+        credential_ref: fixture.credential_ref,
+        enabled: true,
+        allow_insecure_tls: request.allow_insecure_tls,
+        account_display_name: fixture.account_display_name,
+        health_status: fixture.health_status,
+        health_error: fixture.health_error,
+        health_details: fixture.health_details,
+        health_checked_at: fixture.health_checked_at,
+        capabilities_json: fixture.capabilities.to_string(),
+        last_success_at: fixture.last_success_at,
+        created_at: fixture.created_at,
+        updated_at: fixture.updated_at,
+    };
+    if existing.iter().any(|item| item.id == integration.id) {
+        repositories::update_integration(&state, &integration)
+            .await
+            .map_err(|_| "failed to update mock integration".to_owned())?;
+    } else {
+        repositories::insert_integration(&state, &integration)
+            .await
+            .map_err(|_| "failed to add mock integration".to_owned())?;
+    }
+    let saved = settings::list_integrations(&state)
+        .await
+        .map_err(|error| error.to_string())?
+        .into_iter()
+        .find(|item| item.id == fixture.id)
+        .ok_or_else(|| "Mock integration was not saved".to_owned())?;
+    Ok(IntegrationSaveResult::Saved {
+        integration: Box::new(saved),
+    })
 }
 
 #[tauri::command]
@@ -124,12 +193,24 @@ pub async fn integration_delete(
     id: String,
 ) -> Result<(), String> {
     if mode.is_enabled() {
-        return Err("Integration changes are disabled in mock mode".to_owned());
+        return delete_mock_integration(&state, &id).await;
     }
     let store = credential_store(&state).await?;
     settings::delete_integration(&state, store.as_ref(), &id)
         .await
         .map_err(|error| error.to_string())
+}
+
+async fn delete_mock_integration(state: &SqlitePool, id: &str) -> Result<(), String> {
+    let fixture_ids = ["mock-jira", "mock-bitbucket", "mock-confluence"];
+    if !fixture_ids.contains(&id) {
+        return Err("Only synthetic mock integrations can be deleted in mock mode".to_owned());
+    }
+    match repositories::delete_integration(state, id).await {
+        Ok(true) => Ok(()),
+        Ok(false) => Err("Mock integration was not found".to_owned()),
+        Err(_) => Err("failed to delete mock integration".to_owned()),
+    }
 }
 
 #[tauri::command]
@@ -149,8 +230,61 @@ pub async fn integration_set_enabled(
 
 #[cfg(test)]
 mod tests {
-    use super::credential_refs_for_preload;
+    use super::{credential_refs_for_preload, delete_mock_integration, save_mock_integration};
+    use crate::application::dev_overlay::{seed_mock_settings, MockIntegrationUrls};
+    use crate::application::integrations::settings::{
+        IntegrationSaveRequest, IntegrationSaveResult,
+    };
+    use crate::infrastructure::db::{open_database, repositories};
+    use serde_json::json;
     use std::collections::HashSet;
+
+    #[tokio::test]
+    async fn mock_integration_can_be_edited_deleted_and_added_again() {
+        let temp_dir = tempfile::tempdir().expect("temporary mock database");
+        let pool = open_database(&temp_dir.path().join("mework-mock.sqlite"))
+            .await
+            .expect("mock database");
+        let urls = MockIntegrationUrls {
+            jira: "http://127.0.0.1:43210/jira/".to_owned(),
+            bitbucket: "http://127.0.0.1:43210/bitbucket/".to_owned(),
+            confluence: "http://127.0.0.1:43210/confluence/".to_owned(),
+        };
+        seed_mock_settings(&pool, Some(&urls))
+            .await
+            .expect("seed mocks");
+        let edit: IntegrationSaveRequest = serde_json::from_value(json!({
+            "id": "mock-confluence", "kind": "confluence", "baseUrl": urls.confluence,
+            "allowInsecureTls": true,
+        }))
+        .expect("edit request");
+        let edited = save_mock_integration(&pool, edit, &urls)
+            .await
+            .expect("edit mock");
+        assert!(
+            matches!(edited, IntegrationSaveResult::Saved { integration } if integration.allow_insecure_tls)
+        );
+
+        delete_mock_integration(&pool, "mock-confluence")
+            .await
+            .expect("delete mock");
+        assert!(repositories::list_integrations(&pool)
+            .await
+            .expect("list mocks")
+            .iter()
+            .all(|integration| integration.id != "mock-confluence"));
+
+        let add: IntegrationSaveRequest = serde_json::from_value(json!({
+            "kind": "confluence", "baseUrl": urls.confluence,
+        }))
+        .expect("add request");
+        let added = save_mock_integration(&pool, add, &urls)
+            .await
+            .expect("add mock");
+        assert!(
+            matches!(added, IntegrationSaveResult::Saved { integration } if integration.id == "mock-confluence")
+        );
+    }
 
     #[test]
     fn startup_preload_aggregates_unique_non_empty_integration_and_ai_refs() {
