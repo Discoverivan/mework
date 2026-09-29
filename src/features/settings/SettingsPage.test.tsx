@@ -413,20 +413,16 @@ describe("SettingsPage integrations smoke tests", () => {
     }));
   });
 
-  it("adds Hermes CLI from the mock provider picker", async () => {
-    const hermes = { id: "hermes-cli" as const, name: "Hermes CLI", status: "connected" as const, available: true, models: ["mock-hermes-model"] };
-    inspectAiCliProviderMock.mockResolvedValue(hermes);
-    addAiCliProviderMock.mockResolvedValue({ ...codexAiSettings, providers: [...codexAiSettings.providers, hermes] });
+  it("shows the prefilled Hermes CLI as missing in mock mode", async () => {
+    const hermes = { id: "hermes-cli" as const, name: "Hermes CLI", status: "not_found" as const, available: false, models: [], message: "Hermes CLI was not found on this computer" };
+    const claude = { id: "claude-code-cli" as const, name: "Claude Code CLI", status: "not_found" as const, available: false, models: [], message: "Claude Code CLI was not found on this computer" };
+    getAiSettingsMock.mockResolvedValue({ ...codexAiSettings, providers: [...codexAiSettings.providers, claude, hermes] });
     render(<SettingsPage section="ai" mockMode />);
 
-    await screen.findByRole("group", { name: "Codex CLI AI provider" });
-    fireEvent.click(screen.getByRole("button", { name: "Add CLI provider" }));
-    fireEvent.click(screen.getByRole("combobox", { name: "Provider type" }));
-    fireEvent.click(screen.getByRole("option", { name: "Hermes CLI" }));
-    await waitFor(() => expect(screen.getByRole("button", { name: "Add" })).toBeEnabled());
-    fireEvent.click(screen.getByRole("button", { name: "Add" }));
-    await waitFor(() => expect(addAiCliProviderMock).toHaveBeenCalledWith("hermes-cli"));
-    expect(await screen.findByRole("group", { name: "Hermes CLI AI provider" })).toBeInTheDocument();
+    const provider = within(await screen.findByRole("group", { name: "Hermes CLI AI provider" }));
+    expect(provider.getByText("Hermes CLI was not found on this computer")).toBeInTheDocument();
+    expect(provider.getByText("CLI not found")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Add CLI provider" })).toBeDisabled();
   });
 
   it("adds multiple OpenAI-compatible APIs and selects one instance", async () => {

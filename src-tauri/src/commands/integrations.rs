@@ -116,7 +116,7 @@ async fn save_mock_integration(
     {
         return Err("Mock integrations must use their local mock service URL".to_owned());
     }
-    let existing = repositories::list_integrations(&state)
+    let existing = repositories::list_integrations(state)
         .await
         .map_err(|_| "failed to load mock integrations".to_owned())?;
     if existing
@@ -144,15 +144,15 @@ async fn save_mock_integration(
         updated_at: fixture.updated_at,
     };
     if existing.iter().any(|item| item.id == integration.id) {
-        repositories::update_integration(&state, &integration)
+        repositories::update_integration(state, &integration)
             .await
             .map_err(|_| "failed to update mock integration".to_owned())?;
     } else {
-        repositories::insert_integration(&state, &integration)
+        repositories::insert_integration(state, &integration)
             .await
             .map_err(|_| "failed to add mock integration".to_owned())?;
     }
-    let saved = settings::list_integrations(&state)
+    let saved = settings::list_integrations(state)
         .await
         .map_err(|error| error.to_string())?
         .into_iter()

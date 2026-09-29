@@ -13,19 +13,6 @@ use super::ai::{
 use super::ai_usage_statistics::AiTokenUsageCounts;
 
 pub fn inspect() -> AiProviderDto {
-    inspect_for_mode(crate::application::dev_overlay::current_mock_mode_requested())
-}
-
-fn inspect_for_mode(mock_mode: bool) -> AiProviderDto {
-    if mock_mode {
-        return provider(
-            AiProviderStatus::Connected,
-            None,
-            Some("mock".to_owned()),
-            Some("mock-hermes-model".to_owned()),
-            "",
-        );
-    }
     let Some(path) = resolve_binary() else {
         return provider(
             AiProviderStatus::NotFound,
@@ -197,9 +184,6 @@ pub fn run_structured_with_usage(
     prompt: &str,
     workdir: &Path,
 ) -> Result<(Vec<u8>, Option<AiTokenUsageCounts>), String> {
-    if crate::application::dev_overlay::current_mock_mode_requested() {
-        return Err("Live Hermes CLI requests are disabled in mock mode".to_owned());
-    }
     if !valid_model(model) {
         return Err("Selected Hermes model is invalid".to_owned());
     }
@@ -284,15 +268,7 @@ fn parse_result(output: &[u8]) -> Result<(Vec<u8>, Option<AiTokenUsageCounts>), 
 
 #[cfg(test)]
 mod tests {
-    use super::{inspect_for_mode, parse_result};
-
-    #[test]
-    fn mock_mode_exposes_a_selectable_hermes_provider() {
-        let provider = inspect_for_mode(true);
-        assert_eq!(provider.id, super::AiProviderId::HermesCli);
-        assert!(provider.available);
-        assert_eq!(provider.models, ["mock-hermes-model"]);
-    }
+    use super::parse_result;
 
     #[test]
     fn parses_structured_one_shot_result() {
