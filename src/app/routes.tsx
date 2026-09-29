@@ -1,4 +1,4 @@
-import { IntegrationDependencyGate } from "../features/integrations/IntegrationDependencyGate";
+import { IntegrationDependencyGate } from "../features/data-integrations/IntegrationDependencyGate";
 import { CreateTaskPage } from "../features/product/CreateTaskPage";
 import { TaskTrackerPage } from "../features/product/TaskTrackerPage";
 import { DailyPage } from "../features/daily/DailyPage";

@@ -9,11 +9,11 @@ use sqlx::SqlitePool;
 
 use crate::application::planning::{self, PlanningCommandError, TeamMemberDto};
 use crate::domain::planning::models::ManagedProject;
-use crate::infrastructure::db::planning_repositories;
-use crate::infrastructure::integrations::jira::planning::{
+use crate::infrastructure::data_integrations::jira::planning::{
     JiraIssueTransition, JiraPlanningClient,
 };
-use crate::infrastructure::integrations::jira::planning_write::ReqwestPlanningTransport;
+use crate::infrastructure::data_integrations::jira::planning_write::ReqwestPlanningTransport;
+use crate::infrastructure::db::planning_repositories;
 
 const DEFAULT_STORY_POINTS_FIELD_ID: &str = "customfield_10372";
 
@@ -400,7 +400,9 @@ async fn daily_jira_client(
         Arc::new(ReqwestPlanningTransport::new(http)),
     )
     .await?;
-    if deployment != crate::infrastructure::integrations::jira::models::JiraDeployment::DataCenter {
+    if deployment
+        != crate::infrastructure::data_integrations::jira::models::JiraDeployment::DataCenter
+    {
         return Err(daily_error(
             "unsupported_capability",
             "Sprint task transitions are supported only for Jira Data Center/Server.",
@@ -443,7 +445,7 @@ async fn ensure_issue_in_sprint(
 
 fn jira_daily_error(
     context: &str,
-    error: crate::infrastructure::integrations::jira::error::JiraError,
+    error: crate::infrastructure::data_integrations::jira::error::JiraError,
 ) -> PlanningCommandError {
     daily_error(
         "remote_error",

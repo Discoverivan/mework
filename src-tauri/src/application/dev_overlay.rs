@@ -8,10 +8,10 @@ use time::{format_description::well_known::Rfc3339, OffsetDateTime};
 use crate::application::{
     confluence::{ConfluenceSearchRequest, ConfluenceSearchResponse, ConfluenceSpaceDto},
     daily::{DailySprintDto, DailySubtaskDto, DailyWorkspaceDto},
+    data_integrations::settings::IntegrationDto,
     developer::{
         MyPullRequestDto, MyPullRequestsPageDto, PullRequestActivity, PullRequestReviewSummaryDto,
     },
-    integrations::settings::IntegrationDto,
     planning::{ManagedProjectDto, TeamMemberDto},
     task_tracker::{
         TaskTrackerChangeDto, TaskTrackerChangeKind, TaskTrackerEventKind, TaskTrackerIssueDto,
@@ -19,8 +19,8 @@ use crate::application::{
     },
 };
 use crate::domain::models::{Integration, IntegrationHealthStatus, IntegrationKind};
+use crate::infrastructure::data_integrations::confluence::client::ConfluenceSearchResult;
 use crate::infrastructure::db::repositories;
-use crate::infrastructure::integrations::confluence::client::ConfluenceSearchResult;
 use sqlx::SqlitePool;
 
 pub const MOCK_INTEGRATION_ID: &str = "mock-bitbucket";

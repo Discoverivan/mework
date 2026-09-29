@@ -64,7 +64,7 @@ impl JiraClient {
                     retryable: status == 429 || status >= 500,
                     retry_after_seconds,
                     response_body:
-                        crate::infrastructure::integrations::error_body::read_safe_error_body(
+                        crate::infrastructure::data_integrations::error_body::read_safe_error_body(
                             response,
                         )
                         .await,

@@ -766,7 +766,7 @@ mod tests {
     use super::MockIntegrationServer;
     use crate::{
         application::dev_overlay::MockIntegrationState as DevMockMode,
-        infrastructure::integrations::{
+        infrastructure::data_integrations::{
             bitbucket_dc::client::{BitbucketDcClient, BitbucketInlineComment},
             confluence::client::ConfluenceClient,
             jira::{client::JiraClient, models::JiraDeployment, planning::JiraPlanningClient},

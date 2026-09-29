@@ -12,16 +12,16 @@ use crate::domain::models::{IntegrationHealthStatus, IntegrationKind};
 use crate::infrastructure::credentials::keyring::{
     integration_credential_store, DEV_KEYRING_SERVICE, PRODUCTION_KEYRING_SERVICE,
 };
-use crate::infrastructure::db::repositories;
-use crate::infrastructure::integrations::bitbucket_dc::client::{
+use crate::infrastructure::data_integrations::bitbucket_dc::client::{
     BitbucketDcClient, BitbucketInlineComment,
 };
-use crate::infrastructure::integrations::bitbucket_dc::error::{
+use crate::infrastructure::data_integrations::bitbucket_dc::error::{
     BitbucketDcError, BitbucketHttpErrorKind,
 };
-use crate::infrastructure::integrations::bitbucket_dc::models::{
+use crate::infrastructure::data_integrations::bitbucket_dc::models::{
     BitbucketDashboardPullRequest, BitbucketParticipant, BitbucketPullRequestAuthor, BitbucketUser,
 };
+use crate::infrastructure::db::repositories;
 use sqlx::SqlitePool;
 
 const KEYRING_SERVICE: &str = if cfg!(debug_assertions) {
@@ -1945,7 +1945,9 @@ pub(crate) fn map_error_at(
     let response_body = match &error {
         BitbucketDcError::Http {
             detail: Some(body), ..
-        } => crate::infrastructure::integrations::error_body::sanitize_error_body(body.as_bytes()),
+        } => crate::infrastructure::data_integrations::error_body::sanitize_error_body(
+            body.as_bytes(),
+        ),
         _ => None,
     };
     let mut mapped = map_error(error);
@@ -2044,14 +2046,14 @@ mod tests {
         MyPullRequestDto, PullRequestActivity, PullRequestActivitySnapshot,
         PullRequestActivityState, PullRequestReviewSettings, PullRequestReviewSummaryDto,
     };
-    use crate::infrastructure::db::open_database;
-    use crate::infrastructure::integrations::bitbucket_dc::models::{
+    use crate::infrastructure::data_integrations::bitbucket_dc::models::{
         BitbucketLink, BitbucketLinks, BitbucketParticipant, BitbucketRef, BitbucketUser,
     };
+    use crate::infrastructure::db::open_database;
 
     #[test]
     fn bitbucket_error_dto_identifies_failing_operation_without_exposing_provider_body() {
-        use crate::infrastructure::integrations::bitbucket_dc::error::{
+        use crate::infrastructure::data_integrations::bitbucket_dc::error::{
             BitbucketDcError, BitbucketHttpErrorKind,
         };
         let error = super::map_error_at(

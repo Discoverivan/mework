@@ -15,11 +15,11 @@ use crate::domain::models::{IntegrationHealthStatus, IntegrationKind};
 use crate::infrastructure::credentials::keyring::{
     integration_credential_store, DEV_KEYRING_SERVICE, PRODUCTION_KEYRING_SERVICE,
 };
-use crate::infrastructure::db::repositories;
-use crate::infrastructure::integrations::bitbucket_dc::client::BitbucketDcClient;
-use crate::infrastructure::integrations::bitbucket_dc::models::{
+use crate::infrastructure::data_integrations::bitbucket_dc::client::BitbucketDcClient;
+use crate::infrastructure::data_integrations::bitbucket_dc::models::{
     BitbucketComment, BitbucketDashboardPullRequest, BitbucketPullRequest,
 };
+use crate::infrastructure::db::repositories;
 
 const ACTIVITY_SETTING_KEY: &str = "developer.authored_pull_request_activity";
 const ACTIVITY_SCHEMA_VERSION: i64 = 2;
@@ -768,13 +768,14 @@ mod tests {
             closed: false,
             created_date: None,
             updated_date: None,
-            from_ref: crate::infrastructure::integrations::bitbucket_dc::models::BitbucketRef {
-                id: "refs/heads/feature".into(),
-                display_id: "feature".into(),
-                latest_commit: Some("commit-1".into()),
-                repository: None,
-            },
-            to_ref: crate::infrastructure::integrations::bitbucket_dc::models::BitbucketRef {
+            from_ref:
+                crate::infrastructure::data_integrations::bitbucket_dc::models::BitbucketRef {
+                    id: "refs/heads/feature".into(),
+                    display_id: "feature".into(),
+                    latest_commit: Some("commit-1".into()),
+                    repository: None,
+                },
+            to_ref: crate::infrastructure::data_integrations::bitbucket_dc::models::BitbucketRef {
                 id: "refs/heads/master".into(),
                 display_id: "master".into(),
                 latest_commit: Some("commit-0".into()),
@@ -807,7 +808,7 @@ mod tests {
         assert_ne!(empty, with_comment);
     }
 
-    use crate::infrastructure::integrations::bitbucket_dc::models::{
+    use crate::infrastructure::data_integrations::bitbucket_dc::models::{
         BitbucketParticipant, BitbucketUser,
     };
 
@@ -823,13 +824,14 @@ mod tests {
             closed: false,
             created_date: None,
             updated_date: None,
-            from_ref: crate::infrastructure::integrations::bitbucket_dc::models::BitbucketRef {
-                id: "refs/heads/feature".into(),
-                display_id: "feature".into(),
-                latest_commit: Some("commit-1".into()),
-                repository: None,
-            },
-            to_ref: crate::infrastructure::integrations::bitbucket_dc::models::BitbucketRef {
+            from_ref:
+                crate::infrastructure::data_integrations::bitbucket_dc::models::BitbucketRef {
+                    id: "refs/heads/feature".into(),
+                    display_id: "feature".into(),
+                    latest_commit: Some("commit-1".into()),
+                    repository: None,
+                },
+            to_ref: crate::infrastructure::data_integrations::bitbucket_dc::models::BitbucketRef {
                 id: "refs/heads/master".into(),
                 display_id: "master".into(),
                 latest_commit: Some("commit-0".into()),

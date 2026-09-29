@@ -24,11 +24,11 @@ use crate::{
         credentials::keyring::{
             integration_credential_store, DEV_KEYRING_SERVICE, PRODUCTION_KEYRING_SERVICE,
         },
-        db::repositories,
-        integrations::bitbucket_dc::{
+        data_integrations::bitbucket_dc::{
             client::BitbucketDcClient,
             models::{BitbucketPullRequest, BitbucketRepository},
         },
+        db::repositories,
     },
 };
 

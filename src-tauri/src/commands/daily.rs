@@ -35,7 +35,7 @@ pub async fn daily_issue_transitions(
     sprint_id: String,
     issue_key: String,
 ) -> Result<
-    Vec<crate::infrastructure::integrations::jira::planning::JiraIssueTransition>,
+    Vec<crate::infrastructure::data_integrations::jira::planning::JiraIssueTransition>,
     PlanningCommandError,
 > {
     crate::application::daily::daily_issue_transitions(

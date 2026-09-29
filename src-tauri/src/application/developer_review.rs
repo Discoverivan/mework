@@ -12,7 +12,6 @@ use tauri::{AppHandle, Emitter, Runtime};
 use uuid::Uuid;
 
 use super::developer::MyPullRequestDto;
-use crate::application::ai::codex_command;
 use crate::application::ai_usage_statistics;
 use crate::infrastructure::db::repositories;
 
@@ -819,80 +818,37 @@ fn execute_review_in_workspace_with_usage(
 
     if ai_settings.provider == Some(crate::application::ai::AiProviderId::ClaudeCodeCli) {
         let prompt = openai_review_prompt(&manifest, diff, output_language)?;
-        let (output, usage) = crate::application::claude_code::run_structured_with_usage(
-            &ai_settings.model,
-            review_result_schema(),
-            &prompt,
-            workdir,
-        )?;
+        let (output, usage) =
+            crate::application::ai_providers::cli::claude_code::run_structured_with_usage(
+                &ai_settings.model,
+                review_result_schema(),
+                &prompt,
+                workdir,
+            )?;
         return parse_review_result(&output).map(|result| (result, usage));
     }
 
     if ai_settings.provider == Some(crate::application::ai::AiProviderId::HermesCli) {
         let prompt = openai_review_prompt(&manifest, diff, output_language)?;
-        let (output, usage) = crate::application::hermes_cli::run_structured_with_usage(
-            &ai_settings.model,
-            review_result_schema(),
-            &prompt,
-            workdir,
-        )?;
+        let (output, usage) =
+            crate::application::ai_providers::cli::hermes_cli::run_structured_with_usage(
+                &ai_settings.model,
+                review_result_schema(),
+                &prompt,
+                workdir,
+            )?;
         return parse_review_result(&output).map(|result| (result, usage));
     }
 
-    let codex = crate::application::ai::resolve_codex_binary()
-        .ok_or_else(|| "Codex CLI executable was not found".to_owned())?;
-    let reasoning = ai_settings.reasoning.as_str();
-    let service_tier = if ai_settings.fast_mode {
-        "fast"
-    } else {
-        "default"
-    };
-    let fast_mode = if ai_settings.fast_mode {
-        "true"
-    } else {
-        "false"
-    };
-    let mut command = codex_command(codex);
-    command
-        .args([
-            "--ask-for-approval",
-            "never",
-            "exec",
-            "--skip-git-repo-check",
-            "--ephemeral",
-            "--sandbox",
-            "read-only",
-            "--color",
-            "never",
-            "--json",
-            "--model",
-            &ai_settings.model,
-            "--config",
-            &format!("model_reasoning_effort=\"{reasoning}\""),
-            "--config",
-            &format!("service_tier=\"{service_tier}\""),
-            "--config",
-            &format!("features.fast_mode={fast_mode}"),
-            "--output-schema",
-            schema_path.to_string_lossy().as_ref(),
-            "--output-last-message",
-            output_path.to_string_lossy().as_ref(),
-            "-",
-        ])
-        .current_dir(workdir);
-    let output = command
-        .stdin(std::process::Stdio::from(
-            fs::File::open(&prompt_path)
-                .map_err(|_| "Failed to open AI review prompt".to_owned())?,
-        ))
-        .output()
-        .map_err(|_| "Unable to start Codex CLI review".to_owned())?;
-    if !output.status.success() {
-        return Err(codex_failure_message(&output));
-    }
-    let result_bytes = fs::read(&output_path)
-        .map_err(|_| "Codex CLI did not return a review result".to_owned())?;
-    let usage = ai_usage_statistics::parse_cli_usage(&output.stdout);
+    let (result_bytes, usage) =
+        crate::application::ai_providers::cli::codex::run_structured_with_usage(
+            ai_settings,
+            &prompt_path,
+            &schema_path,
+            &output_path,
+            workdir,
+        )
+        .map_err(codex_review_run_error)?;
     parse_review_result(&result_bytes).map(|result| (result, usage))
 }
 
@@ -1006,21 +962,23 @@ fn execute_cli_review_prompt_with_usage(
 > {
     match settings.provider {
         Some(crate::application::ai::AiProviderId::ClaudeCodeCli) => {
-            let (output, usage) = crate::application::claude_code::run_structured_with_usage(
-                &settings.model,
-                review_result_schema(),
-                prompt,
-                workdir,
-            )?;
+            let (output, usage) =
+                crate::application::ai_providers::cli::claude_code::run_structured_with_usage(
+                    &settings.model,
+                    review_result_schema(),
+                    prompt,
+                    workdir,
+                )?;
             parse_review_result(&output).map(|review| (review, usage))
         }
         Some(crate::application::ai::AiProviderId::HermesCli) => {
-            let (output, usage) = crate::application::hermes_cli::run_structured_with_usage(
-                &settings.model,
-                review_result_schema(),
-                prompt,
-                workdir,
-            )?;
+            let (output, usage) =
+                crate::application::ai_providers::cli::hermes_cli::run_structured_with_usage(
+                    &settings.model,
+                    review_result_schema(),
+                    prompt,
+                    workdir,
+                )?;
             parse_review_result(&output).map(|review| (review, usage))
         }
         Some(crate::application::ai::AiProviderId::CodexCli) => {
@@ -1031,56 +989,15 @@ fn execute_cli_review_prompt_with_usage(
                 .map_err(|_| "Failed to prepare AI review prompt".to_owned())?;
             fs::write(&schema_path, review_result_schema())
                 .map_err(|_| "Failed to prepare review result schema".to_owned())?;
-            let codex = crate::application::ai::resolve_codex_binary()
-                .ok_or_else(|| "Codex CLI executable was not found".to_owned())?;
-            let reasoning = settings.reasoning.as_str();
-            let service_tier = if settings.fast_mode {
-                "fast"
-            } else {
-                "default"
-            };
-            let fast_mode = if settings.fast_mode { "true" } else { "false" };
-            let mut command = codex_command(codex);
-            command
-                .args([
-                    "--ask-for-approval",
-                    "never",
-                    "exec",
-                    "--skip-git-repo-check",
-                    "--ephemeral",
-                    "--sandbox",
-                    "read-only",
-                    "--color",
-                    "never",
-                    "--json",
-                    "--model",
-                    &settings.model,
-                    "--config",
-                    &format!("model_reasoning_effort=\"{reasoning}\""),
-                    "--config",
-                    &format!("service_tier=\"{service_tier}\""),
-                    "--config",
-                    &format!("features.fast_mode={fast_mode}"),
-                    "--output-schema",
-                    schema_path.to_string_lossy().as_ref(),
-                    "--output-last-message",
-                    output_path.to_string_lossy().as_ref(),
-                    "-",
-                ])
-                .current_dir(workdir)
-                .stdin(std::process::Stdio::from(
-                    fs::File::open(&prompt_path)
-                        .map_err(|_| "Failed to open AI review prompt".to_owned())?,
-                ));
-            let output = command
-                .output()
-                .map_err(|_| "Unable to start Codex CLI review".to_owned())?;
-            if !output.status.success() {
-                return Err(codex_failure_message(&output));
-            }
-            let bytes = fs::read(&output_path)
-                .map_err(|_| "Codex CLI did not return a review result".to_owned())?;
-            let usage = ai_usage_statistics::parse_cli_usage(&output.stdout);
+            let (bytes, usage) =
+                crate::application::ai_providers::cli::codex::run_structured_with_usage(
+                    settings,
+                    &prompt_path,
+                    &schema_path,
+                    &output_path,
+                    workdir,
+                )
+                .map_err(codex_review_run_error)?;
             parse_review_result(&bytes).map(|review| (review, usage))
         }
         _ => Err("Select a connected AI provider in AI Settings".to_owned()),
@@ -1242,6 +1159,17 @@ fn openai_response_content(value: &serde_json::Value) -> Option<String> {
             .join("\n");
         (!text.is_empty()).then_some(text)
     })
+}
+
+fn codex_review_run_error(error: crate::application::ai_providers::cli::codex::RunError) -> String {
+    use crate::application::ai_providers::cli::codex::RunError;
+    match error {
+        RunError::MissingBinary => "Codex CLI executable was not found".to_owned(),
+        RunError::PromptOpen => "Failed to open AI review prompt".to_owned(),
+        RunError::Spawn => "Unable to start Codex CLI review".to_owned(),
+        RunError::Failed(output) => codex_failure_message(&output),
+        RunError::ResultRead => "Codex CLI did not return a review result".to_owned(),
+    }
 }
 
 fn codex_failure_message(output: &std::process::Output) -> String {

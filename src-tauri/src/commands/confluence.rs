@@ -14,7 +14,7 @@ fn map_error(
 ) -> IntegrationCommandError {
     let response_body = match &error {
         ConfluenceSearchError::RemoteHttp(_, Some(body)) => {
-            crate::infrastructure::integrations::error_body::sanitize_error_body(
+            crate::infrastructure::data_integrations::error_body::sanitize_error_body(
                 body.to_string().as_bytes(),
             )
         }

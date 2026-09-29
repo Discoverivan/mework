@@ -4,12 +4,12 @@ use sqlx::SqlitePool;
 use tauri::State;
 
 use crate::application::ai;
+use crate::application::data_integrations::health::ReqwestHealthChecker;
+use crate::application::data_integrations::settings::{
+    self, IntegrationDto, IntegrationSaveRequest, IntegrationSaveResult,
+};
 use crate::application::dev_overlay::{
     mock_integration_urls_from_env, DevMockMode, MockIntegrationState, MockIntegrationUrls,
-};
-use crate::application::integrations::health::ReqwestHealthChecker;
-use crate::application::integrations::settings::{
-    self, IntegrationDto, IntegrationSaveRequest, IntegrationSaveResult,
 };
 use crate::infrastructure::credentials::keyring::{
     integration_credential_store, CredentialStore, OsKeyring, DEV_KEYRING_SERVICE,
@@ -231,10 +231,10 @@ pub async fn integration_set_enabled(
 #[cfg(test)]
 mod tests {
     use super::{credential_refs_for_preload, delete_mock_integration, save_mock_integration};
-    use crate::application::dev_overlay::{seed_mock_settings, MockIntegrationUrls};
-    use crate::application::integrations::settings::{
+    use crate::application::data_integrations::settings::{
         IntegrationSaveRequest, IntegrationSaveResult,
     };
+    use crate::application::dev_overlay::{seed_mock_settings, MockIntegrationUrls};
     use crate::infrastructure::db::{open_database, repositories};
     use serde_json::json;
     use std::collections::HashSet;
