@@ -288,6 +288,8 @@ describe("mework application shell", () => {
     fireEvent.click(screen.getByRole("button", { name: "Older release" }));
     expect(await screen.findByRole("heading", { name: "Fixed" })).toBeInTheDocument();
     expect(await screen.findByText("Previously loaded notes remain readable without a network connection.")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Removed" })).toBeInTheDocument();
+    expect(screen.getByText("Removed an unused example shortcut.")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Close" }));
     expect(window.location.hash).toBe("#settings/application-info");
     await waitFor(() => expect(updaterCheckMock).toHaveBeenCalledOnce());

@@ -1267,7 +1267,7 @@ mod tests {
             None,
             "Add an example filter",
             AppLanguage::English,
-            &directory.path().to_path_buf(),
+            directory.path(),
         )
         .unwrap();
 
@@ -1327,7 +1327,7 @@ mod tests {
             None,
             "Create an audit filter",
             AppLanguage::English,
-            &directory.path().to_path_buf(),
+            directory.path(),
         )
         .unwrap();
 

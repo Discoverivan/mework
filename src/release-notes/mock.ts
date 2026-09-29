@@ -14,8 +14,8 @@ export function mockReleaseNotes(language: "en" | "ru"): ReleaseNote[] {
       version: "0.0.0-preview.1",
       language,
       markdown: english
-        ? "## Fixed\n\n- Previously loaded notes remain readable without a network connection."
-        : "## Исправлено\n\n- Ранее загруженные заметки остаются доступны без подключения к сети.",
+        ? "## Fixed\n\n- Previously loaded notes remain readable without a network connection.\n\n## Removed\n\n- Removed an unused example shortcut."
+        : "## Исправлено\n\n- Ранее загруженные заметки остаются доступны без подключения к сети.\n\n## Удалено\n\n- Удалён неиспользуемый демонстрационный ярлык.",
     },
   ];
 }

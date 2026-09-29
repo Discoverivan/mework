@@ -714,18 +714,20 @@ export function DailyPage() {
                     </div>
                   </div>
                   <div className="flex shrink-0 items-center gap-1">
-                    {selectedAssigneeBoardUrl ? (
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="icon"
-                        className="mr-1 size-9"
-                        aria-label={t("daily.openAssigneeSprintBoard", { assignee: selectedOwner.label })}
-                        title={t("daily.openAssigneeSprintBoard", { assignee: selectedOwner.label })}
-                        onClick={() => void openJiraIssue(selectedAssigneeBoardUrl)}
-                      >
-                        <ExternalLink aria-hidden="true" />
-                      </Button>
+                    {selectedMember ? (
+                      <span className="mr-1" title={selectedAssigneeBoardUrl ? t("daily.openAssigneeSprintBoard", { assignee: selectedOwner.label }) : t("daily.assigneeBoardUnavailable")}>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="icon"
+                          className="size-9"
+                          aria-label={t("daily.openAssigneeSprintBoard", { assignee: selectedOwner.label })}
+                          disabled={!selectedAssigneeBoardUrl}
+                          onClick={() => { if (selectedAssigneeBoardUrl) void openJiraIssue(selectedAssigneeBoardUrl); }}
+                        >
+                          <ExternalLink aria-hidden="true" />
+                        </Button>
+                      </span>
                     ) : null}
                     <Button
                       type="button"
