@@ -19,6 +19,7 @@ const AI_CLI_RECOVERY_DELAY_MS = 5_000;
 
 let aiSettingsRequest: Promise<AiSettingsPageData> | null = null;
 let aiSettingsCache: { value: AiSettingsPageData; expiresAt: number } | null = null;
+let aiSettingsRequestRevision = 0;
 let aiCliRecoveryTimer: ReturnType<typeof setTimeout> | null = null;
 let integrationHealthRequest: Promise<IntegrationRedacted[]> | null = null;
 
@@ -61,7 +62,9 @@ export function getAiSettings(): Promise<AiSettingsPageData> {
   if (aiSettingsRequest) return aiSettingsRequest;
 
   aiSettingsCache = null;
-  const request = invoke<AiSettingsPageData>("ai_settings").then(cacheStableAiSettings);
+  const revision = ++aiSettingsRequestRevision;
+  const request = invoke<AiSettingsPageData>("ai_settings").then((value) =>
+    revision === aiSettingsRequestRevision ? cacheStableAiSettings(value) : value);
   const sharedRequest = request.finally(() => {
     if (aiSettingsRequest === sharedRequest) aiSettingsRequest = null;
   });
@@ -71,6 +74,7 @@ export function getAiSettings(): Promise<AiSettingsPageData> {
 
 export function refreshAiSettings(): Promise<AiSettingsPageData> {
   aiSettingsCache = null;
+  aiSettingsRequest = null;
   return getAiSettings();
 }
 

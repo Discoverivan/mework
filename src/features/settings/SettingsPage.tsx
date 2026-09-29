@@ -582,13 +582,17 @@ export function SettingsPage({ section = "integrations", focusActivity, mockMode
         setAiSaving(false);
       }).catch((saveError) => {
         if (aiSaveRevisionRef.current !== revision) return;
+        if (aiStatusScope !== "default" && !visibleAiActivities.includes(aiStatusScope) && aiData.settings[aiStatusScope]) {
+          setVisibleAiActivities((current) => [...current, aiStatusScope]);
+          setAiDraft((current) => ({ ...current, [aiStatusScope]: aiData.settings[aiStatusScope] }));
+        }
         setAiError(t("settings.error.saveAi", { error: errorMessage(saveError, t("common.unknownError")) }));
         setAiSaving(false);
       });
     }, 250);
 
     return () => window.clearTimeout(timer);
-  }, [aiData.settings, aiDraft, aiReady, aiDeleting, t]);
+  }, [aiData.settings, aiDraft, aiReady, aiDeleting, aiStatusScope, visibleAiActivities, t]);
 
   function openOpenAiCompatibleDialog(provider?: AiProvider) {
     setEditingOpenAiId(provider?.instanceId ?? undefined);

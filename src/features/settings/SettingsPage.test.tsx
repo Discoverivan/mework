@@ -288,6 +288,27 @@ describe("SettingsPage integrations smoke tests", () => {
     expect(screen.getByRole("menuitem", { name: "Task creation" })).toBeInTheDocument();
   });
 
+  it("restores a configured activity when removing its override fails to save", async () => {
+    getAiSettingsMock.mockResolvedValueOnce({
+      ...codexAiSettings,
+      settings: {
+        ...codexAiSettings.settings,
+        taskCreation: { provider: "codex-cli", model: "gpt-5.5", reasoning: "medium", fastMode: false },
+      },
+    });
+    saveAiSettingsMock.mockRejectedValueOnce(new Error("Synthetic save failure"));
+    render(<SettingsPage section="ai" />);
+
+    await screen.findByRole("region", { name: "Task creation" });
+    fireEvent.click(screen.getByRole("button", { name: "Remove Task creation" }));
+
+    await waitFor(() => expect(saveAiSettingsMock).toHaveBeenCalled());
+    expect(await within(screen.getByRole("region", { name: "Task creation" })).findByText(
+      "Unable to save AI settings: Synthetic save failure",
+    )).toBeInTheDocument();
+    expect(within(screen.getByRole("region", { name: "Task creation" })).getByRole("combobox", { name: "AI provider" })).toHaveTextContent("Codex CLI");
+  });
+
   it("refreshes an AI provider and displays its updated models", async () => {
     refreshAiSettingsMock.mockResolvedValue({
       ...codexAiSettings,
