@@ -408,6 +408,7 @@ pub fn run() {
             commands::developer::authored_pull_requests_mark_all_read,
             commands::developer::pull_request_review_start,
             commands::developer::pull_request_review_state,
+            commands::developer::pull_request_review_states,
             commands::developer::pull_request_review_mark_read,
             commands::developer::pull_request_review_mark_all_read,
             commands::developer::pull_request_review_publish_comment,

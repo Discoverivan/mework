@@ -8,6 +8,7 @@ import type {
   PullRequestReviewSettings,
   PullRequestUnreadCounts,
   PullRequestReviewState,
+  PullRequestReviewStateRequest,
 } from "@/shared/contracts/developer";
 
 export const getPullRequestUnreadCounts = () =>
@@ -77,6 +78,11 @@ export const getPullRequestReviewState = (pullRequest: MyPullRequest) =>
       pullRequestId: pullRequest.pullRequestId,
       latestCommit: pullRequest.latestCommit,
     },
+  });
+
+export const getPullRequestReviewStates = (requests: PullRequestReviewStateRequest[]) =>
+  invoke<Record<string, PullRequestReviewState>>("pull_request_review_states", {
+    request: { requests },
   });
 
 export const markPullRequestRead = (

@@ -43,11 +43,11 @@ import { PageHeader } from "@/components/shared/PageHeader";
 import { useI18n } from "@/i18n/context";
 import { APP_EVENT, emitAppEvent, subscribeAppEvent } from "@/app/app-events";
 import { shouldRefreshPullRequestCache } from "./pull-request-cache";
+import { usePullRequestReviewPolling } from "./review-polling";
 
 import { getAiSettings } from "../settings/api";
 import {
   getPullRequestReviewSettings,
-  getPullRequestReviewState,
   listMyPullRequests,
   markAllPullRequestsRead,
   markPullRequestRead,
@@ -297,50 +297,7 @@ export function MyPullRequestsPage() {
     });
   }, []);
 
-  useEffect(() => {
-    const runningPullRequests = pullRequests.filter((pullRequest) => pullRequest.review?.status === "running");
-    if (runningPullRequests.length === 0) return;
-    let active = true;
-
-    const reconcile = async () => {
-      const updates = await Promise.all(runningPullRequests.map(async (pullRequest) => {
-        try {
-          return {
-            key: pullRequestKey(pullRequest),
-            runId: pullRequest.review?.runId,
-            review: await getPullRequestReviewState(pullRequest),
-          };
-        } catch {
-          return null;
-        }
-      }));
-      if (!active) return;
-      const availableUpdates = updates.filter((update): update is {
-        key: string;
-        runId: string;
-        review: PullRequestReviewState;
-      } => update?.review != null && update.runId != null && update.review.runId === update.runId);
-      if (availableUpdates.length === 0) return;
-      setPullRequests((current) => {
-        let changed = false;
-        const next = current.map((pullRequest) => {
-          const key = pullRequestKey(pullRequest);
-          const update = availableUpdates.find((candidate) => candidate.key === key);
-          if (!update || pullRequest.review?.runId !== update.runId) return pullRequest;
-          changed = true;
-          return { ...pullRequest, review: update.review };
-        });
-        return changed ? sortPullRequests(next) : current;
-      });
-    };
-
-    void reconcile();
-    const timer = window.setInterval(() => void reconcile(), 2_000);
-    return () => {
-      active = false;
-      window.clearInterval(timer);
-    };
-  }, [pullRequests]);
+  usePullRequestReviewPolling(pullRequests, setPullRequests);
 
   useEffect(() => {
     const query = repositoryInput.trim();
@@ -716,7 +673,7 @@ export function MyPullRequestsPage() {
       </div>
 
       <PullRequestReviewDialog
-        open={Boolean(reviewDialogKey && reviewDialogReview?.status === "completed" && reviewDialogReview.result)}
+        open={Boolean(reviewDialogKey && (reviewDialogReview?.status === "failed" || (reviewDialogReview?.status === "completed" && reviewDialogReview.result)))}
         pullRequest={reviewDialogPullRequest}
         review={reviewDialogReview}
         reviewerActions

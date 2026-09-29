@@ -126,6 +126,12 @@ pub struct PullRequestReviewStateRequest {
     pub latest_commit: Option<String>,
 }
 
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PullRequestReviewStatesRequest {
+    pub requests: Vec<PullRequestReviewStateRequest>,
+}
+
 pub fn request_from_pull_request(pull_request: &MyPullRequestDto) -> PullRequestReviewRequest {
     PullRequestReviewRequest {
         integration_id: pull_request.integration_id.clone(),
@@ -202,6 +208,50 @@ pub fn pull_request_review_key(
     format!("{integration_id}:{project_key}:{repository_slug}:{pull_request_id}")
 }
 
+pub async fn get_review_states(
+    pool: &SqlitePool,
+    requests: Vec<PullRequestReviewStateRequest>,
+) -> Result<HashMap<String, PullRequestReviewDto>, String> {
+    for request in &requests {
+        validate_state_request(request)?;
+    }
+    let _guard = review_state_lock().lock().await;
+    let mut state = load_state(pool).await?;
+    let active = active_review_runs()
+        .lock()
+        .map_err(|_| "review state lock is poisoned".to_owned())?
+        .clone();
+    let mut changed = false;
+    let mut results = HashMap::new();
+
+    for request in requests {
+        let key = pull_request_review_key(
+            &request.integration_id,
+            &request.project_key,
+            &request.repository_slug,
+            &request.pull_request_id,
+        );
+        let Some(mut record) = state.reviews.get(&key).cloned() else {
+            continue;
+        };
+        if record.status == PullRequestReviewStatus::Running && !active.contains(&record.run_id) {
+            record.status = PullRequestReviewStatus::Failed;
+            record.error = Some("Review was interrupted before completion".to_owned());
+            record.finished_at = Some(now_millis());
+            state.reviews.insert(key.clone(), record.clone());
+            changed = true;
+        }
+        if record.reviewed_commit == request.latest_commit {
+            results.insert(key, record);
+        }
+    }
+
+    if changed {
+        save_state(pool, &state).await?;
+    }
+    Ok(results)
+}
+
 pub async fn get_review_state(
     pool: &SqlitePool,
     request: PullRequestReviewStateRequest,
@@ -213,26 +263,7 @@ pub async fn get_review_state(
         &request.repository_slug,
         &request.pull_request_id,
     );
-    let _guard = review_state_lock().lock().await;
-    let mut state = load_state(pool).await?;
-    let Some(mut record) = state.reviews.get(&key).cloned() else {
-        return Ok(None);
-    };
-    let active = active_review_runs()
-        .lock()
-        .map_err(|_| "review state lock is poisoned".to_owned())?
-        .contains(&record.run_id);
-    if record.status == PullRequestReviewStatus::Running && !active {
-        record.status = PullRequestReviewStatus::Failed;
-        record.error = Some("Review was interrupted before completion".to_owned());
-        record.finished_at = Some(now_millis());
-        state.reviews.insert(key, record.clone());
-        save_state(pool, &state).await?;
-    }
-    if record.reviewed_commit != request.latest_commit {
-        return Ok(None);
-    }
-    Ok(Some(record))
+    Ok(get_review_states(pool, vec![request]).await?.remove(&key))
 }
 
 pub async fn attach_review_states(

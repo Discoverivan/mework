@@ -103,6 +103,14 @@ export interface PullRequestReviewChangedEvent {
   review: PullRequestReviewState;
 }
 
+export interface PullRequestReviewStateRequest {
+  integrationId: string;
+  projectKey: string;
+  repositorySlug: string;
+  pullRequestId: string;
+  latestCommit?: string;
+}
+
 export interface PullRequestReviewSummary {
   approved: number;
   needsWork: number;
