@@ -233,6 +233,9 @@ describe("DailyPage smoke test", () => {
       sprintBoardUrlsByAssignee: {},
     });
     fireEvent.click(screen.getByRole("combobox", { name: "Sprint" }));
+    fireEvent.change(screen.getByRole("searchbox", { name: "Search sprints…" }), { target: { value: "41" } });
+    expect(screen.getByRole("option", { name: "Sprint 41 (Closed)" })).toBeInTheDocument();
+    expect(screen.queryByRole("option", { name: "Sprint 42 (Active)" })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("option", { name: "Sprint 41 (Closed)" }));
     await waitFor(() => expect(loadDailyWorkspaceMock).toHaveBeenLastCalledWith("managed-1", "sprint-0"));
     fireEvent.click(sprintBoardButton);
