@@ -47,26 +47,14 @@ pub fn run() {
         .setup(|app| {
             let mock_mode_enabled = crate::application::dev_overlay::current_mock_mode_requested();
             let mock_mode = crate::application::dev_overlay::DevMockMode::new(mock_mode_enabled);
-            #[cfg(feature = "dev-mock-rest")]
             let mock_urls = if mock_mode_enabled {
-                let server = tauri::async_runtime::block_on(
-                    crate::application::mock_rest::MockIntegrationServer::start(mock_mode.clone()),
+                Some(
+                    crate::application::dev_overlay::mock_integration_urls_from_env()
+                        .map_err(std::io::Error::other)?,
                 )
-                .map_err(std::io::Error::other)?;
-                let urls = server.urls().clone();
-                app.manage(server);
-                Some(urls)
             } else {
                 None
             };
-            #[cfg(not(feature = "dev-mock-rest"))]
-            let mock_urls: Option<crate::application::dev_overlay::MockIntegrationUrls> = None;
-            #[cfg(not(feature = "dev-mock-rest"))]
-            if mock_mode_enabled {
-                return Err(std::io::Error::other(
-                    "Mock mode requires the dev-mock-rest Cargo feature; use the --mock development launcher",
-                ).into());
-            }
             app.manage(mock_mode);
 
             #[cfg(target_os = "macos")]
@@ -97,6 +85,20 @@ pub fn run() {
                 tauri::async_runtime::block_on(
                     crate::application::ai::initialize_mock_cli_providers(&pool),
                 )
+                .map_err(std::io::Error::other)?;
+                let startup_app = app.handle().clone();
+                tauri::async_runtime::block_on(async {
+                    let monitors = crate::application::task_tracker::list_monitors(&pool).await?;
+                    for monitor in monitors {
+                        crate::application::task_tracker::check_now(
+                            &pool,
+                            &startup_app,
+                            &monitor.id,
+                        )
+                        .await?;
+                    }
+                    Ok::<(), String>(())
+                })
                 .map_err(std::io::Error::other)?;
             }
             tauri::async_runtime::block_on(crate::application::token_burner::recover_interrupted(&pool))
@@ -390,6 +392,8 @@ pub fn run() {
             commands::planning::jira_avatar_data,
             commands::daily::daily_workspace,
             commands::daily::daily_workspace_refresh,
+            commands::daily::daily_issue_transitions,
+            commands::daily::daily_issue_transition,
             commands::presenter::open_presenter_view,
             commands::presenter::update_presenter_view,
             commands::presenter::presenter_view_state,
@@ -415,6 +419,7 @@ pub fn run() {
             commands::dev_overlay::dev_overlay_enabled,
             commands::dev_overlay::dev_overlay_state,
             commands::dev_overlay::dev_overlay_add_task,
+            commands::dev_overlay::dev_overlay_add_subtask,
             commands::dev_overlay::dev_overlay_set_task_status,
             commands::dev_overlay::dev_overlay_add_pull_request,
             commands::dev_overlay::dev_overlay_reset_scenario,

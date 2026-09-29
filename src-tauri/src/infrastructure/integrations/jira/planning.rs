@@ -63,6 +63,15 @@ pub struct PlanningIssue {
     pub key: String,
     pub fields: Value,
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct JiraIssueTransition {
+    pub id: String,
+    pub name: String,
+    pub to_status: String,
+    pub requires_fields: bool,
+}
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct JqlIssueSummary {
@@ -244,6 +253,14 @@ impl JiraPlanningClient {
         }
     }
 
+    fn ensure_data_center(&self) -> Result<(), JiraError> {
+        if self.deployment == JiraDeployment::DataCenter {
+            Ok(())
+        } else {
+            Err(JiraError::UnsupportedCapability)
+        }
+    }
+
     pub async fn list_projects(
         &self,
         page_size: u64,
@@ -261,6 +278,81 @@ impl JiraPlanningClient {
             .json()
             .await
             .map_err(|_| JiraError::InvalidResponse)
+    }
+
+    pub async fn available_issue_transitions(
+        &self,
+        issue_id_or_key: &str,
+    ) -> Result<Vec<JiraIssueTransition>, JiraError> {
+        self.ensure_data_center()?;
+        validate_path_component(issue_id_or_key)?;
+        let endpoint = self.endpoint(&format!(
+            "rest/api/2/issue/{issue_id_or_key}/transitions?expand=transitions.fields"
+        ))?;
+        let response = self.send(Method::GET, endpoint, None).await?;
+        let body: Value = response
+            .json()
+            .await
+            .map_err(|_| JiraError::InvalidResponse)?;
+        let transitions = body
+            .get("transitions")
+            .and_then(Value::as_array)
+            .ok_or(JiraError::InvalidResponse)?;
+        transitions
+            .iter()
+            .map(|transition| {
+                let id = transition
+                    .get("id")
+                    .and_then(Value::as_str)
+                    .filter(|value| !value.trim().is_empty())
+                    .ok_or(JiraError::InvalidResponse)?
+                    .to_owned();
+                let name = transition
+                    .get("name")
+                    .and_then(Value::as_str)
+                    .filter(|value| !value.trim().is_empty())
+                    .ok_or(JiraError::InvalidResponse)?
+                    .to_owned();
+                let to_status = transition
+                    .pointer("/to/name")
+                    .and_then(Value::as_str)
+                    .filter(|value| !value.trim().is_empty())
+                    .unwrap_or(&name)
+                    .to_owned();
+                let requires_fields = transition
+                    .get("fields")
+                    .and_then(Value::as_object)
+                    .is_some_and(|fields| {
+                        fields.values().any(|field| {
+                            field.get("required").and_then(Value::as_bool) == Some(true)
+                        })
+                    });
+                Ok(JiraIssueTransition {
+                    id,
+                    name,
+                    to_status,
+                    requires_fields,
+                })
+            })
+            .collect()
+    }
+
+    pub async fn transition_issue(
+        &self,
+        issue_id_or_key: &str,
+        transition_id: &str,
+    ) -> Result<(), JiraError> {
+        self.ensure_data_center()?;
+        validate_path_component(issue_id_or_key)?;
+        validate_path_component(transition_id)?;
+        let endpoint = self.endpoint(&format!("rest/api/2/issue/{issue_id_or_key}/transitions"))?;
+        self.send(
+            Method::POST,
+            endpoint,
+            Some(serde_json::json!({ "transition": { "id": transition_id } })),
+        )
+        .await?;
+        Ok(())
     }
 
     pub async fn list_boards_for_project(
@@ -343,8 +435,10 @@ impl JiraPlanningClient {
         page_size: u64,
     ) -> Result<PlanningPage<PlanningSprint>, JiraError> {
         let mut page = self.list_sprints(board_id, page_size).await?;
-        page.values
-            .retain(|sprint| sprint.state.eq_ignore_ascii_case("FUTURE"));
+        page.values.retain(|sprint| {
+            sprint.state.eq_ignore_ascii_case("ACTIVE")
+                || sprint.state.eq_ignore_ascii_case("FUTURE")
+        });
         page.total = page.values.len() as u64;
         Ok(page)
     }
@@ -785,7 +879,7 @@ async fn check_response(response: reqwest::Response) -> Result<reqwest::Response
 mod tests {
     use std::sync::Arc;
 
-    use wiremock::matchers::{method, path, query_param};
+    use wiremock::matchers::{body_json, method, path, query_param};
     use wiremock::{Mock, MockServer, ResponseTemplate};
 
     use super::super::planning_write::ReqwestPlanningTransport;
@@ -848,7 +942,7 @@ mod tests {
                     { "id": 3, "name": "Example closed sprint", "state": "closed" }
                 ]
             })))
-            .expect(1)
+            .expect(2)
             .mount(&server)
             .await;
         Mock::given(method("GET"))
@@ -885,6 +979,63 @@ mod tests {
         assert_eq!(sprints.values.len(), 3);
         assert_eq!(sprints.page_count, 2);
         assert!(sprints.values.iter().any(|sprint| sprint.state == "future"));
+        let usable = client.list_usable_sprints("42", 100).await.unwrap();
+        assert_eq!(usable.values.len(), 2);
+        assert!(usable.values.iter().any(|sprint| sprint.state == "active"));
+        assert!(usable.values.iter().any(|sprint| sprint.state == "future"));
+    }
+
+    #[tokio::test]
+    async fn loads_data_center_transitions_and_performs_the_selected_transition() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/rest/api/2/issue/DEMO-2/transitions"))
+            .and(query_param("expand", "transitions.fields"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "transitions": [{
+                    "id": "31",
+                    "name": "Start work",
+                    "to": {"name": "In Progress"},
+                    "fields": {}
+                }, {
+                    "id": "51",
+                    "name": "Resolve",
+                    "to": {"name": "Closed"},
+                    "fields": {"resolution": {"required": true}}
+                }]
+            })))
+            .expect(1)
+            .mount(&server)
+            .await;
+        Mock::given(method("POST"))
+            .and(path("/rest/api/2/issue/DEMO-2/transitions"))
+            .and(body_json(serde_json::json!({"transition":{"id":"31"}})))
+            .respond_with(ResponseTemplate::new(204))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        let client = JiraPlanningClient::new_with_dependencies(
+            server.uri(),
+            JiraDeployment::DataCenter,
+            Arc::new(ReqwestPlanningTransport::new(reqwest::Client::new())),
+            Some("synthetic-user".to_owned()),
+            Some("synthetic-secret".to_owned()),
+        )
+        .expect("valid Jira base URL");
+        let transitions = client
+            .available_issue_transitions("DEMO-2")
+            .await
+            .expect("available Data Center transitions should be returned");
+        assert_eq!(transitions[0].id, "31");
+        assert_eq!(transitions[0].to_status, "In Progress");
+        assert!(!transitions[0].requires_fields);
+        assert!(transitions[1].requires_fields);
+
+        client
+            .transition_issue("DEMO-2", "31")
+            .await
+            .expect("selected transition should be performed");
     }
 
     #[tokio::test]

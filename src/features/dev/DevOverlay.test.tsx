@@ -3,9 +3,10 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { I18nProvider } from "@/i18n/I18nProvider";
 import { DevOverlay } from "./DevOverlay";
 
-const { getStateMock, addTaskMock, setStatusMock, addPullRequestMock, resetMock } = vi.hoisted(() => ({
+const { getStateMock, addTaskMock, addSubtaskMock, setStatusMock, addPullRequestMock, resetMock } = vi.hoisted(() => ({
   getStateMock: vi.fn(),
   addTaskMock: vi.fn(),
+  addSubtaskMock: vi.fn(),
   setStatusMock: vi.fn(),
   addPullRequestMock: vi.fn(),
   resetMock: vi.fn(),
@@ -14,12 +15,25 @@ const { getStateMock, addTaskMock, setStatusMock, addPullRequestMock, resetMock 
 vi.mock("./api", () => ({
   getDevOverlayState: getStateMock,
   addDevMockTask: addTaskMock,
+  addDevMockSubtask: addSubtaskMock,
   setDevMockTaskStatus: setStatusMock,
   addDevMockPullRequest: addPullRequestMock,
   resetDevMockScenario: resetMock,
 }));
 
 const scenario = {
+  parentIssues: [
+    { key: "MOCK-101", summary: "MOCK DATA · Example task" },
+    { key: "MOCK-102", summary: "MOCK DATA · Another example" },
+  ],
+  assignees: [
+    { id: "mock-user-a", displayName: "Engineer A" },
+    { id: "mock-user-b", displayName: "Engineer B" },
+  ],
+  sprints: [
+    { id: "1", name: "Current sprint", state: "active" },
+    { id: "2", name: "Next sprint", state: "future" },
+  ],
   monitors: [{
     id: "mock-task-tracker",
     name: "MOCK DATA — Sample tasks",
@@ -44,8 +58,10 @@ const scenario = {
 describe("DevOverlay", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    Element.prototype.scrollIntoView = vi.fn();
     getStateMock.mockResolvedValue(scenario);
     addTaskMock.mockResolvedValue(scenario);
+    addSubtaskMock.mockResolvedValue(scenario);
     setStatusMock.mockResolvedValue(scenario);
     addPullRequestMock.mockResolvedValue(scenario.reviewerPullRequests);
     resetMock.mockResolvedValue(scenario);
@@ -64,6 +80,8 @@ describe("DevOverlay", () => {
     expect(await screen.findByText("MOCK DATA")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Hide" })).toHaveAttribute("aria-expanded", "true");
     expect(screen.getByLabelText("Mock task summary")).toBeInTheDocument();
+    expect(document.getElementById("dev-mock-controls")).toHaveClass("overflow-y-auto");
+    expect(screen.queryByLabelText("Subtask summary")).not.toBeInTheDocument();
   });
 
   it("runs local task and pull-request scenario actions through native commands", async () => {
@@ -86,6 +104,27 @@ describe("DevOverlay", () => {
     fireEvent.click(screen.getByRole("button", { name: "Set status" }));
     await waitFor(() => expect(setStatusMock).toHaveBeenCalledWith("MOCK-102", "Done"));
 
+    fireEvent.click(screen.getByRole("button", { name: "Create subtask" }));
+    expect(await screen.findByRole("dialog")).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText("Subtask summary"), {
+      target: { value: "Validate sample behavior" },
+    });
+    fireEvent.click(screen.getByRole("combobox", { name: "Parent task" }));
+    fireEvent.click(await screen.findByRole("option", { name: /MOCK-102/ }));
+    fireEvent.click(screen.getByRole("combobox", { name: "Assignee" }));
+    fireEvent.click(await screen.findByRole("option", { name: "Engineer B" }));
+    fireEvent.click(screen.getByRole("combobox", { name: "Sprint" }));
+    fireEvent.click(await screen.findByRole("option", { name: "Future" }));
+    fireEvent.click(screen.getByRole("button", { name: "Add subtask" }));
+    await waitFor(() => expect(addSubtaskMock).toHaveBeenCalledWith({
+      parentIssueKey: "MOCK-102",
+      summary: "Validate sample behavior",
+      assigneeId: "mock-user-b",
+      sprintId: "2",
+    }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+
+    fireEvent.click(screen.getByRole("radio", { name: "Pull requests" }));
     fireEvent.click(screen.getByRole("button", { name: "Add authored PR" }));
     await waitFor(() => expect(addPullRequestMock).toHaveBeenCalledWith(true));
   });

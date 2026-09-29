@@ -799,7 +799,8 @@ pub(crate) async fn list_target_sprints_with_dependencies<S: CredentialStore + ?
             board_id: board_id.to_owned(),
             name: sprint.name,
             state: sprint.state.to_ascii_lowercase(),
-            usable: sprint.state.eq_ignore_ascii_case("FUTURE"),
+            usable: sprint.state.eq_ignore_ascii_case("ACTIVE")
+                || sprint.state.eq_ignore_ascii_case("FUTURE"),
             start_date: sprint.start_date,
             end_date: sprint.end_date,
             availability: PlanningAvailability::Available,
