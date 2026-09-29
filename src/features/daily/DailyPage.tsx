@@ -1,13 +1,15 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import { ArrowLeft, ArrowRight, Copy, ExternalLink, MoreHorizontal, Plus, Presentation, RefreshCw, Square } from "lucide-react";
+import { ArrowLeft, ArrowRight, ChevronDown, Copy, ExternalLink, MoreHorizontal, Plus, Presentation, RefreshCw, Square } from "lucide-react";
 import { PageHeader } from "@/components/shared/PageHeader";
 import { StatusToast } from "@/components/shared/StatusToast";
 import { useI18n } from "@/i18n/context";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -133,6 +135,8 @@ export function DailyPage() {
   const [selectedProjectId, setSelectedProjectId] = useState<string | undefined>(() => readManagedProjectsCache()?.[0]?.id);
   const [workspace, setWorkspace] = useState<DailyWorkspace>();
   const [selectedMemberId, setSelectedMemberId] = useState<string>();
+  const [sprintPickerOpen, setSprintPickerOpen] = useState(false);
+  const [sprintQuery, setSprintQuery] = useState("");
   const [loadingProjects, setLoadingProjects] = useState(() => readManagedProjectsCache() == null);
   const [loadingWorkspace, setLoadingWorkspace] = useState(false);
   const [refreshingStatuses, setRefreshingStatuses] = useState(false);
@@ -325,6 +329,11 @@ export function DailyPage() {
     }
   }
 
+  const filteredSprints = workspace?.sprints.filter((sprint) =>
+    sprint.name.toLocaleLowerCase().includes(sprintQuery.trim().toLocaleLowerCase()),
+  ) ?? [];
+  const selectedSprint = workspace?.sprints.find((sprint) => sprint.id === workspace.selectedSprintId);
+
   return (
     <section aria-labelledby="daily-title" className="space-y-4">
       <PageHeader
@@ -348,29 +357,66 @@ export function DailyPage() {
           </Select>
         ) : null}
         {workspace ? (
-          <Select
-            value={workspace.selectedSprintId}
-            onValueChange={(sprintId) => {
-              if (selectedProjectId) void refreshWorkspace(selectedProjectId, sprintId);
-            }}
-          >
-            <SelectTrigger id="sprint-tasks-sprint-select" aria-label={t("daily.sprint")} disabled={loadingWorkspace}>
-              <SelectValue placeholder={t("daily.selectSprint")} />
-            </SelectTrigger>
-            <SelectContent>
-              {workspace.sprints.map((sprint) => (
-                <SelectItem key={sprint.id} value={sprint.id}>
-                  {sprint.name} ({sprint.state === "active"
-                    ? t("daily.sprintState.active")
-                    : sprint.state === "closed"
-                      ? t("daily.sprintState.closed")
-                      : sprint.state === "future"
-                        ? t("daily.sprintState.future")
-                        : sprint.state})
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          <Popover open={sprintPickerOpen} onOpenChange={(open) => {
+            setSprintPickerOpen(open);
+            if (!open) setSprintQuery("");
+          }}>
+            <PopoverTrigger asChild>
+              <Button
+                id="sprint-tasks-sprint-select"
+                type="button"
+                variant="outline"
+                role="combobox"
+                aria-label={t("daily.sprint")}
+                aria-expanded={sprintPickerOpen}
+                disabled={loadingWorkspace}
+                className="h-10 min-w-40 justify-between gap-3 px-3 font-normal"
+              >
+                <span className="truncate">{selectedSprint?.name ?? t("daily.selectSprint")}</span>
+                <ChevronDown aria-hidden="true" className="size-4 shrink-0 text-muted-foreground" />
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent align="start" className="w-[min(20rem,calc(100vw-2rem))] p-2">
+              <Input
+                type="search"
+                aria-label={t("daily.searchSprints")}
+                placeholder={t("daily.searchSprints")}
+                value={sprintQuery}
+                onChange={(event) => setSprintQuery(event.target.value)}
+                className="mb-2 h-9"
+              />
+              <div role="listbox" aria-label={t("daily.sprint")} className="max-h-[min(18rem,calc(100vh-10rem))] overflow-y-auto">
+                {filteredSprints.length > 0 ? (
+                  filteredSprints.map((sprint) => {
+                      const state = sprint.state === "active"
+                        ? t("daily.sprintState.active")
+                        : sprint.state === "closed"
+                          ? t("daily.sprintState.closed")
+                          : sprint.state === "future"
+                            ? t("daily.sprintState.future")
+                            : sprint.state;
+                      return (
+                        <button
+                          key={sprint.id}
+                          type="button"
+                          role="option"
+                          aria-selected={sprint.id === workspace.selectedSprintId}
+                          className="flex w-full cursor-pointer items-center rounded-sm px-3 py-2 text-left text-sm outline-none hover:bg-accent hover:text-accent-foreground focus-visible:bg-accent focus-visible:text-accent-foreground"
+                          onClick={() => {
+                            setSprintPickerOpen(false);
+                            if (selectedProjectId) void refreshWorkspace(selectedProjectId, sprint.id);
+                          }}
+                        >
+                          {sprint.name} ({state})
+                        </button>
+                      );
+                    })
+                ) : (
+                  <p className="px-3 py-2 text-sm text-muted-foreground">{t("daily.noSprintsFound")}</p>
+                )}
+              </div>
+            </PopoverContent>
+          </Popover>
         ) : null}
         <div className="ml-auto flex items-center gap-2">
           <Button

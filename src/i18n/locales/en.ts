@@ -247,6 +247,8 @@ export const en = {
   "daily.selectTeam": "Select a team",
   "daily.sprint": "Sprint",
   "daily.selectSprint": "Select a sprint",
+  "daily.searchSprints": "Search sprints…",
+  "daily.noSprintsFound": "No sprints found.",
   "daily.sprintState.active": "Active",
   "daily.sprintState.closed": "Closed",
   "daily.sprintState.future": "Future",
