@@ -642,6 +642,7 @@ export const ru: Record<TranslationKey, string> = {
   "settings.aiProviders.openAiDescription": "Подключите OpenAI-совместимый API для сценариев с использованием ИИ.",
   "settings.aiProviders.codexDescription": "Используйте локальную установку Codex с уже настроенной авторизацией.",
   "settings.aiProviders.claudeDescription": "Используйте локальную установку Claude Code с уже настроенной авторизацией.",
+  "settings.aiProviders.hermesDescription": "Используйте локальную установку Hermes Agent с настроенной моделью.",
   "settings.status.loading": "Загрузка…",
   "settings.status.connected": "Подключено",
   "settings.status.notConfigured": "Не настроено",

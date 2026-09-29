@@ -4,6 +4,7 @@ import { APP_EVENT, emitAppEvent } from "@/app/app-events";
 import type {
   AiSettings,
   AiProvider,
+  AiCliProviderId,
   AiSettingsPageData,
   OpenAiCompatibleProviderSaveInput,
   IntegrationDeleteInput,
@@ -84,10 +85,10 @@ export const saveAiSettings = (settings: AiSettings) =>
 export const saveOpenAiCompatibleProvider = (input: OpenAiCompatibleProviderSaveInput) =>
   invoke<AiSettingsPageData>("ai_openai_compatible_save", { request: input }).then(cacheStableAiSettings);
 
-export const addAiCliProvider = (provider: "codex-cli" | "claude-code-cli") =>
+export const addAiCliProvider = (provider: AiCliProviderId) =>
   invoke<AiSettingsPageData>("ai_provider_add", { provider }).then(cacheStableAiSettings);
 
-export const inspectAiCliProvider = (provider: "codex-cli" | "claude-code-cli") =>
+export const inspectAiCliProvider = (provider: AiCliProviderId) =>
   invoke<AiProvider>("ai_cli_candidate_inspect", { provider });
 
 export const deleteAiProvider = (provider: AiSettings["provider"], instanceId?: string | null) =>

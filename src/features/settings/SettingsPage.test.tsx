@@ -399,7 +399,7 @@ describe("SettingsPage integrations smoke tests", () => {
     render(<SettingsPage section="ai" />);
 
     await screen.findByRole("group", { name: "Claude Code CLI AI provider" });
-    expect(screen.getByRole("button", { name: "Add CLI provider" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Add CLI provider" })).toBeEnabled();
     selectAiProvider("Claude Code CLI");
     expect(defaultAiSettings().queryByRole("combobox", { name: "Reasoning" })).not.toBeInTheDocument();
     expect(defaultAiSettings().queryByRole("checkbox", { name: "Fast mode" })).not.toBeInTheDocument();
@@ -411,6 +411,22 @@ describe("SettingsPage integrations smoke tests", () => {
       reasoning: "medium",
       fastMode: false,
     }));
+  });
+
+  it("adds Hermes CLI from the mock provider picker", async () => {
+    const hermes = { id: "hermes-cli" as const, name: "Hermes CLI", status: "connected" as const, available: true, models: ["mock-hermes-model"] };
+    inspectAiCliProviderMock.mockResolvedValue(hermes);
+    addAiCliProviderMock.mockResolvedValue({ ...codexAiSettings, providers: [...codexAiSettings.providers, hermes] });
+    render(<SettingsPage section="ai" mockMode />);
+
+    await screen.findByRole("group", { name: "Codex CLI AI provider" });
+    fireEvent.click(screen.getByRole("button", { name: "Add CLI provider" }));
+    fireEvent.click(screen.getByRole("combobox", { name: "Provider type" }));
+    fireEvent.click(screen.getByRole("option", { name: "Hermes CLI" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Add" })).toBeEnabled());
+    fireEvent.click(screen.getByRole("button", { name: "Add" }));
+    await waitFor(() => expect(addAiCliProviderMock).toHaveBeenCalledWith("hermes-cli"));
+    expect(await screen.findByRole("group", { name: "Hermes CLI AI provider" })).toBeInTheDocument();
   });
 
   it("adds multiple OpenAI-compatible APIs and selects one instance", async () => {

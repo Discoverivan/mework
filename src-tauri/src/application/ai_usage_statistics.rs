@@ -200,6 +200,7 @@ fn provider_name(provider_id: &str) -> String {
     match provider_id {
         "codex-cli" => "Codex CLI".to_owned(),
         "claude-code-cli" => "Claude Code CLI".to_owned(),
+        "hermes-cli" => "Hermes CLI".to_owned(),
         "openai-compatible" => "OpenAI-compatible API".to_owned(),
         _ => provider_id.to_owned(),
     }

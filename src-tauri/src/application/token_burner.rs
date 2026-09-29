@@ -607,6 +607,7 @@ async fn worker_loop<R: Runtime>(
         .map(|provider| match provider {
             AiProviderId::CodexCli => "codex-cli",
             AiProviderId::ClaudeCodeCli => "claude-code-cli",
+            AiProviderId::HermesCli => "hermes-cli",
             AiProviderId::OpenAiCompatible => "openai-compatible",
         })
         .unwrap_or("unknown");

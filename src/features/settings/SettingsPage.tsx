@@ -26,6 +26,7 @@ import {
 } from "@/components/ui/dialog";
 import type {
   AiProvider,
+  AiCliProviderId,
   AiProviderStatus,
   AiReasoning,
   AiSettings,
@@ -310,6 +311,12 @@ const AI_ACTIVITIES: { key: AiActivity; labelKey: TranslationKey; idPrefix: stri
   { key: "tokenBurner", labelKey: "settings.ai.tokenBurner", idPrefix: "ai-token-burner" },
 ];
 
+const CLI_PROVIDER_OPTIONS: { id: AiCliProviderId; name: string; descriptionKey: TranslationKey }[] = [
+  { id: "codex-cli", name: "Codex CLI", descriptionKey: "settings.aiProviders.codexDescription" },
+  { id: "claude-code-cli", name: "Claude Code CLI", descriptionKey: "settings.aiProviders.claudeDescription" },
+  { id: "hermes-cli", name: "Hermes CLI", descriptionKey: "settings.aiProviders.hermesDescription" },
+];
+
 interface SettingsPageProps {
   section?: SettingsSection;
   focusActivity?: "token-burner";
@@ -329,7 +336,7 @@ export function SettingsPage({ section = "integrations", focusActivity, mockMode
   const aiSaveRevisionRef = useRef(0);
   const [openAiDialogOpen, setOpenAiDialogOpen] = useState(false);
   const [addAiDialogOpen, setAddAiDialogOpen] = useState(false);
-  const [addAiKind, setAddAiKind] = useState<"codex-cli" | "claude-code-cli">("codex-cli");
+  const [addAiKind, setAddAiKind] = useState<AiCliProviderId>("codex-cli");
   const [selectedAiGroup, setSelectedAiGroup] = useState<"cli" | "api">("cli");
   const [addingAi, setAddingAi] = useState(false);
   const [cliCandidate, setCliCandidate] = useState<AiProvider | null>(null);
@@ -457,8 +464,7 @@ export function SettingsPage({ section = "integrations", focusActivity, mockMode
   const cliProviders = aiData.providers.filter((provider) => provider.id !== "openai-compatible");
   const apiProviders = aiData.providers.filter((provider) => provider.id === "openai-compatible");
   const visibleAiProviders = selectedAiGroup === "cli" ? cliProviders : apiProviders;
-  const allCliAdded = cliProviders.some((provider) => provider.id === "codex-cli")
-    && cliProviders.some((provider) => provider.id === "claude-code-cli");
+  const allCliAdded = CLI_PROVIDER_OPTIONS.every(({ id }) => cliProviders.some((provider) => provider.id === id));
   const cliReady = cliCandidate?.id === addAiKind
     && cliCandidate.available
     && cliCandidate.status === "connected"
@@ -981,7 +987,7 @@ export function SettingsPage({ section = "integrations", focusActivity, mockMode
                 </Select>
                 <Button type="button" variant="ghost" size="icon" actionTone="add" className="ml-auto h-9 w-9 text-muted-foreground hover:bg-transparent hover:text-primary" aria-label={t(selectedAiGroup === "cli" ? "settings.aiProviders.addCli" : "settings.aiProviders.addApi")} title={t(selectedAiGroup === "cli" ? "settings.aiProviders.addCli" : "settings.aiProviders.addApi")} disabled={selectedAiGroup === "cli" && allCliAdded} onClick={() => {
                   if (selectedAiGroup === "api") { openOpenAiCompatibleDialog(); return; }
-                  setAddAiKind(cliProviders.some((provider) => provider.id === "codex-cli") ? "claude-code-cli" : "codex-cli");
+                  setAddAiKind(CLI_PROVIDER_OPTIONS.find(({ id }) => !cliProviders.some((provider) => provider.id === id))?.id ?? "codex-cli");
                   setAddAiDialogOpen(true);
                 }}>
                   <Plus className="size-4" aria-hidden="true" />
@@ -1148,8 +1154,8 @@ export function SettingsPage({ section = "integrations", focusActivity, mockMode
                   return <Fragment key={key}>
                     {index > 0 ? <Separator className="my-4" /> : null}
                     <section className="space-y-4" aria-label={t(activity.labelKey)}>
-                      <div className="flex items-center gap-1">
-                        <h3 className="text-sm font-medium">{t(activity.labelKey)}</h3>
+                      <div className="flex items-center justify-between gap-3">
+                        <h3 className="text-base font-semibold leading-tight">{t(activity.labelKey)}</h3>
                         <Button type="button" variant="ghost" size="icon" actionTone="delete" className="size-7 text-muted-foreground hover:bg-transparent hover:text-destructive [&_svg]:!size-4" aria-label={t("settings.ai.removeActivity", { activity: t(activity.labelKey) })} title={t("settings.ai.removeActivity", { activity: t(activity.labelKey) })} disabled={aiSaving} onClick={() => { setVisibleAiActivities((current) => current.filter((item) => item !== key)); updateAiProfile(key, null); }}>
                           <Trash2 aria-hidden="true" />
                         </Button>
@@ -1202,11 +1208,10 @@ export function SettingsPage({ section = "integrations", focusActivity, mockMode
                 <Label htmlFor="ai-provider-kind">{t("settings.aiProviders.type")}</Label>
                 <div className="flex gap-2">
                   <div className="min-w-0 max-w-full">
-                    <Select value={addAiKind} onValueChange={(value) => setAddAiKind(value as "codex-cli" | "claude-code-cli")} disabled={addingAi}>
+                    <Select value={addAiKind} onValueChange={(value) => setAddAiKind(value as AiCliProviderId)} disabled={addingAi}>
                       <SelectTrigger id="ai-provider-kind" aria-label={t("settings.aiProviders.type")} className="h-9"><SelectValue /></SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="codex-cli" disabled={aiData.providers.some((provider) => provider.id === "codex-cli")}>Codex CLI</SelectItem>
-                        <SelectItem value="claude-code-cli" disabled={aiData.providers.some((provider) => provider.id === "claude-code-cli")}>Claude Code CLI</SelectItem>
+                        {CLI_PROVIDER_OPTIONS.map(({ id, name }) => <SelectItem key={id} value={id} disabled={aiData.providers.some((provider) => provider.id === id)}>{name}</SelectItem>)}
                       </SelectContent>
                     </Select>
                   </div>
@@ -1214,7 +1219,7 @@ export function SettingsPage({ section = "integrations", focusActivity, mockMode
                     <RefreshCw className="size-4" aria-hidden="true" />
                   </Button>
                 </div>
-                <p className="text-sm text-muted-foreground">{t(addAiKind === "claude-code-cli" ? "settings.aiProviders.claudeDescription" : "settings.aiProviders.codexDescription")}</p>
+                <p className="text-sm text-muted-foreground">{t(CLI_PROVIDER_OPTIONS.find(({ id }) => id === addAiKind)?.descriptionKey ?? "settings.aiProviders.codexDescription")}</p>
                 <div className="text-sm" role="status" aria-live="polite">
                   {cliChecking ? <p className="flex items-center gap-2 text-muted-foreground"><Loader2 className="size-4 animate-spin" aria-hidden="true" />{t("settings.aiProviders.checkingCli")}</p> : null}
                   {!cliChecking && cliCheckMessage ? (

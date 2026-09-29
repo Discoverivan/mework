@@ -404,6 +404,7 @@ pub async fn start_review_with_diff<R: Runtime>(
         provider_id: match ai_settings.provider {
             Some(crate::application::ai::AiProviderId::CodexCli) => "codex-cli",
             Some(crate::application::ai::AiProviderId::ClaudeCodeCli) => "claude-code-cli",
+            Some(crate::application::ai::AiProviderId::HermesCli) => "hermes-cli",
             Some(crate::application::ai::AiProviderId::OpenAiCompatible) => "openai-compatible",
             None => "unknown",
         }
@@ -827,6 +828,17 @@ fn execute_review_in_workspace_with_usage(
         return parse_review_result(&output).map(|result| (result, usage));
     }
 
+    if ai_settings.provider == Some(crate::application::ai::AiProviderId::HermesCli) {
+        let prompt = openai_review_prompt(&manifest, diff, output_language)?;
+        let (output, usage) = crate::application::hermes_cli::run_structured_with_usage(
+            &ai_settings.model,
+            review_result_schema(),
+            &prompt,
+            workdir,
+        )?;
+        return parse_review_result(&output).map(|result| (result, usage));
+    }
+
     let codex = crate::application::ai::resolve_codex_binary()
         .ok_or_else(|| "Codex CLI executable was not found".to_owned())?;
     let reasoning = ai_settings.reasoning.as_str();
@@ -995,6 +1007,15 @@ fn execute_cli_review_prompt_with_usage(
     match settings.provider {
         Some(crate::application::ai::AiProviderId::ClaudeCodeCli) => {
             let (output, usage) = crate::application::claude_code::run_structured_with_usage(
+                &settings.model,
+                review_result_schema(),
+                prompt,
+                workdir,
+            )?;
+            parse_review_result(&output).map(|review| (review, usage))
+        }
+        Some(crate::application::ai::AiProviderId::HermesCli) => {
+            let (output, usage) = crate::application::hermes_cli::run_structured_with_usage(
                 &settings.model,
                 review_result_schema(),
                 prompt,

@@ -640,6 +640,7 @@ export const en = {
   "settings.aiProviders.openAiDescription": "Connect an OpenAI-compatible API for AI-assisted workflows.",
   "settings.aiProviders.codexDescription": "Use the local Codex installation with its existing authentication.",
   "settings.aiProviders.claudeDescription": "Use the local Claude Code installation with its existing authentication.",
+  "settings.aiProviders.hermesDescription": "Use the local Hermes Agent installation and its configured model.",
   "settings.status.loading": "Loading…",
   "settings.status.connected": "Connected",
   "settings.status.notConfigured": "Not configured",

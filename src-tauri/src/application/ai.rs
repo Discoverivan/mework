@@ -89,6 +89,7 @@ pub struct OpenAiCompatibleProviderSaveRequest {
 pub enum AiProviderId {
     CodexCli,
     ClaudeCodeCli,
+    HermesCli,
     #[serde(rename = "openai-compatible")]
     OpenAiCompatible,
 }
@@ -204,7 +205,11 @@ pub struct AiSettingsPageDto {
 }
 
 pub async fn initialize_mock_cli_providers(pool: &SqlitePool) -> Result<(), String> {
-    let cli_providers = [AiProviderId::CodexCli, AiProviderId::ClaudeCodeCli];
+    let cli_providers = [
+        AiProviderId::CodexCli,
+        AiProviderId::ClaudeCodeCli,
+        AiProviderId::HermesCli,
+    ];
     let providers_json = serde_json::to_string(&cli_providers)
         .map_err(|_| "failed to initialize mock AI providers".to_owned())?;
     repositories::upsert_setting(pool, ADDED_CLI_PROVIDERS_KEY, &providers_json, 1)
@@ -226,16 +231,20 @@ pub async fn initialize_mock_cli_providers(pool: &SqlitePool) -> Result<(), Stri
 }
 
 fn default_mock_ai_settings(providers: &[AiProviderDto]) -> AiSettings {
-    let selected = [AiProviderId::CodexCli, AiProviderId::ClaudeCodeCli]
-        .into_iter()
-        .find_map(|id| {
-            providers.iter().find(|provider| {
-                provider.id == id
-                    && provider.available
-                    && provider.status == AiProviderStatus::Connected
-                    && !provider.models.is_empty()
-            })
-        });
+    let selected = [
+        AiProviderId::CodexCli,
+        AiProviderId::ClaudeCodeCli,
+        AiProviderId::HermesCli,
+    ]
+    .into_iter()
+    .find_map(|id| {
+        providers.iter().find(|provider| {
+            provider.id == id
+                && provider.available
+                && provider.status == AiProviderStatus::Connected
+                && !provider.models.is_empty()
+        })
+    });
     let mut settings = AiSettings::default();
     if let Some(provider) = selected {
         settings.provider = Some(provider.id);
@@ -341,45 +350,39 @@ pub async fn dto(pool: &SqlitePool) -> Result<AiSettingsPageDto, String> {
     let configs = load_openai_configs(pool).await?;
     let mut providers = Vec::new();
     let added_cli = load_added_cli_providers(pool).await?;
-    let show_codex = added_cli.contains(&AiProviderId::CodexCli)
-        || settings.provider == Some(AiProviderId::CodexCli)
-        || settings
-            .task_creation
-            .as_ref()
-            .is_some_and(|profile| profile.provider == AiProviderId::CodexCli)
-        || settings
-            .pull_request_review
-            .as_ref()
-            .is_some_and(|profile| profile.provider == AiProviderId::CodexCli)
-        || settings
-            .token_burner
-            .as_ref()
-            .is_some_and(|profile| profile.provider == AiProviderId::CodexCli);
-    let show_claude = added_cli.contains(&AiProviderId::ClaudeCodeCli)
-        || settings.provider == Some(AiProviderId::ClaudeCodeCli)
-        || settings
-            .task_creation
-            .as_ref()
-            .is_some_and(|profile| profile.provider == AiProviderId::ClaudeCodeCli)
-        || settings
-            .pull_request_review
-            .as_ref()
-            .is_some_and(|profile| profile.provider == AiProviderId::ClaudeCodeCli)
-        || settings
-            .token_burner
-            .as_ref()
-            .is_some_and(|profile| profile.provider == AiProviderId::ClaudeCodeCli);
-    let (codex, claude) = tokio::join!(
+    let show_cli = |id| {
+        added_cli.contains(&id)
+            || settings.provider == Some(id)
+            || [
+                &settings.task_creation,
+                &settings.pull_request_review,
+                &settings.token_burner,
+            ]
+            .into_iter()
+            .any(|profile| {
+                profile
+                    .as_ref()
+                    .is_some_and(|profile| profile.provider == id)
+            })
+    };
+    let (codex, claude, hermes) = tokio::join!(
         async {
-            if show_codex {
+            if show_cli(AiProviderId::CodexCli) {
                 Some(tokio::task::spawn_blocking(inspect_codex_cli).await)
             } else {
                 None
             }
         },
         async {
-            if show_claude {
+            if show_cli(AiProviderId::ClaudeCodeCli) {
                 Some(tokio::task::spawn_blocking(crate::application::claude_code::inspect).await)
+            } else {
+                None
+            }
+        },
+        async {
+            if show_cli(AiProviderId::HermesCli) {
+                Some(tokio::task::spawn_blocking(crate::application::hermes_cli::inspect).await)
             } else {
                 None
             }
@@ -390,6 +393,9 @@ pub async fn dto(pool: &SqlitePool) -> Result<AiSettingsPageDto, String> {
     }
     if let Some(result) = claude {
         providers.push(result.map_err(|_| "failed to inspect Claude Code CLI".to_owned())?);
+    }
+    if let Some(result) = hermes {
+        providers.push(result.map_err(|_| "failed to inspect Hermes CLI".to_owned())?);
     }
     for config in configs {
         providers.push(inspect_openai_compatible(config).await);
@@ -446,6 +452,11 @@ pub async fn inspect_cli_candidate(provider: AiProviderId) -> Result<AiProviderD
             tokio::task::spawn_blocking(crate::application::claude_code::inspect)
                 .await
                 .map_err(|_| "failed to inspect Claude Code CLI".to_owned())
+        }
+        AiProviderId::HermesCli => {
+            tokio::task::spawn_blocking(crate::application::hermes_cli::inspect)
+                .await
+                .map_err(|_| "failed to inspect Hermes CLI".to_owned())
         }
         AiProviderId::OpenAiCompatible => Err("Select a CLI provider".to_owned()),
     }
@@ -963,6 +974,7 @@ pub fn ai_cli_candidate_diagnostics() -> Vec<AiCliCandidateDiagnostic> {
     for (provider, override_key) in [
         (AiProviderId::CodexCli, "MEWORK_CODEX_BIN"),
         (AiProviderId::ClaudeCodeCli, "MEWORK_CLAUDE_BIN"),
+        (AiProviderId::HermesCli, "MEWORK_HERMES_BIN"),
     ] {
         if let Some(path) = env::var_os(override_key) {
             candidates.push((provider, override_key.to_owned(), PathBuf::from(path)));
@@ -978,6 +990,10 @@ pub fn ai_cli_candidate_diagnostics() -> Vec<AiCliCandidateDiagnostic> {
                 (
                     AiProviderId::ClaudeCodeCli,
                     crate::application::claude_code::executable_names(),
+                ),
+                (
+                    AiProviderId::HermesCli,
+                    crate::application::hermes_cli::executable_names(),
                 ),
             ] {
                 for name in names {
@@ -1053,6 +1069,9 @@ pub fn ai_cli_candidate_diagnostics() -> Vec<AiCliCandidateDiagnostic> {
     }
     for (source, path) in crate::application::claude_code::diagnostic_install_paths() {
         candidates.push((AiProviderId::ClaudeCodeCli, source.to_owned(), path));
+    }
+    for (source, path) in crate::application::hermes_cli::diagnostic_install_paths() {
+        candidates.push((AiProviderId::HermesCli, source.to_owned(), path));
     }
     candidates
         .into_iter()

@@ -131,6 +131,7 @@ pub async fn generate_draft(
     let provider_id = settings.provider.map(|provider| match provider {
         ai::AiProviderId::CodexCli => "codex-cli",
         ai::AiProviderId::ClaudeCodeCli => "claude-code-cli",
+        ai::AiProviderId::HermesCli => "hermes-cli",
         ai::AiProviderId::OpenAiCompatible => "openai-compatible",
     });
     let model = settings.model.clone();
@@ -1009,6 +1010,23 @@ fn execute_draft_in_workspace_with_usage(
         )?;
         let mut draft: TaskDraftDto = serde_json::from_slice(&output)
             .map_err(|_| "Claude Code CLI returned invalid task JSON".to_owned())?;
+        required_text(&draft.summary, "AI summary", 255)?;
+        draft.description = jira_wiki_description(&required_text(
+            &draft.description,
+            "AI description",
+            50_000,
+        )?);
+        return Ok((draft, usage));
+    }
+    if settings.provider == Some(ai::AiProviderId::HermesCli) {
+        let (output, usage) = crate::application::hermes_cli::run_structured_with_usage(
+            &settings.model,
+            task_draft_schema(),
+            &task_prompt(prompt, output_language),
+            workdir,
+        )?;
+        let mut draft: TaskDraftDto = serde_json::from_slice(&output)
+            .map_err(|_| "Hermes CLI returned invalid task JSON".to_owned())?;
         required_text(&draft.summary, "AI summary", 255)?;
         draft.description = jira_wiki_description(&required_text(
             &draft.description,
