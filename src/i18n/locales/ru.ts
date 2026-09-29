@@ -615,6 +615,7 @@ export const ru: Record<TranslationKey, string> = {
   "tokenBurner.durationMinutes": "{minutes} мин",
   "settings.aiProviders.title": "Провайдеры ИИ",
   "settings.aiProviders.add": "Добавить",
+  "settings.aiProviders.addError": "Не удалось добавить CLI-провайдера: {error}",
   "settings.aiProviders.checkingCli": "Проверка конфигурации CLI…",
   "settings.aiProviders.retryCheck": "Проверить снова",
   "settings.aiProviders.cliNotFound": "{provider} не найден на этом компьютере.",

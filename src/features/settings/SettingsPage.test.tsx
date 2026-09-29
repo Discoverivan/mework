@@ -506,12 +506,13 @@ describe("SettingsPage integrations smoke tests", () => {
     expect(defaultAiSettings().getByRole("combobox", { name: "AI provider" })).toHaveTextContent("Not selected");
   });
 
-  it("removes a CLI provider and enables adding it again", async () => {
+  it("orders available CLI providers first and explains unavailable ones", async () => {
     const cleared = { provider: null, model: "", reasoning: "medium" as const, fastMode: false };
     deleteAiProviderMock.mockResolvedValue({ settings: cleared, providers: [] });
-    inspectAiCliProviderMock
-      .mockResolvedValueOnce({ ...codexAiSettings.providers[0], status: "not_found", available: false, models: [], message: "Codex CLI was not found" })
-      .mockResolvedValueOnce(codexAiSettings.providers[0]);
+    let codexAvailable = false;
+    inspectAiCliProviderMock.mockImplementation(async (id) => id === "claude-code-cli" || (id === "codex-cli" && codexAvailable)
+      ? { ...codexAiSettings.providers[0], id, name: id === "codex-cli" ? "Codex CLI" : "Claude Code CLI" }
+      : { ...codexAiSettings.providers[0], id, name: id === "codex-cli" ? "Codex CLI" : "Hermes CLI", status: "not_found", available: false, models: [], message: "CLI was not found" });
     render(<SettingsPage section="ai" />);
 
     await screen.findByRole("group", { name: "Codex CLI AI provider" });
@@ -519,13 +520,18 @@ describe("SettingsPage integrations smoke tests", () => {
     fireEvent.click(screen.getByRole("button", { name: "Delete" }));
     await waitFor(() => expect(deleteAiProviderMock).toHaveBeenCalledWith("codex-cli", undefined));
     expect(await screen.findByRole("heading", { name: "No AI providers yet" })).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Add CLI provider" }));
-    expect(await screen.findByText("Codex CLI was not found on this computer.")).toBeInTheDocument();
-    expect(screen.queryByText("CLI not found")).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Add" })).toBeDisabled();
-    fireEvent.click(screen.getByRole("button", { name: "Check again" }));
-    await waitFor(() => expect(screen.getByRole("button", { name: "Add" })).toBeEnabled());
-    fireEvent.click(screen.getByRole("button", { name: "Add" }));
+    fireEvent.pointerDown(screen.getByRole("button", { name: "Add CLI provider" }), { button: 0, ctrlKey: false });
+    const available = await screen.findByRole("menuitem", { name: "Claude Code CLI" });
+    const unavailable = screen.getByRole("menuitem", { name: "Codex CLI: Codex CLI was not found on this computer." });
+    expect(available).toBeEnabled();
+    expect(unavailable).toHaveAttribute("aria-disabled", "true");
+    expect(unavailable.parentElement).toHaveAttribute("title", "Codex CLI was not found on this computer.");
+    expect(available.compareDocumentPosition(unavailable) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    codexAvailable = true;
+    fireEvent.click(screen.getByRole("menuitem", { name: "Check again: Codex CLI" }));
+    const refreshed = await screen.findByRole("menuitem", { name: "Codex CLI" });
+    expect(refreshed).toBeEnabled();
+    fireEvent.click(refreshed);
     await waitFor(() => expect(addAiCliProviderMock).toHaveBeenCalledWith("codex-cli"));
   });
 

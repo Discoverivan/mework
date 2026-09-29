@@ -613,6 +613,7 @@ export const en = {
   "tokenBurner.durationMinutes": "{minutes}m",
   "settings.aiProviders.title": "AI providers",
   "settings.aiProviders.add": "Add",
+  "settings.aiProviders.addError": "Unable to add CLI provider: {error}",
   "settings.aiProviders.checkingCli": "Checking CLI configuration…",
   "settings.aiProviders.retryCheck": "Check again",
   "settings.aiProviders.cliNotFound": "{provider} was not found on this computer.",

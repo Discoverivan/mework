@@ -311,10 +311,10 @@ const AI_ACTIVITIES: { key: AiActivity; labelKey: TranslationKey; idPrefix: stri
   { key: "tokenBurner", labelKey: "settings.ai.tokenBurner", idPrefix: "ai-token-burner" },
 ];
 
-const CLI_PROVIDER_OPTIONS: { id: AiCliProviderId; name: string; descriptionKey: TranslationKey }[] = [
-  { id: "codex-cli", name: "Codex CLI", descriptionKey: "settings.aiProviders.codexDescription" },
-  { id: "claude-code-cli", name: "Claude Code CLI", descriptionKey: "settings.aiProviders.claudeDescription" },
-  { id: "hermes-cli", name: "Hermes CLI", descriptionKey: "settings.aiProviders.hermesDescription" },
+const CLI_PROVIDER_OPTIONS: { id: AiCliProviderId; name: string }[] = [
+  { id: "codex-cli", name: "Codex CLI" },
+  { id: "claude-code-cli", name: "Claude Code CLI" },
+  { id: "hermes-cli", name: "Hermes CLI" },
 ];
 
 interface SettingsPageProps {
@@ -322,6 +322,11 @@ interface SettingsPageProps {
   focusActivity?: "token-burner";
   mockMode?: boolean;
 }
+
+type CliInspection =
+  | { state: "checking" }
+  | { state: "ready"; provider: AiProvider }
+  | { state: "error"; message: string };
 
 export function SettingsPage({ section = "integrations", focusActivity, mockMode = false }: SettingsPageProps) {
   const { t } = useI18n();
@@ -335,14 +340,12 @@ export function SettingsPage({ section = "integrations", focusActivity, mockMode
   const [visibleAiActivities, setVisibleAiActivities] = useState<AiActivity[]>(focusActivity === "token-burner" ? ["tokenBurner"] : []);
   const aiSaveRevisionRef = useRef(0);
   const [openAiDialogOpen, setOpenAiDialogOpen] = useState(false);
-  const [addAiDialogOpen, setAddAiDialogOpen] = useState(false);
-  const [addAiKind, setAddAiKind] = useState<AiCliProviderId>("codex-cli");
+  const [addAiMenuOpen, setAddAiMenuOpen] = useState(false);
   const [selectedAiGroup, setSelectedAiGroup] = useState<"cli" | "api">("cli");
   const [addingAi, setAddingAi] = useState(false);
-  const [cliCandidate, setCliCandidate] = useState<AiProvider | null>(null);
-  const [cliChecking, setCliChecking] = useState(false);
-  const [cliCheckError, setCliCheckError] = useState<string | null>(null);
-  const [cliCheckRevision, setCliCheckRevision] = useState(0);
+  const [cliInspections, setCliInspections] = useState<Partial<Record<AiCliProviderId, CliInspection>>>({});
+  const cliInspectionRevisionRef = useRef<Partial<Record<AiCliProviderId, number>>>({});
+  const [cliAddError, setCliAddError] = useState<string | null>(null);
   const [deletingAiProvider, setDeletingAiProvider] = useState<AiProvider | null>(null);
   const [aiDeleting, setAiDeleting] = useState(false);
   const [aiDeleteError, setAiDeleteError] = useState<string | null>(null);
@@ -465,17 +468,25 @@ export function SettingsPage({ section = "integrations", focusActivity, mockMode
   const apiProviders = aiData.providers.filter((provider) => provider.id === "openai-compatible");
   const visibleAiProviders = selectedAiGroup === "cli" ? cliProviders : apiProviders;
   const allCliAdded = CLI_PROVIDER_OPTIONS.every(({ id }) => cliProviders.some((provider) => provider.id === id));
-  const cliReady = cliCandidate?.id === addAiKind
-    && cliCandidate.available
-    && cliCandidate.status === "connected"
-    && cliCandidate.models.length > 0;
-  const cliCheckMessage = cliCheckError ?? (cliCandidate
-    ? cliCandidate.status === "not_found"
-      ? t("settings.aiProviders.cliNotFound", { provider: cliCandidate.name })
-      : cliCandidate.status === "connected" && cliCandidate.models.length === 0
-        ? t("settings.ai.noModels", { provider: cliCandidate.name })
-        : cliCandidate.message ?? t(AI_STATUS_LABEL_KEYS[cliCandidate.status])
-    : null);
+  const cliMenuOptions = CLI_PROVIDER_OPTIONS
+    .filter(({ id }) => !cliProviders.some((provider) => provider.id === id))
+    .map((option) => {
+      const inspection = cliInspections[option.id];
+      const ready = inspection?.state === "ready"
+        && inspection.provider.available
+        && inspection.provider.status === "connected"
+        && inspection.provider.models.length > 0;
+      const reason = inspection?.state === "error" ? inspection.message
+        : inspection?.state === "ready" && !ready
+          ? inspection.provider.status === "not_found"
+            ? t("settings.aiProviders.cliNotFound", { provider: option.name })
+            : inspection.provider.status === "connected" && inspection.provider.models.length === 0
+              ? t("settings.ai.noModels", { provider: option.name })
+              : inspection.provider.message ?? t(AI_STATUS_LABEL_KEYS[inspection.provider.status])
+          : inspection?.state === "checking" ? t("settings.aiProviders.checkingCli") : null;
+      return { ...option, ready, reason, checking: inspection?.state === "checking" || !inspection };
+    })
+    .sort((a, b) => (a.ready ? 0 : a.checking ? 1 : 2) - (b.ready ? 0 : b.checking ? 1 : 2));
   const aiLoading = aiData?.providers.some((provider) => provider.status === "loading") === true;
   const aiReady = aiProviderReady(selectedAiProvider, aiDraft.model);
   const provider = selectedKind
@@ -492,20 +503,28 @@ export function SettingsPage({ section = "integrations", focusActivity, mockMode
     });
   }, [aiData.providers]);
 
+  const checkCliProvider = useCallback(async (id: AiCliProviderId) => {
+    const revision = (cliInspectionRevisionRef.current[id] ?? 0) + 1;
+    cliInspectionRevisionRef.current[id] = revision;
+    setCliInspections((current) => ({ ...current, [id]: { state: "checking" } }));
+    try {
+      const provider = await inspectAiCliProvider(id);
+      if (cliInspectionRevisionRef.current[id] === revision) {
+        setCliInspections((current) => ({ ...current, [id]: { state: "ready", provider } }));
+      }
+    } catch (checkError) {
+      if (cliInspectionRevisionRef.current[id] === revision) {
+        setCliInspections((current) => ({ ...current, [id]: { state: "error", message: errorMessage(checkError, t("common.unknownError")) } }));
+      }
+    }
+  }, [t]);
+
   useEffect(() => {
-    if (!addAiDialogOpen) return;
-    let active = true;
-    setCliCandidate(null);
-    setCliCheckError(null);
-    setCliChecking(true);
-    void inspectAiCliProvider(addAiKind)
-      .then((candidate) => { if (active) setCliCandidate(candidate); })
-      .catch((checkError) => {
-        if (active) setCliCheckError(errorMessage(checkError, t("common.unknownError")));
-      })
-      .finally(() => { if (active) setCliChecking(false); });
-    return () => { active = false; };
-  }, [addAiDialogOpen, addAiKind, cliCheckRevision, t]);
+    if (!addAiMenuOpen) return;
+    for (const { id } of CLI_PROVIDER_OPTIONS) {
+      if (!aiData.providers.some((provider) => provider.id === id)) void checkCliProvider(id);
+    }
+  }, [addAiMenuOpen, aiData.providers, checkCliProvider]);
 
   useEffect(() => {
     if (!selectedAiProvider || selectedAiProvider.models.length !== 1) return;
@@ -706,19 +725,16 @@ export function SettingsPage({ section = "integrations", focusActivity, mockMode
     );
   }
 
-  async function handleAddAiProvider() {
-    if (!cliReady) return;
+  async function handleAddAiProvider(provider: AiCliProviderId) {
     setAddingAi(true);
-    setCliCheckError(null);
+    setCliAddError(null);
     try {
-      const saved = await addAiCliProvider(addAiKind);
+      const saved = await addAiCliProvider(provider);
       setAiData(saved);
       setSelectedAiGroup("cli");
       emitAppEvent(APP_EVENT.aiSettingsChanged, saved);
-      setAddAiDialogOpen(false);
     } catch (addError) {
-      setCliCandidate(null);
-      setCliCheckError(errorMessage(addError, t("common.unknownError")));
+      setCliAddError(t("settings.aiProviders.addError", { error: errorMessage(addError, t("common.unknownError")) }));
     } finally {
       setAddingAi(false);
     }
@@ -985,13 +1001,36 @@ export function SettingsPage({ section = "integrations", focusActivity, mockMode
                     <SelectItem value="api">{t("settings.aiProviders.apiGroup")}</SelectItem>
                   </SelectContent>
                 </Select>
-                <Button type="button" variant="ghost" size="icon" actionTone="add" className="ml-auto h-9 w-9 text-muted-foreground hover:bg-transparent hover:text-primary" aria-label={t(selectedAiGroup === "cli" ? "settings.aiProviders.addCli" : "settings.aiProviders.addApi")} title={t(selectedAiGroup === "cli" ? "settings.aiProviders.addCli" : "settings.aiProviders.addApi")} disabled={selectedAiGroup === "cli" && allCliAdded} onClick={() => {
-                  if (selectedAiGroup === "api") { openOpenAiCompatibleDialog(); return; }
-                  setAddAiKind(CLI_PROVIDER_OPTIONS.find(({ id }) => !cliProviders.some((provider) => provider.id === id))?.id ?? "codex-cli");
-                  setAddAiDialogOpen(true);
-                }}>
-                  <Plus className="size-4" aria-hidden="true" />
-                </Button>
+                {selectedAiGroup === "cli" ? (
+                  <DropdownMenu open={addAiMenuOpen} onOpenChange={(open) => { setAddAiMenuOpen(open); if (open) { setCliAddError(null); setCliInspections({}); } }}>
+                    <DropdownMenuTrigger asChild>
+                      <Button type="button" variant="ghost" size="icon" actionTone="add" className="ml-auto h-9 w-9 text-muted-foreground hover:bg-transparent hover:text-primary" aria-label={t("settings.aiProviders.addCli")} title={t("settings.aiProviders.addCli")} disabled={allCliAdded || addingAi}>
+                        <Plus className="size-4" aria-hidden="true" />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end" className="w-max min-w-0">
+                      {cliMenuOptions.map(({ id, name, ready, reason, checking }) => (
+                        <div key={id} className="flex items-center gap-1" title={ready ? undefined : reason ?? undefined}>
+                          <DropdownMenuItem
+                            className={cn(ADD_MENU_ITEM_CLASS, "min-w-0 flex-1", !ready && "cursor-help text-muted-foreground")}
+                            aria-label={reason && !ready ? `${name}: ${reason}` : name}
+                            disabled={!ready || addingAi}
+                            onSelect={() => void handleAddAiProvider(id)}
+                          >
+                            {name}
+                          </DropdownMenuItem>
+                          <DropdownMenuItem className="size-7 shrink-0 justify-center p-0 [&_svg]:!size-3.5" aria-label={`${t("settings.aiProviders.retryCheck")}: ${name}`} title={`${t("settings.aiProviders.retryCheck")}: ${name}`} disabled={checking || addingAi} onSelect={(event) => { event.preventDefault(); void checkCliProvider(id); }}>
+                            {checking ? <Loader2 className="animate-spin" aria-hidden="true" /> : <RefreshCw aria-hidden="true" />}
+                          </DropdownMenuItem>
+                        </div>
+                      ))}
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                ) : (
+                  <Button type="button" variant="ghost" size="icon" actionTone="add" className="ml-auto h-9 w-9 text-muted-foreground hover:bg-transparent hover:text-primary" aria-label={t("settings.aiProviders.addApi")} title={t("settings.aiProviders.addApi")} onClick={() => openOpenAiCompatibleDialog()}>
+                    <Plus className="size-4" aria-hidden="true" />
+                  </Button>
+                )}
               </div>
               <Card className="min-w-0">
                 <CardContent className="px-4 pb-0 pt-0">
@@ -1044,6 +1083,7 @@ export function SettingsPage({ section = "integrations", focusActivity, mockMode
                 </CardContent>
               </Card>
               {aiProviderRefreshError ? <p role="alert" className="text-sm text-destructive">{aiProviderRefreshError}</p> : null}
+              {cliAddError ? <p role="alert" className="text-sm text-destructive">{cliAddError}</p> : null}
             </div>
           </section>
 
@@ -1193,47 +1233,6 @@ export function SettingsPage({ section = "integrations", focusActivity, mockMode
             <DialogFooter>
               <Button type="button" variant="outline" onClick={() => setDeletingAiProvider(null)} disabled={aiDeleting}>{t("settings.common.cancel")}</Button>
               <Button type="button" variant="destructive" onClick={() => void handleDeleteAiProvider()} disabled={aiDeleting}>{t("settings.aiProviders.delete")}</Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
-
-        <Dialog open={addAiDialogOpen} onOpenChange={(open) => { if (!addingAi) setAddAiDialogOpen(open); }}>
-          <DialogContent>
-            <DialogHeader>
-              <DialogTitle>{t("settings.aiProviders.addCli")}</DialogTitle>
-              <DialogDescription>{t("settings.aiProviders.chooseCli")}</DialogDescription>
-            </DialogHeader>
-            <DialogBody>
-              <div className="grid gap-2">
-                <Label htmlFor="ai-provider-kind">{t("settings.aiProviders.type")}</Label>
-                <div className="flex gap-2">
-                  <div className="min-w-0 max-w-full">
-                    <Select value={addAiKind} onValueChange={(value) => setAddAiKind(value as AiCliProviderId)} disabled={addingAi}>
-                      <SelectTrigger id="ai-provider-kind" aria-label={t("settings.aiProviders.type")} className="h-9"><SelectValue /></SelectTrigger>
-                      <SelectContent>
-                        {CLI_PROVIDER_OPTIONS.map(({ id, name }) => <SelectItem key={id} value={id} disabled={aiData.providers.some((provider) => provider.id === id)}>{name}</SelectItem>)}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <Button type="button" variant="outline" size="icon" className="h-9 w-9 shrink-0" aria-label={t("settings.aiProviders.retryCheck")} title={t("settings.aiProviders.retryCheck")} disabled={cliChecking || addingAi} onClick={() => setCliCheckRevision((current) => current + 1)}>
-                    <RefreshCw className="size-4" aria-hidden="true" />
-                  </Button>
-                </div>
-                <p className="text-sm text-muted-foreground">{t(CLI_PROVIDER_OPTIONS.find(({ id }) => id === addAiKind)?.descriptionKey ?? "settings.aiProviders.codexDescription")}</p>
-                <div className="text-sm" role="status" aria-live="polite">
-                  {cliChecking ? <p className="flex items-center gap-2 text-muted-foreground"><Loader2 className="size-4 animate-spin" aria-hidden="true" />{t("settings.aiProviders.checkingCli")}</p> : null}
-                  {!cliChecking && cliCheckMessage ? (
-                    <p className={cn("flex items-start gap-2 leading-snug", cliReady ? "text-success" : "text-destructive")}>
-                      {cliReady ? <CheckCircle2 className="mt-0.5 size-4 shrink-0" aria-hidden="true" /> : <AlertTriangle className="mt-0.5 size-4 shrink-0" aria-hidden="true" />}
-                      <span>{cliCheckMessage}</span>
-                    </p>
-                  ) : null}
-                </div>
-              </div>
-            </DialogBody>
-            <DialogFooter>
-              <Button type="button" variant="outline" onClick={() => setAddAiDialogOpen(false)} disabled={addingAi}>{t("settings.common.cancel")}</Button>
-              <Button type="button" onClick={() => void handleAddAiProvider()} disabled={addingAi || cliChecking || !cliReady || aiData.providers.some((provider) => provider.id === addAiKind)}>{t("settings.aiProviders.add")}</Button>
             </DialogFooter>
           </DialogContent>
         </Dialog>
