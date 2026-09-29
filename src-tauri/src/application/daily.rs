@@ -72,11 +72,29 @@ pub async fn load_daily_workspace(
         .filter(|value| !value.trim().is_empty())
         .ok_or_else(|| daily_error("missing_metadata", "Jira board metadata is required", false))?;
     let members = planning::list_configured_team_members(pool, managed_project_id).await?;
+    let keyring = planning::planning_credential_store(pool).await?;
+    let mut builder = Client::builder().timeout(Duration::from_secs(30));
     let integration =
         crate::infrastructure::db::repositories::get_integration(pool, &project.integration_id)
             .await
             .map_err(|_| daily_error("not_found", "Jira integration was not found", false))?;
-    let client = daily_jira_client(pool, &project, &integration).await?;
+    if integration.allow_insecure_tls {
+        builder = builder.danger_accept_invalid_certs(true);
+    }
+    let http = builder.build().map_err(|_| {
+        daily_error(
+            "transport_unavailable",
+            "Jira transport is unavailable",
+            true,
+        )
+    })?;
+    let (client, _) = planning::planning_read_client(
+        pool,
+        &project,
+        keyring.as_ref(),
+        Arc::new(ReqwestPlanningTransport::new(http)),
+    )
+    .await?;
     let mut sprint_page = client
         .list_sprints(board_id, 100)
         .await
@@ -241,11 +259,7 @@ pub async fn daily_issue_transitions(
     issue_key: &str,
 ) -> Result<Vec<JiraIssueTransition>, PlanningCommandError> {
     let project = daily_project(pool, managed_project_id).await?;
-    let integration =
-        crate::infrastructure::db::repositories::get_integration(pool, &project.integration_id)
-            .await
-            .map_err(|_| daily_error("not_found", "Jira integration was not found", false))?;
-    let client = daily_jira_client(pool, &project, &integration).await?;
+    let client = daily_jira_client(pool, &project).await?;
     ensure_issue_in_sprint(&client, sprint_id, issue_key).await?;
     client
         .available_issue_transitions(issue_key)
@@ -295,11 +309,7 @@ pub async fn transition_daily_issue(
         ));
     }
 
-    let integration =
-        crate::infrastructure::db::repositories::get_integration(pool, &project.integration_id)
-            .await
-            .map_err(|_| daily_error("not_found", "Jira integration was not found", false))?;
-    let client = daily_jira_client(pool, &project, &integration).await?;
+    let client = daily_jira_client(pool, &project).await?;
     ensure_issue_in_sprint(&client, sprint_id, issue_key).await?;
     let transitions = client
         .available_issue_transitions(issue_key)
@@ -372,13 +382,10 @@ async fn daily_project(
 async fn daily_jira_client(
     pool: &SqlitePool,
     project: &ManagedProject,
-    integration: &crate::domain::models::Integration,
 ) -> Result<JiraPlanningClient, PlanningCommandError> {
     let keyring = planning::planning_credential_store(pool).await?;
-    let mut builder = Client::builder().timeout(Duration::from_secs(30));
-    if integration.allow_insecure_tls {
-        builder = builder.danger_accept_invalid_certs(true);
-    }
+    // Status transitions are writes, so keep certificate verification enabled here.
+    let builder = Client::builder().timeout(Duration::from_secs(30));
     let http = builder.build().map_err(|_| {
         daily_error(
             "transport_unavailable",
