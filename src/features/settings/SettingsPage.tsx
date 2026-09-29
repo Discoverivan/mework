@@ -1148,7 +1148,7 @@ export function SettingsPage({ section = "integrations", focusActivity, mockMode
                   return <Fragment key={key}>
                     {index > 0 ? <Separator className="my-4" /> : null}
                     <section className="space-y-4" aria-label={t(activity.labelKey)}>
-                      <div className="flex items-center justify-between gap-3">
+                      <div className="flex items-center gap-1">
                         <h3 className="text-sm font-medium">{t(activity.labelKey)}</h3>
                         <Button type="button" variant="ghost" size="icon" actionTone="delete" className="size-7 text-muted-foreground hover:bg-transparent hover:text-destructive [&_svg]:!size-4" aria-label={t("settings.ai.removeActivity", { activity: t(activity.labelKey) })} title={t("settings.ai.removeActivity", { activity: t(activity.labelKey) })} disabled={aiSaving} onClick={() => { setVisibleAiActivities((current) => current.filter((item) => item !== key)); updateAiProfile(key, null); }}>
                           <Trash2 aria-hidden="true" />
