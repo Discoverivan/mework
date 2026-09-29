@@ -8,7 +8,11 @@ use serde_json::Value;
 use sqlx::SqlitePool;
 
 use crate::application::planning::{self, PlanningCommandError, TeamMemberDto};
+use crate::domain::planning::models::ManagedProject;
 use crate::infrastructure::db::planning_repositories;
+use crate::infrastructure::integrations::jira::planning::{
+    JiraIssueTransition, JiraPlanningClient,
+};
 use crate::infrastructure::integrations::jira::planning_write::ReqwestPlanningTransport;
 
 const DEFAULT_STORY_POINTS_FIELD_ID: &str = "customfield_10372";
@@ -165,9 +169,7 @@ pub async fn load_daily_workspace(
                 true,
             )
         })?;
-    // Jira returns every issue in the sprint. Keep only real subtasks assigned to
-    // a person; the `issuetype.subtask` flag is the wire-level source of truth,
-    // not the localized issue type name or the presence of a parent field.
+    // The Sprint Tasks view intentionally contains only assigned Jira subtasks.
     let subtasks = issues
         .values
         .into_iter()
@@ -248,6 +250,206 @@ pub async fn refresh_daily_workspace(
     load_daily_workspace(pool, managed_project_id, Some(sprint_id))
         .await
         .map(|workspace| workspace.subtasks)
+}
+
+pub async fn daily_issue_transitions(
+    pool: &SqlitePool,
+    managed_project_id: &str,
+    sprint_id: &str,
+    issue_key: &str,
+) -> Result<Vec<JiraIssueTransition>, PlanningCommandError> {
+    let project = daily_project(pool, managed_project_id).await?;
+    let client = daily_jira_client(pool, &project).await?;
+    ensure_issue_in_sprint(&client, sprint_id, issue_key).await?;
+    client
+        .available_issue_transitions(issue_key)
+        .await
+        .map_err(|error| jira_daily_error("Unable to load Jira transitions", error))
+}
+
+pub async fn transition_daily_issue(
+    pool: &SqlitePool,
+    managed_project_id: &str,
+    sprint_id: &str,
+    issue_key: &str,
+    transition_id: &str,
+    idempotency_key: &str,
+) -> Result<(), PlanningCommandError> {
+    if idempotency_key.trim().is_empty() || idempotency_key.len() > 128 {
+        return Err(daily_error(
+            "invalid_input",
+            "A valid local idempotency key is required",
+            false,
+        ));
+    }
+    let project = daily_project(pool, managed_project_id).await?;
+    let request_fingerprint = format!("{}|{}|{}", project.integration_id, issue_key, transition_id);
+    let existing = sqlx::query_as::<_, (String, String)>(
+        "SELECT request_fingerprint, status FROM daily_issue_transition_actions WHERE idempotency_key = ?",
+    )
+    .bind(idempotency_key)
+    .fetch_optional(pool)
+    .await
+    .map_err(|_| daily_error("database", "Unable to record Jira transition", true))?;
+    if let Some((existing_fingerprint, status)) = existing {
+        if existing_fingerprint != request_fingerprint {
+            return Err(daily_error(
+                "idempotency_conflict",
+                "This local action key was already used for a different Jira transition.",
+                false,
+            ));
+        }
+        if status == "succeeded" {
+            return Ok(());
+        }
+        return Err(daily_error(
+            if status == "failed" { "transition_failed_previously" } else { "transition_result_unknown" },
+            "The previous Jira request was not confirmed. Refresh sprint tasks before trying again.",
+            false,
+        ));
+    }
+
+    let client = daily_jira_client(pool, &project).await?;
+    ensure_issue_in_sprint(&client, sprint_id, issue_key).await?;
+    let transitions = client
+        .available_issue_transitions(issue_key)
+        .await
+        .map_err(|error| jira_daily_error("Unable to verify the Jira transition", error))?;
+    let transition = transitions
+        .iter()
+        .find(|candidate| candidate.id == transition_id)
+        .ok_or_else(|| {
+            daily_error(
+                "stale_transition",
+                "This transition is no longer available. Refresh the task and try again.",
+                false,
+            )
+        })?;
+    if transition.requires_fields {
+        return Err(daily_error(
+            "transition_requires_fields",
+            "This Jira transition requires additional fields. Complete it in Jira.",
+            false,
+        ));
+    }
+
+    sqlx::query("INSERT INTO daily_issue_transition_actions (idempotency_key,integration_id,issue_key,transition_id,request_fingerprint,status,created_at,updated_at) VALUES (?,?,?,?,?,'running',strftime('%Y-%m-%dT%H:%M:%fZ','now'),strftime('%Y-%m-%dT%H:%M:%fZ','now'))")
+        .bind(idempotency_key)
+        .bind(&project.integration_id)
+        .bind(issue_key)
+        .bind(transition_id)
+        .bind(&request_fingerprint)
+        .execute(pool)
+        .await
+        .map_err(|_| daily_error("idempotency_conflict", "This Jira transition is already being processed.", false))?;
+
+    match client.transition_issue(issue_key, transition_id).await {
+        Ok(()) => {
+            sqlx::query("UPDATE daily_issue_transition_actions SET status='succeeded', updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE idempotency_key = ?")
+                .bind(idempotency_key)
+                .execute(pool)
+                .await
+                .map_err(|_| daily_error("database", "Jira accepted the transition, but its local result could not be recorded. Refresh sprint tasks.", true))?;
+            Ok(())
+        }
+        Err(error) => {
+            let action_status = if error.is_retryable() {
+                "unknown"
+            } else {
+                "failed"
+            };
+            let _ = sqlx::query("UPDATE daily_issue_transition_actions SET status=?, updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE idempotency_key = ?")
+                .bind(action_status)
+                .bind(idempotency_key)
+                .execute(pool)
+                .await;
+            Err(jira_daily_error("Unable to perform Jira transition", error))
+        }
+    }
+}
+
+async fn daily_project(
+    pool: &SqlitePool,
+    managed_project_id: &str,
+) -> Result<ManagedProject, PlanningCommandError> {
+    let project = planning_repositories::get_managed_project(pool, managed_project_id)
+        .await
+        .map_err(|_| daily_error("not_found", "managed project was not found", false))?;
+    ensure_daily_dependencies(pool, &project.integration_id).await?;
+    Ok(project)
+}
+
+async fn daily_jira_client(
+    pool: &SqlitePool,
+    project: &ManagedProject,
+) -> Result<JiraPlanningClient, PlanningCommandError> {
+    let keyring = planning::planning_credential_store(pool).await?;
+    // Status transitions are writes, so keep certificate verification enabled here.
+    let builder = Client::builder().timeout(Duration::from_secs(30));
+    let http = builder.build().map_err(|_| {
+        daily_error(
+            "transport_unavailable",
+            "Jira transport is unavailable",
+            true,
+        )
+    })?;
+    let (client, deployment) = planning::planning_read_client(
+        pool,
+        project,
+        keyring.as_ref(),
+        Arc::new(ReqwestPlanningTransport::new(http)),
+    )
+    .await?;
+    if deployment != crate::infrastructure::integrations::jira::models::JiraDeployment::DataCenter {
+        return Err(daily_error(
+            "unsupported_capability",
+            "Sprint task transitions are supported only for Jira Data Center/Server.",
+            false,
+        ));
+    }
+    Ok(client)
+}
+
+async fn ensure_issue_in_sprint(
+    client: &JiraPlanningClient,
+    sprint_id: &str,
+    issue_key: &str,
+) -> Result<(), PlanningCommandError> {
+    if sprint_id.trim().is_empty() || issue_key.trim().is_empty() {
+        return Err(daily_error(
+            "invalid_input",
+            "A sprint and issue are required",
+            false,
+        ));
+    }
+    let issues = client
+        .list_sprint_issues_with_fields(sprint_id, 100, None)
+        .await
+        .map_err(|error| jira_daily_error("Unable to verify the sprint task", error))?;
+    if issues
+        .values
+        .into_iter()
+        .any(|issue| issue.key == issue_key && is_assigned_subtask(&issue.fields))
+    {
+        Ok(())
+    } else {
+        Err(daily_error(
+            "not_found",
+            "The assigned subtask is no longer in the selected sprint.",
+            false,
+        ))
+    }
+}
+
+fn jira_daily_error(
+    context: &str,
+    error: crate::infrastructure::integrations::jira::error::JiraError,
+) -> PlanningCommandError {
+    daily_error(
+        "remote_error",
+        &format!("{context} ({error})"),
+        error.is_retryable(),
+    )
 }
 
 async fn ensure_daily_dependencies(
@@ -539,7 +741,7 @@ mod tests {
             "assignee": {"accountId": "test-user-a"},
         });
         let parent_task = json!({
-            "issuetype": {"name": "Story", "subtask": false},
+            "issuetype": {"name": "Task", "subtask": false},
             "assignee": {"accountId": "test-user-a"},
         });
         let unassigned_subtask = json!({

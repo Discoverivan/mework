@@ -1,5 +1,12 @@
 import type { TeamMember } from "./planning";
 
+export interface DailyIssueTransition {
+  id: string;
+  name: string;
+  toStatus: string;
+  requiresFields: boolean;
+}
+
 export interface DailySubtask {
   id: string;
   key: string;

@@ -13,6 +13,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import {
   DropdownMenu,
   DropdownMenuContent,
+  DropdownMenuGroup,
   DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuSeparator,
@@ -26,10 +27,10 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import type { DailyWorkspace } from "@/shared/contracts/developer";
+import type { DailyIssueTransition, DailySubtask, DailyWorkspace } from "@/shared/contracts/developer";
 import type { ManagedProject, TeamMember } from "@/shared/contracts/planning";
 import { listManagedProjects } from "../planning/api";
-import { closePresenterView, loadDailyWorkspace, loadJiraAvatarData, openPresenterView, publishPresenterState, refreshDailyWorkspace, subscribePresenterState } from "./api";
+import { closePresenterView, loadDailyIssueTransitions, loadDailyWorkspace, loadJiraAvatarData, openPresenterView, publishPresenterState, refreshDailyWorkspace, subscribePresenterState, transitionDailyIssue } from "./api";
 import { readDailyWorkspaceCache, readManagedProjectsCache, writeDailyWorkspaceCache, writeManagedProjectsCache } from "./cache";
 import { dailyStatusTone } from "./status";
 
@@ -42,6 +43,16 @@ function commandError(error: unknown): string {
     if (typeof structured.code === "string" && structured.code.trim()) return `Command failed (${structured.code})`;
   }
   return "Unknown command error";
+}
+
+function statusActionError(error: unknown, t: ReturnType<typeof useI18n>["t"]): string {
+  const code = typeof error === "object" && error !== null
+    ? (error as { code?: unknown }).code
+    : undefined;
+  if (code === "stale_transition") return t("daily.transitionStale");
+  if (code === "transition_result_unknown") return t("daily.transitionUnknown");
+  if (code === "transition_requires_fields") return t("daily.transitionRequiresFields");
+  return t("daily.transitionFailed");
 }
 
 function initials(displayName: string): string {
@@ -127,6 +138,103 @@ function memberStats(subtasks: DailyWorkspace["subtasks"]): { total: number; pro
     if (tone === "backlog") stats.backlog += 1;
     return stats;
   }, { total: 0, progress: 0, done: 0, backlog: 0 });
+}
+
+function TaskStatusMenu({
+  managedProjectId,
+  sprintId,
+  task,
+  onTransition,
+  onError,
+}: {
+  managedProjectId: string;
+  sprintId: string;
+  task: DailySubtask;
+  onTransition: (task: DailySubtask, transition: DailyIssueTransition) => Promise<void>;
+  onError: (message?: string) => void;
+}) {
+  const { t } = useI18n();
+  const [open, setOpen] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [transitions, setTransitions] = useState<DailyIssueTransition[]>([]);
+  const [performingId, setPerformingId] = useState<string>();
+
+  async function handleOpenChange(nextOpen: boolean) {
+    setOpen(nextOpen);
+    if (!nextOpen) return;
+    setLoading(true);
+    setTransitions([]);
+    onError(undefined);
+    try {
+      setTransitions(await loadDailyIssueTransitions(managedProjectId, sprintId, task.key));
+    } catch (reason) {
+      onError(t("daily.transitionsLoadFailed"));
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function selectTransition(transition: DailyIssueTransition) {
+    if (transition.requiresFields || performingId) return;
+    setPerformingId(transition.id);
+    onError(undefined);
+    try {
+      await onTransition(task, transition);
+      setOpen(false);
+    } catch (reason) {
+      onError(statusActionError(reason, t));
+      try {
+        setTransitions(await loadDailyIssueTransitions(managedProjectId, sprintId, task.key));
+      } catch {
+        setTransitions([]);
+      }
+    } finally {
+      setPerformingId(undefined);
+    }
+  }
+
+  return (
+    <DropdownMenu open={open} onOpenChange={(nextOpen) => void handleOpenChange(nextOpen)}>
+      <DropdownMenuTrigger asChild>
+        <button
+          type="button"
+          className={`daily-status-label daily-status-${dailyStatusTone(task.status)} daily-status-trigger`}
+          aria-label={t("daily.changeStatus", { key: task.key, status: task.status })}
+          title={t("daily.changeStatus", { key: task.key, status: task.status })}
+        >
+          {task.status}
+          <ChevronDown aria-hidden="true" className="daily-status-chevron" />
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start" className="w-56">
+        <DropdownMenuLabel>{t("daily.availableTransitions", { key: task.key })}</DropdownMenuLabel>
+        <DropdownMenuSeparator />
+        <DropdownMenuGroup>
+          {loading ? (
+            <DropdownMenuItem disabled>{t("daily.loadingTransitions")}</DropdownMenuItem>
+          ) : transitions.length === 0 ? (
+            <DropdownMenuItem disabled>{t("daily.noTransitions")}</DropdownMenuItem>
+          ) : transitions.map((transition) => (
+            <DropdownMenuItem
+              key={transition.id}
+              disabled={transition.requiresFields || performingId !== undefined}
+              onSelect={() => void selectTransition(transition)}
+            >
+              <span className="flex min-w-0 flex-col">
+                <span className="truncate">{transition.toStatus}</span>
+                {transition.requiresFields ? (
+                  <span className="text-xs text-muted-foreground">{t("daily.transitionRequiresFields")}</span>
+                ) : transition.name !== transition.toStatus ? (
+                  <span className="truncate text-xs text-muted-foreground">{transition.name}</span>
+                ) : null}
+              </span>
+              {performingId === transition.id ? <RefreshCw aria-hidden="true" className="ml-auto animate-spin" /> : null}
+            </DropdownMenuItem>
+          ))}
+        </DropdownMenuGroup>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
 }
 
 export function DailyPage() {
@@ -256,6 +364,33 @@ export function DailyPage() {
     if (selectedOwnerIndex < 0 || owners.length === 0) return;
     const nextIndex = (selectedOwnerIndex + offset + owners.length) % owners.length;
     setSelectedMemberId(owners[nextIndex]?.id);
+  }
+
+  async function handleTaskTransition(task: DailySubtask, transition: DailyIssueTransition) {
+    if (!workspace) return;
+    const managedProjectId = workspace.managedProjectId;
+    const sprintId = workspace.selectedSprintId;
+    await transitionDailyIssue(
+      managedProjectId,
+      sprintId,
+      task.key,
+      transition.id,
+      crypto.randomUUID(),
+    );
+    setTaskActionError(undefined);
+    setTaskActionNotice(t("daily.statusChanged", { key: task.key, status: transition.toStatus }));
+    try {
+      const subtasks = await refreshDailyWorkspace(managedProjectId, sprintId);
+      statusRefreshRevision.current += 1;
+      setWorkspace((current) => {
+        if (!current || current.managedProjectId !== managedProjectId || current.selectedSprintId !== sprintId) return current;
+        const nextWorkspace = { ...current, subtasks };
+        writeDailyWorkspaceCache(nextWorkspace);
+        return nextWorkspace;
+      });
+    } catch {
+      setTaskActionError(t("daily.statusRefreshFailed"));
+    }
   }
 
   useEffect(() => {
@@ -629,9 +764,13 @@ export function DailyPage() {
                             </small>
                           </span>
                           <span className="daily-task-points">SP {subtask.storyPoints ?? "—"}</span>
-                          <span className={`daily-status-label daily-status-${dailyStatusTone(subtask.status)}`} aria-label={t("daily.status", { status: subtask.status })}>
-                            {subtask.status}
-                          </span>
+                          <TaskStatusMenu
+                            managedProjectId={workspace.managedProjectId}
+                            sprintId={workspace.selectedSprintId}
+                            task={subtask}
+                            onTransition={handleTaskTransition}
+                            onError={setTaskActionError}
+                          />
                           <DropdownMenu>
                             <DropdownMenuTrigger asChild>
                               <Button type="button" variant="ghost" size="icon" className="daily-task-menu size-8" aria-label={t("daily.actions", { key: subtask.key })}>

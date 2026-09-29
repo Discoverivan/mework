@@ -1,5 +1,5 @@
 use sqlx::SqlitePool;
-use tauri::{AppHandle, Emitter, State};
+use tauri::{AppHandle, State};
 
 use crate::application::create_task::{
     self, JiraCreatedTaskDto, JiraTaskCreateRequest, JiraTaskMemberDto, TaskDraftDto,
@@ -32,12 +32,18 @@ pub async fn jira_task_create(
 ) -> Result<JiraCreatedTaskDto, String> {
     let created = create_task::create_task(&state, request).await?;
     if mode.is_enabled() {
-        let snapshot = mode.snapshot()?;
-        if let Some(monitor) = snapshot.monitors.first() {
-            crate::application::dev_overlay::persist_mock_task_tracker_snapshot(&state, monitor)
-                .await?;
+        match crate::application::task_tracker::list_monitors(&state).await {
+            Ok(monitors) => {
+                for monitor in monitors {
+                    if let Err(error) =
+                        crate::application::task_tracker::check_now(&state, &app, &monitor.id).await
+                    {
+                        eprintln!("Mock Task Tracker refresh after Jira create failed: {error}");
+                    }
+                }
+            }
+            Err(error) => eprintln!("Mock Task Tracker monitors could not be refreshed: {error}"),
         }
-        let _ = app.emit("task_tracker_updated", &snapshot.monitors);
     }
     Ok(created)
 }

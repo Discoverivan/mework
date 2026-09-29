@@ -3,7 +3,6 @@ use sqlx::SqlitePool;
 use tauri::{AppHandle, State};
 
 use crate::application::authored_pull_requests;
-use crate::application::dev_overlay::DevMockMode;
 use crate::application::developer::{
     self, BitbucketRepositoryDto, BitbucketUserDto, DeveloperCommandError, MyPullRequestsPageDto,
     PullRequestActivity, PullRequestActivityStatus, PullRequestCommentRequest,
@@ -172,33 +171,17 @@ pub async fn pull_request_review_mark_all_read(
 
 #[tauri::command]
 pub async fn pull_request_review_publish_comment(
-    mode: State<'_, DevMockMode>,
     state: State<'_, SqlitePool>,
     request: PullRequestCommentRequest,
 ) -> Result<PullRequestCommentStatus, DeveloperCommandError> {
-    if mode.is_enabled() {
-        return Err(developer::command_error(
-            "mock_mode",
-            "External pull request writes are disabled in mock mode",
-            false,
-        ));
-    }
     developer::publish_pull_request_comment(&state, request).await
 }
 
 #[tauri::command]
 pub async fn pull_request_review_set_decision(
-    mode: State<'_, DevMockMode>,
     state: State<'_, SqlitePool>,
     request: PullRequestDecisionRequest,
 ) -> Result<PullRequestDecisionStatus, DeveloperCommandError> {
-    if mode.is_enabled() {
-        return Err(developer::command_error(
-            "mock_mode",
-            "External pull request writes are disabled in mock mode",
-            false,
-        ));
-    }
     developer::set_pull_request_decision(&state, request).await
 }
 

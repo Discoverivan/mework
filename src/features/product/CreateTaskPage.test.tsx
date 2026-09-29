@@ -423,6 +423,38 @@ describe("CreateTaskPage", () => {
       "Newer summary",
     ]);
   });
+  it("reassigns a persisted draft to an available team when its saved team no longer exists", async () => {
+    window.localStorage.setItem("mework.create-task.state.v1", JSON.stringify({
+      version: 2,
+      selectedTeamId: "removed-team",
+      cards: [{
+        id: "stale-team-card",
+        createdAt: 100,
+        prompt: "Create a sample task",
+        teamId: "removed-team",
+        issueType: "Task",
+        summary: "Sample task summary",
+        description: "Sample task description",
+        epicLink: "",
+        assignee: "__unassigned__",
+        sprint: "",
+        storyPoints: "",
+        status: "ready",
+      }],
+    }));
+    render(<CreateTaskPage />);
+
+    const card = await screen.findByRole("article", { name: "Editable Jira task draft" });
+    const createButton = within(card).getByRole("button", { name: "Create" });
+    await waitFor(() => expect(createButton).toBeEnabled());
+    fireEvent.click(createButton);
+
+    await waitFor(() => expect(createMock).toHaveBeenCalledWith(expect.objectContaining({
+      managedProjectId: "team-1",
+      summary: "Sample task summary",
+    })));
+  });
+
   it("keeps task cards in creation order when a draft becomes created", async () => {
     generateMock
       .mockResolvedValueOnce({ summary: "First summary", description: "First description" })

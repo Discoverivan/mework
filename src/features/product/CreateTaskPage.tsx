@@ -333,9 +333,13 @@ export function CreateTaskPage() {
         const restoredTeamId = restoredTeam?.id;
         setSelectedTeamId(restoredTeamId);
         setSelectedSprintId((current) => current || restoredTeam?.defaultTaskSprintId || "");
-        setCards((current) => restoredTeamId
-          ? current.map((card) => card.teamId ? card : { ...card, teamId: restoredTeamId })
-          : current);
+        const availableTeamIds = new Set(loaded.map((team) => team.id));
+        setCards((current) => current.map((card) => {
+          const teamId = card.teamId && availableTeamIds.has(card.teamId)
+            ? card.teamId
+            : restoredTeamId;
+          return card.teamId === teamId ? card : { ...card, teamId };
+        }));
       })
       .catch(() => {
         if (active) setTeamsError(t("task.error.loadTeams"));
