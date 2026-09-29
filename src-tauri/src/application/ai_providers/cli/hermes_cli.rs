@@ -153,7 +153,11 @@ pub(crate) fn executable_names() -> &'static [&'static str] {
 
 pub(crate) fn diagnostic_install_paths() -> Vec<(&'static str, PathBuf)> {
     let mut paths = Vec::new();
-    if let Some(home) = dirs::home_dir() {
+    #[cfg(windows)]
+    let home = dirs::home_dir();
+    #[cfg(not(windows))]
+    let home = env::var_os("HOME").map(PathBuf::from);
+    if let Some(home) = home {
         paths.push((
             "system-home",
             home.join(if cfg!(windows) {
