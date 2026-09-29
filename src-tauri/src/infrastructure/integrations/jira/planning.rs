@@ -959,7 +959,7 @@ mod tests {
                     { "id": 2, "name": "Example future sprint", "state": "future" }
                 ]
             })))
-            .expect(1)
+            .expect(2)
             .mount(&server)
             .await;
 
