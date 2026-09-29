@@ -107,6 +107,7 @@ pub fn run() {
                 );
             }
             app.manage(pool.clone());
+            app.manage(crate::application::release_notes::ReleaseNotesRequestState::default());
             if !mock_mode_enabled {
                 let background_pool = pool.clone();
                 let background_app = app.handle().clone();
@@ -412,6 +413,9 @@ pub fn run() {
             commands::updates::background_update_version,
             commands::updates::release_notes_state,
             commands::updates::mark_release_notes_seen,
+            commands::updates::list_update_release_notes_versions,
+            commands::updates::list_release_notes_versions,
+            commands::updates::load_release_note_version,
             commands::create_task::ai_task_draft,
             commands::create_task::jira_task_team_members,
             commands::create_task::jira_task_create,

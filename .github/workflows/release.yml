@@ -29,8 +29,7 @@ on:
       - "vitest.config.ts"
       - "tsconfig*.json"
       - "components.json"
-      - "CHANGELOG.md"
-      - "scripts/build-release-notes.mjs"
+      - "scripts/collect-pr-release-notes.py"
       - "rust-toolchain.toml"
 
 concurrency:
@@ -103,9 +102,6 @@ jobs:
               raise SystemExit("Release version must be valid SemVer")
           PY
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-
-      - name: Validate release notes
-        run: node scripts/build-release-notes.mjs "${{ steps.release_version.outputs.version }}"
 
       - name: Verify updater signing secret
         env:
@@ -200,10 +196,6 @@ jobs:
 
       - name: Install frontend dependencies
         run: npm ci
-
-      - name: Bundle release notes
-        shell: bash
-        run: node scripts/build-release-notes.mjs "${{ needs.prepare_release.outputs.version }}"
 
       - name: Select macOS signing mode
         id: macos_signing
@@ -341,6 +333,7 @@ jobs:
       - publish_tauri
     permissions:
       contents: write
+      pull-requests: read
     runs-on: ubuntu-latest
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -351,9 +344,6 @@ jobs:
         uses: actions/checkout@v7
         with:
           fetch-depth: 0
-
-      - name: Generate release notes
-        run: node scripts/build-release-notes.mjs "${{ needs.prepare_release.outputs.version }}"
 
       - name: Download updater manifest
         shell: bash
@@ -374,23 +364,27 @@ jobs:
               raise SystemExit(f"latest.json is missing required platforms: {', '.join(missing)}")
           PY
 
-      - name: Add release notes to updater manifest
+      - name: Collect optional PR release notes
+        if: github.event_name == 'push'
+        run: python3 scripts/collect-pr-release-notes.py "$RUNNER_TEMP/release-notes"
+
+      - name: Add available release notes
         shell: bash
         run: |
-          python3 - <<'PY'
-          import json
-          from pathlib import Path
-
-          path = Path("latest.json")
-          manifest = json.loads(path.read_text())
-          manifest["notes"] = Path(".release/update-notes.txt").read_text().strip()
-          path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + "\n")
-          PY
-          gh release upload "$RELEASE_TAG" latest.json --repo "$GITHUB_REPOSITORY" --clobber
+          shopt -s nullglob
+          notes=("$RUNNER_TEMP"/release-notes/release-notes.*.md)
+          if [ "${#notes[@]}" -gt 0 ]; then
+            gh release upload "$RELEASE_TAG" "${notes[@]}" --repo "$GITHUB_REPOSITORY" --clobber
+          fi
+          if [ -f "$RUNNER_TEMP/release-notes/release-notes.en.md" ]; then
+            gh release edit "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --notes-file "$RUNNER_TEMP/release-notes/release-notes.en.md"
+          else
+            gh release edit "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --notes "Release notes will be added soon."
+          fi
 
       - name: Publish release
         shell: bash
-        run: gh release edit "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --notes-file .release/release-body.md --draft=false
+        run: gh release edit "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --draft=false
 
   cleanup_failed_release:
     name: Cleanup failed release

@@ -46,7 +46,7 @@ body,
   align-items: center;
   gap: 9px;
   padding-left: 8px;
-  margin-bottom: 28px;
+  margin-bottom: 8px;
   color: var(--card-foreground);
 }
 

@@ -4,8 +4,9 @@ import { AppShell, type AppSection } from "./components/layout/AppShell";
 import { SplashScreen } from "./components/shared/SplashScreen";
 import { UpdateBanner } from "./components/shared/UpdateBanner";
 import { ReleaseNotesDialog } from "./components/shared/ReleaseNotesDialog";
+import { StatusToast } from "./components/shared/StatusToast";
 import { getBackgroundUpdateVersion } from "./components/shared/update-check";
-import { getReleaseNotesState, markReleaseNotesSeen, releaseNotesSince, type ReleaseNote } from "./release-notes";
+import { getReleaseNotesState, listUpdateReleaseNotesVersions, loadReleaseNoteVersion, markReleaseNotesSeen, prefetchOlderReleaseNotes, type ReleaseNote } from "./release-notes";
 import { mockReleaseNotes } from "./release-notes/mock";
 import { AppRoutes, type AppRoute } from "./app/routes";
 import { PresenterView } from "./features/daily/PresenterView";
@@ -46,7 +47,8 @@ function routeFromHash(hash: string): AppRoute {
 }
 
 function AppContent() {
-  const { appearanceSaving, themePreference, updateAppearance } = useI18n();
+  const { appearanceSaving, themePreference, updateAppearance, language, t } = useI18n();
+  const noteLanguage = language === "russian" ? "ru" : "en";
   const initialRoute = routeFromHash(typeof window !== "undefined" ? window.location.hash : "");
   const [appVersion, setAppVersion] = useState<string | undefined>(() =>
     import.meta.env.DEV ? "dev" : undefined
@@ -66,30 +68,44 @@ function AppContent() {
   const [availableUpdateVersion, setAvailableUpdateVersion] = useState<string | null>(null);
   const [updateCheckRequest, setUpdateCheckRequest] = useState(0);
   const [pendingUpdateCheck, setPendingUpdateCheck] = useState(false);
-  const [newReleaseNotes, setNewReleaseNotes] = useState<ReleaseNote[]>([]);
+  const [updateNoteVersions, setUpdateNoteVersions] = useState<string[]>([]);
+  const [selectedUpdateNote, setSelectedUpdateNote] = useState<ReleaseNote | null>(null);
+  const [loadingUpdateNote, setLoadingUpdateNote] = useState(false);
+  const [updateNoteError, setUpdateNoteError] = useState(false);
   const [releaseNotesOpen, setReleaseNotesOpen] = useState(false);
 
   useEffect(() => {
     if (!ready || !mockModeLoaded) return;
     if (import.meta.env.DEV && mockMode) {
-      setNewReleaseNotes(mockReleaseNotes);
+      const notes = mockReleaseNotes(noteLanguage);
+      setUpdateNoteVersions(notes.map((note) => note.version));
+      setSelectedUpdateNote(notes[0]);
       setReleaseNotesOpen(true);
       return;
     }
     if (mockMode || import.meta.env.DEV) return;
     let active = true;
-    void getReleaseNotesState().then(({ currentVersion, lastSeenVersion }) => {
-      if (!active) return;
-      const notes = releaseNotesSince(lastSeenVersion, currentVersion);
-      if (notes.length > 0) {
-        setNewReleaseNotes(notes);
-        setReleaseNotesOpen(true);
+    let retryTimer: ReturnType<typeof setTimeout> | undefined;
+    const loadPendingNotes = async () => {
+      try {
+        const { pendingFromVersion } = await getReleaseNotesState();
+        if (!active || !pendingFromVersion) return;
+        const versions = await listUpdateReleaseNotesVersions();
+        if (versions.length === 0) return;
+        const note = await loadReleaseNoteVersion(versions[0], noteLanguage);
+        if (active) {
+          setUpdateNoteVersions(versions);
+          setSelectedUpdateNote(note);
+          setReleaseNotesOpen(true);
+          prefetchOlderReleaseNotes(versions, note.version, noteLanguage);
+        }
+      } catch {
+        if (active) retryTimer = setTimeout(() => void loadPendingNotes(), 60 * 60 * 1000);
       }
-    }).catch(() => {
-      // Release notes are optional if local state is unavailable.
-    });
-    return () => { active = false; };
-  }, [ready, mockModeLoaded, mockMode]);
+    };
+    void loadPendingNotes();
+    return () => { active = false; clearTimeout(retryTimer); };
+  }, [ready, mockModeLoaded, mockMode, noteLanguage]);
 
   function handleReleaseNotesOpenChange(open: boolean) {
     setReleaseNotesOpen(open);
@@ -97,6 +113,25 @@ function AppContent() {
       // A failed save allows the notes to reappear on the next launch.
     });
   }
+
+  async function handleNavigateUpdateNotes(version: string) {
+    setLoadingUpdateNote(true);
+    setUpdateNoteError(false);
+    try {
+      const note = import.meta.env.DEV && mockMode
+        ? mockReleaseNotes(noteLanguage).find((item) => item.version === version)
+        : await loadReleaseNoteVersion(version, noteLanguage);
+      if (!note) return;
+      setSelectedUpdateNote(note);
+      if (!mockMode) prefetchOlderReleaseNotes(updateNoteVersions, note.version, noteLanguage);
+    } catch {
+      setUpdateNoteError(true);
+    } finally {
+      setLoadingUpdateNote(false);
+    }
+  }
+
+  const selectedUpdateNoteIndex = selectedUpdateNote ? updateNoteVersions.indexOf(selectedUpdateNote.version) : -1;
 
   useEffect(() => {
     if (import.meta.env.DEV) return;
@@ -319,7 +354,16 @@ function AppContent() {
       {import.meta.env.DEV && mockMode ? <DevOverlay /> : null}
       <SplashScreen visible={!ready} />
       <UpdateBanner enabled={ready && !import.meta.env.DEV && !mockMode} updateVersion={availableUpdateVersion} />
-      <ReleaseNotesDialog open={releaseNotesOpen} onOpenChange={handleReleaseNotesOpenChange} releases={newReleaseNotes} />
+      <ReleaseNotesDialog open={releaseNotesOpen} onOpenChange={handleReleaseNotesOpenChange}
+        releases={selectedUpdateNote ? [selectedUpdateNote] : []}
+        navigation={{
+          newerVersion: selectedUpdateNoteIndex > 0 ? updateNoteVersions[selectedUpdateNoteIndex - 1] : undefined,
+          olderVersion: updateNoteVersions[selectedUpdateNoteIndex + 1],
+          loading: loadingUpdateNote,
+          onNavigate: (version) => void handleNavigateUpdateNotes(version),
+        }} />
+      <StatusToast message={updateNoteError ? t("releaseNotes.loadError") : undefined}
+        variant="error" onDismiss={() => setUpdateNoteError(false)} />
     </>
   );
 }

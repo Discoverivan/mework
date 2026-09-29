@@ -52,20 +52,29 @@ If a local signed build is needed, replace the endpoint in `src-tauri/tauri.conf
 
 ## Release notes and first launch after an update
 
-Before an application release, append short user-facing entries to `CHANGELOG.md`. Each entry consists of two lines:
+For each application PR, put notes under `## Release notes` in its description. The primary format is Markdown between `<!-- release-notes:<lang> -->` and `<!-- /release-notes:<lang> -->` markers on separate lines. Language codes are not limited to English and Russian. For example:
 
 ```markdown
-- **EN:** Find saved items faster with the new filter.
-  **RU:** Новый фильтр помогает быстрее находить сохранённые элементы.
+## Release notes
+
+<!-- release-notes:en -->
+### Added
+
+- A new way to browse earlier releases.
+<!-- /release-notes:en -->
+
+<!-- release-notes:ru -->
+### Добавлено
+
+- Появился просмотр предыдущих релизов.
+<!-- /release-notes:ru -->
 ```
 
-Several entries can be added together before a release. Keep both languages concise and describe the outcome for the user, not commits or implementation details. Keep the file append-only: the release workflow compares its contents at consecutive Git tags to assign new entries to each version. A release without new entries fails before building artifacts. Because `master` publishes automatically, add the entries before merging the changes you want to release.
+As an alternative, attach a `release-notes.<lang>.md` file through GitHub and put its generated Markdown link alone inside the matching language block instead of inline text. Links outside `## Release notes` or outside the matching language block are ignored. When both inline text and a file link appear in one block, inline text takes precedence. Use only nonempty sections from Added, Changed, Fixed, and Removed (translated for each language); do not add separators or repeat the version heading. Category headings inside the PR use `###`; the workflow lifts them to `##` in standalone assets. Attached files use `##` directly. Do not commit source notes to the repository. After the PR is merged into `master`, the workflow reads its description and uploads the notes as `release-notes.<lang>.md` assets. The English note, when present, becomes the release description. Missing notes do not block publication: the description is then an English placeholder, and notes can be added to the published release later. A manual workflow run also publishes without PR notes. `latest.json` remains Tauri Updater's version, download URL, and signature manifest; the in-app notes dialog reads GitHub Releases. The application does not bundle a release-note catalog.
 
-`scripts/build-release-notes.mjs <version>` builds a versioned catalog for the application, a bilingual GitHub Release body, and updater `notes` metadata from the newly appended lines. The release workflow runs it after calculating the version, before each platform build, and before publishing the draft. The catalog is bundled with the application, so the post-update window works offline and can include multiple skipped versions. The committed `src/release-notes/generated.json` is an empty development placeholder; CI replaces it in the build copy.
+The Rust core reads published GitHub Releases through the public REST API. For each release it prefers the asset matching the saved application language, then the English asset, then the English release description. The renderer receives Markdown through typed Tauri commands and renders it without raw HTML. The Rust core stores the installed version and any pending update range in `release-notes-state.json` under the application data directory. It keeps the fetched release catalog and content in separate files there; their TTL is configured in `src-tauri/release-notes-config.json` (one hour by default). Expired content is refreshed from GitHub and remains available from the cache when the network is unavailable.
 
-For a manual release build, run the script with the release version before building the app. Keep the generated catalog in that build; it is not a source version bump.
-
-On the first launch of a new installation, the Rust core saves the installed version without showing a window. Migration `0018_release_notes_seen.sql` marks existing installations as eligible for the first release with this feature. On later launches after an update, the app shows all notes newer than the last viewed version after the main interface loads. Closing the window saves the installed version through the Rust core. The notes remain available through **About → Release notes**. In `npm run tauri:dev -- --mock`, a synthetic preview opens at startup and can be reopened from the same location without changing release-note acknowledgement state.
+The first run of this scheme records the installed version without opening a window, because earlier builds did not record the version from which they were updated. On subsequent updates, the app opens the newest note in the update range after the main interface loads. The right arrow moves to an older release within that range; the left arrow returns to a newer one. Closing a successfully loaded window acknowledges the range. If loading fails, the range stays pending for another attempt. **About → Release notes** starts at the latest installed release and uses the same navigation across all available releases. Only the selected note is needed to open either window; the next two older notes are prefetched and further content is fetched as the user navigates. In `npm run tauri:dev -- --mock`, synthetic notes exercise the same UI without changing real update state.
 
 ## Version policy
 
