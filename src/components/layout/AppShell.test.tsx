@@ -12,6 +12,8 @@ describe("AppShell product navigation", () => {
     );
 
     expect(document.querySelector(".app-brand img")).toHaveAttribute("src", "/mework-icon.png");
+    expect(document.querySelector(".sidebar-navigation")).toContainElement(screen.getByRole("link", { name: "About" }));
+    expect(document.querySelector(".sidebar-navigation")).not.toContainElement(document.querySelector(".sidebar-footer"));
     expect(document.querySelectorAll("nav a svg")).toHaveLength(14);
     expect(screen.getByText("Product")).toBeInTheDocument();
     const tokenBurnerLink = screen.getByRole("link", { name: "Model-testing" });
@@ -75,7 +77,7 @@ describe("AppShell product navigation", () => {
       name: "Update 0.2.0 available. Open About mework",
     });
     expect(versionButton).toHaveTextContent("v0.1.9");
-    expect(versionButton.querySelector(".sidebar-update-dot")).toBeInTheDocument();
+    expect(versionButton.querySelector(".sidebar-update-badge")).toHaveTextContent("Update");
     fireEvent.click(versionButton);
     expect(onOpenApplicationInfo).toHaveBeenCalledOnce();
   });

@@ -1,5 +1,7 @@
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
+
+use serde::Serialize;
 
 pub const UPDATE_CHECK_INTERVAL: Duration = Duration::from_secs(24 * 60 * 60);
 pub const UPDATE_CHECK_RETRY_INTERVAL: Duration = Duration::from_secs(60 * 60);
@@ -13,35 +15,133 @@ fn next_update_check_delay(failed: bool) -> Duration {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum UpdateAvailabilityChange {
-    Unchanged,
-    Changed(Option<String>),
+fn current_time_ms() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or(Duration::ZERO)
+        .as_millis()
+        .try_into()
+        .unwrap_or(u64::MAX)
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum UpdateCheckStatus {
+    #[default]
+    Idle,
+    Checking,
+    Current,
+    Available,
+    Error,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateAvailabilitySnapshot {
+    pub available_version: Option<String>,
+    pub last_checked_at: Option<u64>,
+    pub status: UpdateCheckStatus,
+    pub revision: u64,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateCheckTicket {
+    pub check_id: u64,
+    pub snapshot: UpdateAvailabilitySnapshot,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateCheckCompletion {
+    pub accepted: bool,
+    pub snapshot: UpdateAvailabilitySnapshot,
+}
+
+#[derive(Default)]
+struct UpdateAvailabilityInner {
+    generation: u64,
+    revision: u64,
+    snapshot: UpdateAvailabilitySnapshot,
 }
 
 #[derive(Clone, Default)]
-pub struct UpdateAvailabilityState(Arc<Mutex<Option<String>>>);
+pub struct UpdateAvailabilityState(Arc<Mutex<UpdateAvailabilityInner>>);
 
 impl UpdateAvailabilityState {
-    pub fn current_version(&self) -> Option<String> {
-        self.0.lock().ok().and_then(|version| version.clone())
+    pub fn snapshot(&self) -> UpdateAvailabilitySnapshot {
+        self.0
+            .lock()
+            .map(|state| state.snapshot.clone())
+            .unwrap_or_default()
     }
 
-    pub fn apply_check_result(
-        &self,
-        result: Result<Option<String>, ()>,
-    ) -> UpdateAvailabilityChange {
-        let Ok(version) = result else {
-            return UpdateAvailabilityChange::Unchanged;
-        };
-        let Ok(mut current_version) = self.0.lock() else {
-            return UpdateAvailabilityChange::Unchanged;
-        };
-        if *current_version == version {
-            return UpdateAvailabilityChange::Unchanged;
+    pub fn current_version(&self) -> Option<String> {
+        self.snapshot().available_version
+    }
+
+    pub fn begin_check(&self) -> UpdateCheckTicket {
+        match self.0.lock() {
+            Ok(mut state) => {
+                state.generation = state.generation.wrapping_add(1);
+                state.revision = state.revision.wrapping_add(1);
+                state.snapshot.revision = state.revision;
+                state.snapshot.status = UpdateCheckStatus::Checking;
+                UpdateCheckTicket {
+                    check_id: state.generation,
+                    snapshot: state.snapshot.clone(),
+                }
+            }
+            Err(_) => UpdateCheckTicket {
+                check_id: 0,
+                snapshot: UpdateAvailabilitySnapshot::default(),
+            },
         }
-        *current_version = version.clone();
-        UpdateAvailabilityChange::Changed(version)
+    }
+
+    pub fn finish_check(
+        &self,
+        check_id: u64,
+        result: Result<Option<String>, ()>,
+    ) -> UpdateCheckCompletion {
+        self.finish_check_at(check_id, result, current_time_ms())
+    }
+
+    fn finish_check_at(
+        &self,
+        check_id: u64,
+        result: Result<Option<String>, ()>,
+        checked_at: u64,
+    ) -> UpdateCheckCompletion {
+        match self.0.lock() {
+            Ok(mut state) => {
+                let accepted = state.generation == check_id;
+                if accepted {
+                    state.revision = state.revision.wrapping_add(1);
+                    state.snapshot.revision = state.revision;
+                    state.snapshot.last_checked_at = Some(checked_at);
+                    match result {
+                        Ok(version) => {
+                            state.snapshot.status = if version.is_some() {
+                                UpdateCheckStatus::Available
+                            } else {
+                                UpdateCheckStatus::Current
+                            };
+                            state.snapshot.available_version = version;
+                        }
+                        Err(()) => state.snapshot.status = UpdateCheckStatus::Error,
+                    }
+                }
+                UpdateCheckCompletion {
+                    accepted,
+                    snapshot: state.snapshot.clone(),
+                }
+            }
+            Err(_) => UpdateCheckCompletion {
+                accepted: false,
+                snapshot: UpdateAvailabilitySnapshot::default(),
+            },
+        }
     }
 }
 
@@ -54,6 +154,13 @@ pub async fn run_background_update_checks<R: tauri::Runtime>(
     use tauri_plugin_updater::UpdaterExt;
 
     loop {
+        let ticket = state.begin_check();
+        if app
+            .emit("update_availability_changed", ticket.snapshot.clone())
+            .is_err()
+        {
+            eprintln!("Failed to publish update check status");
+        }
         let result = match app.updater_builder().timeout(UPDATE_CHECK_TIMEOUT).build() {
             Ok(updater) => updater
                 .check()
@@ -66,10 +173,13 @@ pub async fn run_background_update_checks<R: tauri::Runtime>(
         if retry_after_failure {
             eprintln!("Background update check failed; preserving the last known availability");
         }
-        if let UpdateAvailabilityChange::Changed(version) = state.apply_check_result(result) {
-            if app.emit("update_availability_changed", version).is_err() {
-                eprintln!("Failed to publish update availability state");
-            }
+        let completion = state.finish_check(ticket.check_id, result);
+        if completion.accepted
+            && app
+                .emit("update_availability_changed", completion.snapshot)
+                .is_err()
+        {
+            eprintln!("Failed to publish update availability state");
         }
         tokio::time::sleep(next_update_check_delay(retry_after_failure)).await;
     }
@@ -79,37 +189,50 @@ pub async fn run_background_update_checks<R: tauri::Runtime>(
 mod tests {
     use std::time::Duration;
 
-    use super::{UpdateAvailabilityChange, UpdateAvailabilityState, UPDATE_CHECK_INTERVAL};
+    use super::{
+        next_update_check_delay, UpdateAvailabilityState, UpdateCheckStatus, UPDATE_CHECK_INTERVAL,
+        UPDATE_CHECK_RETRY_INTERVAL,
+    };
 
     #[test]
-    fn publishes_only_availability_changes_on_the_daily_schedule() {
+    fn records_startup_check_status_version_and_timestamp() {
         let state = UpdateAvailabilityState::default();
 
-        assert_eq!(UPDATE_CHECK_INTERVAL, Duration::from_secs(24 * 60 * 60));
+        let stale_check = state.begin_check();
+        let latest_check = state.begin_check();
+        assert_eq!(latest_check.snapshot.status, UpdateCheckStatus::Checking);
+
+        let stale_completion =
+            state.finish_check_at(stale_check.check_id, Ok(Some("0.1.0".to_owned())), 1234);
+        assert!(!stale_completion.accepted);
         assert_eq!(
-            state.apply_check_result(Ok(Some("0.2.0".to_owned()))),
-            UpdateAvailabilityChange::Changed(Some("0.2.0".to_owned())),
+            stale_completion.snapshot.status,
+            UpdateCheckStatus::Checking
         );
+        assert_eq!(stale_completion.snapshot.last_checked_at, None);
         assert_eq!(
-            state.apply_check_result(Ok(Some("0.2.0".to_owned()))),
-            UpdateAvailabilityChange::Unchanged,
+            stale_completion.snapshot.revision,
+            latest_check.snapshot.revision
         );
+
+        let completion =
+            state.finish_check_at(latest_check.check_id, Ok(Some("0.2.0".to_owned())), 5678);
+        assert!(completion.accepted);
+        assert_eq!(
+            completion.snapshot.available_version,
+            Some("0.2.0".to_owned())
+        );
+        assert_eq!(completion.snapshot.last_checked_at, Some(5678));
+        assert_eq!(completion.snapshot.status, UpdateCheckStatus::Available);
+        assert!(completion.snapshot.revision > latest_check.snapshot.revision);
         assert_eq!(state.current_version(), Some("0.2.0".to_owned()));
-        assert_eq!(
-            state.apply_check_result(Ok(None)),
-            UpdateAvailabilityChange::Changed(None),
-        );
     }
 
     #[test]
     fn retries_failed_checks_after_an_hour_but_keeps_successful_checks_daily() {
-        use super::{next_update_check_delay, UPDATE_CHECK_RETRY_INTERVAL};
-
-        assert_eq!(next_update_check_delay(true), Duration::from_secs(60 * 60),);
-        assert_eq!(UPDATE_CHECK_RETRY_INTERVAL, Duration::from_secs(60 * 60),);
-        assert_eq!(
-            next_update_check_delay(false),
-            Duration::from_secs(24 * 60 * 60),
-        );
+        assert_eq!(UPDATE_CHECK_INTERVAL, Duration::from_secs(24 * 60 * 60));
+        assert_eq!(UPDATE_CHECK_RETRY_INTERVAL, Duration::from_secs(60 * 60));
+        assert_eq!(next_update_check_delay(true), UPDATE_CHECK_RETRY_INTERVAL);
+        assert_eq!(next_update_check_delay(false), UPDATE_CHECK_INTERVAL);
     }
 }

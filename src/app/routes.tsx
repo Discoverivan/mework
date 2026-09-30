@@ -1,3 +1,5 @@
+import type { Update } from "@tauri-apps/plugin-updater";
+import type { UpdateAvailabilitySnapshot } from "@/shared/contracts/updates";
 import { IntegrationDependencyGate } from "../features/data-integrations/IntegrationDependencyGate";
 import { CreateTaskPage } from "../features/product/CreateTaskPage";
 import { TaskTrackerPage } from "../features/product/TaskTrackerPage";
@@ -34,9 +36,21 @@ interface AppRoutesProps {
   mockMode?: boolean;
   modelTestingEnabled?: boolean;
   version?: string;
+  availableUpdate?: Update | null;
+  updateAvailability?: UpdateAvailabilitySnapshot;
+  onAvailableUpdateChange?: (update: Update | null) => void;
 }
 
-export function AppRoutes({ route, updateCheckRequest = 0, mockMode = false, modelTestingEnabled = false, version }: AppRoutesProps) {
+export function AppRoutes({
+  route,
+  updateCheckRequest = 0,
+  mockMode = false,
+  modelTestingEnabled = false,
+  version,
+  availableUpdate,
+  updateAvailability,
+  onAvailableUpdateChange,
+}: AppRoutesProps) {
   if (mockMode) {
     if (route === "product-task-tracker") return <TaskTrackerPage mockMode />;
     if (route === "developer-pull-requests") return <MyPullRequestsPage />;
@@ -100,7 +114,16 @@ export function AppRoutes({ route, updateCheckRequest = 0, mockMode = false, mod
   if (route === "developer-model-testing") {
     return modelTestingEnabled ? <TokenBurnerPage /> : <SettingsPage section="general" />;
   }
-  if (route === "settings-application-info") return <ApplicationInfoPage version={version} updateCheckRequest={updateCheckRequest} mockMode={mockMode} />;
+  if (route === "settings-application-info") return (
+    <ApplicationInfoPage
+      version={version}
+      updateCheckRequest={updateCheckRequest}
+      availableUpdate={availableUpdate}
+      updateAvailability={updateAvailability}
+      onAvailableUpdateChange={onAvailableUpdateChange}
+      mockMode={mockMode}
+    />
+  );
   if (route === "settings-statistics") return <StatisticsPage />;
   if (route === "settings-general" || route === "settings-ai" || route === "settings-integrations" || route === "settings-projects") {
     const section = route === "settings-general" ? "general" : route === "settings-ai" ? "ai" : route === "settings-projects" ? "projects" : "integrations";

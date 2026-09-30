@@ -5,7 +5,7 @@ import { ApplicationInfoPage } from "../ApplicationInfoPage";
 import { APP_EVENT, subscribeAppEvent } from "@/app/app-events";
 import { I18nProvider } from "@/i18n/I18nProvider";
 
-const { generalSettingsMock, commandBoardTerminalPreferencesMock, saveCommandBoardTerminalPreferenceMock, openNotificationSettingsMock, requestNotificationPermissionMock, saveAppearanceSettingsMock, saveButtonStyleMock, saveGeneralSettingsMock, sendNotificationTestMock, updaterCheckMock, installAvailableUpdateMock, openUrlMock } = vi.hoisted(() => ({
+const { generalSettingsMock, commandBoardTerminalPreferencesMock, saveCommandBoardTerminalPreferenceMock, openNotificationSettingsMock, requestNotificationPermissionMock, saveAppearanceSettingsMock, saveButtonStyleMock, saveGeneralSettingsMock, sendNotificationTestMock, updaterCheckMock, installAvailableUpdateMock, openUrlMock, beginUpdateCheckMock, recordUpdateCheckResultMock } = vi.hoisted(() => ({
   generalSettingsMock: vi.fn(),
   commandBoardTerminalPreferencesMock: vi.fn(),
   saveCommandBoardTerminalPreferenceMock: vi.fn(),
@@ -18,9 +18,16 @@ const { generalSettingsMock, commandBoardTerminalPreferencesMock, saveCommandBoa
   updaterCheckMock: vi.fn(),
   installAvailableUpdateMock: vi.fn(),
   openUrlMock: vi.fn(),
+  beginUpdateCheckMock: vi.fn().mockResolvedValue({ checkId: 1, snapshot: { availableVersion: null, lastCheckedAt: null, status: "checking", revision: 1 } }),
+  recordUpdateCheckResultMock: vi.fn(),
 }));
 
 vi.mock("@tauri-apps/plugin-updater", () => ({ check: updaterCheckMock }));
+vi.mock("@/components/shared/update-check", () => ({
+  checkForAvailableUpdate: () => updaterCheckMock({ timeout: 10_000 }),
+  beginUpdateCheck: beginUpdateCheckMock,
+  recordUpdateCheckResult: recordUpdateCheckResultMock,
+}));
 vi.mock("@tauri-apps/plugin-opener", () => ({ openUrl: openUrlMock }));
 
 vi.mock("./api", () => ({
@@ -60,6 +67,18 @@ describe("GeneralSettingsPage", () => {
       notificationPermission: "denied",
     };
     generalSettingsMock.mockResolvedValue(initialSettings);
+    beginUpdateCheckMock.mockReset();
+    beginUpdateCheckMock.mockResolvedValue({ checkId: 1, snapshot: { availableVersion: null, lastCheckedAt: null, status: "checking", revision: 1 } });
+    recordUpdateCheckResultMock.mockReset();
+    recordUpdateCheckResultMock.mockImplementation(async (_checkId: number, availableVersion: string | null, succeeded: boolean) => ({
+      accepted: true,
+      snapshot: {
+        availableVersion: succeeded ? availableVersion : null,
+        lastCheckedAt: Date.now(),
+        status: succeeded ? availableVersion ? "available" : "current" : "error",
+        revision: _checkId + 1,
+      },
+    }));
     const terminalPreferences = {
       selectedTerminal: "system",
       options: [
@@ -265,7 +284,7 @@ describe("GeneralSettingsPage", () => {
     })));
   });
 
-  it("offers a stable install action when a newer application version is available", async () => {
+  it("shows update details and a single install action when a newer version is available", async () => {
     const update = {
       version: "0.1.5",
       body: "Release notes should not be rendered here.",
@@ -276,33 +295,55 @@ describe("GeneralSettingsPage", () => {
 
     try {
       render(<ApplicationInfoPage version="0.1.0" />);
-      expect(screen.getByRole("heading", { name: "Version" })).toBeInTheDocument();
-      const releasesButton = screen.getByRole("button", { name: "GitHub releases" });
-      expect(releasesButton).toHaveAttribute("title", "GitHub releases");
-      expect(releasesButton).not.toHaveTextContent("GitHub releases");
-      expect(releasesButton.querySelector("svg.lucide-external-link")).not.toBeNull();
-      expect(screen.getByText("v0.1.0").parentElement?.parentElement).toContainElement(releasesButton);
-      fireEvent.click(releasesButton);
-      expect(openUrlMock).toHaveBeenCalledWith("https://github.com/Discoverivan/mework/releases");
+      expect(screen.getByRole("heading", { name: "mework" })).toBeInTheDocument();
+      expect(screen.getByText("0.1.0")).toHaveClass("application-info-version");
+      expect(screen.queryByText("Application mework")).not.toBeInTheDocument();
+      const releasesButton = screen.getByRole("button", { name: "Release notes" });
+      const githubButton = screen.getByRole("button", { name: "View on GitHub" });
+      expect(screen.getByRole("button", { name: "Check for updates" })).toBeInTheDocument();
+      fireEvent.click(githubButton);
+      expect(openUrlMock).toHaveBeenCalledWith("https://github.com/Discoverivan/mework");
 
-      fireEvent.click(await screen.findByRole("button", { name: "Check for updates" }));
-      const updateButton = await screen.findByRole("button", { name: "Update to 0.1.5" });
-      expect(screen.getByText("New version 0.1.5 found")).toBeInTheDocument();
-      expect(screen.queryByText("mework 0.1.5 is available.")).not.toBeInTheDocument();
-      await waitFor(() => expect(updateAvailabilityListener).toHaveBeenCalledWith("0.1.5"));
-
-      expect(updateButton).toHaveAttribute("title", "Update to 0.1.5");
-      expect(updateButton).not.toHaveTextContent("Update to 0.1.5");
-      expect(updateButton.querySelector("svg.lucide-download")).not.toBeNull();
+      fireEvent.click(screen.getByRole("button", { name: "Check for updates" }));
+      const installButton = await screen.findByRole("button", { name: "Download & Install" });
+      expect(screen.getByText("New version 0.1.5 is available")).toBeInTheDocument();
+      expect(screen.queryByText("An update is available")).not.toBeInTheDocument();
       const checkButton = screen.getByRole("button", { name: "Check for updates" });
-      expect(updateButton.parentElement).toContainElement(checkButton);
-      expect(updateButton.parentElement).toContainElement(releasesButton);
-      expect(updateButton.nextElementSibling).toBe(checkButton);
-      fireEvent.click(updateButton);
+      expect(checkButton).not.toHaveTextContent("Check for updates");
+      expect(checkButton.querySelector("svg.lucide-refresh-cw")).not.toBeNull();
+      expect(screen.getByRole("button", { name: "View release notes" })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Release notes" })).toBe(releasesButton);
+      expect(await screen.findByText(/^Last checked: today,/)).toBeInTheDocument();
+      await waitFor(() => expect(updateAvailabilityListener).toHaveBeenCalledWith(expect.objectContaining({
+        availableVersion: "0.1.5",
+        status: "available",
+        lastCheckedAt: expect.any(Number),
+        revision: 2,
+      })));
+      expect(beginUpdateCheckMock).toHaveBeenCalledOnce();
+      expect(recordUpdateCheckResultMock).toHaveBeenCalledWith(1, "0.1.5", true);
+
+      const updateBanner = installButton.closest(".application-update-banner");
+      expect(updateBanner).toContainElement(screen.getByRole("button", { name: "View release notes" }));
+      expect(updateBanner).toContainElement(installButton);
+      expect(screen.getAllByRole("button", { name: "Download & Install" })).toHaveLength(1);
+      fireEvent.click(installButton);
       await waitFor(() => expect(installAvailableUpdateMock).toHaveBeenCalledWith(update));
     } finally {
       unsubscribe();
     }
+  });
+
+  it("shows the development build with a placeholder version badge", () => {
+    render(<ApplicationInfoPage version="dev" />);
+    expect(screen.getByRole("heading", { name: "mework-dev" })).toBeInTheDocument();
+    expect(screen.getByText("0.0.0")).toHaveClass("application-info-version");
+  });
+
+  it("uses the placeholder version badge in mock mode", () => {
+    render(<ApplicationInfoPage version="0.2.38" mockMode />);
+    expect(screen.getByRole("heading", { name: "mework-dev" })).toBeInTheDocument();
+    expect(screen.getByText("0.0.0")).toHaveClass("application-info-version");
   });
 
   it("checks immediately when About mework is opened from the version indicator", async () => {
@@ -311,30 +352,27 @@ describe("GeneralSettingsPage", () => {
     page.rerender(<ApplicationInfoPage updateCheckRequest={1} />);
 
     await waitFor(() => expect(updaterCheckMock).toHaveBeenCalledOnce());
-    expect(screen.getByText("New version 0.1.5 found")).toBeInTheDocument();
+    expect(screen.getByText("New version 0.1.5 is available")).toBeInTheDocument();
   });
 
   it("checks for application updates and reports when the app is current", async () => {
     render(<ApplicationInfoPage />);
 
     const button = await screen.findByRole("button", { name: "Check for updates" });
-    expect(button).toHaveAttribute("title", "Check for updates");
     expect(button).not.toHaveTextContent("Check for updates");
     expect(button.querySelector("svg.lucide-refresh-cw")).not.toBeNull();
     fireEvent.click(button);
     await waitFor(() => expect(updaterCheckMock).toHaveBeenCalledWith({ timeout: 10_000 }));
-    const currentStatus = (await screen.findByText("You're up to date.")).closest('[role="status"]');
-    expect(currentStatus).toHaveClass("fixed");
+    expect(await screen.findByText("You're up to date.")).toBeInTheDocument();
+    expect(await screen.findByText(/^Last checked: today,/)).toBeInTheDocument();
   });
 
-  it("reports an update-check failure in a temporary toast", async () => {
+  it("shows an update-check failure in the application status", async () => {
     updaterCheckMock.mockRejectedValue(new Error("temporary updater failure"));
     render(<ApplicationInfoPage />);
 
     fireEvent.click(await screen.findByRole("button", { name: "Check for updates" }));
 
-    const errorToast = (await screen.findByText("Unable to check for updates.")).closest('[role="alert"]');
-    if (!errorToast) throw new Error("Expected update error toast");
-    expect(errorToast).toHaveClass("fixed");
+    expect(await screen.findByText("Unable to check for updates.")).toBeInTheDocument();
   });
 });
