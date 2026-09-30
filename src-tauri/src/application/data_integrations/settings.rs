@@ -553,7 +553,7 @@ mod tests {
     use std::sync::atomic::{AtomicUsize, Ordering};
 
     use super::check_with_one_retry;
-    use crate::application::integrations::health::{
+    use crate::application::data_integrations::health::{
         HealthCheckFuture, HealthCheckResult, IntegrationHealthChecker,
     };
     use crate::domain::models::{IntegrationHealthStatus, IntegrationKind};

@@ -1,17 +1,13 @@
+use super::ai_providers::cli;
+pub use cli::{ai_cli_candidate_diagnostics, AiCliCandidateDiagnostic};
+
 use std::{
-    env,
-    ffi::OsStr,
     fs,
-    io::{BufRead, BufReader, Write},
+    io::Write,
     path::{Path, PathBuf},
-    process::{ChildStdin, Command, Stdio},
-    sync::{mpsc, OnceLock},
-    thread,
+    sync::OnceLock,
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
-
-#[cfg(target_os = "windows")]
-use std::os::windows::process::CommandExt;
 
 use reqwest::header::HeaderMap;
 use serde::{Deserialize, Serialize};
@@ -33,22 +29,6 @@ const OPENAI_COMPATIBLE_SETTINGS_SCHEMA_VERSION: i64 = 1;
 const OPENAI_COMPATIBLE_CREDENTIAL_REF: &str = "ai-openai-compatible";
 const OPENAI_INSTANCES_KEY: &str = "ai.openai-compatible.instances";
 const ADDED_CLI_PROVIDERS_KEY: &str = "ai.providers.added";
-
-#[cfg(target_os = "windows")]
-const CREATE_NO_WINDOW: u32 = 0x08000000;
-
-pub(crate) fn codex_command(path: impl AsRef<OsStr>) -> Command {
-    local_cli_command(path)
-}
-
-pub(crate) fn local_cli_command(path: impl AsRef<OsStr>) -> Command {
-    let command = Command::new(path);
-    #[cfg(target_os = "windows")]
-    let mut command = command;
-    #[cfg(target_os = "windows")]
-    command.creation_flags(CREATE_NO_WINDOW);
-    command
-}
 
 const AI_KEYRING_SERVICE: &str = if cfg!(debug_assertions) {
     DEV_KEYRING_SERVICE
@@ -89,6 +69,7 @@ pub struct OpenAiCompatibleProviderSaveRequest {
 pub enum AiProviderId {
     CodexCli,
     ClaudeCodeCli,
+    HermesCli,
     #[serde(rename = "openai-compatible")]
     OpenAiCompatible,
 }
@@ -204,7 +185,11 @@ pub struct AiSettingsPageDto {
 }
 
 pub async fn initialize_mock_cli_providers(pool: &SqlitePool) -> Result<(), String> {
-    let cli_providers = [AiProviderId::CodexCli, AiProviderId::ClaudeCodeCli];
+    let cli_providers = [
+        AiProviderId::CodexCli,
+        AiProviderId::ClaudeCodeCli,
+        AiProviderId::HermesCli,
+    ];
     let providers_json = serde_json::to_string(&cli_providers)
         .map_err(|_| "failed to initialize mock AI providers".to_owned())?;
     repositories::upsert_setting(pool, ADDED_CLI_PROVIDERS_KEY, &providers_json, 1)
@@ -226,16 +211,20 @@ pub async fn initialize_mock_cli_providers(pool: &SqlitePool) -> Result<(), Stri
 }
 
 fn default_mock_ai_settings(providers: &[AiProviderDto]) -> AiSettings {
-    let selected = [AiProviderId::CodexCli, AiProviderId::ClaudeCodeCli]
-        .into_iter()
-        .find_map(|id| {
-            providers.iter().find(|provider| {
-                provider.id == id
-                    && provider.available
-                    && provider.status == AiProviderStatus::Connected
-                    && !provider.models.is_empty()
-            })
-        });
+    let selected = [
+        AiProviderId::CodexCli,
+        AiProviderId::ClaudeCodeCli,
+        AiProviderId::HermesCli,
+    ]
+    .into_iter()
+    .find_map(|id| {
+        providers.iter().find(|provider| {
+            provider.id == id
+                && provider.available
+                && provider.status == AiProviderStatus::Connected
+                && !provider.models.is_empty()
+        })
+    });
     let mut settings = AiSettings::default();
     if let Some(provider) = selected {
         settings.provider = Some(provider.id);
@@ -341,45 +330,39 @@ pub async fn dto(pool: &SqlitePool) -> Result<AiSettingsPageDto, String> {
     let configs = load_openai_configs(pool).await?;
     let mut providers = Vec::new();
     let added_cli = load_added_cli_providers(pool).await?;
-    let show_codex = added_cli.contains(&AiProviderId::CodexCli)
-        || settings.provider == Some(AiProviderId::CodexCli)
-        || settings
-            .task_creation
-            .as_ref()
-            .is_some_and(|profile| profile.provider == AiProviderId::CodexCli)
-        || settings
-            .pull_request_review
-            .as_ref()
-            .is_some_and(|profile| profile.provider == AiProviderId::CodexCli)
-        || settings
-            .token_burner
-            .as_ref()
-            .is_some_and(|profile| profile.provider == AiProviderId::CodexCli);
-    let show_claude = added_cli.contains(&AiProviderId::ClaudeCodeCli)
-        || settings.provider == Some(AiProviderId::ClaudeCodeCli)
-        || settings
-            .task_creation
-            .as_ref()
-            .is_some_and(|profile| profile.provider == AiProviderId::ClaudeCodeCli)
-        || settings
-            .pull_request_review
-            .as_ref()
-            .is_some_and(|profile| profile.provider == AiProviderId::ClaudeCodeCli)
-        || settings
-            .token_burner
-            .as_ref()
-            .is_some_and(|profile| profile.provider == AiProviderId::ClaudeCodeCli);
-    let (codex, claude) = tokio::join!(
+    let show_cli = |id| {
+        added_cli.contains(&id)
+            || settings.provider == Some(id)
+            || [
+                &settings.task_creation,
+                &settings.pull_request_review,
+                &settings.token_burner,
+            ]
+            .into_iter()
+            .any(|profile| {
+                profile
+                    .as_ref()
+                    .is_some_and(|profile| profile.provider == id)
+            })
+    };
+    let (codex, claude, hermes) = tokio::join!(
         async {
-            if show_codex {
-                Some(tokio::task::spawn_blocking(inspect_codex_cli).await)
+            if show_cli(AiProviderId::CodexCli) {
+                Some(tokio::task::spawn_blocking(cli::codex::inspect_codex_cli).await)
             } else {
                 None
             }
         },
         async {
-            if show_claude {
-                Some(tokio::task::spawn_blocking(crate::application::claude_code::inspect).await)
+            if show_cli(AiProviderId::ClaudeCodeCli) {
+                Some(tokio::task::spawn_blocking(cli::claude_code::inspect).await)
+            } else {
+                None
+            }
+        },
+        async {
+            if show_cli(AiProviderId::HermesCli) {
+                Some(tokio::task::spawn_blocking(cli::hermes_cli::inspect).await)
             } else {
                 None
             }
@@ -390,6 +373,9 @@ pub async fn dto(pool: &SqlitePool) -> Result<AiSettingsPageDto, String> {
     }
     if let Some(result) = claude {
         providers.push(result.map_err(|_| "failed to inspect Claude Code CLI".to_owned())?);
+    }
+    if let Some(result) = hermes {
+        providers.push(result.map_err(|_| "failed to inspect Hermes CLI".to_owned())?);
     }
     for config in configs {
         providers.push(inspect_openai_compatible(config).await);
@@ -439,14 +425,15 @@ pub async fn add_cli_provider(
 
 pub async fn inspect_cli_candidate(provider: AiProviderId) -> Result<AiProviderDto, String> {
     match provider {
-        AiProviderId::CodexCli => tokio::task::spawn_blocking(inspect_codex_cli)
+        AiProviderId::CodexCli => tokio::task::spawn_blocking(cli::codex::inspect_codex_cli)
             .await
             .map_err(|_| "failed to inspect Codex CLI".to_owned()),
-        AiProviderId::ClaudeCodeCli => {
-            tokio::task::spawn_blocking(crate::application::claude_code::inspect)
-                .await
-                .map_err(|_| "failed to inspect Claude Code CLI".to_owned())
-        }
+        AiProviderId::ClaudeCodeCli => tokio::task::spawn_blocking(cli::claude_code::inspect)
+            .await
+            .map_err(|_| "failed to inspect Claude Code CLI".to_owned()),
+        AiProviderId::HermesCli => tokio::task::spawn_blocking(cli::hermes_cli::inspect)
+            .await
+            .map_err(|_| "failed to inspect Hermes CLI".to_owned()),
         AiProviderId::OpenAiCompatible => Err("Select a CLI provider".to_owned()),
     }
 }
@@ -635,541 +622,6 @@ fn validate_selected_settings(
         );
     }
     Ok(())
-}
-
-pub fn inspect_codex_cli() -> AiProviderDto {
-    let Some(path) = resolve_codex_binary_with_startup_retry() else {
-        return AiProviderDto {
-            id: AiProviderId::CodexCli,
-            instance_id: None,
-            name: "Codex CLI".to_owned(),
-            status: AiProviderStatus::NotFound,
-            available: false,
-            models: Vec::new(),
-            executable_path: None,
-            version: None,
-            base_url: None,
-            allow_insecure_tls: None,
-            message: Some("Codex CLI was not found on this computer".to_owned()),
-        };
-    };
-
-    let version_output = codex_command(&path).arg("--version").output();
-    let Ok(version_output) = version_output else {
-        return unavailable_provider(path, Vec::new(), "Codex CLI could not be started");
-    };
-    if !version_output.status.success() {
-        return unavailable_provider(path, Vec::new(), "Codex CLI is installed but unavailable");
-    }
-    let version =
-        safe_first_line(&version_output.stdout).or_else(|| safe_first_line(&version_output.stderr));
-
-    let login_output = codex_command(&path).args(["login", "status"]).output();
-    let Ok(login_output) = login_output else {
-        return AiProviderDto {
-            id: AiProviderId::CodexCli,
-            instance_id: None,
-            name: "Codex CLI".to_owned(),
-            status: AiProviderStatus::Unavailable,
-            available: false,
-            models: Vec::new(),
-            executable_path: Some(path.display().to_string()),
-            version,
-            base_url: None,
-            allow_insecure_tls: None,
-            message: Some("Codex CLI login status could not be checked".to_owned()),
-        };
-    };
-    let login_text = format!(
-        "{} {}",
-        String::from_utf8_lossy(&login_output.stdout),
-        String::from_utf8_lossy(&login_output.stderr)
-    );
-    if login_output.status.success() && login_text.to_ascii_lowercase().contains("logged in") {
-        let Some(models) = query_codex_models(&path) else {
-            return unavailable_provider(
-                path,
-                Vec::new(),
-                "Codex CLI is signed in, but its model catalog could not be loaded",
-            );
-        };
-        return AiProviderDto {
-            id: AiProviderId::CodexCli,
-            instance_id: None,
-            name: "Codex CLI".to_owned(),
-            status: AiProviderStatus::Connected,
-            available: true,
-            models,
-            executable_path: Some(path.display().to_string()),
-            version,
-            base_url: None,
-            allow_insecure_tls: None,
-            message: None,
-        };
-    }
-
-    AiProviderDto {
-        id: AiProviderId::CodexCli,
-        instance_id: None,
-        name: "Codex CLI".to_owned(),
-        status: AiProviderStatus::NotAuthenticated,
-        available: false,
-        models: Vec::new(),
-        executable_path: Some(path.display().to_string()),
-        version,
-        base_url: None,
-        allow_insecure_tls: None,
-        message: Some("Codex CLI is installed, but it is not signed in".to_owned()),
-    }
-}
-
-fn resolve_codex_binary_with_startup_retry() -> Option<PathBuf> {
-    resolve_codex_binary_with_retry(resolve_codex_binary, &[100, 400])
-}
-
-fn resolve_codex_binary_with_retry(
-    mut resolve: impl FnMut() -> Option<PathBuf>,
-    delays_ms: &[u64],
-) -> Option<PathBuf> {
-    if let Some(path) = resolve() {
-        return Some(path);
-    }
-    for delay_ms in delays_ms {
-        thread::sleep(Duration::from_millis(*delay_ms));
-        if let Some(path) = resolve() {
-            return Some(path);
-        }
-    }
-    None
-}
-
-pub fn available_codex_models() -> Vec<String> {
-    let Some(path) = resolve_codex_binary() else {
-        return Vec::new();
-    };
-    query_codex_models(&path).unwrap_or_default()
-}
-
-fn query_codex_models(path: &Path) -> Option<Vec<String>> {
-    query_codex_models_with_timeout(path, Duration::from_secs(5))
-}
-
-fn query_codex_models_with_timeout(path: &Path, timeout: Duration) -> Option<Vec<String>> {
-    let mut child = codex_command(path)
-        .args(["app-server", "--stdio"])
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::null())
-        .spawn()
-        .ok()?;
-    let mut stdin = child.stdin.take()?;
-    let stdout = child.stdout.take()?;
-    let requests_written = (|| {
-        write_app_server_message(
-            &mut stdin,
-            &serde_json::json!({
-                "id": 1,
-                "method": "initialize",
-                "params": {
-                    "clientInfo": {
-                        "name": "mework",
-                        "title": "mework",
-                        "version": env!("CARGO_PKG_VERSION")
-                    },
-                    "capabilities": {"experimentalApi": true}
-                }
-            }),
-        )?;
-        write_app_server_message(
-            &mut stdin,
-            &serde_json::json!({"method": "initialized", "params": {}}),
-        )?;
-        write_app_server_message(
-            &mut stdin,
-            &serde_json::json!({
-                "id": 2,
-                "method": "model/list",
-                "params": {"includeHidden": false, "limit": 1000}
-            }),
-        )
-    })();
-
-    let result = if requests_written.is_some() {
-        let (sender, receiver) = mpsc::channel();
-        let reader_handle = thread::spawn(move || {
-            let mut reader = BufReader::new(stdout);
-            let mut line = String::new();
-            loop {
-                line.clear();
-                let Ok(bytes_read) = reader.read_line(&mut line) else {
-                    return;
-                };
-                if bytes_read == 0 {
-                    return;
-                }
-                let Ok(message) = serde_json::from_str::<serde_json::Value>(line.trim()) else {
-                    continue;
-                };
-                if message.get("id").and_then(serde_json::Value::as_u64) == Some(2) {
-                    let _ = sender.send(parse_codex_model_list_response(&message));
-                    return;
-                }
-            }
-        });
-        let result = receiver.recv_timeout(timeout).ok().flatten();
-        drop(stdin);
-        let _ = child.kill();
-        let _ = child.wait();
-        let _ = reader_handle.join();
-        result
-    } else {
-        drop(stdin);
-        let _ = child.kill();
-        let _ = child.wait();
-        None
-    };
-    result
-}
-
-fn write_app_server_message(stdin: &mut ChildStdin, message: &serde_json::Value) -> Option<()> {
-    serde_json::to_writer(&mut *stdin, message).ok()?;
-    stdin.write_all(b"\n").ok()?;
-    stdin.flush().ok()
-}
-
-pub fn parse_codex_model_list_response(value: &serde_json::Value) -> Option<Vec<String>> {
-    let entries = value.get("result")?.get("data")?.as_array()?;
-    let mut models = Vec::new();
-    for entry in entries {
-        if entry
-            .get("hidden")
-            .and_then(serde_json::Value::as_bool)
-            .unwrap_or(false)
-        {
-            continue;
-        }
-        let model = entry
-            .get("model")
-            .and_then(serde_json::Value::as_str)
-            .or_else(|| entry.get("id").and_then(serde_json::Value::as_str))
-            .map(str::trim)
-            .filter(|model| {
-                !model.is_empty() && model.len() <= 200 && !model.chars().any(char::is_control)
-            });
-        let Some(model) = model else {
-            continue;
-        };
-        if !models.iter().any(|known| known == model) {
-            models.push(model.to_owned());
-        }
-    }
-    Some(models)
-}
-
-pub fn resolve_codex_binary() -> Option<PathBuf> {
-    if let Some(configured) = env::var_os("MEWORK_CODEX_BIN") {
-        let path = PathBuf::from(configured);
-        if let Some(path) = usable_cli_path(&path) {
-            return Some(path);
-        }
-    }
-    let windows = cfg!(target_os = "windows");
-    if let Some(path) = env::var_os("PATH") {
-        for entry in env::split_paths(&path) {
-            for executable in codex_executable_names(windows) {
-                let candidate = entry.join(executable);
-                if let Some(path) = usable_cli_path(&candidate) {
-                    return Some(path);
-                }
-            }
-        }
-    }
-    let candidates = codex_install_paths(
-        env::var_os("HOME").map(PathBuf::from),
-        env::var_os("LOCALAPPDATA").map(PathBuf::from),
-        env::var_os("USERPROFILE").map(PathBuf::from),
-        windows,
-    );
-    #[cfg(windows)]
-    let candidates = candidates
-        .into_iter()
-        .chain(windows_codex_install_paths())
-        .collect::<Vec<_>>();
-    candidates
-        .into_iter()
-        .find_map(|path| usable_cli_path(&path))
-}
-
-pub(crate) fn usable_cli_path(path: &Path) -> Option<PathBuf> {
-    if path.is_file() {
-        return Some(path.to_path_buf());
-    }
-    #[cfg(windows)]
-    {
-        // An updater-launched process can have EnforceRedirectionTrust enabled.
-        // Windows then rejects a CLI behind a user junction with error 448.
-        // Resolve the junctions explicitly and execute the concrete file.
-        match fs::File::open(path) {
-            Ok(_) => return Some(path.to_path_buf()),
-            Err(error) if error.raw_os_error() == Some(448) => {}
-            Err(_) => return None,
-        }
-        let resolved = resolve_windows_cli_junctions(path, |part| fs::read_link(part))?;
-        resolved.is_file().then_some(resolved)
-    }
-    #[cfg(not(windows))]
-    None
-}
-
-#[cfg(windows)]
-fn resolve_windows_cli_junctions(
-    path: &Path,
-    read_link: impl Fn(&Path) -> std::io::Result<PathBuf>,
-) -> Option<PathBuf> {
-    let mut resolved = path.to_path_buf();
-    for _ in 0..8 {
-        let junction = resolved
-            .ancestors()
-            .collect::<Vec<_>>()
-            .into_iter()
-            .rev()
-            .find_map(|ancestor| read_link(ancestor).ok().map(|target| (ancestor, target)));
-        let Some((ancestor, target)) = junction else {
-            return Some(resolved);
-        };
-        let suffix = resolved.strip_prefix(ancestor).ok()?;
-        resolved = if target.is_absolute() {
-            target.join(suffix)
-        } else {
-            ancestor.parent()?.join(target).join(suffix)
-        };
-    }
-    None
-}
-
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct AiCliCandidateDiagnostic {
-    provider: AiProviderId,
-    source: String,
-    metadata_is_file: bool,
-    metadata_error_code: Option<i32>,
-    can_open: bool,
-    open_error_code: Option<i32>,
-}
-
-pub fn ai_cli_candidate_diagnostics() -> Vec<AiCliCandidateDiagnostic> {
-    let mut candidates: Vec<(AiProviderId, String, PathBuf)> = Vec::new();
-    for (provider, override_key) in [
-        (AiProviderId::CodexCli, "MEWORK_CODEX_BIN"),
-        (AiProviderId::ClaudeCodeCli, "MEWORK_CLAUDE_BIN"),
-    ] {
-        if let Some(path) = env::var_os(override_key) {
-            candidates.push((provider, override_key.to_owned(), PathBuf::from(path)));
-        }
-    }
-    if let Some(path) = env::var_os("PATH") {
-        for (index, entry) in env::split_paths(&path).enumerate() {
-            for (provider, names) in [
-                (
-                    AiProviderId::CodexCli,
-                    codex_executable_names(cfg!(windows)),
-                ),
-                (
-                    AiProviderId::ClaudeCodeCli,
-                    crate::application::claude_code::executable_names(),
-                ),
-            ] {
-                for name in names {
-                    candidates.push((provider, format!("PATH[{index}]/{name}"), entry.join(name)));
-                }
-            }
-        }
-    }
-    #[cfg(windows)]
-    {
-        if let Some(root) = env::var_os("LOCALAPPDATA") {
-            candidates.push((
-                AiProviderId::CodexCli,
-                "LOCALAPPDATA".to_owned(),
-                PathBuf::from(root).join("Programs/OpenAI/Codex/bin/codex.exe"),
-            ));
-        }
-        if let Some(root) = env::var_os("USERPROFILE") {
-            candidates.push((
-                AiProviderId::CodexCli,
-                "USERPROFILE".to_owned(),
-                PathBuf::from(root).join("AppData/Local/Programs/OpenAI/Codex/bin/codex.exe"),
-            ));
-        } else if let Some(root) = env::var_os("HOME") {
-            candidates.push((
-                AiProviderId::CodexCli,
-                "HOME-fallback".to_owned(),
-                PathBuf::from(root).join("AppData/Local/Programs/OpenAI/Codex/bin/codex.exe"),
-            ));
-        }
-        if let Some(root) = dirs::data_local_dir() {
-            candidates.push((
-                AiProviderId::CodexCli,
-                "system-local-data".to_owned(),
-                root.join("Programs/OpenAI/Codex/bin/codex.exe"),
-            ));
-        }
-        if let Some(path) = env::current_exe()
-            .ok()
-            .as_deref()
-            .and_then(codex_path_beside_installed_app)
-        {
-            candidates.push((AiProviderId::CodexCli, "beside-app".to_owned(), path));
-        }
-        if let Some(root) = dirs::home_dir() {
-            candidates.push((
-                AiProviderId::CodexCli,
-                "system-home".to_owned(),
-                root.join("AppData/Local/Programs/OpenAI/Codex/bin/codex.exe"),
-            ));
-        }
-    }
-    #[cfg(not(windows))]
-    for (source, path) in [
-        ("homebrew", PathBuf::from("/opt/homebrew/bin/codex")),
-        ("usr-local", PathBuf::from("/usr/local/bin/codex")),
-    ] {
-        candidates.push((AiProviderId::CodexCli, source.to_owned(), path));
-    }
-    #[cfg(not(windows))]
-    if let Some(root) = env::var_os("HOME") {
-        let root = PathBuf::from(root);
-        candidates.push((
-            AiProviderId::CodexCli,
-            "HOME-local".to_owned(),
-            root.join(".local/bin/codex"),
-        ));
-        candidates.push((
-            AiProviderId::CodexCli,
-            "HOME-npm-global".to_owned(),
-            root.join(".npm-global/bin/codex"),
-        ));
-    }
-    for (source, path) in crate::application::claude_code::diagnostic_install_paths() {
-        candidates.push((AiProviderId::ClaudeCodeCli, source.to_owned(), path));
-    }
-    candidates
-        .into_iter()
-        .map(|(provider, source, path)| {
-            let metadata = fs::metadata(&path);
-            let opened = fs::File::open(&path);
-            AiCliCandidateDiagnostic {
-                provider,
-                source,
-                metadata_is_file: metadata.as_ref().is_ok_and(|value| value.is_file()),
-                metadata_error_code: metadata.err().and_then(|error| error.raw_os_error()),
-                can_open: opened.is_ok(),
-                open_error_code: opened.err().and_then(|error| error.raw_os_error()),
-            }
-        })
-        .collect()
-}
-
-#[cfg(windows)]
-fn windows_codex_install_paths() -> Vec<PathBuf> {
-    let mut paths = codex_install_paths(None, dirs::data_local_dir(), dirs::home_dir(), true);
-    if let Some(path) = env::current_exe()
-        .ok()
-        .as_deref()
-        .and_then(codex_path_beside_installed_app)
-    {
-        paths.push(path);
-    }
-    paths
-}
-
-#[cfg(windows)]
-fn codex_path_beside_installed_app(executable: &Path) -> Option<PathBuf> {
-    let app_dir = executable.parent()?;
-    let local_app_data = app_dir.parent()?;
-    let app_data = local_app_data.parent()?;
-    if !app_dir
-        .file_name()?
-        .to_string_lossy()
-        .eq_ignore_ascii_case("mework")
-        || !local_app_data
-            .file_name()?
-            .to_string_lossy()
-            .eq_ignore_ascii_case("Local")
-        || !app_data
-            .file_name()?
-            .to_string_lossy()
-            .eq_ignore_ascii_case("AppData")
-    {
-        return None;
-    }
-    Some(local_app_data.join("Programs/OpenAI/Codex/bin/codex.exe"))
-}
-
-fn codex_executable_names(windows: bool) -> &'static [&'static str] {
-    if windows {
-        &["codex.exe", "codex.cmd", "codex"]
-    } else {
-        &["codex"]
-    }
-}
-
-fn codex_install_paths(
-    home: Option<PathBuf>,
-    local_app_data: Option<PathBuf>,
-    user_profile: Option<PathBuf>,
-    windows: bool,
-) -> Vec<PathBuf> {
-    if windows {
-        let mut candidates = Vec::new();
-        if let Some(local_app_data) = local_app_data {
-            candidates.push(local_app_data.join("Programs/OpenAI/Codex/bin/codex.exe"));
-        }
-        if let Some(user_profile) = user_profile.or(home) {
-            candidates.push(user_profile.join("AppData/Local/Programs/OpenAI/Codex/bin/codex.exe"));
-        }
-        return candidates;
-    }
-
-    [
-        Some(PathBuf::from("/opt/homebrew/bin/codex")),
-        Some(PathBuf::from("/usr/local/bin/codex")),
-        home.as_ref().map(|value| value.join(".local/bin/codex")),
-        home.map(|value| value.join(".npm-global/bin/codex")),
-    ]
-    .into_iter()
-    .flatten()
-    .collect()
-}
-
-fn unavailable_provider(path: PathBuf, models: Vec<String>, message: &str) -> AiProviderDto {
-    AiProviderDto {
-        id: AiProviderId::CodexCli,
-        instance_id: None,
-        name: "Codex CLI".to_owned(),
-        status: AiProviderStatus::Unavailable,
-        available: false,
-        models,
-        executable_path: Some(path.display().to_string()),
-        version: None,
-        base_url: None,
-        allow_insecure_tls: None,
-        message: Some(message.to_owned()),
-    }
-}
-
-fn safe_first_line(bytes: &[u8]) -> Option<String> {
-    String::from_utf8_lossy(bytes)
-        .lines()
-        .map(str::trim)
-        .find(|line| !line.is_empty())
-        .map(|line| {
-            line.chars()
-                .filter(|character| !character.is_control())
-                .take(120)
-                .collect()
-        })
 }
 
 async fn validate_settings(pool: &SqlitePool, settings: &AiSettings) -> Result<(), String> {
@@ -1793,15 +1245,20 @@ pub fn test_process_env_lock() -> &'static std::sync::Mutex<()> {
 
 #[cfg(test)]
 mod tests {
+    use super::cli;
     use super::{
         default_mock_ai_settings, delete_provider, load, load_openai_models,
-        normalize_openai_base_url, parse_codex_model_list_response,
-        parse_openai_model_list_response, safe_first_line, safe_openai_error_detail, AiProviderDto,
-        AiProviderId, AiProviderStatus, AiReasoning, AiSettings, OpenAiCompatibleProviderConfig,
-        ADDED_CLI_PROVIDERS_KEY, AI_SETTINGS_KEY,
+        normalize_openai_base_url, parse_openai_model_list_response, safe_openai_error_detail,
+        AiProviderDto, AiProviderId, AiProviderStatus, AiReasoning, AiSettings,
+        OpenAiCompatibleProviderConfig, ADDED_CLI_PROVIDERS_KEY, AI_SETTINGS_KEY,
     };
     #[cfg(unix)]
-    use super::{inspect_codex_cli, query_codex_models_with_timeout};
+    use crate::application::ai_providers::cli::codex::{
+        inspect_codex_cli, query_codex_models_with_timeout,
+    };
+    use crate::application::ai_providers::cli::codex::{
+        parse_codex_model_list_response, safe_first_line,
+    };
     use sqlx::sqlite::SqlitePoolOptions;
 
     #[test]
@@ -2030,7 +1487,7 @@ mod tests {
 
         let user_profile = PathBuf::from("C:/Users/synthetic");
         let local_app_data = user_profile.join("AppData/Local");
-        let candidates = super::codex_install_paths(
+        let candidates = cli::codex::install_paths(
             Some(user_profile.clone()),
             Some(local_app_data),
             Some(user_profile.clone()),
@@ -2040,20 +1497,20 @@ mod tests {
 
         assert!(candidates.iter().any(|candidate| candidate == &expected));
         #[cfg(windows)]
-        assert!(super::windows_codex_install_paths().contains(
+        assert!(cli::codex::windows_install_paths().contains(
             &dirs::data_local_dir()
                 .expect("Windows local app data folder")
                 .join("Programs/OpenAI/Codex/bin/codex.exe")
         ));
         #[cfg(windows)]
         assert_eq!(
-            super::codex_path_beside_installed_app(
+            cli::codex::path_beside_installed_app(
                 &user_profile.join("AppData/Local/mework/mework.exe")
             ),
             Some(expected)
         );
         assert_eq!(
-            super::codex_executable_names(true),
+            cli::codex::executable_names(true),
             &["codex.exe", "codex.cmd", "codex"]
         );
     }
@@ -2069,7 +1526,7 @@ mod tests {
         let current = root.join(r".codex\packages\standalone\current");
         let release = root.join(r".codex\packages\standalone\releases\1.0.0");
         let candidate = install_bin.join("codex.exe");
-        let resolved = super::resolve_windows_cli_junctions(&candidate, |path: &Path| {
+        let resolved = cli::resolve_windows_cli_junctions(&candidate, |path: &Path| {
             if path == install_bin {
                 Ok(current.join("bin"))
             } else if path == current {
@@ -2104,7 +1561,7 @@ mod tests {
         let expected = std::path::PathBuf::from("synthetic-codex");
         let mut attempts = 0;
 
-        let resolved = super::resolve_codex_binary_with_retry(
+        let resolved = cli::codex::resolve_codex_binary_with_retry(
             || {
                 attempts += 1;
                 (attempts == 2).then(|| expected.clone())

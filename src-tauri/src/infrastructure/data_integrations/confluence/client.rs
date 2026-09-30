@@ -190,9 +190,10 @@ impl ConfluenceClient {
             .map_err(|_| ConfluenceError::Transport)?;
         if !response.status().is_success() {
             let status = response.status().as_u16();
-            let body =
-                crate::infrastructure::integrations::error_body::read_safe_error_body(response)
-                    .await;
+            let body = crate::infrastructure::data_integrations::error_body::read_safe_error_body(
+                response,
+            )
+            .await;
             return Err(ConfluenceError::Http(status, body));
         }
         let response = response
@@ -231,9 +232,10 @@ impl ConfluenceClient {
             .map_err(|_| ConfluenceError::Transport)?;
         if !response.status().is_success() {
             let status = response.status().as_u16();
-            let body =
-                crate::infrastructure::integrations::error_body::read_safe_error_body(response)
-                    .await;
+            let body = crate::infrastructure::data_integrations::error_body::read_safe_error_body(
+                response,
+            )
+            .await;
             return Err(ConfluenceError::Http(status, body));
         }
         let page = response
@@ -270,9 +272,10 @@ impl ConfluenceClient {
             .map_err(|_| ConfluenceError::Transport)?;
         if !response.status().is_success() {
             let status = response.status().as_u16();
-            let body =
-                crate::infrastructure::integrations::error_body::read_safe_error_body(response)
-                    .await;
+            let body = crate::infrastructure::data_integrations::error_body::read_safe_error_body(
+                response,
+            )
+            .await;
             return Err(ConfluenceError::Http(status, body));
         }
         let mut results = response
@@ -309,9 +312,10 @@ impl ConfluenceClient {
             .map_err(|_| ConfluenceError::Transport)?;
         if !response.status().is_success() {
             let status = response.status().as_u16();
-            let body =
-                crate::infrastructure::integrations::error_body::read_safe_error_body(response)
-                    .await;
+            let body = crate::infrastructure::data_integrations::error_body::read_safe_error_body(
+                response,
+            )
+            .await;
             return Err(ConfluenceError::Http(status, body));
         }
         let space = response

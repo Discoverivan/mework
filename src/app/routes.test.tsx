@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import { I18nProvider } from "@/i18n/I18nProvider";
 import { AppRoutes } from "./routes";
 
-vi.mock("../features/integrations/IntegrationDependencyGate", () => ({
+vi.mock("../features/data-integrations/IntegrationDependencyGate", () => ({
   IntegrationDependencyGate: ({ children }: { children: React.ReactNode }) => <div data-testid="integration-gate">{children}</div>,
 }));
 vi.mock("../features/product/CreateTaskPage", () => ({ CreateTaskPage: () => <div>Create task screen</div> }));

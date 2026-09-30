@@ -10,7 +10,7 @@ use crate::application::planning::{
     TeamMemberDto, TeamMemberReorderRequest, TeamMemberSearchRequest, TeamPresetDto,
     TeamPresetInput,
 };
-use crate::infrastructure::integrations::jira::models::JiraDeployment;
+use crate::infrastructure::data_integrations::jira::models::JiraDeployment;
 
 pub const PLANNING_COMMAND_NAMES: &[&str] = &[
     "planning_managed_projects",

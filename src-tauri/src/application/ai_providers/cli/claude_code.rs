@@ -7,10 +7,9 @@ use std::{
 
 use serde_json::Value;
 
-use super::ai::{
-    local_cli_command, usable_cli_path, AiProviderDto, AiProviderId, AiProviderStatus,
-};
-use super::ai_usage_statistics::{parse_response_usage, AiTokenUsageCounts};
+use super::{local_cli_command, usable_cli_path};
+use crate::application::ai::{AiProviderDto, AiProviderId, AiProviderStatus};
+use crate::application::ai_usage_statistics::{parse_response_usage, AiTokenUsageCounts};
 
 const MODELS: [&str; 3] = ["sonnet", "opus", "haiku"];
 

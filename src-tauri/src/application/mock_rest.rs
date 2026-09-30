@@ -484,6 +484,15 @@ fn jira_response(
             json!({"id":"mock-project-id","key":"MOCK","name":"Example project","projectTypeKey":"software"}),
         );
     }
+    if method == "GET" && path == "/jira/rest/greenhopper/1.0/quickfilters/mock-board-1" {
+        return json_response(
+            200,
+            json!({"quickFilters":[
+                {"id":1,"jql":"assignee = mock-user-a"},
+                {"id":2,"jql":"assignee = mock-user-b"}
+            ]}),
+        );
+    }
     if method == "GET"
         && path.starts_with("/jira/rest/agile/1.0/board/")
         && path.ends_with("/quickfilter")
@@ -766,7 +775,7 @@ mod tests {
     use super::MockIntegrationServer;
     use crate::{
         application::dev_overlay::MockIntegrationState as DevMockMode,
-        infrastructure::integrations::{
+        infrastructure::data_integrations::{
             bitbucket_dc::client::{BitbucketDcClient, BitbucketInlineComment},
             confluence::client::ConfluenceClient,
             jira::{client::JiraClient, models::JiraDeployment, planning::JiraPlanningClient},
@@ -807,6 +816,12 @@ mod tests {
         );
         let data_center = JiraPlanningClient::new(&server.urls().jira, JiraDeployment::DataCenter)
             .expect("Jira Data Center planning client");
+        let quick_filters = data_center
+            .list_board_quick_filters("mock-board-1")
+            .await
+            .expect("mock assignee quick filters");
+        assert_eq!(quick_filters.len(), 2);
+        assert_eq!(quick_filters[0].jql, "assignee = mock-user-a");
         let transitions = data_center
             .available_issue_transitions("MOCK-201")
             .await

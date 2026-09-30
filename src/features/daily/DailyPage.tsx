@@ -353,6 +353,7 @@ export function DailyPage() {
   }, [owners]);
   const selectedOwner = owners.find((owner) => owner.id === selectedMemberId);
   const selectedMember = selectedOwner?.member;
+  const selectedAssigneeBoardUrl = selectedMember ? workspace?.sprintBoardUrlsByAssignee?.[selectedMember.accountId] : undefined;
   const selectedOwnerIndex = selectedOwner ? owners.findIndex((owner) => owner.id === selectedOwner.id) : -1;
   const selectedSubtasks = useMemo(
     () => workspace ? ownerTasks(workspace, selectedMemberId) : [],
@@ -563,9 +564,7 @@ export function DailyPage() {
             title={t("daily.openSprintBoard")}
             disabled={!workspace || loadingWorkspace}
             onClick={() => {
-              if (workspace) void openJiraIssue(
-                (selectedMember && workspace.sprintBoardUrlsByAssignee?.[selectedMember.accountId]) || workspace.sprintBoardUrl,
-              );
+              if (workspace) void openJiraIssue(workspace.sprintBoardUrl);
             }}
           >
             <ExternalLink aria-hidden="true" />
@@ -715,6 +714,21 @@ export function DailyPage() {
                     </div>
                   </div>
                   <div className="flex shrink-0 items-center gap-1">
+                    {selectedMember ? (
+                      <span className="mr-1" title={selectedAssigneeBoardUrl ? t("daily.openAssigneeSprintBoard", { assignee: selectedOwner.label }) : t("daily.assigneeBoardUnavailable")}>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="icon"
+                          className="size-9"
+                          aria-label={t("daily.openAssigneeSprintBoard", { assignee: selectedOwner.label })}
+                          disabled={!selectedAssigneeBoardUrl}
+                          onClick={() => { if (selectedAssigneeBoardUrl) void openJiraIssue(selectedAssigneeBoardUrl); }}
+                        >
+                          <ExternalLink aria-hidden="true" />
+                        </Button>
+                      </span>
+                    ) : null}
                     <Button
                       type="button"
                       variant="outline"

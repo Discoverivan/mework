@@ -1,4 +1,4 @@
-use std::{collections::HashSet, fs, path::PathBuf, time::Duration};
+use std::{collections::HashSet, fs, path::Path, time::Duration};
 
 use reqwest::{Client, RequestBuilder, Url};
 use serde::{Deserialize, Serialize};
@@ -131,6 +131,7 @@ pub async fn generate_draft(
     let provider_id = settings.provider.map(|provider| match provider {
         ai::AiProviderId::CodexCli => "codex-cli",
         ai::AiProviderId::ClaudeCodeCli => "claude-code-cli",
+        ai::AiProviderId::HermesCli => "hermes-cli",
         ai::AiProviderId::OpenAiCompatible => "openai-compatible",
     });
     let model = settings.model.clone();
@@ -455,12 +456,13 @@ async fn fetch_confluence_source(
     if secret.is_empty() {
         return None;
     }
-    let client = crate::infrastructure::integrations::confluence::client::ConfluenceClient::new(
-        &integration.base_url,
-        secret,
-        integration.allow_insecure_tls,
-    )
-    .ok()?;
+    let client =
+        crate::infrastructure::data_integrations::confluence::client::ConfluenceClient::new(
+            &integration.base_url,
+            secret,
+            integration.allow_insecure_tls,
+        )
+        .ok()?;
     let page = if let Some(page_id) = page_id {
         if !page_id.chars().all(|c| c.is_ascii_digit()) {
             return None;
@@ -958,7 +960,7 @@ fn execute_draft_in_workspace(
     openai_runtime: Option<&ai::OpenAiCompatibleRuntimeConfig>,
     prompt: &str,
     output_language: general::AppLanguage,
-    workdir: &PathBuf,
+    workdir: &Path,
 ) -> Result<TaskDraftDto, String> {
     execute_draft_in_workspace_with_usage(
         settings,
@@ -975,7 +977,7 @@ fn execute_draft_in_workspace_with_usage(
     openai_runtime: Option<&ai::OpenAiCompatibleRuntimeConfig>,
     prompt: &str,
     output_language: general::AppLanguage,
-    workdir: &PathBuf,
+    workdir: &Path,
 ) -> Result<
     (
         TaskDraftDto,
@@ -1001,12 +1003,13 @@ fn execute_draft_in_workspace_with_usage(
         );
     }
     if settings.provider == Some(ai::AiProviderId::ClaudeCodeCli) {
-        let (output, usage) = crate::application::claude_code::run_structured_with_usage(
-            &settings.model,
-            task_draft_schema(),
-            &task_prompt(prompt, output_language),
-            workdir,
-        )?;
+        let (output, usage) =
+            crate::application::ai_providers::cli::claude_code::run_structured_with_usage(
+                &settings.model,
+                task_draft_schema(),
+                &task_prompt(prompt, output_language),
+                workdir,
+            )?;
         let mut draft: TaskDraftDto = serde_json::from_slice(&output)
             .map_err(|_| "Claude Code CLI returned invalid task JSON".to_owned())?;
         required_text(&draft.summary, "AI summary", 255)?;
@@ -1017,57 +1020,51 @@ fn execute_draft_in_workspace_with_usage(
         )?);
         return Ok((draft, usage));
     }
-    let codex = ai::resolve_codex_binary()
-        .ok_or_else(|| "Codex CLI executable was not found".to_owned())?;
-    let reasoning = settings.reasoning.as_str();
-    let service_tier = if settings.fast_mode {
-        "fast"
-    } else {
-        "default"
-    };
-    let fast_mode = if settings.fast_mode { "true" } else { "false" };
-    let mut command = ai::codex_command(codex);
-    command
-        .args([
-            "--ask-for-approval",
-            "never",
-            "exec",
-            "--skip-git-repo-check",
-            "--ephemeral",
-            "--sandbox",
-            "read-only",
-            "--color",
-            "never",
-            "--json",
-            "--model",
-            &settings.model,
-            "--config",
-            &format!("model_reasoning_effort=\"{reasoning}\""),
-            "--config",
-            &format!("service_tier=\"{service_tier}\""),
-            "--config",
-            &format!("features.fast_mode={fast_mode}"),
-            "--output-schema",
-            schema_path.to_string_lossy().as_ref(),
-            "--output-last-message",
-            output_path.to_string_lossy().as_ref(),
-            "-",
-        ])
-        .current_dir(workdir);
-    let output = command
-        .stdin(std::process::Stdio::from(
-            fs::File::open(&prompt_path)
-                .map_err(|_| "AI task prompt could not be opened".to_owned())?,
-        ))
-        .output();
-    let output = match output {
-        Ok(output) => output,
-        Err(_) => return Err("Unable to start AI task generation".to_owned()),
-    };
-    if !output.status.success() {
-        return Err("AI task generation failed".to_owned());
+    if settings.provider == Some(ai::AiProviderId::HermesCli) {
+        let (output, usage) =
+            crate::application::ai_providers::cli::hermes_cli::run_structured_with_usage(
+                &settings.model,
+                task_draft_schema(),
+                &task_prompt(prompt, output_language),
+                workdir,
+            )?;
+        let mut draft: TaskDraftDto = serde_json::from_slice(&output)
+            .map_err(|_| "Hermes CLI returned invalid task JSON".to_owned())?;
+        required_text(&draft.summary, "AI summary", 255)?;
+        draft.description = jira_wiki_description(&required_text(
+            &draft.description,
+            "AI description",
+            50_000,
+        )?);
+        return Ok((draft, usage));
     }
-    let bytes = fs::read(output_path).map_err(|_| "AI task result was not returned".to_owned())?;
+    let (bytes, usage) = crate::application::ai_providers::cli::codex::run_structured_with_usage(
+        settings,
+        &prompt_path,
+        &schema_path,
+        &output_path,
+        workdir,
+    )
+    .map_err(|error| {
+        match error {
+            crate::application::ai_providers::cli::codex::RunError::MissingBinary => {
+                "Codex CLI executable was not found"
+            }
+            crate::application::ai_providers::cli::codex::RunError::PromptOpen => {
+                "AI task prompt could not be opened"
+            }
+            crate::application::ai_providers::cli::codex::RunError::Spawn => {
+                "Unable to start AI task generation"
+            }
+            crate::application::ai_providers::cli::codex::RunError::Failed(_) => {
+                "AI task generation failed"
+            }
+            crate::application::ai_providers::cli::codex::RunError::ResultRead => {
+                "AI task result was not returned"
+            }
+        }
+        .to_owned()
+    })?;
     let mut draft: TaskDraftDto =
         serde_json::from_slice(&bytes).map_err(|_| "AI task result was invalid".to_owned())?;
     required_text(&draft.summary, "AI summary", 255)?;
@@ -1077,7 +1074,6 @@ fn execute_draft_in_workspace_with_usage(
         50_000,
     )?);
     required_text(&draft.description, "AI description", 50_000)?;
-    let usage = ai_usage_statistics::parse_cli_usage(&output.stdout);
     Ok((draft, usage))
 }
 
@@ -1271,7 +1267,7 @@ mod tests {
             None,
             "Add an example filter",
             AppLanguage::English,
-            &directory.path().to_path_buf(),
+            directory.path(),
         )
         .unwrap();
 
@@ -1331,7 +1327,7 @@ mod tests {
             None,
             "Create an audit filter",
             AppLanguage::English,
-            &directory.path().to_path_buf(),
+            directory.path(),
         )
         .unwrap();
 

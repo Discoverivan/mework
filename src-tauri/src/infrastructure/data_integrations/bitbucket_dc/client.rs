@@ -686,7 +686,7 @@ impl BitbucketDcClient {
             .and_then(|value| value.to_str().ok())
             .and_then(|value| value.trim().parse::<u64>().ok());
         let detail =
-            crate::infrastructure::integrations::error_body::read_safe_error_body(response)
+            crate::infrastructure::data_integrations::error_body::read_safe_error_body(response)
                 .await
                 .map(|body| body.to_string());
         BitbucketDcError::Http {

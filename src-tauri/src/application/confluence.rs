@@ -4,10 +4,10 @@ use sqlx::SqlitePool;
 
 use crate::domain::models::IntegrationKind;
 use crate::infrastructure::credentials::keyring::CredentialStore;
-use crate::infrastructure::db::repositories;
-use crate::infrastructure::integrations::confluence::client::{
+use crate::infrastructure::data_integrations::confluence::client::{
     ConfluenceClient, ConfluenceError, ConfluenceSearchResult,
 };
+use crate::infrastructure::db::repositories;
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]

@@ -2,7 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { APP_EVENT, subscribeAppEvent } from "@/app/app-events";
-import { getAiSettings, saveIntegration } from "./api";
+import { getAiSettings, refreshAiSettings, saveAiSettings, saveIntegration } from "./api";
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
 
@@ -57,5 +57,44 @@ describe("settings integration API smoke test", () => {
       unsubscribe();
       vi.useRealTimers();
     }
+  });
+
+  it("refreshes AI settings while an older request is still running", async () => {
+    const oldSettings = { settings: { provider: null, model: "", reasoning: "medium", fastMode: false }, providers: [] };
+    const newSettings = { ...oldSettings, providers: [{ id: "codex-cli", name: "Codex CLI", status: "connected", available: true, models: ["example-model"] }] };
+    let resolveOld!: (value: typeof oldSettings) => void;
+    let resolveNew!: (value: typeof newSettings) => void;
+    invokeMock.mockReset();
+    invokeMock
+      .mockImplementationOnce(() => new Promise((resolve) => { resolveOld = resolve; }))
+      .mockImplementationOnce(() => new Promise((resolve) => { resolveNew = resolve; }));
+
+    const oldRequest = refreshAiSettings();
+    const newRequest = refreshAiSettings();
+    expect(invokeMock).toHaveBeenCalledTimes(2);
+
+    resolveNew(newSettings);
+    expect(await newRequest).toEqual(newSettings);
+    resolveOld(oldSettings);
+    expect(await oldRequest).toEqual(oldSettings);
+    expect(await getAiSettings()).toEqual(newSettings);
+    expect(invokeMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("keeps a saved AI setting after an older read finishes", async () => {
+    const oldSettings = { settings: { provider: null, model: "", reasoning: "medium" as const, fastMode: false }, providers: [] };
+    const savedSettings = { settings: { ...oldSettings.settings, model: "example-model" }, providers: [] };
+    let resolveOld!: (value: typeof oldSettings) => void;
+    invokeMock.mockReset();
+    invokeMock
+      .mockImplementationOnce(() => new Promise((resolve) => { resolveOld = resolve; }))
+      .mockResolvedValueOnce(savedSettings);
+
+    const oldRequest = refreshAiSettings();
+    expect(await saveAiSettings(savedSettings.settings)).toEqual(savedSettings);
+    resolveOld(oldSettings);
+    expect(await oldRequest).toEqual(oldSettings);
+    expect(await getAiSettings()).toEqual(savedSettings);
+    expect(invokeMock).toHaveBeenCalledTimes(2);
   });
 });

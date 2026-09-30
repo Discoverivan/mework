@@ -19,8 +19,8 @@ use crate::{
         credentials::keyring::{
             integration_credential_store, DEV_KEYRING_SERVICE, PRODUCTION_KEYRING_SERVICE,
         },
+        data_integrations::jira::models::JiraIssue,
         db::repositories,
-        integrations::jira::models::JiraIssue,
     },
     os::notifications::{NativeNotificationAdapter, NotificationAdapter},
 };

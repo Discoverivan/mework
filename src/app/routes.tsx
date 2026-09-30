@@ -1,4 +1,4 @@
-import { IntegrationDependencyGate } from "../features/integrations/IntegrationDependencyGate";
+import { IntegrationDependencyGate } from "../features/data-integrations/IntegrationDependencyGate";
 import { CreateTaskPage } from "../features/product/CreateTaskPage";
 import { TaskTrackerPage } from "../features/product/TaskTrackerPage";
 import { DailyPage } from "../features/daily/DailyPage";
@@ -108,8 +108,8 @@ export function AppRoutes({ route, updateCheckRequest = 0, mockMode = false, mod
       && new URLSearchParams(window.location.hash.split("?")[1] ?? "").get("focus") === "token-burner"
       ? "token-burner"
       : undefined;
-    return <SettingsPage section={section} focusActivity={focusActivity} />;
+    return <SettingsPage section={section} focusActivity={focusActivity} mockMode={mockMode} />;
   }
 
-  return <SettingsPage section="integrations" />;
+  return <SettingsPage section="integrations" mockMode={mockMode} />;
 }

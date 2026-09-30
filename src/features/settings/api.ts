@@ -4,6 +4,7 @@ import { APP_EVENT, emitAppEvent } from "@/app/app-events";
 import type {
   AiSettings,
   AiProvider,
+  AiCliProviderId,
   AiSettingsPageData,
   OpenAiCompatibleProviderSaveInput,
   IntegrationDeleteInput,
@@ -19,6 +20,7 @@ const AI_CLI_RECOVERY_DELAY_MS = 5_000;
 
 let aiSettingsRequest: Promise<AiSettingsPageData> | null = null;
 let aiSettingsCache: { value: AiSettingsPageData; expiresAt: number } | null = null;
+let aiSettingsRequestRevision = 0;
 let aiCliRecoveryTimer: ReturnType<typeof setTimeout> | null = null;
 let integrationHealthRequest: Promise<IntegrationRedacted[]> | null = null;
 
@@ -54,6 +56,12 @@ function cacheStableAiSettings(value: AiSettingsPageData): AiSettingsPageData {
   return value;
 }
 
+function cacheMutatedAiSettings(value: AiSettingsPageData): AiSettingsPageData {
+  aiSettingsRequestRevision += 1;
+  aiSettingsRequest = null;
+  return cacheStableAiSettings(value);
+}
+
 export function getAiSettings(): Promise<AiSettingsPageData> {
   if (aiSettingsCache && aiSettingsCache.expiresAt > Date.now()) {
     return Promise.resolve(aiSettingsCache.value);
@@ -61,7 +69,9 @@ export function getAiSettings(): Promise<AiSettingsPageData> {
   if (aiSettingsRequest) return aiSettingsRequest;
 
   aiSettingsCache = null;
-  const request = invoke<AiSettingsPageData>("ai_settings").then(cacheStableAiSettings);
+  const revision = ++aiSettingsRequestRevision;
+  const request = invoke<AiSettingsPageData>("ai_settings").then((value) =>
+    revision === aiSettingsRequestRevision ? cacheStableAiSettings(value) : value);
   const sharedRequest = request.finally(() => {
     if (aiSettingsRequest === sharedRequest) aiSettingsRequest = null;
   });
@@ -69,20 +79,26 @@ export function getAiSettings(): Promise<AiSettingsPageData> {
   return sharedRequest;
 }
 
+export function refreshAiSettings(): Promise<AiSettingsPageData> {
+  aiSettingsCache = null;
+  aiSettingsRequest = null;
+  return getAiSettings();
+}
+
 export const saveAiSettings = (settings: AiSettings) =>
-  invoke<AiSettingsPageData>("ai_settings_save", { settings }).then(cacheStableAiSettings);
+  invoke<AiSettingsPageData>("ai_settings_save", { settings }).then(cacheMutatedAiSettings);
 
 export const saveOpenAiCompatibleProvider = (input: OpenAiCompatibleProviderSaveInput) =>
-  invoke<AiSettingsPageData>("ai_openai_compatible_save", { request: input }).then(cacheStableAiSettings);
+  invoke<AiSettingsPageData>("ai_openai_compatible_save", { request: input }).then(cacheMutatedAiSettings);
 
-export const addAiCliProvider = (provider: "codex-cli" | "claude-code-cli") =>
-  invoke<AiSettingsPageData>("ai_provider_add", { provider }).then(cacheStableAiSettings);
+export const addAiCliProvider = (provider: AiCliProviderId) =>
+  invoke<AiSettingsPageData>("ai_provider_add", { provider }).then(cacheMutatedAiSettings);
 
-export const inspectAiCliProvider = (provider: "codex-cli" | "claude-code-cli") =>
+export const inspectAiCliProvider = (provider: AiCliProviderId) =>
   invoke<AiProvider>("ai_cli_candidate_inspect", { provider });
 
 export const deleteAiProvider = (provider: AiSettings["provider"], instanceId?: string | null) =>
-  invoke<AiSettingsPageData>("ai_provider_delete", { provider, instanceId: instanceId ?? null }).then(cacheStableAiSettings);
+  invoke<AiSettingsPageData>("ai_provider_delete", { provider, instanceId: instanceId ?? null }).then(cacheMutatedAiSettings);
 
 export const listIntegrations = () => invoke<IntegrationRedacted[]>("integration_list");
 

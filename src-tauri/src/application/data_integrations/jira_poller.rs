@@ -1,6 +1,6 @@
 use sqlx::SqlitePool;
 
-use crate::infrastructure::integrations::jira::models::JiraIssue;
+use crate::infrastructure::data_integrations::jira::models::JiraIssue;
 
 pub async fn persist_successful_page(
     pool: &SqlitePool,

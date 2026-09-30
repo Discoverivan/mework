@@ -22,8 +22,7 @@ use crate::infrastructure::credentials::keyring::{
     integration_credential_store, CredentialError, CredentialStore, DEV_KEYRING_SERVICE,
     PRODUCTION_KEYRING_SERVICE,
 };
-use crate::infrastructure::db::{planning_repositories, repositories};
-use crate::infrastructure::integrations::jira::{
+use crate::infrastructure::data_integrations::jira::{
     error::JiraError,
     models::JiraDeployment,
     planning::{
@@ -35,6 +34,7 @@ use crate::infrastructure::integrations::jira::{
         ReqwestPlanningTransport, WriteFieldValidation,
     },
 };
+use crate::infrastructure::db::{planning_repositories, repositories};
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -468,7 +468,7 @@ pub(crate) async fn validate_project_key_with_dependencies<S: CredentialStore + 
             .await?;
     let project = match client.get_project(project_key).await {
         Ok(project) => project,
-        Err(crate::infrastructure::integrations::jira::error::JiraError::Http {
+        Err(crate::infrastructure::data_integrations::jira::error::JiraError::Http {
             status: 404,
             ..
         }) => {
@@ -2732,7 +2732,7 @@ fn map_read_error_at(
         JiraError::Http {
             response_body: Some(body),
             ..
-        } => crate::infrastructure::integrations::error_body::sanitize_error_body(
+        } => crate::infrastructure::data_integrations::error_body::sanitize_error_body(
             body.to_string().as_bytes(),
         ),
         _ => None,

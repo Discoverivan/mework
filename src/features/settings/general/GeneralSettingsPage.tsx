@@ -206,14 +206,7 @@ export function GeneralSettingsPage() {
     settings.notificationPermission !== "granted";
 
   return (
-    <section className="space-y-4" aria-labelledby="general-settings-title">
-      <div>
-        <h2 id="general-settings-title" className="text-lg font-semibold leading-tight">{t("general.heading")}</h2>
-        <p className="mt-1 text-sm text-muted-foreground">
-          {t("general.description")}
-        </p>
-      </div>
-
+    <section className="space-y-4" aria-label={t("general.heading")}>
       {loading ? (
         <Alert role="status" aria-live="polite">
           <AlertDescription>{t("general.loading")}</AlertDescription>
@@ -532,25 +525,29 @@ export function GeneralSettingsPage() {
       </Card>
 
       <Card>
-        <CardHeader className="px-4 pb-0 pt-3.5">
-          <CardTitle className="text-base font-semibold leading-tight">{t("general.extraFunctions")}</CardTitle>
-          <CardDescription className="mt-1 leading-snug">{t("general.extraFunctionsDescription")}</CardDescription>
-        </CardHeader>
-        <CardContent className="flex flex-wrap items-center justify-between gap-4 px-4 pb-3.5 pt-4">
-          <div className="min-w-0">
-            <Label htmlFor="general-model-testing-enabled" alignment="inline" className="font-medium">
-              {t("general.modelTesting")}
-            </Label>
-            <CardDescription className="mt-1 leading-snug">{t("general.modelTestingDescription")}</CardDescription>
+        <CardHeader className="space-y-4 px-4 py-3.5">
+          <div>
+            <CardTitle className="text-base font-semibold leading-tight">{t("general.extraFunctions")}</CardTitle>
+            <CardDescription className="mt-1 leading-snug">{t("general.extraFunctionsDescription")}</CardDescription>
           </div>
-          <Switch
-            id="general-model-testing-enabled"
-            size="md"
-            checked={settings?.extraFunctionsEnabled ?? false}
-            onCheckedChange={(checked) => void handlePreferencesChange({ extraFunctionsEnabled: checked })}
-            disabled={loading || saving}
-          />
-        </CardContent>
+          <div className="border-t pt-4">
+            <div className="flex items-center justify-between gap-4 pl-4">
+              <div className="min-w-0">
+                <Label htmlFor="general-model-testing-enabled" alignment="inline" className="font-medium">
+                  {t("general.modelTesting")}
+                </Label>
+                <CardDescription className="mt-1 leading-snug">{t("general.modelTestingDescription")}</CardDescription>
+              </div>
+              <Switch
+                id="general-model-testing-enabled"
+                size="sm"
+                checked={settings?.extraFunctionsEnabled ?? false}
+                onCheckedChange={(checked) => void handlePreferencesChange({ extraFunctionsEnabled: checked })}
+                disabled={loading || saving}
+              />
+            </div>
+          </div>
+        </CardHeader>
       </Card>
     </section>
   );

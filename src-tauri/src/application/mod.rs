@@ -1,11 +1,12 @@
 pub mod ai;
+pub mod ai_providers;
 pub mod ai_usage_statistics;
 pub mod authored_pull_requests;
-pub mod claude_code;
 pub mod command_board;
 pub mod confluence;
 pub mod create_task;
 pub mod daily;
+pub mod data_integrations;
 pub mod dev_overlay;
 pub mod developer;
 pub mod developer_review;
@@ -13,7 +14,6 @@ pub mod events;
 pub mod general;
 pub mod inbox;
 pub mod integration_error;
-pub mod integrations;
 #[cfg(feature = "dev-mock-rest")]
 pub mod mock_rest;
 pub mod notifications;
