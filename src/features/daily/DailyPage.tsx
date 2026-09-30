@@ -6,6 +6,7 @@ import { PageHeader } from "@/components/shared/PageHeader";
 import { StatusToast } from "@/components/shared/StatusToast";
 import { useI18n } from "@/i18n/context";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { badgeVariants } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -20,6 +21,8 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Separator } from "@/components/ui/separator";
+import { issueStatusBadgeClass } from "@/lib/issue-status-badge";
+import { cn } from "@/lib/utils";
 import {
   Select,
   SelectContent,
@@ -198,12 +201,15 @@ function TaskStatusMenu({
       <DropdownMenuTrigger asChild>
         <button
           type="button"
-          className={`daily-status-label daily-status-${dailyStatusTone(task.status)} daily-status-trigger`}
+          className={cn(
+            badgeVariants(),
+            issueStatusBadgeClass(task.status),
+            "daily-status-trigger h-8 rounded-md px-3 text-[13px] leading-4 focus:ring-0 focus:ring-offset-0 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
+          )}
           aria-label={t("daily.changeStatus", { key: task.key, status: task.status })}
           title={t("daily.changeStatus", { key: task.key, status: task.status })}
         >
           {task.status}
-          <ChevronDown aria-hidden="true" className="daily-status-chevron" />
         </button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start" className="w-56">
