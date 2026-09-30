@@ -90,9 +90,8 @@ def release_notes(body: str) -> tuple[dict[str, str], list[str]]:
     marker_lines = re.findall(r"(?m)^<!-- /?release-notes:[^>]+-->[ \t]*$", notes_section)
     if len(marker_lines) != sum(2 for _ in NOTE_BLOCK.finditer(notes_section)):
         errors.append("Every release-notes language marker must have a matching block.")
-    for language in ("en", "ru"):
-        if language not in blocks:
-            errors.append(f"Keep the release-notes:{language} block from the pull request template.")
+    if "en" not in blocks:
+        errors.append("Keep the release-notes:en block from the pull request template.")
     return blocks, errors
 
 
