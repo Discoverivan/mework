@@ -26,6 +26,40 @@ SIGNATURE_SUFFIXES = (
 )
 
 
+MACOS_ARCHES = {
+    "aarch64-apple-darwin": "aarch64",
+    "x86_64-apple-darwin": "x64",
+}
+
+
+def normalize_macos_asset_names(root: Path, version: str) -> int:
+    renamed = 0
+    for path in sorted(root.rglob("*")):
+        if not path.is_file():
+            continue
+        is_signature = path.name.endswith(".app.tar.gz.sig")
+        if not is_signature and not path.name.endswith(".app.tar.gz"):
+            continue
+
+        arch = next((value for target, value in MACOS_ARCHES.items() if target in path.parts), None)
+        if arch is None:
+            raise ValueError(f"Could not determine macOS target for {path.name}")
+        archive_name = path.name[:-4] if is_signature else path.name
+        stem = archive_name.removesuffix(".app.tar.gz")
+        if stem.endswith(("_aarch64", "_x64")):
+            if not stem.endswith(f"_{arch}"):
+                raise ValueError(f"Updater archive architecture does not match its runner: {path.name}")
+            continue
+
+        suffix = ".app.tar.gz.sig" if is_signature else ".app.tar.gz"
+        target = path.with_name(f"{stem}_{version}_{arch}{suffix}")
+        if target.exists():
+            raise ValueError(f"Cannot rename macOS updater asset; target already exists: {target.name}")
+        path.rename(target)
+        renamed += 1
+    return renamed
+
+
 def release_asset_paths(root: Path) -> list[Path]:
     paths = sorted(
         path for path in root.rglob("*")
@@ -157,6 +191,7 @@ def main() -> int:
     fallback_notes = os.environ.get("RELEASE_BODY_FALLBACK", "Release build for macOS and Windows.")
     notes = notes_path.read_text(encoding="utf-8") if notes_path.is_file() else fallback_notes
 
+    normalized_count = normalize_macos_asset_names(artifact_root, version)
     files = release_asset_paths(artifact_root)
     subprocess.run(
         ["gh", "release", "upload", release_tag, *(str(path) for path in files), "--repo", repository, "--clobber"],
@@ -169,7 +204,10 @@ def main() -> int:
     asset_urls = release_download_urls(assets)
     manifest = build_manifest(artifact_root, version, notes, asset_urls)
     output_path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
-    print(f"Uploaded {len(files)} release assets and created updater manifest for {version}.")
+    print(
+        f"Uploaded {len(files)} release assets ({normalized_count} macOS updater filenames normalized) "
+        f"and created updater manifest for {version}."
+    )
     return 0
 
 
