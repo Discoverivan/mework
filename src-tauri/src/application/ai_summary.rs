@@ -62,8 +62,7 @@ fn generate_blocking(
         let runtime = runtime
             .ok_or_else(|| "OpenAI-compatible API configuration is unavailable".to_owned())?;
         return tauri::async_runtime::block_on(async {
-            let client =
-                ai::openai_http_client(Duration::from_secs(15 * 60), runtime.allow_insecure_tls)?;
+            let client = ai::openai_http_client(Duration::from_secs(15 * 60), false)?;
             let payload = json!({
                 "model": settings.model,
                 "max_tokens": ai::OPENAI_MAX_OUTPUT_TOKENS,
@@ -73,12 +72,7 @@ fn generate_blocking(
                     {"role": "user", "content": prompt}
                 ]
             });
-            ai::log_openai_chat_request(
-                "sprint_summary",
-                &runtime.base_url,
-                runtime.allow_insecure_tls,
-                &payload,
-            );
+            ai::log_openai_chat_request("sprint_summary", &runtime.base_url, false, &payload);
             let response = client
                 .post(format!("{}/chat/completions", runtime.base_url))
                 .bearer_auth(&runtime.token)
