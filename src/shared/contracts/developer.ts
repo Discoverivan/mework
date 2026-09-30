@@ -26,6 +26,8 @@ export interface DailySprint {
   id: string;
   name: string;
   state: string;
+  startDate?: string | null;
+  endDate?: string | null;
 }
 
 export interface DailyWorkspace {

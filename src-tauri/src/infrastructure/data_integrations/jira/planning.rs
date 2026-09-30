@@ -463,6 +463,7 @@ impl JiraPlanningClient {
         let fields = story_points_field_id.map(|field_id| {
             [
                 "summary",
+                "description",
                 "status",
                 "issuetype",
                 "assignee",
@@ -599,6 +600,78 @@ impl JiraPlanningClient {
             .json()
             .await
             .map_err(|_| JiraError::InvalidResponse)
+    }
+
+    pub async fn get_issue_with_changelog(
+        &self,
+        issue_id_or_key: &str,
+        story_points_field_id: Option<&str>,
+    ) -> Result<Value, JiraError> {
+        validate_path_component(issue_id_or_key)?;
+        let api_version = match self.deployment {
+            JiraDeployment::Cloud => "3",
+            JiraDeployment::DataCenter => "2",
+        };
+        let endpoint = self.endpoint(&format!("rest/api/{api_version}/issue/{issue_id_or_key}"))?;
+        let fields = ["summary", "description", "status", "assignee", "parent"]
+            .into_iter()
+            .chain(story_points_field_id)
+            .collect::<Vec<_>>()
+            .join(",");
+        let mut endpoint = endpoint;
+        endpoint.query_pairs_mut().append_pair("fields", &fields);
+        let mut issue: Value = self
+            .send(Method::GET, endpoint, None)
+            .await?
+            .json()
+            .await
+            .map_err(|_| JiraError::InvalidResponse)?;
+        let changelog_endpoint = self.endpoint(&format!(
+            "rest/api/{api_version}/issue/{issue_id_or_key}/changelog"
+        ))?;
+        let mut first_page = changelog_endpoint.clone();
+        first_page
+            .query_pairs_mut()
+            .append_pair("startAt", "0")
+            .append_pair("maxResults", "1");
+        let first: Value = self
+            .send(Method::GET, first_page, None)
+            .await?
+            .json()
+            .await
+            .map_err(|_| JiraError::InvalidResponse)?;
+        let total = first.get("total").and_then(Value::as_u64).unwrap_or(0);
+        let start_at = total.saturating_sub(100);
+        let histories = if total > 1 {
+            let mut latest_page = changelog_endpoint;
+            latest_page
+                .query_pairs_mut()
+                .append_pair("startAt", &start_at.to_string())
+                .append_pair("maxResults", "100");
+            let page: Value = self
+                .send(Method::GET, latest_page, None)
+                .await?
+                .json()
+                .await
+                .map_err(|_| JiraError::InvalidResponse)?;
+            page.get("values")
+                .and_then(Value::as_array)
+                .cloned()
+                .unwrap_or_default()
+        } else {
+            first
+                .get("values")
+                .and_then(Value::as_array)
+                .cloned()
+                .unwrap_or_default()
+        };
+        if let Some(object) = issue.as_object_mut() {
+            object.insert(
+                "changelog".to_owned(),
+                serde_json::json!({"histories": histories}),
+            );
+        }
+        Ok(issue)
     }
 
     pub async fn search_issue_summaries(

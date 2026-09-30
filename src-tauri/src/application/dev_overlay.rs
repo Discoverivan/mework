@@ -1121,11 +1121,15 @@ fn synthetic_daily_sprints() -> Vec<DailySprintDto> {
             id: "1".to_owned(),
             name: "Current sprint".to_owned(),
             state: "active".to_owned(),
+            start_date: Some("2026-09-21T00:00:00.000Z".to_owned()),
+            end_date: Some("2026-10-05T00:00:00.000Z".to_owned()),
         },
         DailySprintDto {
             id: "2".to_owned(),
             name: "Next sprint".to_owned(),
             state: "future".to_owned(),
+            start_date: Some("2026-10-06T00:00:00.000Z".to_owned()),
+            end_date: Some("2026-10-20T00:00:00.000Z".to_owned()),
         },
     ]
 }

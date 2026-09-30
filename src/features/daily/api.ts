@@ -16,6 +16,19 @@ function parsePresenterState(raw: string | null): DailyPresenterState | undefine
 export const loadDailyWorkspace = (managedProjectId: string, sprintId?: string) =>
   invoke<DailyWorkspace>("daily_workspace", { managedProjectId, sprintId });
 
+export interface AiSummaryRequest {
+  managedProjectId: string;
+  sprintId: string;
+  preset: "weekly" | "custom";
+  period?: string;
+  customPrompt?: string;
+  previousResult?: string;
+  action?: "generate" | "shorter" | "longer" | "regenerate";
+}
+
+export const generateSprintSummary = (request: AiSummaryRequest) =>
+  invoke<{ text: string }>("ai_sprint_summary", { request });
+
 export const loadJiraAvatarData = (managedProjectId: string, avatarUrl: string) =>
   invoke<string | null>("jira_avatar_data", { managedProjectId, avatarUrl });
 
