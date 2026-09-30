@@ -608,10 +608,8 @@ impl JiraPlanningClient {
         story_points_field_id: Option<&str>,
     ) -> Result<Value, JiraError> {
         validate_path_component(issue_id_or_key)?;
-        let api_version = match self.deployment {
-            JiraDeployment::Cloud => "3",
-            JiraDeployment::DataCenter => "2",
-        };
+        self.ensure_data_center()?;
+        let api_version = "2";
         let endpoint = self.endpoint(&format!("rest/api/{api_version}/issue/{issue_id_or_key}"))?;
         let fields = ["summary", "description", "status", "assignee", "parent"]
             .into_iter()
@@ -955,7 +953,25 @@ mod tests {
     use wiremock::{Mock, MockServer, ResponseTemplate};
 
     use super::super::planning_write::ReqwestPlanningTransport;
-    use super::{JiraDeployment, JiraPlanningClient};
+    use super::{JiraDeployment, JiraError, JiraPlanningClient};
+
+    #[tokio::test]
+    async fn rejects_cloud_changelog_requests() {
+        let server = MockServer::start().await;
+        let client = JiraPlanningClient::new_with_dependencies(
+            server.uri(),
+            JiraDeployment::Cloud,
+            Arc::new(ReqwestPlanningTransport::new(reqwest::Client::new())),
+            None,
+            None,
+        )
+        .expect("valid Jira base URL");
+
+        assert!(matches!(
+            client.get_issue_with_changelog("DEMO-1", None).await,
+            Err(JiraError::UnsupportedCapability)
+        ));
+    }
 
     #[tokio::test]
     async fn loads_all_pages_of_issue_changelog() {
@@ -1001,7 +1017,7 @@ mod tests {
             JiraDeployment::DataCenter,
             Arc::new(ReqwestPlanningTransport::new(reqwest::Client::new())),
             None,
-            Some("synthetic-secret".to_owned()),
+            None,
         )
         .expect("valid Jira base URL");
         let issue = client
