@@ -12,6 +12,7 @@ import {
   listTaskTrackerMonitors,
   saveTaskTrackerMonitor,
   saveTaskTrackerMonitorExport,
+  setTaskTrackerSort,
   validateTaskTrackerJql,
 } from "@/shared/contracts/task-tracker";
 import type { TaskTrackerMonitor } from "@/shared/contracts/task-tracker";
@@ -25,6 +26,7 @@ vi.mock("@/shared/contracts/task-tracker", () => ({
   saveTaskTrackerMonitor: vi.fn(),
   saveTaskTrackerMonitorExport: vi.fn(),
   setTaskTrackerEnabled: vi.fn(),
+  setTaskTrackerSort: vi.fn(),
   validateTaskTrackerJql: vi.fn(),
 }));
 
@@ -43,6 +45,8 @@ const monitor: TaskTrackerMonitor = {
   maxTrackedIssues: 100,
   exceedsLimit: false,
   lastError: null,
+  sortKey: "updated",
+  sortDirection: "desc",
   issues: [{
     key: "DEMO-1",
     summary: "Example task",
@@ -62,6 +66,12 @@ beforeEach(() => {
   vi.mocked(validateTaskTrackerJql).mockResolvedValue({ issueCount: 1, truncated: false, issues: monitor.issues });
   vi.mocked(saveTaskTrackerMonitor).mockResolvedValue(monitor);
   vi.mocked(saveTaskTrackerMonitorExport).mockResolvedValue(undefined);
+  vi.mocked(setTaskTrackerSort).mockImplementation(async (monitorId, sortKey, sortDirection) => ({
+    ...monitor,
+    id: monitorId,
+    sortKey,
+    sortDirection,
+  }));
 });
 
 describe("TaskTrackerPage", () => {
@@ -179,20 +189,28 @@ describe("TaskTrackerPage", () => {
       ...monitor,
       currentIssueCount: 3,
       issues: [
-        { ...monitor.issues[0], key: "DEMO-2", summary: "Alpha summary", changed: false, lastChange: null },
-        { ...monitor.issues[0], key: "DEMO-1", summary: "Zeta summary", changed: true },
-        { ...monitor.issues[0], key: "DEMO-3", summary: "Alpha changed summary", changed: true },
+        { ...monitor.issues[0], key: "DEMO-2", summary: "Alpha summary", updated: "2026-09-22T10:02:00Z", changed: false, lastChange: null },
+        { ...monitor.issues[0], key: "DEMO-1", summary: "Zeta summary", updated: "2026-09-22T10:00:00Z", changed: true },
+        { ...monitor.issues[0], key: "DEMO-3", summary: "Alpha changed summary", updated: "2026-09-22T10:03:00Z", changed: true },
       ],
     };
     vi.mocked(listTaskTrackerMonitors).mockResolvedValue([sortableMonitor]);
+    vi.mocked(setTaskTrackerSort).mockImplementation(async (monitorId, sortKey, sortDirection) => ({
+      ...sortableMonitor,
+      id: monitorId,
+      sortKey,
+      sortDirection,
+    }));
     render(<TaskTrackerPage />);
 
     const rows = () => screen.getAllByRole("row").slice(1);
     expect((await screen.findByRole("button", { name: "DEMO-1" }))).toBeInTheDocument();
-    expect(rows()[0]).toHaveTextContent("DEMO-1");
-    fireEvent.click(screen.getByRole("button", { name: "Summary" }));
     expect(rows()[0]).toHaveTextContent("DEMO-3");
     fireEvent.click(screen.getByRole("button", { name: "Summary" }));
+    await waitFor(() => expect(setTaskTrackerSort).toHaveBeenLastCalledWith(monitor.id, "summary", "asc"));
+    expect(rows()[0]).toHaveTextContent("DEMO-3");
+    fireEvent.click(screen.getByRole("button", { name: "Summary" }));
+    await waitFor(() => expect(setTaskTrackerSort).toHaveBeenLastCalledWith(monitor.id, "summary", "desc"));
     expect(rows()[0]).toHaveTextContent("DEMO-1");
   });
 

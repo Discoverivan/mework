@@ -114,6 +114,31 @@ pub struct TaskTrackerMonitorExportRequest {
     pub max_tracked_issues: i64,
 }
 
+#[derive(Debug, Clone, Copy, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum TaskTrackerSortKey {
+    Issue,
+    Summary,
+    Status,
+    Updated,
+    Change,
+}
+
+#[derive(Debug, Clone, Copy, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum TaskTrackerSortDirection {
+    Asc,
+    Desc,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TaskTrackerSortRequest {
+    pub monitor_id: String,
+    pub sort_key: TaskTrackerSortKey,
+    pub sort_direction: TaskTrackerSortDirection,
+}
+
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TaskTrackerJqlRequest {
@@ -159,6 +184,8 @@ pub struct TaskTrackerMonitorDto {
     pub max_tracked_issues: i64,
     pub exceeds_limit: bool,
     pub last_error: Option<String>,
+    pub sort_key: TaskTrackerSortKey,
+    pub sort_direction: TaskTrackerSortDirection,
     pub issues: Vec<TaskTrackerIssueDto>,
 }
 
@@ -187,6 +214,8 @@ struct MonitorRecord {
     max_tracked_issues: i64,
     exceeds_limit: bool,
     last_error: Option<String>,
+    sort_key: TaskTrackerSortKey,
+    sort_direction: TaskTrackerSortDirection,
 }
 
 #[derive(Debug, Clone)]
@@ -272,7 +301,7 @@ pub async fn list_monitors(pool: &SqlitePool) -> Result<Vec<TaskTrackerMonitorDt
     let rows = sqlx::query(
         "SELECT id, integration_id, name, jql, schedule_kind, schedule_value,
                 tracked_events_json, enabled, max_tracked_issues, exceeds_limit, last_success_at, next_check_at_ms,
-                current_issue_count, changes_after_last_check, last_error
+                current_issue_count, changes_after_last_check, last_error, sort_key, sort_direction
          FROM task_monitors ORDER BY created_at ASC, id ASC",
     )
     .fetch_all(pool)
@@ -303,7 +332,7 @@ pub async fn save_monitor(
     let existing = sqlx::query(
         "SELECT id, integration_id, name, jql, schedule_kind, schedule_value,
                 tracked_events_json, enabled, max_tracked_issues, exceeds_limit, last_success_at, next_check_at_ms,
-                current_issue_count, changes_after_last_check, last_error
+                current_issue_count, changes_after_last_check, last_error, sort_key, sort_direction
          FROM task_monitors WHERE id = ?",
     )
     .bind(&monitor_id)
@@ -451,6 +480,27 @@ pub async fn delete_monitor(pool: &SqlitePool, id: &str) -> Result<bool, String>
         .await
         .map_err(|_| "Task tracker monitor could not be deleted".to_owned())?;
     Ok(result.rows_affected() == 1)
+}
+
+pub async fn set_monitor_sort(
+    pool: &SqlitePool,
+    request: TaskTrackerSortRequest,
+) -> Result<TaskTrackerMonitorDto, String> {
+    let result = sqlx::query(
+        "UPDATE task_monitors SET sort_key = ?, sort_direction = ?, updated_at = ? WHERE id = ?",
+    )
+    .bind(sort_key_str(request.sort_key))
+    .bind(sort_direction_str(request.sort_direction))
+    .bind(now_iso())
+    .bind(&request.monitor_id)
+    .execute(pool)
+    .await
+    .map_err(|_| "Task tracker sort could not be saved".to_owned())?;
+    if result.rows_affected() == 0 {
+        return Err("Task tracker monitor was not found".to_owned());
+    }
+    let record = load_monitor(pool, &request.monitor_id).await?;
+    to_monitor_dto(pool, &record).await
 }
 
 pub async fn set_monitor_enabled(
@@ -986,6 +1036,8 @@ async fn to_monitor_dto(
         max_tracked_issues: record.max_tracked_issues,
         exceeds_limit: record.exceeds_limit,
         last_error: record.last_error.clone(),
+        sort_key: record.sort_key,
+        sort_direction: record.sort_direction,
         issues,
     })
 }
@@ -994,7 +1046,7 @@ async fn load_monitor(pool: &SqlitePool, id: &str) -> Result<MonitorRecord, Stri
     sqlx::query(
         "SELECT id, integration_id, name, jql, schedule_kind, schedule_value,
                 tracked_events_json, enabled, max_tracked_issues, exceeds_limit, last_success_at, next_check_at_ms,
-                current_issue_count, changes_after_last_check, last_error
+                current_issue_count, changes_after_last_check, last_error, sort_key, sort_direction
          FROM task_monitors WHERE id = ?",
     )
     .bind(id)
@@ -1064,6 +1116,27 @@ fn row_to_monitor(row: SqliteRow) -> Result<MonitorRecord, String> {
         last_error: row
             .try_get("last_error")
             .map_err(|_| "Task tracker monitor data is invalid".to_owned())?,
+        sort_key: match row
+            .try_get::<String, _>("sort_key")
+            .map_err(|_| "Task tracker monitor data is invalid".to_owned())?
+            .as_str()
+        {
+            "issue" => TaskTrackerSortKey::Issue,
+            "summary" => TaskTrackerSortKey::Summary,
+            "status" => TaskTrackerSortKey::Status,
+            "updated" => TaskTrackerSortKey::Updated,
+            "change" => TaskTrackerSortKey::Change,
+            _ => return Err("Task tracker sort key is invalid".to_owned()),
+        },
+        sort_direction: match row
+            .try_get::<String, _>("sort_direction")
+            .map_err(|_| "Task tracker monitor data is invalid".to_owned())?
+            .as_str()
+        {
+            "asc" => TaskTrackerSortDirection::Asc,
+            "desc" => TaskTrackerSortDirection::Desc,
+            _ => return Err("Task tracker sort direction is invalid".to_owned()),
+        },
     })
 }
 
@@ -1210,6 +1283,23 @@ fn normalize_events(events: Vec<TaskTrackerEventKind>) -> Vec<TaskTrackerEventKi
         .copied()
         .filter(|event| set.contains(event))
         .collect()
+}
+
+fn sort_key_str(key: TaskTrackerSortKey) -> &'static str {
+    match key {
+        TaskTrackerSortKey::Issue => "issue",
+        TaskTrackerSortKey::Summary => "summary",
+        TaskTrackerSortKey::Status => "status",
+        TaskTrackerSortKey::Updated => "updated",
+        TaskTrackerSortKey::Change => "change",
+    }
+}
+
+fn sort_direction_str(direction: TaskTrackerSortDirection) -> &'static str {
+    match direction {
+        TaskTrackerSortDirection::Asc => "asc",
+        TaskTrackerSortDirection::Desc => "desc",
+    }
 }
 
 fn schedule_kind_str(kind: TaskTrackerScheduleKind) -> &'static str {

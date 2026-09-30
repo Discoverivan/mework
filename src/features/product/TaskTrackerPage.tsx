@@ -30,6 +30,7 @@ import {
   listTaskTrackerMonitors,
   saveTaskTrackerMonitor,
   saveTaskTrackerMonitorExport,
+  setTaskTrackerSort,
   validateTaskTrackerJql,
 } from "@/shared/contracts/task-tracker";
 import { loadTaskTrackerReadCheckpoints, saveTaskTrackerReadCheckpoint } from "./task-tracker-read-state";
@@ -40,6 +41,8 @@ import type {
   TaskTrackerMonitor,
   TaskTrackerMonitorInput,
   TaskTrackerScheduleKind,
+  TaskTrackerSortDirection,
+  TaskTrackerSortKey,
 } from "@/shared/contracts/task-tracker";
 
 const ALL_EVENTS: TaskTrackerEventKind[] = ["newIssues", "removedIssues", "statusChanges", "newComments"];
@@ -69,8 +72,8 @@ const MAX_ALLOWED_TRACKED_ISSUES = 10_000;
 const MONITOR_EXPORT_FORMAT = "mework-task-tracker-monitor";
 
 type FilterChange = "all" | TaskTrackerChangeKind;
-type SortKey = "issue" | "summary" | "status" | "updated" | "change";
-type SortDirection = "asc" | "desc";
+type SortKey = TaskTrackerSortKey;
+type SortDirection = TaskTrackerSortDirection;
 type ActiveFilterKey = "search" | "status" | "change" | "onlyChanged";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -239,8 +242,6 @@ export function TaskTrackerPage({ mockMode = false }: { mockMode?: boolean }) {
   const [page, setPage] = useState(1);
   const [now, setNow] = useState(() => Date.now());
   const [jqlCopied, setJqlCopied] = useState(false);
-  const [sortKey, setSortKey] = useState<SortKey>("issue");
-  const [sortDirection, setSortDirection] = useState<SortDirection>("asc");
   const monitorsRevision = useRef(0);
 
   const activeMonitor = monitors.find((monitor) => monitor.id === activeId) ?? monitors[0];
@@ -303,6 +304,8 @@ export function TaskTrackerPage({ mockMode = false }: { mockMode?: boolean }) {
     });
   }, [activeMonitor, changeFilter, onlyChanged, search, statusFilter]);
 
+  const sortKey = activeMonitor?.sortKey ?? "updated";
+  const sortDirection = activeMonitor?.sortDirection ?? "desc";
   const sortedIssues = useMemo(() => {
     const collator = new Intl.Collator(locale, { numeric: true, sensitivity: "base" });
     return [...filteredIssues].sort((left, right) => {
@@ -335,14 +338,22 @@ export function TaskTrackerPage({ mockMode = false }: { mockMode?: boolean }) {
     setChangeFilter("all");
     setOnlyChanged(false);
   }
-  function handleSort(nextKey: SortKey) {
-    if (sortKey === nextKey) {
-      setSortDirection((current) => current === "asc" ? "desc" : "asc");
-    } else {
-      setSortKey(nextKey);
-      setSortDirection("asc");
-    }
+  async function handleSort(nextKey: SortKey) {
+    if (!activeMonitor) return;
+    const nextDirection: SortDirection = sortKey === nextKey
+      ? (sortDirection === "asc" ? "desc" : "asc")
+      : "asc";
+    const updatedMonitor = { ...activeMonitor, sortKey: nextKey, sortDirection: nextDirection };
+    applyMonitorSnapshot(monitorsRef.current.map((monitor) => monitor.id === activeMonitor.id ? updatedMonitor : monitor));
     setPage(1);
+    if (mockMode) return;
+    try {
+      const saved = await setTaskTrackerSort(activeMonitor.id, nextKey, nextDirection);
+      applyMonitorSnapshot(monitorsRef.current.map((monitor) => monitor.id === saved.id ? saved : monitor));
+    } catch (reason) {
+      setPageError(errorMessage(reason, t("taskTracker.unavailable")));
+      void loadMonitors(false);
+    }
   }
 
   function openFilters() {

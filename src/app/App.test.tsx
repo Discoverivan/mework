@@ -148,6 +148,8 @@ function trackerMonitor(id: string, checkpoint: string, changedCount: number): T
     changesAfterLastCheck: changedCount,
     maxTrackedIssues: 100,
     exceedsLimit: false,
+    sortKey: "updated",
+    sortDirection: "desc",
     issues: Array.from({ length: changedCount }, (_, index) => ({
       key: `DEMO-${index + 1}`,
       summary: `Changed task ${index + 1}`,

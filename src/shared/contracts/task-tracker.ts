@@ -3,6 +3,8 @@ import { invoke } from "@tauri-apps/api/core";
 export type TaskTrackerScheduleKind = "period" | "cron";
 export type TaskTrackerEventKind = "newIssues" | "removedIssues" | "statusChanges" | "newComments";
 export type TaskTrackerChangeKind = "new" | "removed" | "status" | "comment";
+export type TaskTrackerSortKey = "issue" | "summary" | "status" | "updated" | "change";
+export type TaskTrackerSortDirection = "asc" | "desc";
 
 export interface TaskTrackerChange {
   kind: TaskTrackerChangeKind;
@@ -37,6 +39,8 @@ export interface TaskTrackerMonitor {
   maxTrackedIssues: number;
   exceedsLimit: boolean;
   lastError?: string | null;
+  sortKey: TaskTrackerSortKey;
+  sortDirection: TaskTrackerSortDirection;
   issues: TaskTrackerIssue[];
 }
 
@@ -70,6 +74,14 @@ export const saveTaskTrackerMonitorExport = (
 
 export const deleteTaskTrackerMonitor = (id: string) =>
   invoke<boolean>("task_tracker_delete", { id });
+
+export const setTaskTrackerSort = (
+  monitorId: string,
+  sortKey: TaskTrackerSortKey,
+  sortDirection: TaskTrackerSortDirection,
+) => invoke<TaskTrackerMonitor>("task_tracker_set_sort", {
+  request: { monitorId, sortKey, sortDirection },
+});
 
 export const setTaskTrackerEnabled = (id: string, enabled: boolean) =>
   invoke<TaskTrackerMonitor>("task_tracker_set_enabled", { id, enabled });
