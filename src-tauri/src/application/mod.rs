@@ -1,5 +1,6 @@
 pub mod ai;
 pub mod ai_providers;
+pub mod ai_summary;
 pub mod ai_usage_statistics;
 pub mod authored_pull_requests;
 pub mod command_board;

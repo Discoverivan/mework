@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { DailyPresenterState, DailyWorkspace } from "@/shared/contracts/developer";
 import type { ManagedProject } from "@/shared/contracts/planning";
 import { listManagedProjects } from "../planning/api";
-import { loadDailyIssueTransitions, loadDailyWorkspace, openPresenterView, publishPresenterState, refreshDailyWorkspace, subscribePresenterState, transitionDailyIssue } from "./api";
+import { generateSprintSummary, loadDailyIssueTransitions, loadDailyWorkspace, openPresenterView, publishPresenterState, refreshDailyWorkspace, subscribePresenterState, transitionDailyIssue } from "./api";
 import { clearDailyWorkspaceCacheForTests } from "./cache";
 import { DailyPage } from "./DailyPage";
 
@@ -16,6 +16,7 @@ const { openUrlMock, writeTextMock } = vi.hoisted(() => ({
 vi.mock("@tauri-apps/plugin-opener", () => ({ openUrl: openUrlMock }));
 vi.mock("../planning/api", () => ({ listManagedProjects: vi.fn() }));
 vi.mock("./api", () => ({
+  generateSprintSummary: vi.fn(),
   loadDailyWorkspace: vi.fn(),
   refreshDailyWorkspace: vi.fn(),
   loadDailyIssueTransitions: vi.fn(),
@@ -27,6 +28,7 @@ vi.mock("./api", () => ({
 }));
 
 const listManagedProjectsMock = vi.mocked(listManagedProjects);
+const generateSprintSummaryMock = vi.mocked(generateSprintSummary);
 const loadDailyWorkspaceMock = vi.mocked(loadDailyWorkspace);
 const refreshDailyWorkspaceMock = vi.mocked(refreshDailyWorkspace);
 const loadDailyIssueTransitionsMock = vi.mocked(loadDailyIssueTransitions);
@@ -65,9 +67,9 @@ const workspace: DailyWorkspace = {
     "test-user-a": "https://jira.example.invalid/secure/RapidBoard.jspa?rapidView=42&projectKey=DEMO&sprint=sprint-1&quickFilter=7",
   },
   sprints: [
-    { id: "sprint-1", name: "Sprint 42", state: "active" },
-    { id: "sprint-0", name: "Sprint 41", state: "closed" },
-    { id: "sprint-future", name: "Sprint 43", state: "future" },
+    { id: "sprint-1", name: "Sprint 42", state: "active", startDate: "2026-09-21T00:00:00.000Z", endDate: "2026-10-05T00:00:00.000Z" },
+    { id: "sprint-0", name: "Sprint 41", state: "closed", startDate: "2026-09-07T00:00:00.000Z", endDate: "2026-09-20T00:00:00.000Z" },
+    { id: "sprint-future", name: "Sprint 43", state: "future", startDate: "2026-10-06T00:00:00.000Z", endDate: "2026-10-20T00:00:00.000Z" },
   ],
   members: [
     { accountId: "test-user-a", displayName: "Test Member A", alias: "Test Author A", active: true, tags: ["backend"], displayOrder: 1 },
@@ -117,6 +119,7 @@ describe("DailyPage smoke test", () => {
     });
     window.location.hash = "";
     listManagedProjectsMock.mockResolvedValue([project]);
+    generateSprintSummaryMock.mockResolvedValue({ text: "Sprint progress report" });
     loadDailyWorkspaceMock.mockResolvedValue(workspace);
     refreshDailyWorkspaceMock.mockResolvedValue(workspace.subtasks);
     loadDailyIssueTransitionsMock.mockResolvedValue([
@@ -176,6 +179,7 @@ describe("DailyPage smoke test", () => {
     expect(screen.getByRole("combobox", { name: "Sprint" })).toHaveTextContent("Sprint 42");
     expect(screen.queryByText("Unavailable")).not.toBeInTheDocument();
     expect(screen.queryByText("Active sprint: Sprint 42")).not.toBeInTheDocument();
+    const aiSummaryButton = screen.getByRole("button", { name: "AI Summary" });
     const refreshButton = screen.getByRole("button", { name: "Refresh" });
     const sprintBoardButton = screen.getByRole("button", { name: "Open sprint board in Jira" });
     const assigneeBoardButton = screen.getByRole("button", { name: "Open sprint board for Test Author A in Jira" });
@@ -206,6 +210,7 @@ describe("DailyPage smoke test", () => {
     }
     const actionItems = Array.from(actionGroup.children);
     expect(actionItems).toEqual([
+      aiSummaryButton,
       sprintBoardButton,
       presenterButton,
       actionSeparator,
@@ -278,6 +283,39 @@ describe("DailyPage smoke test", () => {
     await waitFor(() => expect(openPresenterViewMock).toHaveBeenCalledTimes(1));
     expect(publishPresenterStateMock).toHaveBeenCalled();
     expect(await screen.findByRole("button", { name: "Stop presenter view" })).toBeInTheDocument();
+  });
+
+  it("generates and displays a weekly AI summary for the selected sprint", async () => {
+    render(<DailyPage />);
+    await screen.findByRole("heading", { name: "Tasks" });
+    fireEvent.click(screen.getByRole("button", { name: "AI Summary" }));
+    expect(screen.getByRole("heading", { name: "AI Summary" })).toBeInTheDocument();
+    expect(screen.getByRole("combobox", { name: "Sprint" })).toHaveTextContent("Sprint 42");
+    fireEvent.click(screen.getByRole("button", { name: "Date range" }));
+    const rangeStart = screen.getByRole("button", { name: /28 September/ });
+    expect(rangeStart).not.toHaveClass("app-icon-button");
+    expect(rangeStart.parentElement).toHaveClass("size-[var(--cell-size)]");
+    fireEvent.click(rangeStart);
+    fireEvent.click(screen.getByRole("button", { name: /30 September/ }));
+    expect(screen.getByRole("button", { name: "Date range" })).toHaveTextContent(/28 Sept 2026 – 30 Sept 2026/);
+    fireEvent.click(screen.getByRole("button", { name: "Generate" }));
+    const result = await screen.findByRole("textbox", { name: "AI summary result" });
+    expect(result).toHaveValue("Sprint progress report");
+    expect(result).not.toHaveAttribute("readonly");
+    expect(screen.queryByRole("combobox", { name: "Preset" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Date range" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Generate" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Copy" })).toBeInTheDocument();
+    expect(generateSprintSummaryMock).toHaveBeenCalledWith({
+      managedProjectId: project.id,
+      sprintId: workspace.selectedSprintId,
+      preset: "weekly",
+      period: "2026-09-28 – 2026-09-30",
+      customPrompt: "",
+      previousResult: undefined,
+      action: "generate",
+    });
+    expect(screen.getByRole("button", { name: "Make shorter" })).toBeInTheDocument();
   });
 
   it("updates the main Daily selection when Presenter changes the member", async () => {

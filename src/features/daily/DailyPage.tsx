@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import { ArrowLeft, ArrowRight, ChevronDown, Copy, ExternalLink, MoreHorizontal, Plus, Presentation, RefreshCw, Square } from "lucide-react";
+import { ArrowLeft, ArrowRight, CalendarDays, ChevronDown, Copy, ExternalLink, MoreHorizontal, Plus, Presentation, RefreshCw, Sparkles, Square } from "lucide-react";
 import { PageHeader } from "@/components/shared/PageHeader";
 import { StatusToast } from "@/components/shared/StatusToast";
 import { useI18n } from "@/i18n/context";
@@ -10,7 +10,13 @@ import { badgeVariants } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { Calendar } from "@/components/ui/calendar";
+import { Textarea } from "@/components/ui/textarea";
+import { Field, FieldGroup, FieldLabel } from "@/components/ui/field";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import type { DateRange } from "react-day-picker";
+import { enGB, ru } from "react-day-picker/locale";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -33,7 +39,7 @@ import {
 import type { DailyIssueTransition, DailySubtask, DailyWorkspace } from "@/shared/contracts/developer";
 import type { ManagedProject, TeamMember } from "@/shared/contracts/planning";
 import { listManagedProjects } from "../planning/api";
-import { closePresenterView, loadDailyIssueTransitions, loadDailyWorkspace, loadJiraAvatarData, openPresenterView, publishPresenterState, refreshDailyWorkspace, subscribePresenterState, transitionDailyIssue } from "./api";
+import { closePresenterView, generateSprintSummary, loadDailyIssueTransitions, loadDailyWorkspace, loadJiraAvatarData, openPresenterView, publishPresenterState, refreshDailyWorkspace, subscribePresenterState, transitionDailyIssue } from "./api";
 import { readDailyWorkspaceCache, readManagedProjectsCache, writeDailyWorkspaceCache, writeManagedProjectsCache } from "./cache";
 import { dailyStatusTone } from "./status";
 
@@ -66,6 +72,30 @@ function initials(displayName: string): string {
 
 function memberDisplayName(member: TeamMember): string {
   return member.alias?.trim() || member.displayName;
+}
+
+function sprintDateInputValue(value?: string | null): string | undefined {
+  const date = value?.slice(0, 10);
+  return date && /^\d{4}-\d{2}-\d{2}$/.test(date) ? date : undefined;
+}
+
+function dateFromInputValue(value?: string): Date | undefined {
+  if (!value) return undefined;
+  const [year, month, day] = value.split("-").map(Number);
+  if (!year || !month || !day) return undefined;
+  return new Date(year, month - 1, day);
+}
+
+function dateInputValue(date: Date): string {
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${date.getFullYear()}-${month}-${day}`;
+}
+
+function formatDateRange(range: DateRange | undefined, locale: string, placeholder: string): string {
+  if (!range?.from) return placeholder;
+  const format = (date: Date) => new Intl.DateTimeFormat(locale, { dateStyle: "medium" }).format(date);
+  return range.to ? `${format(range.from)} – ${format(range.to)}` : `${format(range.from)} – …`;
 }
 
 function MemberAvatar({ member, className, managedProjectId }: { member: TeamMember; className: string; managedProjectId: string }) {
@@ -244,7 +274,7 @@ function TaskStatusMenu({
 }
 
 export function DailyPage() {
-  const { t } = useI18n();
+  const { t, language, locale } = useI18n();
   const [projects, setProjects] = useState<ManagedProject[]>(() => readManagedProjectsCache() ?? []);
   const [selectedProjectId, setSelectedProjectId] = useState<string | undefined>(() => readManagedProjectsCache()?.[0]?.id);
   const [workspace, setWorkspace] = useState<DailyWorkspace>();
@@ -259,6 +289,15 @@ export function DailyPage() {
   const [presenterError, setPresenterError] = useState<string>();
   const [taskActionError, setTaskActionError] = useState<string>();
   const [taskActionNotice, setTaskActionNotice] = useState<string>();
+  const [aiSummaryOpen, setAiSummaryOpen] = useState(false);
+  const [aiPreset, setAiPreset] = useState<"weekly" | "custom">("weekly");
+  const [aiSprintId, setAiSprintId] = useState("");
+  const [aiDateRange, setAiDateRange] = useState<DateRange>();
+  const [aiCalendarOpen, setAiCalendarOpen] = useState(false);
+  const [aiPrompt, setAiPrompt] = useState("");
+  const [aiResult, setAiResult] = useState("");
+  const [aiBusy, setAiBusy] = useState(false);
+  const [aiError, setAiError] = useState<string>();
 
   const workspaceRequestRevision = useRef(0);
   const statusRefreshRevision = useRef(0);
@@ -471,10 +510,37 @@ export function DailyPage() {
     }
   }
 
+  async function runAiSummary(action: "generate" | "shorter" | "longer" | "regenerate" = "generate") {
+    if (!selectedProjectId || !aiSprintId || (aiPreset === "custom" && !aiPrompt.trim())) return;
+    setAiBusy(true);
+    setAiError(undefined);
+    try {
+      const generated = await generateSprintSummary({
+        managedProjectId: selectedProjectId,
+        sprintId: aiSprintId,
+        preset: aiPreset,
+        period: aiPreset === "weekly" && aiDateRange?.from && aiDateRange.to
+          ? `${dateInputValue(aiDateRange.from)} – ${dateInputValue(aiDateRange.to)}`
+          : undefined,
+        customPrompt: aiPrompt,
+        previousResult: aiResult || undefined,
+        action,
+      });
+      setAiResult(generated.text);
+    } catch (reason) {
+      setAiError(commandError(reason));
+    } finally {
+      setAiBusy(false);
+    }
+  }
+
   const filteredSprints = workspace?.sprints.filter((sprint) =>
     sprint.name.toLocaleLowerCase().includes(sprintQuery.trim().toLocaleLowerCase()),
   ) ?? [];
   const selectedSprint = workspace?.sprints.find((sprint) => sprint.id === workspace.selectedSprintId);
+  const aiSelectedSprint = workspace?.sprints.find((sprint) => sprint.id === aiSprintId);
+  const aiSprintStartDate = sprintDateInputValue(aiSelectedSprint?.startDate);
+  const aiSprintEndDate = sprintDateInputValue(aiSelectedSprint?.endDate);
 
   return (
     <section aria-labelledby="daily-title" className="space-y-4">
@@ -563,6 +629,22 @@ export function DailyPage() {
         <div className="ml-auto flex items-center gap-2">
           <Button
             type="button"
+            className="h-9 bg-gradient-to-r from-chart-5 to-primary px-3 text-primary-foreground shadow-sm hover:brightness-110"
+            disabled={!workspace || loadingWorkspace}
+            onClick={() => {
+              setAiSprintId(workspace?.selectedSprintId ?? "");
+              setAiDateRange(undefined);
+              setAiCalendarOpen(false);
+              setAiResult("");
+              setAiError(undefined);
+              setAiSummaryOpen(true);
+            }}
+          >
+            <Sparkles data-icon="inline-start" aria-hidden="true" />
+            {t("daily.aiSummary")}
+          </Button>
+          <Button
+            type="button"
             variant="outline"
             size="icon"
             className="h-9 w-9"
@@ -621,6 +703,111 @@ export function DailyPage() {
           </Button>
         </div>
       </div>
+
+      <Dialog open={aiSummaryOpen} onOpenChange={(open) => { if (!aiBusy) setAiSummaryOpen(open); }}>
+        <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2"><Sparkles className="text-chart-5" aria-hidden="true" />{t("daily.aiSummary")}</DialogTitle>
+            <DialogDescription>{t("daily.aiSummaryDescription")}</DialogDescription>
+          </DialogHeader>
+          <div className="flex flex-col gap-4">
+            {!aiResult ? (
+              <>
+                <FieldGroup className="grid grid-cols-2 gap-4">
+                  <Field>
+                    <FieldLabel htmlFor="ai-summary-preset">{t("daily.aiPreset")}</FieldLabel>
+                    <Select value={aiPreset} onValueChange={(value) => setAiPreset(value as "weekly" | "custom")}>
+                      <SelectTrigger id="ai-summary-preset" aria-label={t("daily.aiPreset")}><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="weekly">{t("daily.aiWeekly")}</SelectItem>
+                        <SelectItem value="custom">{t("daily.aiCustom")}</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </Field>
+                  <Field>
+                    <FieldLabel htmlFor="ai-summary-sprint">{t("daily.sprint")}</FieldLabel>
+                    <Select value={aiSprintId} onValueChange={(value) => {
+                      setAiSprintId(value);
+                      setAiDateRange(undefined);
+                      setAiCalendarOpen(false);
+                    }}>
+                      <SelectTrigger id="ai-summary-sprint" aria-label={t("daily.sprint")}><SelectValue placeholder={t("daily.selectSprint")} /></SelectTrigger>
+                      <SelectContent>{(workspace?.sprints ?? []).map((sprint) => <SelectItem key={sprint.id} value={sprint.id}>{sprint.name}</SelectItem>)}</SelectContent>
+                    </Select>
+                  </Field>
+                </FieldGroup>
+                {aiPreset === "weekly" ? (
+                  <Field>
+                    <FieldLabel htmlFor="ai-summary-period">{t("daily.aiDateRange")}</FieldLabel>
+                    <Popover open={aiCalendarOpen} onOpenChange={setAiCalendarOpen}>
+                      <PopoverTrigger asChild>
+                        <Button
+                          id="ai-summary-period"
+                          type="button"
+                          variant="outline"
+                          aria-label={t("daily.aiDateRange")}
+                          className="w-full justify-start text-left font-normal"
+                        >
+                          <CalendarDays data-icon="inline-start" aria-hidden="true" />
+                          {formatDateRange(aiDateRange, locale, t("daily.aiSelectDateRange"))}
+                        </Button>
+                      </PopoverTrigger>
+                      <PopoverContent className="w-auto p-0" align="start">
+                        <Calendar
+                          mode="range"
+                          min={1}
+                          selected={aiDateRange}
+                          onSelect={(range) => {
+                            setAiDateRange(range);
+                            if (range?.from && range.to) setAiCalendarOpen(false);
+                          }}
+                          defaultMonth={aiDateRange?.from ?? dateFromInputValue(aiSprintStartDate) ?? new Date()}
+                          startMonth={dateFromInputValue(aiSprintStartDate)}
+                          endMonth={dateFromInputValue(aiSprintEndDate)}
+                          locale={language === "russian" ? ru : enGB}
+                          disabled={(date) => {
+                            const start = dateFromInputValue(aiSprintStartDate);
+                            const end = dateFromInputValue(aiSprintEndDate);
+                            return Boolean((start && date < start) || (end && date > end));
+                          }}
+                        />
+                      </PopoverContent>
+                    </Popover>
+                  </Field>
+                ) : (
+                  <Field>
+                    <FieldLabel htmlFor="ai-summary-prompt">{t("daily.aiPrompt")}</FieldLabel>
+                    <Textarea id="ai-summary-prompt" rows={5} value={aiPrompt} onChange={(event) => setAiPrompt(event.target.value)} placeholder={t("daily.aiPromptPlaceholder")} />
+                  </Field>
+                )}
+              </>
+            ) : null}
+            {aiError ? <Alert variant="destructive" role="alert"><AlertTitle>{t("daily.aiError")}</AlertTitle><AlertDescription>{aiError}</AlertDescription></Alert> : null}
+            {aiResult ? (
+              <div className="flex flex-col gap-3">
+                <Textarea aria-label={t("daily.aiResult")} rows={8} value={aiResult} onChange={(event) => setAiResult(event.target.value)} className="max-h-72 resize-y bg-muted/40 leading-relaxed" />
+                <div className="flex flex-wrap gap-2">
+                  <Button type="button" variant="outline" size="sm" disabled={aiBusy} onClick={() => void runAiSummary("shorter")}>{t("daily.aiShorter")}</Button>
+                  <Button type="button" variant="outline" size="sm" disabled={aiBusy} onClick={() => void runAiSummary("longer")}>{t("daily.aiLonger")}</Button>
+                  <Button type="button" variant="outline" size="sm" disabled={aiBusy} onClick={() => void runAiSummary("regenerate")}>{t("daily.aiRegenerate")}</Button>
+                </div>
+              </div>
+            ) : null}
+          </div>
+          <DialogFooter>
+            <Button type="button" variant="outline" disabled={aiBusy} onClick={() => setAiSummaryOpen(false)}>{t("settings.common.cancel")}</Button>
+            {aiResult ? (
+              <Button type="button" className="bg-gradient-to-r from-chart-5 to-primary text-primary-foreground hover:brightness-110" onClick={() => void copyTaskValue(aiResult, t("daily.aiCopied"))}>
+                <Copy data-icon="inline-start" aria-hidden="true" />{t("daily.copy")}
+              </Button>
+            ) : (
+              <Button type="button" className="bg-gradient-to-r from-chart-5 to-primary text-primary-foreground hover:brightness-110" disabled={aiBusy || !aiSprintId || (aiPreset === "weekly" && (!aiDateRange?.from || !aiDateRange.to)) || (aiPreset === "custom" && !aiPrompt.trim())} onClick={() => void runAiSummary()}>
+                {aiBusy ? t("daily.aiGenerating") : <><span>{t("daily.aiGenerate")}</span><Sparkles data-icon="inline-end" aria-hidden="true" /></>}
+              </Button>
+            )}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {presenterError ? (
         <Alert variant="destructive" role="alert">

@@ -484,6 +484,12 @@ fn jira_response(
             json!({"id":"mock-project-id","key":"MOCK","name":"Example project","projectTypeKey":"software"}),
         );
     }
+    if method == "GET" && path == "/jira/rest/api/3/project/search" {
+        return json_response(
+            200,
+            json!({"startAt":0,"maxResults":1,"total":1,"values":[{"id":"mock-project-id","key":"MOCK","name":"Example project","projectTypeKey":"software"}]}),
+        );
+    }
     if method == "GET" && path == "/jira/rest/greenhopper/1.0/quickfilters/mock-board-1" {
         return json_response(
             200,
@@ -656,29 +662,68 @@ fn jira_response(
             json!([{"name":"mock-user-a","displayName":"Example Engineer A","active":true},{"name":"mock-user-b","displayName":"Example Engineer B","active":true}]),
         );
     }
-    if method == "GET" && path.starts_with("/jira/rest/api/2/issue/") {
-        let issue_key = path.rsplit('/').next().unwrap_or_default();
-        match mode.created_jira_issue(issue_key) {
-            Ok(Some(issue)) => return json_response(200, issue),
-            Ok(None) => {}
-            Err(error) => return json_response(500, json!({"error":error})),
+    if method == "GET"
+        && (path.starts_with("/jira/rest/api/3/issue/")
+            || path.starts_with("/jira/rest/api/2/issue/"))
+    {
+        let is_changelog = path.ends_with("/changelog");
+        let issue_path = path.strip_suffix("/changelog").unwrap_or(path);
+        let issue_key = issue_path.rsplit('/').next().unwrap_or_default();
+        if !is_changelog {
+            match mode.created_jira_issue(issue_key) {
+                Ok(Some(issue)) => return json_response(200, issue),
+                Ok(None) => {}
+                Err(error) => return json_response(500, json!({"error":error})),
+            }
         }
         let snapshot = match mode.snapshot() {
             Ok(snapshot) => snapshot,
             Err(error) => return json_response(500, json!({"error":error})),
         };
-        if let Some(issue) = snapshot
+        let ram_task = snapshot
             .monitors
             .into_iter()
             .flat_map(|monitor| monitor.issues)
-            .find(|issue| issue.key == issue_key)
-        {
-            return json_response(200, jira_issue_from_overlay(issue));
+            .find(|issue| issue.key == issue_key);
+        if is_changelog {
+            let values = ram_task
+                .as_ref()
+                .and_then(|task| task.last_change.as_ref())
+                .filter(|change| {
+                    change.kind == crate::application::task_tracker::TaskTrackerChangeKind::Status
+                })
+                .and_then(|change| {
+                    let from = change
+                        .description
+                        .strip_prefix("Status changed: ")?
+                        .split_once(" → ")?
+                        .0;
+                    Some(json!([{
+                        "id": change.detected_at,
+                        "created": change.detected_at,
+                        "items": [{"field":"status","fromString":from,"toString":ram_task.as_ref()?.status}]
+                    }]))
+                })
+                .unwrap_or_else(|| json!([]));
+            let total = values.as_array().map_or(0, Vec::len);
+            return json_response(
+                200,
+                json!({"startAt":0,"maxResults":total,"total":total,"values":values}),
+            );
         }
-        if issue_key == "MOCK-201" {
-            return json_response(200, jira_sample_issue(mode));
-        }
-        return json_response(404, json!({"error":"Issue not found"}));
+        let issue = ram_task.map(jira_issue_from_overlay).or_else(|| {
+            let sample = jira_sample_issue(mode);
+            if issue_key == "MOCK-201" {
+                return Some(sample);
+            }
+            sample
+                .pointer("/fields/parent")
+                .filter(|parent| parent.get("key").and_then(Value::as_str) == Some(issue_key))
+                .cloned()
+        });
+        return issue
+            .map(|issue| json_response(200, issue))
+            .unwrap_or_else(|| json_response(404, json!({"error":"Issue not found"})));
     }
     if method == "GET" && path == "/jira/rest/api/2/issue/createmeta" {
         return json_response(
@@ -802,6 +847,50 @@ mod tests {
             .expect("Jira REST response");
         assert!(issues.issues.iter().any(|issue| issue.key == "MOCK-101"));
         assert!(issues.issues.iter().any(|issue| issue.key == "MOCK-201"));
+        mode.set_task_status("MOCK-101", "Done")
+            .expect("update shared overlay issue");
+        let planning = JiraPlanningClient::new(&server.urls().jira, JiraDeployment::Cloud)
+            .expect("Jira planning client");
+        assert_eq!(planning.list_projects(20).await.unwrap().values.len(), 1);
+        let boards = planning.list_boards_for_project("MOCK", 20).await.unwrap();
+        assert_eq!(boards.values.len(), 1);
+        let sprints = planning.list_sprints("1", 20).await.unwrap();
+        assert_eq!(sprints.values.len(), 2);
+        let sprint_issues = planning.list_sprint_issues("1", 20).await.unwrap();
+        assert_eq!(sprint_issues.values.len(), 6);
+        assert_eq!(
+            sprint_issues
+                .values
+                .iter()
+                .find(|issue| issue.key == "MOCK-101")
+                .unwrap()
+                .fields["status"]["name"],
+            "Done"
+        );
+        let detail = planning.get_issue("MOCK-101").await.unwrap();
+        assert_eq!(detail.fields["status"]["name"], "Done");
+        let summary_context = planning
+            .get_issue_with_changelog("MOCK-101", Some("mock-story-points"))
+            .await
+            .expect("parent issue and status history");
+        assert_eq!(summary_context["fields"]["status"]["name"], "Done");
+        assert_eq!(
+            summary_context.pointer("/changelog/histories/0/items/0/fromString"),
+            Some(&serde_json::Value::String("In Progress".to_owned()))
+        );
+        assert_eq!(
+            summary_context.pointer("/changelog/histories/0/items/0/toString"),
+            Some(&serde_json::Value::String("Done".to_owned()))
+        );
+        let mock_parent = planning
+            .get_issue_with_changelog("MOCK-200", Some("mock-story-points"))
+            .await
+            .expect("in-memory parent issue endpoint");
+        assert_eq!(mock_parent["key"], "MOCK-200");
+        assert_eq!(
+            mock_parent["fields"]["summary"],
+            "MOCK DATA · Example parent"
+        );
         let high_priority = jira
             .search_issues("project = MOCK AND priority = High", 20)
             .await

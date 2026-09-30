@@ -391,6 +391,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             commands::planning::jira_avatar_data,
+            commands::ai_summary::ai_sprint_summary,
             commands::daily::daily_workspace,
             commands::daily::daily_workspace_refresh,
             commands::daily::daily_issue_transitions,

@@ -560,6 +560,7 @@ pub enum AiActivity {
     TaskCreation,
     PullRequestReview,
     TokenBurner,
+    SprintSummary,
 }
 
 pub async fn settings_for_activity(
@@ -577,6 +578,7 @@ fn effective_settings(mut settings: AiSettings, activity: AiActivity) -> AiSetti
         AiActivity::TaskCreation => settings.task_creation.clone(),
         AiActivity::PullRequestReview => settings.pull_request_review.clone(),
         AiActivity::TokenBurner => settings.token_burner.clone(),
+        AiActivity::SprintSummary => None,
     };
     if let Some(profile) = profile {
         profile.apply_to(&mut settings);
@@ -1436,6 +1438,7 @@ mod tests {
         let task = super::effective_settings(settings.clone(), super::AiActivity::TaskCreation);
         let review =
             super::effective_settings(settings.clone(), super::AiActivity::PullRequestReview);
+        let summary = super::effective_settings(settings.clone(), super::AiActivity::SprintSummary);
         let burner = super::effective_settings(settings, super::AiActivity::TokenBurner);
         assert_eq!(task.provider, Some(AiProviderId::CodexCli));
         assert_eq!(task.model, "example-model");
@@ -1444,6 +1447,8 @@ mod tests {
         assert_eq!(review.reasoning, AiReasoning::High);
         assert!(review.fast_mode);
         assert!(review.pull_request_review.is_none());
+        assert_eq!(summary.provider, Some(AiProviderId::CodexCli));
+        assert_eq!(summary.model, "example-model");
         assert_eq!(burner.provider, Some(AiProviderId::OpenAiCompatible));
         assert_eq!(burner.provider_instance_id.as_deref(), Some("provider-id"));
         assert_eq!(burner.model, "example-review-model");
