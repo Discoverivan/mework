@@ -6,7 +6,7 @@ import os
 from pathlib import Path
 import subprocess
 import sys
-from urllib.parse import unquote, urlparse
+from urllib.parse import quote
 
 
 BUNDLE_SUFFIXES = (
@@ -92,21 +92,11 @@ def signature_bundle(filename: str) -> tuple[str, str] | None:
     return None
 
 
-def release_download_urls(assets: list[object]) -> dict[str, str]:
-    urls: dict[str, str] = {}
-    for asset in assets:
-        if not isinstance(asset, dict):
-            raise ValueError("GitHub returned an invalid release asset")
-        name = asset.get("name")
-        url = asset.get("browser_download_url")
-        if not isinstance(name, str) or not isinstance(url, str):
-            raise ValueError("GitHub returned a release asset without a downloadable URL")
-        parsed = urlparse(url)
-        filename = unquote(parsed.path.rsplit("/", 1)[-1])
-        if parsed.scheme != "https" or parsed.hostname != "github.com" or filename != name:
-            raise ValueError(f"GitHub returned an unexpected download URL for {name}")
-        urls[name] = url
-    return urls
+def release_download_urls(asset_names: list[str], repository: str, tag: str) -> dict[str, str]:
+    if repository.count("/") != 1 or not all(repository.split("/")):
+        raise ValueError(f"Invalid GitHub repository name: {repository}")
+    base_url = f"https://github.com/{repository}/releases/download/{quote(tag, safe='')}"
+    return {name: f"{base_url}/{quote(name, safe='')}" for name in asset_names}
 
 
 def build_platforms(root: Path, asset_urls: dict[str, str]) -> dict[str, dict[str, str]]:
@@ -172,11 +162,6 @@ def build_manifest(
     }
 
 
-def gh_json(*args: str) -> object:
-    result = subprocess.run(["gh", "api", *args], check=True, capture_output=True, text=True)
-    return json.loads(result.stdout)
-
-
 def main() -> int:
     if len(sys.argv) != 3:
         print("Usage: publish-release-artifacts.py <artifact-directory> <manifest-output>", file=sys.stderr)
@@ -193,17 +178,13 @@ def main() -> int:
 
     normalized_count = normalize_macos_asset_names(artifact_root, version)
     files = release_asset_paths(artifact_root)
+    asset_urls = release_download_urls([path.name for path in files], repository, release_tag)
+    manifest = build_manifest(artifact_root, version, notes, asset_urls)
+    output_path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
     subprocess.run(
         ["gh", "release", "upload", release_tag, *(str(path) for path in files), "--repo", repository, "--clobber"],
         check=True,
     )
-    release = gh_json(f"repos/{repository}/releases/tags/{release_tag}")
-    assets = release.get("assets") if isinstance(release, dict) else None
-    if not isinstance(assets, list):
-        raise ValueError("GitHub returned an invalid release asset list")
-    asset_urls = release_download_urls(assets)
-    manifest = build_manifest(artifact_root, version, notes, asset_urls)
-    output_path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
     print(
         f"Uploaded {len(files)} release assets ({normalized_count} macOS updater filenames normalized) "
         f"and created updater manifest for {version}."

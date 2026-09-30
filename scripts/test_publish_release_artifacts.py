@@ -55,13 +55,13 @@ class PublishReleaseArtifactsTests(unittest.TestCase):
             )
 
             assets = PUBLISHER.release_download_urls(
-                [
-                    {
-                        "name": path.name,
-                        "browser_download_url": f"https://github.com/example/example/releases/download/demo-v1.2.3/{path.name}",
-                    }
-                    for path in asset_paths
-                ]
+                [path.name for path in asset_paths],
+                "example/example",
+                "demo-v1.2.3",
+            )
+            self.assertEqual(
+                assets["demo_1.2.3_aarch64.app.tar.gz"],
+                "https://github.com/example/example/releases/download/demo-v1.2.3/demo_1.2.3_aarch64.app.tar.gz",
             )
             manifest = PUBLISHER.build_manifest(root, "1.2.3", "Release notes", assets, "2026-01-01T00:00:00Z")
 
