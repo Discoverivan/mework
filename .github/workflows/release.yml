@@ -109,28 +109,29 @@ jobs:
         shell: bash
         run: test -n "$TAURI_SIGNING_PRIVATE_KEY"
 
-  publish_tauri:
+  build_tauri:
     name: Build ${{ matrix.name }}
     needs: prepare_release
     permissions:
-      contents: write
+      contents: read
     runs-on: ${{ matrix.platform }}
     strategy:
       fail-fast: false
-      # tauri-action updates one shared latest.json asset. Serializing the
-      # matrix prevents concurrent delete/upload races between platforms.
-      max-parallel: 1
+      max-parallel: 3
       matrix:
         include:
           - name: macOS Apple Silicon
+            artifact: macos-aarch64
             platform: macos-latest
             target: aarch64-apple-darwin
             args: --target aarch64-apple-darwin --bundles app,dmg
           - name: macOS Intel
+            artifact: macos-x86_64
             platform: macos-latest
             target: x86_64-apple-darwin
             args: --target x86_64-apple-darwin --bundles app,dmg
           - name: Windows x64
+            artifact: windows-x86_64
             platform: windows-latest
             target: ''
             args: ''
@@ -257,32 +258,21 @@ jobs:
 
           echo "key_path=$KEY_PATH" >> "$GITHUB_OUTPUT"
 
-      - name: Build and publish Windows release
+      - name: Build Windows bundles
         if: runner.os == 'Windows'
         uses: tauri-apps/tauri-action@v1
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           projectPath: .
-          tagName: mework-v__VERSION__
-          releaseName: mework v__VERSION__
-          releaseBody: |
-            Release build for macOS and Windows.
-
-            macOS signing is selected automatically: Developer ID plus notarization when Apple certificate and App Store Connect API secrets are configured; ad-hoc only when APPLE_CERTIFICATE is empty. Incomplete signing or notarization credentials fail the macOS job.
-
-            macOS DMG assets are provided for convenient installation.
-          releaseDraft: true
-          prerelease: false
+          uploadUpdaterJson: false
           args: ${{ matrix.args }}
 
-      - name: Build and publish signed macOS release
+      - name: Build signed macOS bundles
         if: runner.os == 'macOS' && steps.macos_signing.outputs.mode == 'developer-id'
         uses: tauri-apps/tauri-action@v1
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
@@ -292,45 +282,48 @@ jobs:
           APPLE_API_KEY_PATH: ${{ steps.apple_notarization.outputs.key_path }}
         with:
           projectPath: .
-          tagName: mework-v__VERSION__
-          releaseName: mework v__VERSION__
-          releaseBody: |
-            Release build for macOS and Windows.
-
-            macOS signing is selected automatically: Developer ID plus notarization when Apple certificate and App Store Connect API secrets are configured; ad-hoc only when APPLE_CERTIFICATE is empty. Incomplete signing or notarization credentials fail the macOS job.
-
-            macOS DMG assets are provided for convenient installation.
-          releaseDraft: true
-          prerelease: false
+          uploadUpdaterJson: false
           args: ${{ matrix.args }}
 
-      - name: Build and publish ad-hoc macOS release
+      - name: Build ad-hoc macOS bundles
         if: runner.os == 'macOS' && steps.macos_signing.outputs.mode == 'ad-hoc'
         uses: tauri-apps/tauri-action@v1
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
           APPLE_SIGNING_IDENTITY: "-"
         with:
           projectPath: .
-          tagName: mework-v__VERSION__
-          releaseName: mework v__VERSION__
-          releaseBody: |
-            Release build for macOS and Windows.
-
-            macOS signing is selected automatically: Developer ID plus notarization when Apple certificate and App Store Connect API secrets are configured; ad-hoc only when APPLE_CERTIFICATE is empty. Incomplete signing or notarization credentials fail the macOS job.
-
-            macOS DMG assets are provided for convenient installation.
-          releaseDraft: true
-          prerelease: false
+          uploadUpdaterJson: false
           args: ${{ matrix.args }}
+
+      - name: Upload bundles for serial release publication
+        uses: actions/upload-artifact@v4
+        with:
+          name: mework-release-bundles-${{ matrix.artifact }}
+          path: |
+            src-tauri/target/**/release/bundle/**/*.app.tar.gz
+            src-tauri/target/**/release/bundle/**/*.app.tar.gz.sig
+            src-tauri/target/**/release/bundle/**/*.dmg
+            src-tauri/target/**/release/bundle/**/*.msi
+            src-tauri/target/**/release/bundle/**/*.msi.sig
+            src-tauri/target/**/release/bundle/**/*.msi.zip
+            src-tauri/target/**/release/bundle/**/*.msi.zip.sig
+            src-tauri/target/**/release/bundle/**/*.exe
+            src-tauri/target/**/release/bundle/**/*.exe.sig
+            src-tauri/target/**/release/bundle/**/*.nsis.zip
+            src-tauri/target/**/release/bundle/**/*.nsis.zip.sig
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 1
 
   publish_release:
     name: Publish complete release
     needs:
       - prepare_release
-      - publish_tauri
+      - build_tauri
+    outputs:
+      created_release: ${{ steps.create_draft_release.outputs.created }}
     permissions:
       contents: write
       pull-requests: read
@@ -339,11 +332,44 @@ jobs:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       GITHUB_REPOSITORY: ${{ github.repository }}
       RELEASE_TAG: mework-v${{ needs.prepare_release.outputs.version }}
+      RELEASE_VERSION: ${{ needs.prepare_release.outputs.version }}
+      RELEASE_BODY_FALLBACK: Release build for macOS and Windows.
     steps:
       - name: Checkout
         uses: actions/checkout@v7
         with:
           fetch-depth: 0
+
+      - name: Download platform bundles
+        uses: actions/download-artifact@v4
+        with:
+          pattern: mework-release-bundles-*
+          path: ${{ runner.temp }}/release-bundles
+
+      - name: Create draft release
+        id: create_draft_release
+        shell: bash
+        run: |
+          gh release create "$RELEASE_TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" \
+            --title "mework v$RELEASE_VERSION" \
+            --notes "$RELEASE_BODY_FALLBACK" \
+            --draft
+          echo "created=true" >> "$GITHUB_OUTPUT"
+
+      - name: Collect optional PR release notes
+        if: github.event_name == 'push'
+        run: python3 scripts/collect-pr-release-notes.py "$RUNNER_TEMP/release-notes"
+
+      - name: Upload bundles and create updater manifest
+        env:
+          RELEASE_NOTES_FILE: ${{ runner.temp }}/release-notes/release-notes.en.md
+        run: python3 scripts/publish-release-artifacts.py "$RUNNER_TEMP/release-bundles" "$RUNNER_TEMP/latest.json"
+
+      - name: Upload updater manifest
+        shell: bash
+        run: gh release upload "$RELEASE_TAG" "$RUNNER_TEMP/latest.json" --repo "$GITHUB_REPOSITORY" --clobber
 
       - name: Download updater manifest
         shell: bash
@@ -363,10 +389,6 @@ jobs:
           if missing:
               raise SystemExit(f"latest.json is missing required platforms: {', '.join(missing)}")
           PY
-
-      - name: Collect optional PR release notes
-        if: github.event_name == 'push'
-        run: python3 scripts/collect-pr-release-notes.py "$RUNNER_TEMP/release-notes"
 
       - name: Add available release notes
         shell: bash
@@ -390,9 +412,9 @@ jobs:
     name: Cleanup failed release
     needs:
       - prepare_release
-      - publish_tauri
+      - build_tauri
       - publish_release
-    if: ${{ always() && needs.prepare_release.result == 'success' && (needs.publish_tauri.result != 'success' || needs.publish_release.result != 'success') }}
+    if: ${{ always() && needs.prepare_release.result == 'success' && (needs.build_tauri.result != 'success' || needs.publish_release.result != 'success') }}
     permissions:
       contents: write
     runs-on: ubuntu-latest
@@ -402,6 +424,7 @@ jobs:
       RELEASE_TAG: mework-v${{ needs.prepare_release.outputs.version }}
     steps:
       - name: Delete incomplete release and tag
+        if: needs.publish_release.outputs.created_release == 'true'
         shell: bash
         run: |
           gh release delete "$RELEASE_TAG" \
