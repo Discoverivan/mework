@@ -172,13 +172,9 @@ pub async fn generate_ai_summary(
         let fields = issue.get("fields").unwrap_or(&Value::Null);
         let histories = issue
             .pointer("/changelog/histories")
-            .and_then(Value::as_array);
-        let last_status_change = histories.into_iter().flatten().flat_map(|history| {
-            let created = history.get("created").and_then(Value::as_str).unwrap_or("");
-            history.get("items").and_then(Value::as_array).into_iter().flatten()
-                .filter(|item| item.get("field").and_then(Value::as_str).is_some_and(|field| field.eq_ignore_ascii_case("status")))
-                .map(move |item| json!({"at": created, "from": item.get("fromString"), "to": item.get("toString")}))
-        }).max_by(|left, right| left.get("at").and_then(Value::as_str).cmp(&right.get("at").and_then(Value::as_str)));
+            .and_then(Value::as_array)
+            .map(Vec::as_slice);
+        let status_transitions = status_transitions(histories);
         tasks.push(json!({
             "key": issue.get("key"),
             "summary": fields.get("summary"),
@@ -186,7 +182,7 @@ pub async fn generate_ai_summary(
             "assignee": fields.pointer("/assignee/displayName"),
             "storyPoints": project.story_points_field_id.as_deref().or(Some(DEFAULT_STORY_POINTS_FIELD_ID)).and_then(|field| fields.get(field)),
             "status": fields.pointer("/status/name"),
-            "lastStatusChange": last_status_change,
+            "statusTransitions": status_transitions,
         }));
     }
     let action = request.action.as_deref().unwrap_or("generate");
@@ -199,7 +195,7 @@ pub async fn generate_ai_summary(
     } else if action == "longer" {
         "Expand the previous report with more detail, using only the supplied task data."
     } else if request.preset == "weekly" {
-        "Write a concise, accurate sprint report in your own words, explaining the work using each task's summary and description instead of merely listing task names. Do not invent details or change the meaning. Use these bullet-list sections: Started during this period, Completed during this period, Still in progress, Not started yet (planned for later). Classify starts and completions using the latest status change timestamp and the inclusive reporting period; use current status to identify work that remains in progress or has not started. Do not invent a specific future start date. Put each task key in parentheses at the end of its bullet, never at the beginning. Keep the key as an identifier and make the description of the work the focus."
+        "Write a concise, accurate sprint report in your own words, explaining the work using each task's summary and description instead of merely listing task names. Do not invent details or change the meaning. Use these bullet-list sections: Started during this period, Completed during this period, Still in progress, Not started yet (planned for later). Consider every statusTransitions entry whose timestamp falls within the inclusive reporting date range (both endpoint dates included): report a task as started if it transitioned from a not-started/backlog status into active work, and completed if it transitioned into a done/completed status. A task may belong in both sections if both transitions occurred during the range. Use current status to identify work that remains in progress or has not started. Do not invent a specific future start date. Put each task key in parentheses at the end of its bullet, never at the beginning. Keep the key as an identifier and make the description of the work the focus."
     } else if action == "regenerate" {
         custom_prompt.ok_or_else(|| "Prompt is required".to_owned())?
     } else {
@@ -801,6 +797,35 @@ fn quick_filter_assignee(jql: &str) -> Option<&str> {
     Some(value)
 }
 
+fn status_transitions(histories: Option<&[Value]>) -> Vec<Value> {
+    let mut transitions = histories
+        .into_iter()
+        .flatten()
+        .flat_map(|history| {
+            let created = history.get("created").and_then(Value::as_str).unwrap_or("");
+            history
+                .get("items")
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten()
+                .filter(|item| {
+                    item.get("field")
+                        .and_then(Value::as_str)
+                        .is_some_and(|field| field.eq_ignore_ascii_case("status"))
+                })
+                .map(move |item| {
+                    json!({"at": created, "from": item.get("fromString"), "to": item.get("toString")})
+                })
+        })
+        .collect::<Vec<_>>();
+    transitions.sort_by(|left, right| {
+        left.get("at")
+            .and_then(Value::as_str)
+            .cmp(&right.get("at").and_then(Value::as_str))
+    });
+    transitions
+}
+
 fn field_i64(fields: &Value, field_id: &str) -> Option<i64> {
     fields.get(field_id).and_then(|value| {
         value
@@ -834,8 +859,23 @@ fn daily_error(code: &str, message: &str, retryable: bool) -> PlanningCommandErr
 
 #[cfg(test)]
 mod tests {
-    use super::{daily_task, is_assigned_subtask, jira_sprint_board_url, quick_filter_assignee};
+    use super::{
+        daily_task, is_assigned_subtask, jira_sprint_board_url, quick_filter_assignee,
+        status_transitions,
+    };
     use serde_json::json;
+
+    #[test]
+    fn keeps_every_status_transition_in_chronological_order() {
+        let transitions = status_transitions(Some(&[
+            json!({"created":"2026-09-18T10:00:00.000+0000","items":[{"field":"summary","fromString":"Old","toString":"New"},{"field":"status","fromString":"In Progress","toString":"Done"}]}),
+            json!({"created":"2026-09-16T10:00:00.000+0000","items":[{"field":"status","fromString":"To Do","toString":"In Progress"}]}),
+        ]));
+
+        assert_eq!(transitions.len(), 2);
+        assert_eq!(transitions[0]["from"], "To Do");
+        assert_eq!(transitions[1]["to"], "Done");
+    }
 
     #[test]
     fn sprint_board_url_keeps_jira_context_and_selected_sprint() {
