@@ -6,6 +6,7 @@ use reqwest::{Client, Url};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sqlx::SqlitePool;
+use time::{format_description::well_known::Rfc3339, OffsetDateTime};
 
 use crate::application::planning::{self, PlanningCommandError, TeamMemberDto};
 use crate::domain::planning::models::ManagedProject;
@@ -819,11 +820,37 @@ fn status_transitions(histories: Option<&[Value]>) -> Vec<Value> {
         })
         .collect::<Vec<_>>();
     transitions.sort_by(|left, right| {
-        left.get("at")
-            .and_then(Value::as_str)
-            .cmp(&right.get("at").and_then(Value::as_str))
+        let left_at = left.get("at").and_then(Value::as_str).unwrap_or("");
+        let right_at = right.get("at").and_then(Value::as_str).unwrap_or("");
+        match (
+            parse_jira_timestamp(left_at),
+            parse_jira_timestamp(right_at),
+        ) {
+            (Some(left_at), Some(right_at)) => left_at.cmp(&right_at),
+            _ => left_at.cmp(right_at),
+        }
     });
     transitions
+}
+
+fn parse_jira_timestamp(value: &str) -> Option<OffsetDateTime> {
+    if !value.is_ascii() {
+        return None;
+    }
+    let bytes = value.as_bytes();
+    let normalized = if bytes.len() >= 5
+        && matches!(bytes[bytes.len() - 5], b'+' | b'-')
+        && bytes[bytes.len() - 4..].iter().all(u8::is_ascii_digit)
+    {
+        format!(
+            "{}:{}",
+            &value[..value.len() - 2],
+            &value[value.len() - 2..]
+        )
+    } else {
+        value.to_owned()
+    };
+    OffsetDateTime::parse(&normalized, &Rfc3339).ok()
 }
 
 fn field_i64(fields: &Value, field_id: &str) -> Option<i64> {
@@ -868,8 +895,8 @@ mod tests {
     #[test]
     fn keeps_every_status_transition_in_chronological_order() {
         let transitions = status_transitions(Some(&[
-            json!({"created":"2026-09-18T10:00:00.000+0000","items":[{"field":"summary","fromString":"Old","toString":"New"},{"field":"status","fromString":"In Progress","toString":"Done"}]}),
-            json!({"created":"2026-09-16T10:00:00.000+0000","items":[{"field":"status","fromString":"To Do","toString":"In Progress"}]}),
+            json!({"created":"2026-09-18T01:30:00.000-0500","items":[{"field":"summary","fromString":"Old","toString":"New"},{"field":"status","fromString":"In Progress","toString":"Done"}]}),
+            json!({"created":"2026-09-18T01:15:00.000-0400","items":[{"field":"status","fromString":"To Do","toString":"In Progress"}]}),
         ]));
 
         assert_eq!(transitions.len(), 2);
