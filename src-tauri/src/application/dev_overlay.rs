@@ -16,6 +16,7 @@ use crate::application::{
     task_tracker::{
         TaskTrackerChangeDto, TaskTrackerChangeKind, TaskTrackerEventKind, TaskTrackerIssueDto,
         TaskTrackerJqlPreviewDto, TaskTrackerMonitorDto, TaskTrackerScheduleKind,
+        TaskTrackerSortDirection, TaskTrackerSortKey,
     },
 };
 use crate::domain::models::{Integration, IntegrationHealthStatus, IntegrationKind};
@@ -1027,6 +1028,8 @@ impl Default for Scenario {
                 max_tracked_issues: 100,
                 exceeds_limit: false,
                 last_error: None,
+                sort_key: TaskTrackerSortKey::Updated,
+                sort_direction: TaskTrackerSortDirection::Desc,
                 issues,
             },
             reviewer_pull_requests: vec![
@@ -1340,6 +1343,8 @@ async fn seed_mock_task_tracker(pool: &SqlitePool) -> Result<(), String> {
         max_tracked_issues: 100,
         exceeds_limit: false,
         last_error: None,
+        sort_key: TaskTrackerSortKey::Updated,
+        sort_direction: TaskTrackerSortDirection::Desc,
         issues: Vec::new(),
     });
     for monitor in monitors {

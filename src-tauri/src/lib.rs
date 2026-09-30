@@ -509,6 +509,7 @@ pub fn run() {
             commands::task_tracker::task_tracker_save_export,
             commands::task_tracker::task_tracker_delete,
             commands::task_tracker::task_tracker_set_enabled,
+            commands::task_tracker::task_tracker_set_sort,
             commands::task_tracker::task_tracker_validate_jql,
             commands::task_tracker::task_tracker_check_now,
         ])

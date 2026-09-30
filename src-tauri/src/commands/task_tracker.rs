@@ -4,7 +4,7 @@ use tauri::{AppHandle, State};
 use crate::application::dev_overlay::DevMockMode;
 use crate::application::task_tracker::{
     self, TaskTrackerJqlPreviewDto, TaskTrackerJqlRequest, TaskTrackerMonitorDto,
-    TaskTrackerMonitorExportRequest, TaskTrackerMonitorRequest,
+    TaskTrackerMonitorExportRequest, TaskTrackerMonitorRequest, TaskTrackerSortRequest,
 };
 
 #[tauri::command]
@@ -48,6 +48,18 @@ pub async fn task_tracker_delete(
         return Err("Monitor changes are disabled in mock mode".to_owned());
     }
     task_tracker::delete_monitor(&state, &id).await
+}
+
+#[tauri::command]
+pub async fn task_tracker_set_sort(
+    mode: State<'_, DevMockMode>,
+    state: State<'_, SqlitePool>,
+    request: TaskTrackerSortRequest,
+) -> Result<TaskTrackerMonitorDto, String> {
+    if mode.is_enabled() {
+        return Err("Monitor changes are disabled in mock mode".to_owned());
+    }
+    task_tracker::set_monitor_sort(&state, request).await
 }
 
 #[tauri::command]
