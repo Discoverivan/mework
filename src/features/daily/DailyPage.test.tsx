@@ -217,7 +217,6 @@ describe("DailyPage smoke test", () => {
     expect(screen.getByText("DEMO-2")).toBeInTheDocument();
     expect(screen.getByText("SP 3")).toBeInTheDocument();
     const statusButton = screen.getByRole("button", { name: "Change status for DEMO-2 (current: In Progress)" });
-    expect(statusButton).toHaveClass("daily-status-progress");
     fireEvent.pointerDown(statusButton, { button: 0, ctrlKey: false });
     expect(await screen.findByRole("menuitem", { name: /Code Review/ })).toBeInTheDocument();
     expect(screen.getByRole("menuitem", { name: /Complete required fields in Jira/ })).toHaveAttribute("aria-disabled", "true");

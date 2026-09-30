@@ -23,6 +23,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
+import { issueStatusBadgeClass } from "@/lib/issue-status-badge";
 import {
   checkTaskTrackerNow,
   deleteTaskTrackerMonitor,
@@ -166,14 +167,6 @@ function formatRelativeTime(value: string, now: number, locale: string, t: I18nC
 
 function statusValues(issues: TaskTrackerIssue[]): string[] {
   return [...new Set(issues.map((issue) => issue.status).filter(Boolean))].sort();
-}
-
-function statusBadgeClass(status: string): string {
-  const normalized = status.toLowerCase();
-  if (["done", "closed", "resolved"].some((value) => normalized.includes(value))) return "border-transparent bg-emerald-500/15 text-emerald-700 dark:text-emerald-300";
-  if (["progress", "review", "testing"].some((value) => normalized.includes(value))) return "border-transparent bg-blue-500/15 text-blue-700 dark:text-blue-300";
-  if (["todo", "to do", "open", "backlog"].some((value) => normalized.includes(value))) return "border-transparent bg-muted text-muted-foreground";
-  return "border-transparent bg-secondary text-secondary-foreground";
 }
 
 function SortableHeader({
@@ -687,7 +680,7 @@ function IssueRow({ issue, now, unread, locale, t }: { issue: TaskTrackerIssue; 
     <tr className={unread ? changeClass(issue.lastChange?.kind) : undefined}>
       <td className="w-40 min-w-40 whitespace-nowrap px-4 py-3 align-top"><button type="button" className="inline-flex items-center gap-1 whitespace-nowrap font-medium text-primary hover:underline" onClick={() => void openUrl(issue.issueUrl)}>{unread ? <span className="size-2 shrink-0 rounded-full bg-blue-500" aria-hidden="true" /> : null}{issue.key}<ExternalLink className="size-3 shrink-0" aria-hidden="true" /></button></td>
       <td className="max-w-[34rem] px-4 py-3 align-top">{issue.summary}</td>
-      <td className="px-4 py-3 align-top"><Badge className={statusBadgeClass(issue.status)}>{issue.status || t("taskTracker.unknown")}</Badge></td>
+      <td className="px-4 py-3 align-top"><Badge className={issueStatusBadgeClass(issue.status)}>{issue.status || t("taskTracker.unknown")}</Badge></td>
       <td className="whitespace-nowrap px-4 py-3 align-top">{formatRelativeTime(issue.updated ?? "", now, locale, t)}</td>
       <td className="px-4 py-3 align-top">{issue.lastChange ? <Badge className={changeBadgeClass(issue.lastChange.kind)}>{changeLabel(issue.lastChange.kind, t)}</Badge> : <span className="text-muted-foreground">—</span>}</td>
     </tr>

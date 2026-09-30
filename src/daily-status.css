@@ -1,71 +1,6 @@
-.daily-status-label {
-  display: inline-flex;
-  align-items: center;
-  width: fit-content;
-  padding: 5px 8px;
-  border: 1px solid transparent;
-  border-radius: var(--radius-md);
-  font-size: 13px;
-  font-weight: 600;
-  line-height: 1.2;
-  white-space: nowrap;
-}
-
 .daily-status-trigger {
   cursor: pointer;
-  gap: 4px;
   font-family: inherit;
-}
-
-.daily-status-trigger:hover {
-  filter: brightness(0.96);
-}
-
-.daily-status-trigger:focus-visible {
-  outline: 2px solid var(--ring);
-  outline-offset: 2px;
-}
-
-.daily-status-chevron {
-  width: 12px;
-  height: 12px;
-  flex: none;
-}
-
-.daily-status-backlog {
-  color: #566275;
-  background: #edf1f7;
-  border-color: #d9e0ea;
-}
-
-.daily-status-progress {
-  color: #2855ad;
-  background: #e8f0ff;
-  border-color: #a9c4ff;
-}
-
-.daily-status-done {
-  color: #167466;
-  background: #e3f8f3;
-  border-color: #9ddfd2;
-}
-
-.daily-status-blocked {
-  color: #a42620;
-  background: #fff0ef;
-  border-color: #f0aaa5;
-}
-
-.daily-status-review {
-  color: #6840a8;
-  background: #f2ecff;
-  border-color: #cbb4f4;
-}
-
-.daily-status-default {
-  color: var(--foreground);
-  background: var(--muted);
-  border-color: var(--border);
 }
 
 .daily-page-header {
@@ -320,7 +255,7 @@
     grid-row: 3;
   }
 
-  .daily-status-label {
+  .daily-status-trigger {
     grid-column: 2;
     grid-row: 3;
   }
