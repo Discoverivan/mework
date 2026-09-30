@@ -25,7 +25,7 @@ vi.mock("../features/developer/MyPullRequestsPage", () => ({
 vi.mock("../features/developer/AuthoredPullRequestsPage", () => ({
   AuthoredPullRequestsPage: () => <h1>Pull requests authored by you</h1>,
 }));
-const { devOverlayEnabledMock, getDevOverlayStateMock, addDevMockTaskMock, setDevMockTaskStatusMock, addDevMockPullRequestMock, resetDevMockScenarioMock, getAiSettingsMock, getPullRequestUnreadCountsMock, refreshAuthoredPullRequestsMock, refreshMyPullRequestsMock, refreshAllIntegrationsHealthMock, listTaskTrackerMonitorsMock, setAppBadgeCountMock, nativeThemeMock, onThemeChangedMock, releaseNotesStateMock, listUpdateVersionsMock, loadReleaseNoteVersionMock, markReleaseNotesSeenMock, updaterCheckMock } = vi.hoisted(() => ({
+const { devOverlayEnabledMock, getDevOverlayStateMock, addDevMockTaskMock, setDevMockTaskStatusMock, addDevMockPullRequestMock, resetDevMockScenarioMock, getAiSettingsMock, getPullRequestUnreadCountsMock, refreshAuthoredPullRequestsMock, refreshMyPullRequestsMock, refreshAllIntegrationsHealthMock, listTaskTrackerMonitorsMock, setAppBadgeCountMock, nativeThemeMock, onThemeChangedMock, releaseNotesStateMock, listUpdateVersionsMock, loadReleaseNoteVersionMock, markReleaseNotesSeenMock, updaterCheckMock, backgroundUpdateStateMock, beginUpdateCheckMock, recordUpdateCheckResultMock } = vi.hoisted(() => ({
   devOverlayEnabledMock: vi.fn().mockResolvedValue(false),
   getDevOverlayStateMock: vi.fn().mockResolvedValue({
     monitors: [],
@@ -53,6 +53,9 @@ const { devOverlayEnabledMock, getDevOverlayStateMock, addDevMockTaskMock, setDe
   loadReleaseNoteVersionMock: vi.fn(),
   markReleaseNotesSeenMock: vi.fn(),
   updaterCheckMock: vi.fn().mockResolvedValue(null),
+  backgroundUpdateStateMock: vi.fn().mockResolvedValue({ availableVersion: null, lastCheckedAt: null, status: "idle", revision: 0 }),
+  beginUpdateCheckMock: vi.fn().mockResolvedValue({ checkId: 1, snapshot: { availableVersion: null, lastCheckedAt: null, status: "checking", revision: 1 } }),
+  recordUpdateCheckResultMock: vi.fn(),
 }));
 
 vi.mock("../release-notes", () => ({
@@ -65,6 +68,13 @@ vi.mock("../release-notes", () => ({
 }));
 
 vi.mock("@tauri-apps/plugin-updater", () => ({ check: updaterCheckMock }));
+
+vi.mock("../components/shared/update-check", () => ({
+  checkForAvailableUpdate: () => updaterCheckMock({ timeout: 10_000 }),
+  getBackgroundUpdateState: backgroundUpdateStateMock,
+  beginUpdateCheck: beginUpdateCheckMock,
+  recordUpdateCheckResult: recordUpdateCheckResultMock,
+}));
 
 vi.mock("@tauri-apps/api/window", () => ({
   getCurrentWindow: () => ({ theme: nativeThemeMock, onThemeChanged: onThemeChangedMock }),
@@ -216,6 +226,20 @@ describe("mework application shell", () => {
     markReleaseNotesSeenMock.mockResolvedValue(undefined);
     updaterCheckMock.mockReset();
     updaterCheckMock.mockResolvedValue(null);
+    backgroundUpdateStateMock.mockReset();
+    backgroundUpdateStateMock.mockResolvedValue({ availableVersion: null, lastCheckedAt: null, status: "idle", revision: 0 });
+    beginUpdateCheckMock.mockReset();
+    beginUpdateCheckMock.mockResolvedValue({ checkId: 1, snapshot: { availableVersion: null, lastCheckedAt: null, status: "checking", revision: 1 } });
+    recordUpdateCheckResultMock.mockReset();
+    recordUpdateCheckResultMock.mockImplementation(async (_checkId: number, availableVersion: string | null, succeeded: boolean) => ({
+      accepted: true,
+      snapshot: {
+        availableVersion: succeeded ? availableVersion : null,
+        lastCheckedAt: Date.now(),
+        status: succeeded ? availableVersion ? "available" : "current" : "error",
+        revision: _checkId + 1,
+      },
+    }));
   });
 
   it("shows release notes after an update and records acknowledgement", async () => {
@@ -255,7 +279,7 @@ describe("mework application shell", () => {
     await waitFor(() => expect(screen.queryByRole("status", { name: "Loading mework" })).not.toBeInTheDocument());
   });
 
-  it("uses only local scenario data when explicit mock mode is enabled", async () => {
+  it("keeps local scenario data in mock mode and reuses the About update check", async () => {
     devOverlayEnabledMock.mockResolvedValueOnce(true);
 
     render(<App />);
@@ -276,12 +300,11 @@ describe("mework application shell", () => {
     expect(refreshAuthoredPullRequestsMock).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("button", { name: "Open About mework and check for updates" }));
     expect(await screen.findByRole("heading", { name: "About", level: 1 })).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "Application mework", level: 2 })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "mework-dev", level: 2 })).toBeInTheDocument();
     const releaseNotesButton = screen.getByRole("button", { name: "Release notes" });
-    expect(releaseNotesButton).toHaveAttribute("title", "Release notes");
-    expect(releaseNotesButton).not.toHaveTextContent("Release notes");
+    expect(releaseNotesButton).toHaveTextContent("Release notes");
     expect(releaseNotesButton.querySelector("svg.lucide-notebook-text")).not.toBeNull();
-    expect(releaseNotesButton.nextElementSibling).toBe(screen.getByRole("button", { name: "GitHub releases" }));
+    expect(releaseNotesButton.nextElementSibling).toBe(screen.getByRole("button", { name: "View on GitHub" }));
     fireEvent.click(releaseNotesButton);
     expect(await screen.findByRole("heading", { name: "Release notes" })).toBeInTheDocument();
     expect(await screen.findByText("Browse release notes by version from About.")).toBeInTheDocument();
@@ -295,7 +318,54 @@ describe("mework application shell", () => {
     await waitFor(() => expect(updaterCheckMock).toHaveBeenCalledOnce());
     expect(await screen.findByText("You're up to date.")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Open About mework and check for updates" }));
-    await waitFor(() => expect(updaterCheckMock).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(window.location.hash).toBe("#settings/application-info"));
+    expect(updaterCheckMock).toHaveBeenCalledOnce();
+  });
+
+  it("allows a manual check when the native startup state cannot be read", async () => {
+    backgroundUpdateStateMock.mockRejectedValueOnce(new Error("native state unavailable"));
+    updaterCheckMock.mockResolvedValue(null);
+    render(<App />);
+
+    await screen.findByRole("main", { name: "mework" });
+    fireEvent.click(screen.getByRole("link", { name: "About" }));
+    const refreshButton = await screen.findByRole("button", { name: "Check for updates" });
+    expect(refreshButton).toBeEnabled();
+    fireEvent.click(refreshButton);
+    expect(await screen.findByText("You're up to date.")).toBeInTheDocument();
+    expect(updaterCheckMock).toHaveBeenCalledOnce();
+  });
+
+  it("shows the startup update and check time in About without a manual refresh", async () => {
+    const lastCheckedAt = Date.now();
+    backgroundUpdateStateMock.mockResolvedValue({
+      availableVersion: "0.2.38",
+      lastCheckedAt,
+      status: "available",
+      revision: 4,
+    });
+    render(<App />);
+
+    await screen.findByRole("main", { name: "mework" });
+    fireEvent.click(screen.getByRole("link", { name: "About" }));
+    expect(await screen.findByText("New version 0.2.38 is available")).toBeInTheDocument();
+    expect(await screen.findByText(/^Last checked: today,/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Download & Install" })).toBeInTheDocument();
+    expect(updaterCheckMock).not.toHaveBeenCalled();
+    emitAppEvent(APP_EVENT.updateAvailabilityChanged, {
+      availableVersion: null,
+      lastCheckedAt: lastCheckedAt - 1_000,
+      status: "current",
+      revision: 3,
+    });
+    expect(screen.getByText("New version 0.2.38 is available")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("link", { name: "General" }));
+    await waitFor(() => expect(window.location.hash).toBe("#settings/general"));
+    expect(await screen.findByRole("heading", { name: "General" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("link", { name: "About" }));
+    await waitFor(() => expect(window.location.hash).toBe("#settings/application-info"));
+    expect(await screen.findByRole("button", { name: "Download & Install" })).toBeInTheDocument();
   });
 
   it("keeps the daily presenter available in mock mode", async () => {

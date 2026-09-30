@@ -169,7 +169,7 @@ export function AppShell({
           <img src="/mework-icon.png" alt="" aria-hidden="true" />
           <strong>mework</strong>
         </div>
-        <nav>
+        <nav className="sidebar-navigation">
           <div className="settings-nav-group" aria-labelledby="developer-nav-title">
             <span id="developer-nav-title" className="settings-nav-heading">{t("nav.developer")}</span>
             <div className="settings-nav-children">
@@ -233,7 +233,7 @@ export function AppShell({
             >
               {version === "dev" ? "dev" : versionLabel}
               {updateAvailableVersion ? (
-                <span className="sidebar-update-dot ml-1.5 inline-block size-2 shrink-0 rounded-full bg-primary" aria-hidden="true" />
+                <span className="sidebar-update-badge" aria-hidden="true">{t("nav.updateBadge")}</span>
               ) : null}
             </Button>
           ) : null}

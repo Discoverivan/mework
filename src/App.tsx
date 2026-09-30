@@ -1,11 +1,12 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { getVersion } from "@tauri-apps/api/app";
+import type { Update } from "@tauri-apps/plugin-updater";
 import { AppShell, type AppSection } from "./components/layout/AppShell";
 import { SplashScreen } from "./components/shared/SplashScreen";
 import { UpdateBanner } from "./components/shared/UpdateBanner";
 import { ReleaseNotesDialog } from "./components/shared/ReleaseNotesDialog";
 import { StatusToast } from "./components/shared/StatusToast";
-import { getBackgroundUpdateVersion } from "./components/shared/update-check";
+import { getBackgroundUpdateState } from "./components/shared/update-check";
 import { getReleaseNotesState, listUpdateReleaseNotesVersions, loadReleaseNoteVersion, markReleaseNotesSeen, prefetchOlderReleaseNotes, type ReleaseNote } from "./release-notes";
 import { mockReleaseNotes } from "./release-notes/mock";
 import { AppRoutes, type AppRoute } from "./app/routes";
@@ -15,6 +16,7 @@ import { devOverlayEnabled } from "./features/dev/api";
 import { getPullRequestUnreadCounts, refreshAuthoredPullRequests, refreshMyPullRequests } from "./features/developer/api";
 import { listTaskTrackerMonitors } from "@/shared/contracts/task-tracker";
 import type { TaskTrackerMonitor } from "@/shared/contracts/task-tracker";
+import { EMPTY_UPDATE_AVAILABILITY, type UpdateAvailabilitySnapshot } from "@/shared/contracts/updates";
 import { countUnreadTaskTrackerIssues, loadTaskTrackerReadCheckpoints, type TaskTrackerReadCheckpoints } from "./features/product/task-tracker-read-state";
 import { refreshAllIntegrationsHealth } from "./features/settings/api";
 import { generalSettings } from "./features/settings/general/api";
@@ -69,7 +71,17 @@ function AppContent() {
   );
   const unreadTaskTrackerCount = countUnreadTaskTrackerIssues(taskTrackerMonitors, taskTrackerReadCheckpoints);
   const unreadAppBadgeCount = unreadPullRequestCount + unreadAuthoredPullRequestCount + unreadTaskTrackerCount;
-  const [availableUpdateVersion, setAvailableUpdateVersion] = useState<string | null>(null);
+  const [updateAvailability, setUpdateAvailability] = useState<UpdateAvailabilitySnapshot>(() =>
+    import.meta.env.DEV ? EMPTY_UPDATE_AVAILABILITY : { ...EMPTY_UPDATE_AVAILABILITY, status: "checking" },
+  );
+  const [availableUpdate, setAvailableUpdate] = useState<Update | null>(null);
+  const updateAvailabilityRef = useRef(updateAvailability);
+  const applyUpdateAvailability = useCallback((snapshot: UpdateAvailabilitySnapshot) => {
+    if (snapshot.revision < updateAvailabilityRef.current.revision) return;
+    updateAvailabilityRef.current = snapshot;
+    setUpdateAvailability(snapshot);
+    setAvailableUpdate((current) => current?.version === snapshot.availableVersion ? current : null);
+  }, []);
   const [updateCheckRequest, setUpdateCheckRequest] = useState(0);
   const [pendingUpdateCheck, setPendingUpdateCheck] = useState(false);
   const [updateNoteVersions, setUpdateNoteVersions] = useState<string[]>([]);
@@ -136,6 +148,7 @@ function AppContent() {
   }
 
   const selectedUpdateNoteIndex = selectedUpdateNote ? updateNoteVersions.indexOf(selectedUpdateNote.version) : -1;
+  const availableUpdateVersion = updateAvailability.availableVersion;
 
   useEffect(() => {
     if (import.meta.env.DEV) return;
@@ -149,38 +162,30 @@ function AppContent() {
     let stopBridge: (() => void) | undefined;
     const unsubscribeUpdateAvailability = subscribeAppEvent(
       APP_EVENT.updateAvailabilityChanged,
-      (version) => {
-        if (active) setAvailableUpdateVersion(version);
+      (snapshot) => {
+        if (active) applyUpdateAvailability(snapshot);
       },
     );
-    void startNativeEventBridge().then((cleanup) => {
+    void startNativeEventBridge().then(async (cleanup) => {
       if (!active) {
         cleanup();
         return;
       }
       stopBridge = cleanup;
+      try {
+        const snapshot = await getBackgroundUpdateState();
+        if (active) applyUpdateAvailability(snapshot);
+      } catch {
+        // Fall back to an idle state so the user can still trigger a manual check.
+        if (active) applyUpdateAvailability(EMPTY_UPDATE_AVAILABILITY);
+      }
     });
     return () => {
       active = false;
       unsubscribeUpdateAvailability();
       stopBridge?.();
     };
-  }, []);
-
-  useEffect(() => {
-    if (!mockModeLoaded || mockMode) return;
-    let active = true;
-    void getBackgroundUpdateVersion()
-      .then((version) => {
-        if (active) setAvailableUpdateVersion(version);
-      })
-      .catch(() => {
-        // The background result is optional; manual settings checks remain available.
-      });
-    return () => {
-      active = false;
-    };
-  }, [mockMode, mockModeLoaded]);
+  }, [applyUpdateAvailability]);
 
   useEffect(() => {
     let active = true;
@@ -336,8 +341,10 @@ function AppContent() {
   useEffect(() => {
     if (route !== "settings-application-info" || !pendingUpdateCheck) return;
     setPendingUpdateCheck(false);
-    setUpdateCheckRequest((current) => current + 1);
-  }, [pendingUpdateCheck, route]);
+    if (updateAvailability.status === "idle" || updateAvailability.status === "error") {
+      setUpdateCheckRequest((current) => current + 1);
+    }
+  }, [pendingUpdateCheck, route, updateAvailability.status]);
 
   function navigate(section: AppSection) {
     setRoute(section);
@@ -345,7 +352,7 @@ function AppContent() {
 
   function openApplicationInfo() {
     setRoute("settings-application-info");
-    setPendingUpdateCheck(true);
+    setPendingUpdateCheck(updateAvailability.status === "idle" || updateAvailability.status === "error");
     if (window.location.hash !== "#settings/application-info") {
       window.location.hash = "#settings/application-info";
     }
@@ -380,6 +387,9 @@ function AppContent() {
             mockMode={mockMode}
             modelTestingEnabled={modelTestingEnabled}
             version={appVersion}
+            availableUpdate={availableUpdate}
+            updateAvailability={updateAvailability}
+            onAvailableUpdateChange={setAvailableUpdate}
           />
         </AppShell>
       ) : null}

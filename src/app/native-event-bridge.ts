@@ -4,6 +4,7 @@ import type { MyPullRequestPage, PullRequestReviewChangedEvent } from "@/shared/
 import type { IntegrationRedacted } from "@/shared/contracts/settings";
 import type { TaskTrackerMonitor } from "@/shared/contracts/task-tracker";
 import type { TokenBurnerSnapshot } from "@/shared/contracts/token-burner";
+import type { UpdateAvailabilitySnapshot } from "@/shared/contracts/updates";
 import { APP_EVENT, emitAppEvent } from "./app-events";
 
 type Cleanup = () => void;
@@ -14,7 +15,7 @@ interface NativeEventMap {
   my_pull_requests_updated: MyPullRequestPage;
   pull_request_review_changed: PullRequestReviewChangedEvent;
   task_tracker_updated: TaskTrackerMonitor[];
-  update_availability_changed: string | null;
+  update_availability_changed: UpdateAvailabilitySnapshot;
   token_burner_changed: TokenBurnerSnapshot;
 }
 

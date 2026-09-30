@@ -1,13 +1,61 @@
-use tauri::{AppHandle, State};
+use tauri::{AppHandle, Emitter, State};
 
 use crate::application::release_notes::{
     self, ReleaseNote, ReleaseNotesRequestState, ReleaseNotesState,
 };
-use crate::application::updates::UpdateAvailabilityState;
+use crate::application::updates::{
+    UpdateAvailabilitySnapshot, UpdateAvailabilityState, UpdateCheckCompletion, UpdateCheckTicket,
+};
+
+#[tauri::command]
+pub fn background_update_state(
+    state: State<'_, UpdateAvailabilityState>,
+) -> UpdateAvailabilitySnapshot {
+    state.snapshot()
+}
 
 #[tauri::command]
 pub fn background_update_version(state: State<'_, UpdateAvailabilityState>) -> Option<String> {
     state.current_version()
+}
+
+#[tauri::command]
+pub fn begin_update_check(
+    app: AppHandle,
+    state: State<'_, UpdateAvailabilityState>,
+) -> UpdateCheckTicket {
+    let ticket = state.begin_check();
+    if app
+        .emit("update_availability_changed", ticket.snapshot.clone())
+        .is_err()
+    {
+        eprintln!("Failed to publish manual update check status");
+    }
+    ticket
+}
+
+#[tauri::command]
+pub fn record_update_check_result(
+    app: AppHandle,
+    state: State<'_, UpdateAvailabilityState>,
+    check_id: u64,
+    available_version: Option<String>,
+    succeeded: bool,
+) -> UpdateCheckCompletion {
+    let result = if succeeded {
+        Ok(available_version)
+    } else {
+        Err(())
+    };
+    let completion = state.finish_check(check_id, result);
+    if completion.accepted
+        && app
+            .emit("update_availability_changed", completion.snapshot.clone())
+            .is_err()
+    {
+        eprintln!("Failed to publish manual update result");
+    }
+    completion
 }
 
 #[tauri::command]

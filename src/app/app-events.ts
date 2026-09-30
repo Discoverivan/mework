@@ -2,6 +2,7 @@ import type { AiSettingsPageData, IntegrationRedacted } from "@/shared/contracts
 import type { MyPullRequestPage, PullRequestReviewChangedEvent } from "@/shared/contracts/developer";
 import type { TaskTrackerMonitor } from "@/shared/contracts/task-tracker";
 import type { TokenBurnerSnapshot } from "@/shared/contracts/token-burner";
+import type { UpdateAvailabilitySnapshot } from "@/shared/contracts/updates";
 import type { TaskTrackerReadStateChanged } from "@/features/product/task-tracker-read-state";
 
 export const APP_EVENT = {
@@ -29,7 +30,7 @@ interface AppEventMap {
   [APP_EVENT.authoredPullRequestsUpdated]: MyPullRequestPage;
   [APP_EVENT.taskTrackerUpdated]: TaskTrackerMonitor[];
   [APP_EVENT.taskTrackerReadStateChanged]: TaskTrackerReadStateChanged;
-  [APP_EVENT.updateAvailabilityChanged]: string | null;
+  [APP_EVENT.updateAvailabilityChanged]: UpdateAvailabilitySnapshot;
   [APP_EVENT.tokenBurnerChanged]: TokenBurnerSnapshot;
   [APP_EVENT.extraFunctionsEnabledChanged]: boolean;
 }
