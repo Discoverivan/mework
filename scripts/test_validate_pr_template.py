@@ -36,6 +36,19 @@ Add sprint summaries.
 """
         self.assertEqual(VALIDATOR.validate_pr(body, ["src/features/daily/DailyPage.tsx"]), [])
 
+    def test_does_not_require_a_russian_template_block(self) -> None:
+        body = """## Summary
+Update contributor documentation.
+
+## Checks
+- Spelling reviewed.
+
+## Release notes
+<!-- release-notes:en -->
+<!-- /release-notes:en -->
+"""
+        self.assertEqual(VALIDATOR.validate_pr(body, ["docs/example.md"]), [])
+
     def test_allows_empty_notes_for_documentation_only_changes(self) -> None:
         body = """## Summary
 Update contributor documentation.
