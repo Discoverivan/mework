@@ -101,15 +101,8 @@ pub async fn generate_ai_summary(
     let keyring = planning::planning_credential_store(pool)
         .await
         .map_err(|_| "Jira credentials are unavailable".to_owned())?;
-    let integration =
-        crate::infrastructure::db::repositories::get_integration(pool, &project.integration_id)
-            .await
-            .map_err(|_| "Jira integration was not found".to_owned())?;
-    let mut builder = Client::builder().timeout(Duration::from_secs(30));
-    if integration.allow_insecure_tls {
-        builder = builder.danger_accept_invalid_certs(true);
-    }
-    let http = builder
+    let http = Client::builder()
+        .timeout(Duration::from_secs(30))
         .build()
         .map_err(|_| "Jira transport is unavailable".to_owned())?;
     let (client, _) = planning::planning_read_client(
