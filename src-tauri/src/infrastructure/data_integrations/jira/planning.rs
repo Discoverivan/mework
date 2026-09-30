@@ -629,42 +629,41 @@ impl JiraPlanningClient {
         let changelog_endpoint = self.endpoint(&format!(
             "rest/api/{api_version}/issue/{issue_id_or_key}/changelog"
         ))?;
-        let mut first_page = changelog_endpoint.clone();
-        first_page
-            .query_pairs_mut()
-            .append_pair("startAt", "0")
-            .append_pair("maxResults", "1");
-        let first: Value = self
-            .send(Method::GET, first_page, None)
-            .await?
-            .json()
-            .await
-            .map_err(|_| JiraError::InvalidResponse)?;
-        let total = first.get("total").and_then(Value::as_u64).unwrap_or(0);
-        let start_at = total.saturating_sub(100);
-        let histories = if total > 1 {
-            let mut latest_page = changelog_endpoint;
-            latest_page
+        let mut start_at = 0_u64;
+        let mut histories = Vec::new();
+        loop {
+            let mut page_endpoint = changelog_endpoint.clone();
+            page_endpoint
                 .query_pairs_mut()
                 .append_pair("startAt", &start_at.to_string())
                 .append_pair("maxResults", "100");
             let page: Value = self
-                .send(Method::GET, latest_page, None)
+                .send(Method::GET, page_endpoint, None)
                 .await?
                 .json()
                 .await
                 .map_err(|_| JiraError::InvalidResponse)?;
-            page.get("values")
-                .and_then(Value::as_array)
-                .cloned()
-                .unwrap_or_default()
-        } else {
-            first
+            let page_total = page
+                .get("total")
+                .and_then(Value::as_u64)
+                .ok_or(JiraError::InvalidResponse)?;
+            let page_values = page
                 .get("values")
                 .and_then(Value::as_array)
-                .cloned()
-                .unwrap_or_default()
-        };
+                .ok_or(JiraError::InvalidResponse)?;
+            let returned =
+                u64::try_from(page_values.len()).map_err(|_| JiraError::InvalidResponse)?;
+            if returned == 0 && start_at < page_total {
+                return Err(JiraError::InvalidResponse);
+            }
+            histories.extend(page_values.iter().cloned());
+            start_at = start_at
+                .checked_add(returned)
+                .ok_or(JiraError::InvalidResponse)?;
+            if start_at >= page_total {
+                break;
+            }
+        }
         if let Some(object) = issue.as_object_mut() {
             object.insert(
                 "changelog".to_owned(),
@@ -957,6 +956,67 @@ mod tests {
 
     use super::super::planning_write::ReqwestPlanningTransport;
     use super::{JiraDeployment, JiraPlanningClient};
+
+    #[tokio::test]
+    async fn loads_all_pages_of_issue_changelog() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/rest/api/2/issue/DEMO-1"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "key": "DEMO-1",
+                "fields": {"summary": "Synthetic task"}
+            })))
+            .expect(1)
+            .mount(&server)
+            .await;
+        let first_page = (0..100)
+            .map(|index| serde_json::json!({"created": format!("2026-01-{index:02}T00:00:00.000+0000"), "items": []}))
+            .collect::<Vec<_>>();
+        Mock::given(method("GET"))
+            .and(path("/rest/api/2/issue/DEMO-1/changelog"))
+            .and(query_param("startAt", "0"))
+            .and(query_param("maxResults", "100"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "startAt": 0, "maxResults": 100, "total": 101, "values": first_page
+            })))
+            .expect(1)
+            .mount(&server)
+            .await;
+        Mock::given(method("GET"))
+            .and(path("/rest/api/2/issue/DEMO-1/changelog"))
+            .and(query_param("startAt", "100"))
+            .and(query_param("maxResults", "100"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "startAt": 100,
+                "maxResults": 100,
+                "total": 101,
+                "values": [{"created": "2020-01-01T00:00:00.000+0000", "items": [{"field": "status", "fromString": "To Do", "toString": "In Progress"}]}]
+            })))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        let client = JiraPlanningClient::new_with_dependencies(
+            server.uri(),
+            JiraDeployment::DataCenter,
+            Arc::new(ReqwestPlanningTransport::new(reqwest::Client::new())),
+            None,
+            Some("synthetic-secret".to_owned()),
+        )
+        .expect("valid Jira base URL");
+        let issue = client
+            .get_issue_with_changelog("DEMO-1", None)
+            .await
+            .expect("all changelog pages should load");
+        let histories = issue
+            .pointer("/changelog/histories")
+            .unwrap()
+            .as_array()
+            .unwrap();
+
+        assert_eq!(histories.len(), 101);
+        assert_eq!(histories[100]["items"][0]["toString"], "In Progress");
+    }
 
     #[tokio::test]
     async fn searches_issue_summaries_with_jql_and_summary_field() {
