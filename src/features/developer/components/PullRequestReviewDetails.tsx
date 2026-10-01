@@ -23,11 +23,11 @@ export function PullRequestReviewDetails({ review, inBadge = false }: { review: 
         <div className="space-y-1.5 text-xs text-muted-foreground">
           {finishedAt ? <p>{t(review.status === "failed" ? "pr.dialog.endedAt" : "pr.dialog.completedAt")} <time dateTime={finishedAt.toISOString()}>{finishedAt.toLocaleString("ru-RU", { hour12: false })} · {formatRelativeDate(review.finishedAt ?? undefined, t)}</time></p> : null}
           {execution ? (
-            <dl aria-label={t("pr.dialog.aiConfiguration")} className="flex flex-wrap gap-x-3 gap-y-1">
-              <div className="flex max-w-full shrink-0 gap-1"><dt className="shrink-0">{t("settings.ai.provider")}:</dt><dd className="min-w-0 break-words text-foreground">{execution.providerName}</dd></div>
-              <div className="flex max-w-full shrink-0 gap-1"><dt className="shrink-0">{t("settings.ai.model")}:</dt><dd className="min-w-0 break-all text-foreground">{execution.model}</dd></div>
-              {execution.reasoning != null ? <div className="flex max-w-full shrink-0 gap-1"><dt className="shrink-0">{t("settings.ai.reasoning")}:</dt><dd className="min-w-0 break-words text-foreground">{execution.reasoning}</dd></div> : null}
-              {execution.fastMode != null ? <div className="flex max-w-full shrink-0 gap-1"><dt className="shrink-0">{t("settings.ai.fastMode")}:</dt><dd className="min-w-0 break-words text-foreground">{t(execution.fastMode ? "pr.dialog.enabled" : "pr.dialog.disabled")}</dd></div> : null}
+            <dl aria-label={t("pr.dialog.aiConfiguration")} className="grid gap-1">
+              <div className="min-w-0 [overflow-wrap:anywhere]"><dt className="inline whitespace-nowrap">{t("settings.ai.provider")}:</dt>{" "}<dd className="inline text-foreground">{execution.providerName}</dd></div>
+              <div className="min-w-0 [overflow-wrap:anywhere]"><dt className="inline whitespace-nowrap">{t("settings.ai.model")}:</dt>{" "}<dd className="inline text-foreground">{execution.model}</dd></div>
+              {execution.reasoning != null ? <div className="min-w-0 [overflow-wrap:anywhere]"><dt className="inline whitespace-nowrap">{t("settings.ai.reasoning")}:</dt>{" "}<dd className="inline text-foreground">{execution.reasoning}</dd></div> : null}
+              {execution.fastMode != null ? <div className="min-w-0 [overflow-wrap:anywhere]"><dt className="inline whitespace-nowrap">{t("settings.ai.fastMode")}:</dt>{" "}<dd className="inline text-foreground">{t(execution.fastMode ? "pr.dialog.enabled" : "pr.dialog.disabled")}</dd></div> : null}
             </dl>
           ) : <p>{t("pr.dialog.executionUnavailable")}</p>}
         </div>
