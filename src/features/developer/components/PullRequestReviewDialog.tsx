@@ -13,14 +13,14 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import type { MyPullRequest, PullRequestReviewComment, PullRequestReviewState } from "@/shared/contracts/developer";
+import type { MyPullRequest, PullRequestReviewComment, PullRequestReviewSeverity, PullRequestReviewState } from "@/shared/contracts/developer";
 import { useI18n } from "@/i18n/context";
+import { cn } from "@/lib/utils";
 
 import {
   CreatorAvatar,
   AiVerdictBadge,
   formatRelativeDate,
-  reviewSeverityBadgeClasses,
   reviewSeveritySections,
 } from "./PullRequestListItem";
 
@@ -39,6 +39,13 @@ export interface PullRequestReviewDialogProps {
 type EditableComment = {
   comment: PullRequestReviewComment;
   index: number;
+};
+
+const severitySectionStyles: Record<PullRequestReviewSeverity, { border: string; header: string }> = {
+  blocker: { border: "border-destructive/60", header: "bg-destructive/20 text-destructive" },
+  high: { border: "border-destructive/40", header: "bg-destructive/10 text-destructive" },
+  medium: { border: "border-warning/40", header: "bg-warning/10 text-warning" },
+  low: { border: "border-primary/40", header: "bg-primary/10 text-primary" },
 };
 
 export function PullRequestReviewDialog({
@@ -175,44 +182,42 @@ export function PullRequestReviewDialog({
               <section aria-labelledby="ai-comments-title" className="space-y-3">
                 <h3 id="ai-comments-title" className="text-sm font-semibold">{t("pr.dialog.aiComments")}</h3>
                 <div className="space-y-2">
+                  {result.comments.length === 0 ? <p className="text-sm text-muted-foreground">{t("pr.dialog.noComments")}</p> : null}
                   {reviewSeveritySections.map((section) => {
                     const comments = result.comments.filter((comment) => comment.severity === section.key);
+                    if (comments.length === 0) return null;
                     return (
-                      <details key={section.key} open={comments.length > 0} className="rounded-lg border">
-                        <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-3 py-2 text-sm font-semibold">
-                          <span className={`rounded-full border px-2 py-0.5 text-xs ${reviewSeverityBadgeClasses[section.key]}`}>{t(section.labelKey)} ({comments.length})</span>
+                      <details key={section.key} open className={cn("overflow-hidden rounded-lg border", severitySectionStyles[section.key].border)}>
+                        <summary className={cn("flex cursor-pointer list-none items-center justify-between gap-3 px-3 py-2 text-sm font-semibold", severitySectionStyles[section.key].header)}>
+                          <span>{t(section.labelKey)} ({comments.length})</span>
                         </summary>
-                        <div className="border-t px-3 py-2">
-                          {comments.length === 0 ? (
-                            <p className="text-sm text-muted-foreground">{t("pr.dialog.noComments")}</p>
-                          ) : (
-                            <ul className="space-y-2">
-                              {comments.map((comment, index) => (
-                                <li key={`${comment.file}:${comment.line ?? "na"}:${index}`} className="space-y-2 rounded-md border bg-background p-3">
-                                  <div className="flex items-start justify-between gap-2">
-                                    <p className="min-w-0 break-words text-xs font-medium text-muted-foreground">
-                                      {comment.file}{comment.line != null ? `:${comment.line}` : ""}
-                                    </p>
-                                    {reviewerActions ? (
-                                      <Button
-                                        type="button"
-                                        variant="outline"
-                                        size="sm"
-                                        className="h-7 shrink-0 px-2 text-xs"
-                                        disabled={!onPublishComment || pendingAction != null || publishedComments.has(commentKey(comment, index))}
-                                        onClick={() => openCommentEditor(comment, index)}
-                                        aria-label={t("pr.dialog.publishFor", { file: comment.file })}
-                                      >
-                                        {pendingAction === commentKey(comment, index) ? <Loader2 aria-hidden="true" className="size-3.5 animate-spin" /> : <Send aria-hidden="true" className="size-3.5" />}
-                                        {publishedComments.has(commentKey(comment, index)) ? t("pr.dialog.published") : pendingAction === commentKey(comment, index) ? t("pr.dialog.publishing") : t("pr.dialog.publish")}
-                                      </Button>
-                                    ) : null}
-                                  </div>
-                                  <p className="whitespace-pre-wrap break-words text-sm">{comment.comment}</p>
-                                </li>
-                              ))}
-                            </ul>
-                          )}
+                        <div className={cn("border-t bg-background px-3 py-2 text-foreground", severitySectionStyles[section.key].border)}>
+                          <ul className="space-y-2">
+                            {comments.map((comment, index) => (
+                              <li key={`${comment.file}:${comment.line ?? "na"}:${index}`} className="space-y-2 rounded-md border bg-background p-3">
+                                <div className="flex items-start justify-between gap-2">
+                                  <p className="min-w-0 break-words text-xs font-medium text-muted-foreground">
+                                    {comment.file}{comment.line != null ? `:${comment.line}` : ""}
+                                  </p>
+                                  {reviewerActions ? (
+                                    <Button
+                                      type="button"
+                                      variant="outline"
+                                      size="sm"
+                                      className="h-7 shrink-0 px-2 text-xs"
+                                      disabled={!onPublishComment || pendingAction != null || publishedComments.has(commentKey(comment, index))}
+                                      onClick={() => openCommentEditor(comment, index)}
+                                      aria-label={t("pr.dialog.publishFor", { file: comment.file })}
+                                    >
+                                      {pendingAction === commentKey(comment, index) ? <Loader2 aria-hidden="true" className="size-3.5 animate-spin" /> : <Send aria-hidden="true" className="size-3.5" />}
+                                      {publishedComments.has(commentKey(comment, index)) ? t("pr.dialog.published") : pendingAction === commentKey(comment, index) ? t("pr.dialog.publishing") : t("pr.dialog.publish")}
+                                    </Button>
+                                  ) : null}
+                                </div>
+                                <p className="whitespace-pre-wrap break-words text-sm">{comment.comment}</p>
+                              </li>
+                            ))}
+                          </ul>
                         </div>
                       </details>
                     );

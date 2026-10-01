@@ -612,20 +612,21 @@ describe("MyPullRequestsPage", () => {
     await waitFor(() => expect(removeReviewerMock).toHaveBeenCalledWith(expect.objectContaining({ pullRequestId: "7" }), expect.any(String)));
   });
 
-  it("confirms quick approval before publishing the review decision", async () => {
+  it("publishes the selected review decision directly from the menu", async () => {
     await renderFlatPage();
     const card = (await screen.findByRole("heading", { name: "Example pull request" })).closest("[class*='border-l-']") as HTMLElement;
-    fireEvent.click(within(card).getByRole("button", { name: "Approve pull request" }));
+    fireEvent.pointerDown(within(card).getByRole("button", { name: "Review decision" }), { button: 0, ctrlKey: false });
     expect(setDecisionMock).not.toHaveBeenCalled();
-    fireEvent.click(screen.getByRole("button", { name: "Approve" }));
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Approve" }));
+    expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
     await waitFor(() => expect(setDecisionMock).toHaveBeenCalledWith(expect.objectContaining({ pullRequestId: "7" }), "approve"));
-    await waitFor(() => expect(within(card).queryByRole("button", { name: "Approve pull request" })).not.toBeInTheDocument());
+    await waitFor(() => expect(within(card).getByRole("button", { name: "Review decision" }).querySelector("svg.lucide-circle-check")).toBeInTheDocument());
   });
 
-  it("shows an AI verdict badge for an approved review", async () => {
+  it("shows an approved AI verdict and a message when the review has no comments", async () => {
     const approvedReview: PullRequestReviewState = {
       ...completedReview,
-      result: { ...completedReview.result!, verdict: "ok" },
+      result: { ...completedReview.result!, verdict: "ok", comments: [] },
     };
     listMyPullRequestsMock.mockResolvedValueOnce({
       ...firstPage,
@@ -643,6 +644,10 @@ describe("MyPullRequestsPage", () => {
     expect(completedCard).not.toBeNull();
     expect(within(completedCard as HTMLElement).getByRole("button", { name: "More actions" }).parentElement)
       .toBe(reviewResultsButton.parentElement);
+    fireEvent.click(reviewResultsButton);
+    const dialog = await screen.findByRole("dialog", { name: "Review results" });
+    expect(within(dialog).getByText("The AI review has no comments.")).toBeInTheDocument();
+    expect(dialog.querySelector("details")).toBeNull();
   });
   it("reconciles a completed review when the completion event was missed", async () => {
     getReviewStatesMock.mockResolvedValue({
@@ -678,7 +683,7 @@ describe("MyPullRequestsPage", () => {
     expect(screen.getByText("Coordinates an example background refresh lifecycle.")).toHaveClass("text-foreground");
     expect(screen.getByText("The change can lose data when the retry races with shutdown.")).toHaveClass("text-foreground");
     expect(dialog).toHaveTextContent("AI comments");
-    expect(screen.getByText("Blocker (0)").closest("details")).not.toHaveAttribute("open");
+    expect(screen.queryByText("Blocker (0)")).not.toBeInTheDocument();
     expect(screen.getByText("High (1)").closest("details")).toHaveAttribute("open");
     expect(screen.getByText("Medium (1)").closest("details")).toHaveAttribute("open");
     expect(screen.getByText("Low (1)").closest("details")).toHaveAttribute("open");
@@ -686,8 +691,11 @@ describe("MyPullRequestsPage", () => {
     expect(screen.getByText("src/timeout.ts:18")).toBeInTheDocument();
     expect(screen.getByText("src/logging.ts:7")).toBeInTheDocument();
     expect(screen.getByText("Guard this operation before retrying.")).toBeInTheDocument();
-    expect(screen.getByText("Blocker (0)")).toHaveClass("text-destructive");
-    expect(screen.getByText("High (1)")).toHaveClass("text-destructive");
+    expect(screen.getByText("High (1)").closest("summary")).toHaveClass("text-destructive", "bg-destructive/10");
+    const mediumSection = screen.getByText("Medium (1)").closest("details");
+    expect(mediumSection).toHaveClass("border-warning/40");
+    expect(mediumSection?.querySelector("summary")).toHaveClass("bg-warning/10", "text-warning");
+    expect(mediumSection?.querySelector("summary")?.nextElementSibling).toHaveClass("bg-background", "text-foreground");
     const publishButton = screen.getByRole("button", { name: "Publish comment for src/retry.ts" });
     expect(publishButton).not.toBeDisabled();
     expect(publishButton).toHaveClass("h-7", "px-2", "text-xs");

@@ -46,9 +46,9 @@ body,
   display: flex;
   flex: 0 0 auto;
   align-items: center;
-  justify-content: center;
+  justify-content: flex-start;
   gap: 9px;
-  padding: 6px 8px;
+  padding: 10px 8px 6px;
   margin-bottom: 4px;
   color: var(--card-foreground);
   background: var(--card);

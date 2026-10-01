@@ -1,10 +1,10 @@
-import { Check, CheckCircle2, CircleAlert, Clock3, ExternalLink, Loader2, MessageSquare, MoreHorizontal, RefreshCw, Sparkles, Ban } from "lucide-react";
+import { Check, CheckCircle2, CircleAlert, Clock3, ExternalLink, Loader2, MessageSquare, MoreHorizontal, RefreshCw, Sparkles, Ban, SmilePlus } from "lucide-react";
 import { useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuGroup, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import type {
   MyPullRequest,
   MyPullRequestDecision,
@@ -149,7 +149,7 @@ export interface PullRequestListItemProps {
   onBlacklistProject?: (pullRequest: MyPullRequest) => void;
   onBlacklistRepository?: (pullRequest: MyPullRequest) => void;
   onRemoveReviewer?: (pullRequest: MyPullRequest) => void;
-  onApprove?: (pullRequest: MyPullRequest) => void;
+  onReviewDecision?: (pullRequest: MyPullRequest, action: "approve" | "needs_work") => void;
   approving?: boolean;
   completedLabel?: string;
   showProjectKey?: boolean;
@@ -167,7 +167,7 @@ export function PullRequestListItem({
   onBlacklistProject,
   onBlacklistRepository,
   onRemoveReviewer,
-  onApprove,
+  onReviewDecision,
   approving = false,
   completedLabel,
   showProjectKey = true,
@@ -290,10 +290,20 @@ export function PullRequestListItem({
                 className={reviewIconClassName}
               />
             </Button>
-            {mode === "reviewer" && pullRequest.myDecision !== "approved" ? (
-              <Button type="button" variant="outline" size="icon" actionTone="success" className="size-8 text-success" onClick={() => onApprove?.(pullRequest)} disabled={!onApprove || approving} aria-label={t("pr.actions.quickApprove")} title={t("pr.actions.quickApprove")}>
-                {approving ? <Loader2 aria-hidden="true" className="size-4 animate-spin" /> : <CheckCircle2 aria-hidden="true" className="size-4" />}
-              </Button>
+            {mode === "reviewer" ? (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button type="button" variant="outline" size="icon" actionTone={pullRequest.myDecision === "approved" ? "success" : pullRequest.myDecision === "needs_work" ? "warning" : "neutral"} className="size-8" disabled={!onReviewDecision || approving} aria-label={t("pr.actions.reviewDecision")} title={t("pr.actions.reviewDecision")}>
+                    {approving ? <Loader2 aria-hidden="true" className="animate-spin" /> : pullRequest.myDecision === "approved" ? <CheckCircle2 aria-hidden="true" /> : pullRequest.myDecision === "needs_work" ? <CircleAlert aria-hidden="true" /> : <SmilePlus aria-hidden="true" />}
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  <DropdownMenuGroup>
+                    <DropdownMenuItem disabled={pullRequest.myDecision === "approved"} onSelect={() => onReviewDecision?.(pullRequest, "approve")}><CheckCircle2 aria-hidden="true" className="text-success" />{t("pr.dialog.approve")}</DropdownMenuItem>
+                    <DropdownMenuItem disabled={pullRequest.myDecision === "needs_work"} onSelect={() => onReviewDecision?.(pullRequest, "needs_work")}><CircleAlert aria-hidden="true" className="text-warning" />{t("pr.dialog.needsWork")}</DropdownMenuItem>
+                  </DropdownMenuGroup>
+                </DropdownMenuContent>
+              </DropdownMenu>
             ) : null}
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
