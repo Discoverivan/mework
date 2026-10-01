@@ -145,7 +145,8 @@ describe("TaskTrackerPage", () => {
     expect(screen.getByRole("button", { name: "DEMO-1" })).toBeInTheDocument();
   });
 
-  it("shows and clears an unread tab indicator when selecting a monitor", async () => {
+  it("keeps unread monitor tabs highlighted with a count until changes are marked read", async () => {
+    window.localStorage.removeItem("mework.task-tracker.read-checkpoints.v1");
     const unreadMonitor: TaskTrackerMonitor = {
       ...monitor,
       id: "monitor-2",
@@ -157,9 +158,19 @@ describe("TaskTrackerPage", () => {
     render(<TaskTrackerPage />);
 
     const tab = await screen.findByRole("tab", { name: /Recently changed/ });
-    expect(tab.querySelector(".bg-blue-500")).toBeInTheDocument();
+    expect(tab).toHaveClass("bg-blue-500/10");
+    const indicator = tab.querySelector(".bg-blue-500");
+    const name = tab.querySelector(".truncate");
+    expect(indicator).toBeInTheDocument();
+    expect(indicator && name && Boolean(indicator.compareDocumentPosition(name) & Node.DOCUMENT_POSITION_FOLLOWING)).toBe(true);
+    expect(tab.querySelector('[aria-label="1 unread changes"]')).not.toBeInTheDocument();
     fireEvent.click(tab);
+    expect(tab.querySelector(".bg-blue-500")).toBeInTheDocument();
+    expect(tab).toHaveClass("bg-blue-500/10");
+
+    fireEvent.click(screen.getByRole("button", { name: "Mark all as read" }));
     expect(tab.querySelector(".bg-blue-500")).not.toBeInTheDocument();
+    expect(tab).not.toHaveClass("bg-blue-500/10");
   });
 
   it("marks changed rows as read and persists the monitor checkpoint", async () => {
