@@ -45,6 +45,7 @@ pub struct AiUsageModelTotal {
     pub provider_id: String,
     pub provider_name: String,
     pub model: String,
+    pub request_count: i64,
     pub input_tokens: i64,
     pub output_tokens: i64,
     pub total_tokens: i64,
@@ -53,6 +54,7 @@ pub struct AiUsageModelTotal {
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AiUsageTotal {
+    pub request_count: i64,
     pub input_tokens: i64,
     pub output_tokens: i64,
     pub total_tokens: i64,
@@ -142,6 +144,7 @@ pub async fn statistics(
                 provider_name: provider_name(&provider_id),
                 provider_id,
                 model: row.try_get("model")?,
+                request_count: row.try_get("request_count")?,
                 input_tokens: row.try_get("input_tokens")?,
                 output_tokens: row.try_get("output_tokens")?,
                 total_tokens: row.try_get("total_tokens")?,
@@ -159,6 +162,9 @@ pub async fn statistics(
         daily,
         by_model,
         total: AiUsageTotal {
+            request_count: total_row
+                .try_get("request_count")
+                .map_err(|_| "failed to read AI usage statistics".to_owned())?,
             input_tokens: total_row
                 .try_get("input_tokens")
                 .map_err(|_| "failed to read AI usage statistics".to_owned())?,
@@ -182,17 +188,17 @@ fn daily_query(period: AiUsagePeriod) -> &'static str {
 
 fn by_model_query(period: AiUsagePeriod) -> &'static str {
     match period {
-        AiUsagePeriod::Today => "SELECT provider, model, SUM(input_tokens) AS input_tokens, SUM(output_tokens) AS output_tokens, SUM(total_tokens) AS total_tokens FROM ai_token_usage WHERE date(recorded_at, 'localtime') = date('now', 'localtime') GROUP BY provider, model ORDER BY provider ASC, model ASC",
-        AiUsagePeriod::SevenDays => "SELECT provider, model, SUM(input_tokens) AS input_tokens, SUM(output_tokens) AS output_tokens, SUM(total_tokens) AS total_tokens FROM ai_token_usage WHERE date(recorded_at, 'localtime') >= date('now', 'localtime', '-6 days') AND date(recorded_at, 'localtime') <= date('now', 'localtime') GROUP BY provider, model ORDER BY provider ASC, model ASC",
-        AiUsagePeriod::Month => "SELECT provider, model, SUM(input_tokens) AS input_tokens, SUM(output_tokens) AS output_tokens, SUM(total_tokens) AS total_tokens FROM ai_token_usage WHERE strftime('%Y-%m', recorded_at, 'localtime') = strftime('%Y-%m', 'now', 'localtime') GROUP BY provider, model ORDER BY provider ASC, model ASC",
+        AiUsagePeriod::Today => "SELECT provider, model, COUNT(*) AS request_count, SUM(input_tokens) AS input_tokens, SUM(output_tokens) AS output_tokens, SUM(total_tokens) AS total_tokens FROM ai_token_usage WHERE date(recorded_at, 'localtime') = date('now', 'localtime') GROUP BY provider, model ORDER BY provider ASC, model ASC",
+        AiUsagePeriod::SevenDays => "SELECT provider, model, COUNT(*) AS request_count, SUM(input_tokens) AS input_tokens, SUM(output_tokens) AS output_tokens, SUM(total_tokens) AS total_tokens FROM ai_token_usage WHERE date(recorded_at, 'localtime') >= date('now', 'localtime', '-6 days') AND date(recorded_at, 'localtime') <= date('now', 'localtime') GROUP BY provider, model ORDER BY provider ASC, model ASC",
+        AiUsagePeriod::Month => "SELECT provider, model, COUNT(*) AS request_count, SUM(input_tokens) AS input_tokens, SUM(output_tokens) AS output_tokens, SUM(total_tokens) AS total_tokens FROM ai_token_usage WHERE strftime('%Y-%m', recorded_at, 'localtime') = strftime('%Y-%m', 'now', 'localtime') GROUP BY provider, model ORDER BY provider ASC, model ASC",
     }
 }
 
 fn total_query(period: AiUsagePeriod) -> &'static str {
     match period {
-        AiUsagePeriod::Today => "SELECT COALESCE(SUM(input_tokens), 0) AS input_tokens, COALESCE(SUM(output_tokens), 0) AS output_tokens, COALESCE(SUM(total_tokens), 0) AS total_tokens FROM ai_token_usage WHERE date(recorded_at, 'localtime') = date('now', 'localtime')",
-        AiUsagePeriod::SevenDays => "SELECT COALESCE(SUM(input_tokens), 0) AS input_tokens, COALESCE(SUM(output_tokens), 0) AS output_tokens, COALESCE(SUM(total_tokens), 0) AS total_tokens FROM ai_token_usage WHERE date(recorded_at, 'localtime') >= date('now', 'localtime', '-6 days') AND date(recorded_at, 'localtime') <= date('now', 'localtime')",
-        AiUsagePeriod::Month => "SELECT COALESCE(SUM(input_tokens), 0) AS input_tokens, COALESCE(SUM(output_tokens), 0) AS output_tokens, COALESCE(SUM(total_tokens), 0) AS total_tokens FROM ai_token_usage WHERE strftime('%Y-%m', recorded_at, 'localtime') = strftime('%Y-%m', 'now', 'localtime')",
+        AiUsagePeriod::Today => "SELECT COUNT(*) AS request_count, COALESCE(SUM(input_tokens), 0) AS input_tokens, COALESCE(SUM(output_tokens), 0) AS output_tokens, COALESCE(SUM(total_tokens), 0) AS total_tokens FROM ai_token_usage WHERE date(recorded_at, 'localtime') = date('now', 'localtime')",
+        AiUsagePeriod::SevenDays => "SELECT COUNT(*) AS request_count, COALESCE(SUM(input_tokens), 0) AS input_tokens, COALESCE(SUM(output_tokens), 0) AS output_tokens, COALESCE(SUM(total_tokens), 0) AS total_tokens FROM ai_token_usage WHERE date(recorded_at, 'localtime') >= date('now', 'localtime', '-6 days') AND date(recorded_at, 'localtime') <= date('now', 'localtime')",
+        AiUsagePeriod::Month => "SELECT COUNT(*) AS request_count, COALESCE(SUM(input_tokens), 0) AS input_tokens, COALESCE(SUM(output_tokens), 0) AS output_tokens, COALESCE(SUM(total_tokens), 0) AS total_tokens FROM ai_token_usage WHERE strftime('%Y-%m', recorded_at, 'localtime') = strftime('%Y-%m', 'now', 'localtime')",
     }
 }
 
@@ -341,6 +347,8 @@ mod tests {
         let result = statistics(&pool, AiUsagePeriod::Today).await.unwrap();
 
         assert_eq!(result.period, AiUsagePeriod::Today);
+        assert_eq!(result.total.request_count, 1);
+        assert_eq!(result.by_model[0].request_count, 1);
         assert_eq!(result.total.input_tokens, 10);
         assert_eq!(result.total.output_tokens, 4);
         assert_eq!(result.total.total_tokens, 14);

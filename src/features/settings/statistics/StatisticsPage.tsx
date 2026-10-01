@@ -217,7 +217,7 @@ export function StatisticsPage() {
   }, [period, retry]);
 
   const formatTokens = useMemo(() => numberFormatter(locale), [locale]);
-  const hasUsage = (data?.total.totalTokens ?? 0) > 0;
+  const hasUsage = (data?.total.requestCount ?? 0) > 0;
 
   return (
     <section className="flex flex-col gap-4 p-4 md:p-6" aria-labelledby="statistics-page-title">
@@ -281,7 +281,8 @@ export function StatisticsPage() {
                     <TableHead scope="col" className="py-2 font-medium">{t("statistics.provider")}</TableHead>
                     <TableHead scope="col" className="py-2 text-right font-medium">{t("statistics.input")}</TableHead>
                     <TableHead scope="col" className="py-2 text-right font-medium">{t("statistics.output")}</TableHead>
-                    <TableHead scope="col" className="py-2 pr-0 text-right font-medium">{t("statistics.total")}</TableHead>
+                    <TableHead scope="col" className="py-2 text-right font-medium">{t("statistics.total")}</TableHead>
+                    <TableHead scope="col" className="py-2 pr-0 text-right font-medium">{t("statistics.requests")}</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -291,7 +292,8 @@ export function StatisticsPage() {
                       <TableCell className="py-2.5 text-muted-foreground">{row.providerName}</TableCell>
                       <TableCell className="py-2.5 text-right tabular-nums">{formatTokens.format(row.inputTokens)}</TableCell>
                       <TableCell className="py-2.5 text-right tabular-nums">{formatTokens.format(row.outputTokens)}</TableCell>
-                      <TableCell className="py-2.5 pr-0 text-right font-medium tabular-nums">{formatTokens.format(row.totalTokens)}</TableCell>
+                      <TableCell className="py-2.5 text-right font-medium tabular-nums">{formatTokens.format(row.totalTokens)}</TableCell>
+                      <TableCell className="py-2.5 pr-0 text-right tabular-nums">{formatTokens.format(row.requestCount)}</TableCell>
                     </TableRow>
                   ))}
                 </TableBody>
@@ -302,7 +304,8 @@ export function StatisticsPage() {
                     </TableHead>
                     <TableCell className="py-3 text-right tabular-nums">{formatTokens.format(data.total.inputTokens)}</TableCell>
                     <TableCell className="py-3 text-right tabular-nums">{formatTokens.format(data.total.outputTokens)}</TableCell>
-                    <TableCell className="py-3 pr-0 text-right tabular-nums">{formatTokens.format(data.total.totalTokens)}</TableCell>
+                    <TableCell className="py-3 text-right tabular-nums">{formatTokens.format(data.total.totalTokens)}</TableCell>
+                    <TableCell className="py-3 pr-0 text-right tabular-nums">{formatTokens.format(data.total.requestCount)}</TableCell>
                   </TableRow>
                 </TableFooter>
               </Table>
