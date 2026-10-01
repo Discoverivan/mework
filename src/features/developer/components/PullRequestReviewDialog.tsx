@@ -67,14 +67,13 @@ function commentDiffUrl(pullRequestUrl: string | undefined, comment: PullRequest
   }
 }
 
-function ReviewMarkdown({ children, description = false }: { children: string; description?: boolean }) {
-  const textStyle = description ? "leading-snug text-muted-foreground" : "text-foreground";
+function ReviewMarkdown({ children }: { children: string }) {
   return (
-    <div className={cn("min-w-0 break-words text-sm [&>*+*]:mt-2 [&_h1]:font-semibold [&_h2]:font-semibold [&_h3]:font-semibold [&_h4]:font-semibold [&_h5]:font-semibold [&_h6]:font-semibold [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5 [&_li+li]:mt-1 [&_pre]:overflow-x-auto [&_pre]:rounded-md [&_pre]:bg-muted [&_pre]:p-3 [&_code]:rounded-sm [&_code]:bg-muted [&_code]:px-1 [&_code]:font-mono [&_code]:text-xs [&_blockquote]:border-l-2 [&_blockquote]:border-border [&_blockquote]:pl-3 [&_blockquote]:text-muted-foreground", textStyle)}>
+    <div className="min-w-0 break-words text-sm text-foreground [&>*+*]:mt-2 [&_h1]:font-semibold [&_h2]:font-semibold [&_h3]:font-semibold [&_h4]:font-semibold [&_h5]:font-semibold [&_h6]:font-semibold [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5 [&_li+li]:mt-1 [&_pre]:overflow-x-auto [&_pre]:rounded-md [&_pre]:bg-muted [&_pre]:p-3 [&_code]:rounded-sm [&_code]:bg-muted [&_code]:px-1 [&_code]:font-mono [&_code]:text-xs [&_blockquote]:border-l-2 [&_blockquote]:border-border [&_blockquote]:pl-3 [&_blockquote]:text-muted-foreground">
       <ReactMarkdown skipHtml allowedElements={["h1", "h2", "h3", "h4", "h5", "h6", "p", "ul", "ol", "li", "strong", "em", "code", "pre", "a", "blockquote", "br", "hr"]}
         components={{
           hr: () => <Separator />,
-          p: ({ children: text }) => <p className={cn("whitespace-pre-wrap", textStyle)}>{text}</p>,
+          p: ({ children: text }) => <p className="whitespace-pre-wrap text-foreground">{text}</p>,
           a: ({ href, children: text }) => href && /^https?:\/\//i.test(href)
             ? <a href={href} target="_blank" rel="noopener noreferrer" className="text-primary underline underline-offset-2">{text}</a>
             : <span>{text}</span>,
@@ -222,13 +221,13 @@ export function PullRequestReviewDialog({
                   </dl>
                 ) : <p>{t("pr.dialog.executionUnavailable")}</p>}
               </div>
-              <section aria-labelledby="ai-summary-title" className="space-y-2 rounded-lg border bg-card p-4">
+              <section aria-labelledby="ai-summary-title" className="space-y-2 rounded-lg border bg-card px-4 pb-4 pt-3">
                 <div className="space-y-1">
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <h3 id="ai-summary-title" className="text-base font-semibold leading-tight">{t("pr.dialog.aiSummary")}</h3>
                     <AiVerdictBadge verdict={result.verdict} />
                   </div>
-                  <ReviewMarkdown description>{result.description}</ReviewMarkdown>
+                  <ReviewMarkdown>{result.description}</ReviewMarkdown>
                 </div>
                 <ReviewMarkdown>{result.summary}</ReviewMarkdown>
               </section>

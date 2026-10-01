@@ -708,7 +708,7 @@ describe("MyPullRequestsPage", () => {
     expect(aiConfiguration).toHaveTextContent("example-review-model");
     expect(aiConfiguration).toHaveTextContent("Reasoning:high");
     expect(aiConfiguration).toHaveTextContent("Fast mode:On");
-    expect(screen.getByText("Coordinates an example background refresh lifecycle.")).toHaveClass("text-muted-foreground", "leading-snug");
+    expect(screen.getByText("Coordinates an example background refresh lifecycle.")).toHaveClass("text-foreground");
     expect(screen.getByText("The change can lose data when the retry races with shutdown.")).toHaveClass("text-foreground");
     expect(dialog).toHaveTextContent("AI comments");
     expect(screen.getByText("Check shutdown order").tagName).toBe("STRONG");
