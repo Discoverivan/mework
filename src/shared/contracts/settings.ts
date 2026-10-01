@@ -51,6 +51,7 @@ export function matchesSelectedAiProvider(settings: AiSettings, provider: AiProv
 export interface OpenAiCompatibleProviderSaveInput {
   id?: string;
   baseUrl: string;
+  alias: string;
   token: string;
   allowInsecureTls?: boolean;
 }

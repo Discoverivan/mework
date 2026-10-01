@@ -511,17 +511,22 @@ describe("SettingsPage integrations smoke tests", () => {
       fastMode: false,
     };
     getAiSettingsMock.mockResolvedValue({ settings, providers: [provider] });
-    saveOpenAiCompatibleProviderMock.mockResolvedValue({ settings, providers: [{ ...provider, baseUrl: "https://new.example.invalid/v1" }] });
+    saveOpenAiCompatibleProviderMock.mockResolvedValue({ settings, providers: [{ ...provider, name: "Team API", baseUrl: "https://new.example.invalid/v1" }] });
     deleteAiProviderMock.mockResolvedValue({ settings: { ...settings, provider: null, providerInstanceId: null, model: "" }, providers: [] });
     render(<SettingsPage section="ai" />);
 
     expect(await screen.findByRole("combobox", { name: "Provider types" })).toHaveTextContent("API");
     fireEvent.click(screen.getByRole("button", { name: "Edit https://old.example.invalid/v1" }));
+    expect(screen.getByLabelText("Token")).toHaveValue("");
+    expect(screen.getByLabelText("Token")).toHaveAttribute("placeholder", "••••••••");
+    expect(screen.getByText(/Token saved in the operating system keyring/)).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText("Alias"), { target: { value: "Team API" } });
     fireEvent.change(screen.getByLabelText("API URL"), { target: { value: "https://new.example.invalid/v1" } });
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
     await waitFor(() => expect(saveOpenAiCompatibleProviderMock).toHaveBeenCalledWith({
       id: provider.instanceId,
       baseUrl: "https://new.example.invalid/v1",
+      alias: "Team API",
       token: "",
       allowInsecureTls: false,
     }));

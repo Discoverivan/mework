@@ -7,7 +7,7 @@ use crate::application::developer::{
     self, BitbucketRepositoryDto, BitbucketUserDto, DeveloperCommandError, MyPullRequestsPageDto,
     PullRequestActivity, PullRequestActivityStatus, PullRequestCommentRequest,
     PullRequestCommentStatus, PullRequestDecisionRequest, PullRequestDecisionStatus,
-    PullRequestReadAllStatus, PullRequestReviewSettings,
+    PullRequestReadAllStatus, PullRequestRemoveReviewerRequest, PullRequestReviewSettings,
 };
 use crate::application::developer_review::{
     self, PullRequestReviewDto, PullRequestReviewRequest, PullRequestReviewStateRequest,
@@ -199,6 +199,14 @@ pub async fn pull_request_review_set_decision(
     request: PullRequestDecisionRequest,
 ) -> Result<PullRequestDecisionStatus, DeveloperCommandError> {
     developer::set_pull_request_decision(&state, request).await
+}
+
+#[tauri::command]
+pub async fn pull_request_review_remove_reviewer(
+    state: State<'_, SqlitePool>,
+    request: PullRequestRemoveReviewerRequest,
+) -> Result<(), DeveloperCommandError> {
+    developer::remove_pull_request_reviewer(&state, request).await
 }
 
 #[tauri::command]

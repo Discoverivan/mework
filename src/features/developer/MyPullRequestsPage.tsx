@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { CheckCheck, Filter, RefreshCw, Settings2 } from "lucide-react";
 
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -34,8 +35,9 @@ import { PullRequestDisplayOptionsDialog } from "./components/PullRequestDisplay
 import { PullRequestProjectSection } from "./components/PullRequestProjectSection";
 import { PullRequestReviewDialog } from "./components/PullRequestReviewDialog";
 import { PullRequestStatus } from "./components/PullRequestStatus";
-import { usePullRequestDisplayPreferences } from "./display-options";
+import { usePullRequestDisplayPreferences, usePullRequestQuickFilter } from "./display-options";
 import {
+  groupPullRequestsByPerson,
   groupPullRequestsByProject,
   sortPullRequestsByUpdatedDate,
 } from "./components/pull-request-projects";
@@ -53,6 +55,7 @@ import {
   markPullRequestRead,
   publishPullRequestComment,
   refreshMyPullRequests,
+  removePullRequestReviewer,
   savePullRequestReviewSettings,
   setPullRequestDecision,
   searchBitbucketRepositories,
@@ -62,7 +65,6 @@ import {
 
 
 type FilterTab = "blacklist" | "whitelist";
-type QuickFilter = "all" | "pending";
 type FilterKind = "repository" | "creator";
 type FilterField =
   | "repositoryBlacklist"
@@ -103,7 +105,6 @@ function equalsIgnoreCase(left: string, right: string): boolean {
 
 function matchesSettings(pullRequest: MyPullRequest, settings: PullRequestReviewSettings): boolean {
   const whitelistValues = [...settings.repositoryWhitelist, ...settings.creatorWhitelist];
-  const blacklistValues = [...settings.repositoryBlacklist, ...settings.creatorBlacklist];
   const repositoryWhitelistMatches = settings.repositoryWhitelist.some((value) =>
     [repositoryKey(pullRequest), pullRequest.repositorySlug, pullRequest.repositoryName]
       .some((candidate) => equalsIgnoreCase(value, candidate)),
@@ -112,7 +113,7 @@ function matchesSettings(pullRequest: MyPullRequest, settings: PullRequestReview
     equalsIgnoreCase(value, pullRequest.authorDisplayName),
   );
   const repositoryBlacklistMatches = settings.repositoryBlacklist.some((value) =>
-    [repositoryKey(pullRequest), pullRequest.repositorySlug, pullRequest.repositoryName]
+    [pullRequest.projectKey, repositoryKey(pullRequest), pullRequest.repositorySlug, pullRequest.repositoryName]
       .some((candidate) => equalsIgnoreCase(value, candidate)),
   );
   const creatorBlacklistMatches = settings.creatorBlacklist.some((value) =>
@@ -120,8 +121,8 @@ function matchesSettings(pullRequest: MyPullRequest, settings: PullRequestReview
   );
   const whitelistMatches = repositoryWhitelistMatches || creatorWhitelistMatches;
   const blacklistMatches = repositoryBlacklistMatches || creatorBlacklistMatches;
+  if (blacklistMatches) return false;
   if (whitelistValues.length > 0) return whitelistMatches;
-  if (blacklistValues.length > 0) return !blacklistMatches;
   return true;
 }
 
@@ -176,7 +177,7 @@ export function MyPullRequestsPage() {
   const [displayOptionsOpen, setDisplayOptionsOpen] = useState(false);
   const [displayPreferences, updateDisplayPreferences] = usePullRequestDisplayPreferences("reviewer");
   const [filterTab, setFilterTab] = useState<FilterTab>("whitelist");
-  const [quickFilter, setQuickFilter] = useState<QuickFilter>("all");
+  const [quickFilter, setQuickFilter] = usePullRequestQuickFilter("reviewer");
   const [saving, setSaving] = useState(false);
   const [autoReviewSaving, setAutoReviewSaving] = useState(false);
   const [settingsError, setSettingsError] = useState<string>();
@@ -188,6 +189,12 @@ export function MyPullRequestsPage() {
   const [readAllPending, setReadAllPending] = useState(false);
   const [reviewStartingKeys, setReviewStartingKeys] = useState<Set<string>>(() => new Set());
   const [reviewDialogKey, setReviewDialogKey] = useState<string>();
+  const [removeReviewerTarget, setRemoveReviewerTarget] = useState<MyPullRequest>();
+  const [removingReviewer, setRemovingReviewer] = useState(false);
+  const [removeReviewerError, setRemoveReviewerError] = useState<string>();
+  const [quickApproveTarget, setQuickApproveTarget] = useState<MyPullRequest>();
+  const [quickApprovePending, setQuickApprovePending] = useState(false);
+  const [quickApproveError, setQuickApproveError] = useState<string>();
 
   const applyPage = useCallback((page: MyPullRequestPage) => {
     setPullRequests((current) => {
@@ -376,7 +383,9 @@ export function MyPullRequestsPage() {
     ),
     displayPreferences.sortOrder,
   );
-  const projectGroups = groupPullRequestsByProject(visiblePullRequests);
+  const groups = displayPreferences.grouping === "person"
+    ? groupPullRequestsByPerson(visiblePullRequests)
+    : groupPullRequestsByProject(visiblePullRequests);
   const reviewDialogPullRequest = reviewDialogKey
     ? pullRequests.find((pullRequest) => pullRequestKey(pullRequest) === reviewDialogKey)
     : undefined;
@@ -452,6 +461,53 @@ export function MyPullRequestsPage() {
       setError(t("pr.autoReviewSaveError", { error: commandError(reason) }));
     } finally {
       setAutoReviewSaving(false);
+    }
+  }
+
+  async function blacklistPullRequest(pullRequest: MyPullRequest, scope: "project" | "repository") {
+    const value = scope === "project" ? pullRequest.projectKey : repositoryKey(pullRequest);
+    if (settings.repositoryBlacklist.some((entry) => equalsIgnoreCase(entry, value))) return;
+    setError(undefined);
+    try {
+      const saved = await savePullRequestReviewSettings({
+        ...settings,
+        repositoryBlacklist: [...settings.repositoryBlacklist, value],
+      });
+      setSettings(saved);
+      setDraftSettings(saved);
+    } catch (reason) {
+      setError(commandError(reason));
+    }
+  }
+
+  async function confirmRemoveReviewer() {
+    const target = removeReviewerTarget;
+    if (!target) return;
+    setRemovingReviewer(true);
+    setRemoveReviewerError(undefined);
+    try {
+      await removePullRequestReviewer(target, crypto.randomUUID());
+      setRemoveReviewerTarget(undefined);
+      await syncPullRequests();
+    } catch (reason) {
+      setRemoveReviewerError(commandError(reason));
+    } finally {
+      setRemovingReviewer(false);
+    }
+  }
+
+  async function confirmQuickApprove() {
+    const target = quickApproveTarget;
+    if (!target) return;
+    setQuickApprovePending(true);
+    setQuickApproveError(undefined);
+    try {
+      await updateReviewDecision(target, "approve");
+      setQuickApproveTarget(undefined);
+    } catch (reason) {
+      setQuickApproveError(commandError(reason));
+    } finally {
+      setQuickApprovePending(false);
     }
   }
 
@@ -553,6 +609,11 @@ export function MyPullRequestsPage() {
         onOpenPullRequest={(item) => void markRead(item)}
         onMarkViewed={(item) => void markRead(item)}
         onStartReview={(item) => void startReview(item)}
+        onBlacklistProject={(item) => void blacklistPullRequest(item, "project")}
+        onBlacklistRepository={(item) => void blacklistPullRequest(item, "repository")}
+        onRemoveReviewer={(item) => { setRemoveReviewerError(undefined); setRemoveReviewerTarget(item); }}
+        onApprove={(item) => { setQuickApproveError(undefined); setQuickApproveTarget(item); }}
+        approving={quickApprovePending && quickApproveTarget && pullRequestKey(quickApproveTarget) === itemKey}
         onOpenResults={(item) => {
           if (item.activity !== "read") void markRead(item);
           setReviewDialogKey(pullRequestKey(item));
@@ -580,7 +641,7 @@ export function MyPullRequestsPage() {
       />
 
       <div className="flex flex-wrap items-center gap-2">
-        <Select value={quickFilter} onValueChange={(value) => setQuickFilter(value as QuickFilter)}>
+        <Select value={quickFilter} onValueChange={(value) => setQuickFilter(value as "all" | "pending")}>
           <SelectTrigger aria-label={t("pr.quickFilters.review")} className="h-9 text-[13.5px]">
             <SelectValue />
           </SelectTrigger>
@@ -657,16 +718,17 @@ export function MyPullRequestsPage() {
         <Card><CardContent className="pt-6"><p>{t("pr.emptyFiltered")}</p></CardContent></Card>
       ) : null}
 
-      <div className={`${displayPreferences.groupByProject ? "space-y-5" : "inbox-list"} pt-1`} aria-live="polite">
-        {displayPreferences.groupByProject
-          ? projectGroups.map((group) => (
+      <div className={`${displayPreferences.grouping !== "none" ? "space-y-5" : "inbox-list"} pt-1`} aria-live="polite">
+        {displayPreferences.grouping !== "none"
+          ? groups.map((group) => (
               <PullRequestProjectSection
                 key={group.key}
-                projectKey={group.projectKey}
+                label={group.label}
+                grouping={displayPreferences.grouping === "person" ? "person" : "project"}
                 pullRequestCount={group.pullRequests.length}
                 expandedByDefault={displayPreferences.expandProjectsByDefault}
               >
-                {group.pullRequests.map((pullRequest) => renderPullRequest(pullRequest, false))}
+                {group.pullRequests.map((pullRequest) => renderPullRequest(pullRequest, displayPreferences.grouping === "person"))}
               </PullRequestProjectSection>
             ))
           : visiblePullRequests.map((pullRequest) => renderPullRequest(pullRequest, true))}
@@ -686,18 +748,46 @@ export function MyPullRequestsPage() {
         onSetDecision={updateReviewDecision}
       />
 
+      <AlertDialog open={Boolean(removeReviewerTarget)} onOpenChange={(open) => { if (!open && !removingReviewer) setRemoveReviewerTarget(undefined); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t("pr.actions.removeReviewer")}</AlertDialogTitle>
+            <AlertDialogDescription>{t("pr.actions.removeReviewerDescription")}</AlertDialogDescription>
+          </AlertDialogHeader>
+          {removeReviewerError ? <p role="alert" className="text-sm text-destructive">{removeReviewerError}</p> : null}
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={removingReviewer}>{t("settings.common.cancel")}</AlertDialogCancel>
+            <AlertDialogAction className="bg-destructive text-destructive-foreground hover:bg-destructive/90" disabled={removingReviewer} onClick={(event) => { event.preventDefault(); void confirmRemoveReviewer(); }}>{t("pr.actions.removeReviewerConfirm")}</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={Boolean(quickApproveTarget)} onOpenChange={(open) => { if (!open && !quickApprovePending) setQuickApproveTarget(undefined); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t("pr.actions.quickApprove")}</AlertDialogTitle>
+            <AlertDialogDescription>{t("pr.actions.quickApproveDescription")}</AlertDialogDescription>
+          </AlertDialogHeader>
+          {quickApproveError ? <p role="alert" className="text-sm text-destructive">{quickApproveError}</p> : null}
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={quickApprovePending}>{t("settings.common.cancel")}</AlertDialogCancel>
+            <AlertDialogAction disabled={quickApprovePending} onClick={(event) => { event.preventDefault(); void confirmQuickApprove(); }}>{t("pr.dialog.approve")}</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
       <PullRequestDisplayOptionsDialog
         open={displayOptionsOpen}
-        groupByProject={displayPreferences.groupByProject}
+        grouping={displayPreferences.grouping}
         expandProjectsByDefault={displayPreferences.expandProjectsByDefault}
         sortOrder={displayPreferences.sortOrder}
         autoReviewEnabled={settings.autoReviewEnabled}
         autoReviewDisabled={loading || autoReviewSaving}
         onOpenChange={setDisplayOptionsOpen}
-        onGroupByProjectChange={(enabled) => updateDisplayPreferences({ groupByProject: enabled })}
-        onExpandProjectsByDefaultChange={(enabled) => updateDisplayPreferences({ expandProjectsByDefault: enabled })}
-        onSortOrderChange={(order) => updateDisplayPreferences({ sortOrder: order })}
-        onAutoReviewChange={(enabled) => void toggleAutoReview(enabled)}
+        onApply={({ grouping, expandProjectsByDefault, sortOrder, autoReviewEnabled }) => {
+          updateDisplayPreferences({ grouping, expandProjectsByDefault, sortOrder });
+          if (autoReviewEnabled !== settings.autoReviewEnabled) void toggleAutoReview(autoReviewEnabled);
+        }}
       />
 
       <Dialog open={settingsOpen} onOpenChange={setSettingsOpen}>

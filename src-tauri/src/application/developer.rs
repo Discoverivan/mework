@@ -895,6 +895,18 @@ pub struct PullRequestDecisionRequest {
     pub pull_request_id: String,
     pub latest_commit: Option<String>,
     pub action: PullRequestDecisionAction,
+    pub idempotency_key: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PullRequestRemoveReviewerRequest {
+    pub integration_id: String,
+    pub project_key: String,
+    pub repository_slug: String,
+    pub pull_request_id: String,
+    pub latest_commit: Option<String>,
+    pub idempotency_key: String,
 }
 
 #[derive(Debug, Clone, Copy, Deserialize)]
@@ -1158,6 +1170,57 @@ pub async fn set_pull_request_decision(
         PullRequestDecisionAction::Approve => ("APPROVED", "approved"),
         PullRequestDecisionAction::NeedsWork => ("NEEDS_WORK", "needs_work"),
     };
+    if request.idempotency_key.trim().is_empty() || request.idempotency_key.len() > 128 {
+        return Err(command_error(
+            "invalid_input",
+            "A local idempotency key is required",
+            false,
+        ));
+    }
+    let existing: Option<(String, String, String, String, String, String, String)> = sqlx::query_as(
+        "SELECT integration_id, project_key, repository_slug, pull_request_id, latest_commit, action, status FROM pull_request_decision_actions WHERE idempotency_key = ?",
+    ).bind(&request.idempotency_key).fetch_optional(pool).await
+        .map_err(|_| command_error("database", "Unable to read review decision action", false))?;
+    if let Some((
+        integration_id,
+        project_key,
+        repository_slug,
+        existing_id,
+        latest_commit,
+        action,
+        action_status,
+    )) = existing
+    {
+        if integration_id != request.integration_id
+            || project_key != request.project_key
+            || repository_slug != request.repository_slug
+            || existing_id != request.pull_request_id
+            || Some(latest_commit.as_str()) != request.latest_commit.as_deref()
+            || action != status
+        {
+            return Err(command_error(
+                "idempotency_conflict",
+                "This action key belongs to another review decision",
+                false,
+            ));
+        }
+        if action_status == "succeeded" {
+            return Ok(PullRequestDecisionStatus {
+                integration_id: request.integration_id,
+                pull_request_id: request.pull_request_id,
+                my_decision: my_decision.to_owned(),
+            });
+        }
+        return Err(command_error(
+            if action_status == "failed" {
+                "action_failed_previously"
+            } else {
+                "action_result_unknown"
+            },
+            "The previous review decision was not confirmed. Refresh the pull request before trying again.",
+            false,
+        ));
+    }
     let context = bitbucket_action_context(pool, &request.integration_id).await?;
     validate_current_pull_request(
         &context.client,
@@ -1182,7 +1245,13 @@ pub async fn set_pull_request_decision(
                 "/rest/api/1.0/repos",
             )
         })?;
-    context
+    sqlx::query("INSERT INTO pull_request_decision_actions (idempotency_key, integration_id, project_key, repository_slug, pull_request_id, latest_commit, action, status) VALUES (?, ?, ?, ?, ?, ?, ?, 'running')")
+        .bind(&request.idempotency_key).bind(&request.integration_id).bind(&request.project_key)
+        .bind(&request.repository_slug).bind(&request.pull_request_id)
+        .bind(request.latest_commit.as_deref().expect("validated latest commit"))
+        .bind(status).execute(pool).await
+        .map_err(|_| command_error("idempotency_conflict", "This review decision is already running", true))?;
+    let result = context
         .client
         .set_pull_request_participant_status(
             &request.project_key,
@@ -1191,8 +1260,41 @@ pub async fn set_pull_request_decision(
             &current_user_slug,
             status,
         )
-        .await
-        .map_err(|error| map_error_at(error, "update_pull_request_participant", "PUT", "/rest/api/1.0/projects/{project}/repos/{repo}/pull-requests/{id}/participants/{user}"))?;
+        .await;
+    if let Err(error) = result {
+        let action_status =
+            if error.is_retryable() || matches!(error, BitbucketDcError::InvalidResponse) {
+                "unknown"
+            } else {
+                "failed"
+            };
+        let _ = sqlx::query(
+            "UPDATE pull_request_decision_actions SET status = ? WHERE idempotency_key = ?",
+        )
+        .bind(action_status)
+        .bind(&request.idempotency_key)
+        .execute(pool)
+        .await;
+        return Err(map_error_at(
+            error,
+            "update_pull_request_participant",
+            "PUT",
+            "/rest/api/1.0/projects/{project}/repos/{repo}/pull-requests/{id}/participants/{user}",
+        ));
+    }
+    sqlx::query(
+        "UPDATE pull_request_decision_actions SET status = 'succeeded' WHERE idempotency_key = ?",
+    )
+    .bind(&request.idempotency_key)
+    .execute(pool)
+    .await
+    .map_err(|_| {
+        command_error(
+            "database",
+            "Review decision saved but action status could not be saved",
+            false,
+        )
+    })?;
     update_cached_decision(
         pool,
         &request.integration_id,
@@ -1207,6 +1309,119 @@ pub async fn set_pull_request_decision(
         pull_request_id: request.pull_request_id,
         my_decision: my_decision.to_owned(),
     })
+}
+
+pub async fn remove_pull_request_reviewer(
+    pool: &SqlitePool,
+    request: PullRequestRemoveReviewerRequest,
+) -> Result<(), DeveloperCommandError> {
+    let pull_request_id = validate_action_request(
+        &request.integration_id,
+        &request.project_key,
+        &request.repository_slug,
+        &request.pull_request_id,
+        request.latest_commit.as_deref(),
+    )?;
+    if request.idempotency_key.trim().is_empty() || request.idempotency_key.len() > 128 {
+        return Err(command_error(
+            "invalid_input",
+            "A local idempotency key is required",
+            false,
+        ));
+    }
+    let existing: Option<(String, String, String, String, String)> = sqlx::query_as(
+        "SELECT integration_id, project_key, repository_slug, pull_request_id, status FROM pull_request_reviewer_actions WHERE idempotency_key = ?",
+    ).bind(&request.idempotency_key).fetch_optional(pool).await
+        .map_err(|_| command_error("database", "Unable to read reviewer action", false))?;
+    if let Some((integration_id, project_key, repository_slug, existing_id, status)) = existing {
+        if (integration_id, project_key, repository_slug, existing_id)
+            != (
+                request.integration_id.clone(),
+                request.project_key.clone(),
+                request.repository_slug.clone(),
+                request.pull_request_id.clone(),
+            )
+        {
+            return Err(command_error(
+                "idempotency_conflict",
+                "This action key belongs to another pull request",
+                false,
+            ));
+        }
+        if status == "succeeded" {
+            return Ok(());
+        }
+        return Err(command_error(
+            if status == "failed" {
+                "action_failed_previously"
+            } else {
+                "action_result_unknown"
+            },
+            "The previous reviewer action was not confirmed. Refresh the pull request before trying again.",
+            false,
+        ));
+    }
+    let context = bitbucket_action_context(pool, &request.integration_id).await?;
+    validate_current_pull_request(
+        &context.client,
+        &request.project_key,
+        &request.repository_slug,
+        pull_request_id,
+        request
+            .latest_commit
+            .as_deref()
+            .expect("validated latest commit"),
+    )
+    .await?;
+    let user_slug = context
+        .client
+        .authenticated_user_slug()
+        .await
+        .map_err(|error| {
+            map_error_at(
+                error,
+                "resolve_authenticated_user",
+                "GET",
+                "/rest/api/1.0/repos",
+            )
+        })?;
+    sqlx::query("INSERT INTO pull_request_reviewer_actions (idempotency_key, integration_id, project_key, repository_slug, pull_request_id, status) VALUES (?, ?, ?, ?, ?, 'running')")
+        .bind(&request.idempotency_key).bind(&request.integration_id).bind(&request.project_key)
+        .bind(&request.repository_slug).bind(&request.pull_request_id).execute(pool).await
+        .map_err(|_| command_error("idempotency_conflict", "This reviewer action is already running", true))?;
+    let result = context
+        .client
+        .unassign_pull_request_reviewer(
+            &request.project_key,
+            &request.repository_slug,
+            pull_request_id,
+            &user_slug,
+        )
+        .await;
+    match result {
+        Ok(()) => {
+            sqlx::query("UPDATE pull_request_reviewer_actions SET status = 'succeeded' WHERE idempotency_key = ?")
+                .bind(&request.idempotency_key).execute(pool).await
+                .map_err(|_| command_error("database", "Reviewer removed but action status could not be saved", false))?;
+            Ok(())
+        }
+        Err(error) => {
+            let action_status = if error.is_retryable() {
+                "unknown"
+            } else {
+                "failed"
+            };
+            let _ = sqlx::query(
+                "UPDATE pull_request_reviewer_actions SET status = ? WHERE idempotency_key = ?",
+            )
+            .bind(action_status)
+            .bind(&request.idempotency_key)
+            .execute(pool)
+            .await;
+            Err(map_error_at(error, "remove_pull_request_reviewer", "DELETE",
+                "/rest/api/1.0/projects/{project}/repos/{repo}/pull-requests/{id}/participants/{user}"))
+        }
+    }
 }
 
 async fn update_cached_decision(
@@ -1710,8 +1925,13 @@ fn matches_review_settings(
     pull_request: &MyPullRequestDto,
     settings: &PullRequestReviewSettings,
 ) -> bool {
+    let repository_key = format!(
+        "{}/{}",
+        pull_request.project_key, pull_request.repository_slug
+    );
     let repository_candidates = [
         pull_request.project_key.as_str(),
+        repository_key.as_str(),
         pull_request.repository_slug.as_str(),
         pull_request.repository_name.as_str(),
     ];
@@ -1737,10 +1957,12 @@ fn matches_review_settings(
     });
     let whitelist_configured =
         !settings.repository_whitelist.is_empty() || !settings.creator_whitelist.is_empty();
-    if whitelist_configured {
+    if repository_blacklist_matches || creator_blacklist_matches {
+        false
+    } else if whitelist_configured {
         repository_whitelist_matches || creator_whitelist_matches
     } else {
-        !(repository_blacklist_matches || creator_blacklist_matches)
+        true
     }
 }
 
@@ -2388,7 +2610,7 @@ mod tests {
     }
 
     #[test]
-    fn whitelist_takes_precedence_over_blacklist() {
+    fn blacklist_excludes_matching_pull_requests() {
         let pull_request = MyPullRequestDto {
             integration_id: "bitbucket-1".into(),
             pull_request_id: "7".into(),
@@ -2421,11 +2643,18 @@ mod tests {
                 ..Default::default()
             }
         ));
-        assert!(matches_review_settings(
+        assert!(!matches_review_settings(
             &pull_request,
             &PullRequestReviewSettings {
                 creator_blacklist: vec!["Test Author A".into()],
                 creator_whitelist: vec!["Test Author A".into()],
+                ..Default::default()
+            }
+        ));
+        assert!(!matches_review_settings(
+            &pull_request,
+            &PullRequestReviewSettings {
+                repository_blacklist: vec!["DEMO/sample-repository".into()],
                 ..Default::default()
             }
         ));

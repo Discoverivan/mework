@@ -66,6 +66,7 @@ type IntegrationForm = {
 
 type OpenAiCompatibleForm = {
   baseUrl: string;
+  alias: string;
   token: string;
   allowInsecureTls: boolean;
 };
@@ -120,7 +121,7 @@ function emptyForm(): IntegrationForm {
 }
 
 function emptyOpenAiCompatibleForm(): OpenAiCompatibleForm {
-  return { baseUrl: "", token: "", allowInsecureTls: false };
+  return { baseUrl: "", alias: "", token: "", allowInsecureTls: false };
 }
 
 function isAllowedOpenAiUrl(value: string): boolean {
@@ -174,7 +175,7 @@ const HEALTH_LABEL_KEYS: Record<IntegrationHealthStatus, TranslationKey> = {
 };
 
 const AI_REASONING_OPTIONS: AiReasoning[] = ["minimal", "low", "medium", "high", "xhigh"];
-const ADD_MENU_ITEM_CLASS = "px-3 hover:bg-transparent hover:text-primary focus:bg-transparent focus:text-primary data-[highlighted]:bg-transparent data-[highlighted]:text-primary";
+const ADD_MENU_ITEM_CLASS = "px-3";
 
 const DEFAULT_AI_SETTINGS: AiSettings = {
   provider: null,
@@ -269,7 +270,7 @@ function AiOverrideEditor({
             <SelectItem value="__inherit__">{inheritedLabel}</SelectItem>
             {providers.map((candidate) => (
               <SelectItem key={candidate.instanceId ?? candidate.id} value={candidate.instanceId ?? candidate.id} disabled={!candidate.available}>
-                {candidate.name}{candidate.baseUrl ? ` · ${candidate.baseUrl}` : ""}{candidate.available ? "" : ` (${unavailableLabel})`}
+                {candidate.name}{candidate.name === "OpenAI-compatible API" && candidate.baseUrl ? ` · ${candidate.baseUrl}` : ""}{candidate.available ? "" : ` (${unavailableLabel})`}
               </SelectItem>
             ))}
           </SelectContent>
@@ -354,6 +355,7 @@ export function SettingsPage({ section = "integrations", focusActivity, mockMode
   const [refreshingAiProvider, setRefreshingAiProvider] = useState<string | null>(null);
   const [aiProviderRefreshError, setAiProviderRefreshError] = useState<string | null>(null);
   const [editingOpenAiId, setEditingOpenAiId] = useState<string | undefined>();
+  const [editingOpenAiHasToken, setEditingOpenAiHasToken] = useState(false);
   const [openAiForm, setOpenAiForm] = useState<OpenAiCompatibleForm>(emptyOpenAiCompatibleForm);
   const [openAiSaving, setOpenAiSaving] = useState(false);
   const [openAiError, setOpenAiError] = useState<string | null>(null);
@@ -625,8 +627,10 @@ export function SettingsPage({ section = "integrations", focusActivity, mockMode
 
   function openOpenAiCompatibleDialog(provider?: AiProvider) {
     setEditingOpenAiId(provider?.instanceId ?? undefined);
+    setEditingOpenAiHasToken(Boolean(provider && provider.status !== "not_authenticated"));
     setOpenAiForm({
       baseUrl: provider?.baseUrl ?? "",
+      alias: provider?.name === "OpenAI-compatible API" ? "" : provider?.name ?? "",
       token: "",
       allowInsecureTls: provider?.allowInsecureTls ?? false,
     });
@@ -645,7 +649,7 @@ export function SettingsPage({ section = "integrations", focusActivity, mockMode
       setOpenAiError(t("settings.error.apiUrlInvalid"));
       return;
     }
-    if (!editingOpenAiId && !openAiForm.token) {
+    if ((!editingOpenAiId || !editingOpenAiHasToken) && !openAiForm.token) {
       setOpenAiError(t("settings.error.tokenRequired"));
       return;
     }
@@ -656,6 +660,7 @@ export function SettingsPage({ section = "integrations", focusActivity, mockMode
       const saved = await saveOpenAiCompatibleProvider({
         ...(editingOpenAiId ? { id: editingOpenAiId } : {}),
         baseUrl,
+        alias: openAiForm.alias.trim(),
         token: openAiForm.token,
         allowInsecureTls: openAiForm.allowInsecureTls,
       });
@@ -1136,7 +1141,7 @@ export function SettingsPage({ section = "integrations", focusActivity, mockMode
                             <SelectLabel className="cursor-default py-1 pl-2 pr-2 text-xs font-medium text-muted-foreground">{t("settings.aiProviders.apiGroup")}</SelectLabel>
                             {apiProviders.map((candidate) => (
                               <SelectItem key={candidate.instanceId ?? candidate.id} value={candidate.instanceId ?? candidate.id} disabled={!candidate.available}>
-                                {candidate.name}{candidate.baseUrl ? ` · ${candidate.baseUrl}` : ""}{candidate.available ? "" : ` (${t("settings.ai.unavailableSuffix")})`}
+                                {candidate.name}{candidate.name === "OpenAI-compatible API" && candidate.baseUrl ? ` · ${candidate.baseUrl}` : ""}{candidate.available ? "" : ` (${t("settings.ai.unavailableSuffix")})`}
                               </SelectItem>
                             ))}
                           </SelectGroup>
@@ -1283,6 +1288,18 @@ export function SettingsPage({ section = "integrations", focusActivity, mockMode
                 aria-busy={openAiSaving}
               >
                 <div className="grid gap-2">
+                  <Label htmlFor="openai-compatible-alias">{t("settings.openAi.alias")}</Label>
+                  <Input
+                    id="openai-compatible-alias"
+                    name="alias"
+                    value={openAiForm.alias}
+                    onChange={(event) => setOpenAiForm((current) => ({ ...current, alias: event.target.value }))}
+                    placeholder={t("settings.openAi.aliasPlaceholder")}
+                    maxLength={80}
+                    disabled={openAiSaving}
+                  />
+                </div>
+                <div className="grid gap-2">
                   <Label htmlFor="openai-compatible-api-url">{t("settings.openAi.apiUrl")}</Label>
                   <Input
                     id="openai-compatible-api-url"
@@ -1302,13 +1319,14 @@ export function SettingsPage({ section = "integrations", focusActivity, mockMode
                     name="token"
                     type="password"
                     value={openAiForm.token}
+                    placeholder={editingOpenAiHasToken ? "••••••••" : undefined}
                     autoComplete="new-password"
                     onChange={(event) => setOpenAiForm((current) => ({ ...current, token: event.target.value }))}
                     disabled={openAiSaving}
-                    required={!editingOpenAiId}
+                    required={!editingOpenAiHasToken}
                   />
                   <p className="text-sm text-muted-foreground">
-                    {t(editingOpenAiId ? "settings.openAi.tokenOptionalDescription" : "settings.openAi.tokenDescription")}
+                    {t(editingOpenAiId ? editingOpenAiHasToken ? "settings.openAi.tokenSavedDescription" : "settings.openAi.tokenMissingDescription" : "settings.openAi.tokenDescription")}
                   </p>
                 </div>
                 <label className="flex items-start gap-3 text-sm">

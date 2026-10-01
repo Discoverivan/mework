@@ -470,6 +470,24 @@ async fn changes_pull_request_participant_status_to_approved() {
 }
 
 #[tokio::test]
+async fn unassigns_the_current_pull_request_reviewer() {
+    let server = MockServer::start().await;
+    Mock::given(method("DELETE"))
+        .and(path("/rest/api/1.0/projects/DEMO/repos/sample-repository/pull-requests/7/participants/current-user"))
+        .and(header("authorization", "Bearer test-token"))
+        .respond_with(ResponseTemplate::new(204))
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    let client = BitbucketDcClient::with_bearer_token(server.uri(), "test-token").unwrap();
+    client
+        .unassign_pull_request_reviewer("DEMO", "sample-repository", 7, "current-user")
+        .await
+        .unwrap();
+}
+
+#[tokio::test]
 async fn changes_pull_request_participant_status_to_needs_work() {
     let server = MockServer::start().await;
     Mock::given(method("PUT"))
