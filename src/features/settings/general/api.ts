@@ -43,18 +43,32 @@ export interface GeneralSettingsSaveInput {
   authoredNotificationsEnabled: boolean;
   taskTrackerNotificationsEnabled: boolean;
   extraFunctionsEnabled: boolean;
-  aiReviewAttempts: number;
   language: AppLanguage;
   aiResponseLanguage: AiResponseLanguage;
   themePreference: ThemePreference;
 }
+
+let cachedAiReviewAttempts: number | null = null;
+function cacheReviewAttempts(settings: GeneralSettings): GeneralSettings {
+  cachedAiReviewAttempts = settings.aiReviewAttempts;
+  return settings;
+}
+export const getCachedAiReviewAttempts = () => cachedAiReviewAttempts;
+export const getAiReviewAttempts = () => cachedAiReviewAttempts !== null
+  ? Promise.resolve(cachedAiReviewAttempts)
+  : generalSettings().then((settings) => settings.aiReviewAttempts);
+export const saveAiReviewAttempts = (attempts: number) =>
+  invoke<number>("ai_review_attempts_save", { attempts }).then((saved) => {
+    cachedAiReviewAttempts = saved;
+    return saved;
+  });
 
 export const generalSettings = () =>
   invoke<GeneralSettings>("general_settings", {
     systemLanguage: typeof navigator !== "undefined" && navigator.language.toLowerCase().startsWith("ru")
       ? AppLanguage.Russian
       : AppLanguage.English,
-  });
+  }).then(cacheReviewAttempts);
 
 export const saveGeneralSettings = (input: GeneralSettingsSaveInput) =>
   invoke<GeneralSettings>("general_settings_save", {
@@ -63,9 +77,8 @@ export const saveGeneralSettings = (input: GeneralSettingsSaveInput) =>
     authoredNotificationsEnabled: input.authoredNotificationsEnabled,
     taskTrackerNotificationsEnabled: input.taskTrackerNotificationsEnabled,
     extraFunctionsEnabled: input.extraFunctionsEnabled,
-    aiReviewAttempts: input.aiReviewAttempts,
     aiResponseLanguage: input.aiResponseLanguage,
-  });
+  }).then(cacheReviewAttempts);
 
 export const saveAppearanceSettings = (language: AppLanguage, themePreference: ThemePreference) =>
   invoke<GeneralSettings>("general_appearance_save", { language, themePreference });

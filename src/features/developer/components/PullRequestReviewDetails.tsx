@@ -31,6 +31,10 @@ export function PullRequestReviewDetails({ review, inBadge = false }: { review: 
             </dl>
           ) : <p>{t("pr.dialog.executionUnavailable")}</p>}
         </div>
+        {execution?.promptInstructions ? <details className="flex flex-col gap-2 text-xs">
+          <summary className="cursor-pointer">{t("settings.prompts.used")}</summary>
+          <p className="mt-2 max-h-48 overflow-y-auto whitespace-pre-wrap text-muted-foreground">{execution.promptInstructions}</p>
+        </details> : null}
       </PopoverContent>
     </Popover>
   );

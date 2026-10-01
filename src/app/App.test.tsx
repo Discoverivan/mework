@@ -594,7 +594,9 @@ describe("mework application shell", () => {
     expect(reviewerLink).toHaveAccessibleName("PRs to review");
   });
 
-  it("runs integration health checks when the app starts", async () => {
+  it("warms AI settings without delaying application startup", async () => {
+    window.location.hash = "#settings/general";
+    getAiSettingsMock.mockImplementationOnce(() => new Promise(() => {}));
     render(<App />);
 
     await screen.findByRole("main", { name: "mework" });

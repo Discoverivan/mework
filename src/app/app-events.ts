@@ -1,4 +1,5 @@
 import type { AiSettingsPageData, IntegrationRedacted } from "@/shared/contracts/settings";
+import type { PromptSettings } from "@/shared/contracts/settings";
 import type { MyPullRequestPage, PullRequestReviewChangedEvent } from "@/shared/contracts/developer";
 import type { TaskTrackerMonitor } from "@/shared/contracts/task-tracker";
 import type { TokenBurnerSnapshot } from "@/shared/contracts/token-burner";
@@ -9,6 +10,7 @@ export const APP_EVENT = {
   integrationsChanged: "integrations:changed",
   integrationsHealthRefreshed: "integrations:health-refreshed",
   aiSettingsChanged: "ai-settings:changed",
+  aiPromptSettingsChanged: "ai-prompts:changed",
   pullRequestActivityChanged: "pull-requests:activity-changed",
   pullRequestReviewChanged: "pull-requests:review-changed",
   reviewerPullRequestsUpdated: "pull-requests:reviewer-updated",
@@ -24,6 +26,7 @@ interface AppEventMap {
   [APP_EVENT.integrationsChanged]: undefined;
   [APP_EVENT.integrationsHealthRefreshed]: IntegrationRedacted[];
   [APP_EVENT.aiSettingsChanged]: AiSettingsPageData;
+  [APP_EVENT.aiPromptSettingsChanged]: PromptSettings;
   [APP_EVENT.pullRequestActivityChanged]: undefined;
   [APP_EVENT.pullRequestReviewChanged]: PullRequestReviewChangedEvent;
   [APP_EVENT.reviewerPullRequestsUpdated]: MyPullRequestPage;

@@ -2,6 +2,7 @@ import { listen } from "@tauri-apps/api/event";
 
 import type { MyPullRequestPage, PullRequestReviewChangedEvent } from "@/shared/contracts/developer";
 import type { IntegrationRedacted } from "@/shared/contracts/settings";
+import type { PromptSettings } from "@/shared/contracts/settings";
 import type { TaskTrackerMonitor } from "@/shared/contracts/task-tracker";
 import type { TokenBurnerSnapshot } from "@/shared/contracts/token-burner";
 import type { UpdateAvailabilitySnapshot } from "@/shared/contracts/updates";
@@ -10,6 +11,7 @@ import { APP_EVENT, emitAppEvent } from "./app-events";
 type Cleanup = () => void;
 
 interface NativeEventMap {
+  ai_prompt_settings_changed: PromptSettings;
   integrations_health_refreshed: IntegrationRedacted[];
   pull_request_review_updated: MyPullRequestPage;
   my_pull_requests_updated: MyPullRequestPage;
@@ -35,6 +37,8 @@ async function listenSafely<Name extends keyof NativeEventMap>(
 
 export async function startNativeEventBridge(): Promise<Cleanup> {
   const cleanups = await Promise.all([
+    listenSafely("ai_prompt_settings_changed", (payload) =>
+      emitAppEvent(APP_EVENT.aiPromptSettingsChanged, payload)),
     listenSafely("integrations_health_refreshed", (payload) =>
       emitAppEvent(APP_EVENT.integrationsHealthRefreshed, payload)),
     listenSafely("pull_request_review_updated", (payload) =>

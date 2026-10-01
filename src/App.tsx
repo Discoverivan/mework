@@ -18,7 +18,8 @@ import { listTaskTrackerMonitors } from "@/shared/contracts/task-tracker";
 import type { TaskTrackerMonitor } from "@/shared/contracts/task-tracker";
 import { EMPTY_UPDATE_AVAILABILITY, type UpdateAvailabilitySnapshot } from "@/shared/contracts/updates";
 import { countUnreadTaskTrackerIssues, loadTaskTrackerReadCheckpoints, type TaskTrackerReadCheckpoints } from "./features/product/task-tracker-read-state";
-import { refreshAllIntegrationsHealth } from "./features/settings/api";
+import { getAiSettings, refreshAllIntegrationsHealth } from "./features/settings/api";
+import { getPromptSettings } from "./features/settings/prompts/api";
 import { generalSettings } from "./features/settings/general/api";
 import { I18nProvider } from "@/i18n/I18nProvider";
 import { useI18n } from "@/i18n/context";
@@ -213,6 +214,9 @@ function AppContent() {
       setModelTestingPreferenceLoaded(true);
       setMockMode(isMockMode);
       setMockModeLoaded(true);
+      // Warm shared memory caches without delaying the startup splash or navigation.
+      void getAiSettings().catch(() => { /* The settings screen can retry a failed load. */ });
+      void getPromptSettings().catch(() => { /* The instructions screen can retry a failed load. */ });
       if (isMockMode) {
         window.clearTimeout(splashDeadline);
         setReady(true);

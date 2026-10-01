@@ -1,7 +1,8 @@
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { addAiCliProvider, deleteAiProvider, deleteIntegration, getAiSettings, inspectAiCliProvider, listIntegrations, refreshAiSettings, saveAiSettings, saveIntegration, saveOpenAiCompatibleProvider } from "./api";
+import { addAiCliProvider, deleteAiProvider, deleteIntegration, getAiSettings, getCachedAiSettings, inspectAiCliProvider, listIntegrations, refreshAiSettings, saveAiSettings, saveIntegration, saveOpenAiCompatibleProvider } from "./api";
+import { saveAiReviewAttempts } from "./general/api";
 import { SettingsPage } from "./SettingsPage";
 
 vi.mock("./api", () => ({
@@ -10,12 +11,25 @@ vi.mock("./api", () => ({
   addAiCliProvider: vi.fn(),
   inspectAiCliProvider: vi.fn(),
   getAiSettings: vi.fn(),
+  getCachedAiSettings: vi.fn().mockReturnValue(null),
   listIntegrations: vi.fn(),
   refreshAiSettings: vi.fn(),
   refreshIntegrationHealth: vi.fn(),
   saveAiSettings: vi.fn(),
   saveIntegration: vi.fn(),
   saveOpenAiCompatibleProvider: vi.fn(),
+}));
+
+vi.mock("./general/api", () => ({
+  getCachedAiReviewAttempts: vi.fn().mockReturnValue(3),
+  getAiReviewAttempts: vi.fn().mockResolvedValue(3),
+  saveAiReviewAttempts: vi.fn().mockImplementation(async (attempts) => attempts),
+}));
+
+vi.mock("./prompts/api", () => ({
+  getCachedPromptSettings: vi.fn().mockReturnValue([]),
+  getPromptSettings: vi.fn().mockResolvedValue([]),
+  savePromptSettings: vi.fn(),
 }));
 
 vi.mock("./planning-projects/api", () => ({
@@ -89,6 +103,7 @@ const codexAiSettings = {
 describe("SettingsPage integrations smoke tests", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(getCachedAiSettings).mockReturnValue(null);
     getAiSettingsMock.mockResolvedValue(codexAiSettings);
     refreshAiSettingsMock.mockResolvedValue(codexAiSettings);
     addAiCliProviderMock.mockResolvedValue(codexAiSettings);
@@ -209,7 +224,52 @@ describe("SettingsPage integrations smoke tests", () => {
     })));
   });
 
+  it("saves review attempts under the pull request review action", async () => {
+    render(<SettingsPage section="ai" />);
+    const review = within(screen.getByRole("region", { name: "Pull request review" }));
+    const attempts = review.getByRole("textbox", { name: "Attempts" });
+    expect(attempts).toHaveValue("3");
+    attempts.focus();
+    fireEvent.change(attempts, { target: { value: "11" } });
+    expect(attempts).toHaveAttribute("aria-invalid", "true");
+    const validation = screen.getByRole("alert");
+    expect(validation).toHaveTextContent("Enter a whole number from 1 to 10.");
+    expect(validation).toBeVisible();
+    expect(review.getByRole("textbox", { name: "Attempts" }).closest("section")).not.toContainElement(validation);
+    expect(attempts).toHaveFocus();
+    fireEvent.blur(attempts);
+    expect(saveAiReviewAttempts).not.toHaveBeenCalled();
+    fireEvent.change(attempts, { target: { value: "" } });
+    expect(attempts).toHaveValue("");
+    fireEvent.change(attempts, { target: { value: "4" } });
+    expect(attempts).toHaveAttribute("aria-invalid", "false");
+    fireEvent.blur(attempts);
+    await waitFor(() => expect(saveAiReviewAttempts).toHaveBeenCalledWith(4));
+    expect(attempts).toHaveValue("4");
+    expect(await screen.findByText("AI settings saved. They apply to new runs.")).toBeVisible();
+  });
+
+  it("shows initial AI loading in a toast and immediately displays the cache on re-entry", async () => {
+    const cached = { ...codexAiSettings, settings: { ...codexAiSettings.settings, provider: "codex-cli" as const } };
+    let completeLoad!: (value: typeof cached) => void;
+    getAiSettingsMock.mockImplementationOnce(() => new Promise((resolve) => { completeLoad = resolve; }));
+    const view = render(<SettingsPage section="ai" />);
+    const loadingNotice = screen.getByText(/^Loading AI settings/);
+    expect(screen.getByRole("region", { name: "Action settings" })).not.toContainElement(loadingNotice);
+    await act(async () => { completeLoad(cached); });
+    await waitFor(() => expect(defaultAiSettings().getByRole("combobox", { name: "AI provider" })).toHaveTextContent("Codex CLI"));
+    view.unmount();
+    vi.mocked(getCachedAiSettings).mockReturnValue(cached);
+    getAiSettingsMock.mockResolvedValue(cached);
+    render(<SettingsPage section="ai" />);
+    expect(defaultAiSettings().getByRole("combobox", { name: "AI provider" })).toHaveTextContent("Codex CLI");
+    expect(screen.queryByText(/^Loading AI settings/)).not.toBeInTheDocument();
+    await act(async () => {});
+  });
+
   it("shows AI controls above integration cards and saves Codex settings automatically", async () => {
+    let completeSave!: (value: Awaited<ReturnType<typeof saveAiSettings>>) => void;
+    saveAiSettingsMock.mockImplementationOnce(() => new Promise((resolve) => { completeSave = resolve; }));
     render(<SettingsPage section="ai" />);
 
     expect(await screen.findByRole("heading", { name: "AI settings" })).toBeInTheDocument();
@@ -217,17 +277,25 @@ describe("SettingsPage integrations smoke tests", () => {
     expect(screen.getByRole("heading", { name: "AI providers" }).compareDocumentPosition(
       screen.getByRole("heading", { name: "Defaults" }),
     ) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(screen.getByText("Choose the AI provider, model, and options used by default across activities.")).toBeVisible();
-    expect(screen.getByText("By default, activities use the settings above. Add an activity to choose its own provider and model.")).toBeVisible();
+    const actions = within(screen.getByRole("region", { name: "Action settings" }));
+    expect(actions.getByRole("region", { name: "Defaults" })).toBeInTheDocument();
+    expect(actions.getByRole("heading", { name: "Defaults" }).compareDocumentPosition(
+      actions.getByRole("heading", { name: "Pull request review" }),
+    ) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(screen.getByText("Choose the AI model and instructions for each action. Actions use defaults unless you select another provider.")).toBeVisible();
     expect(screen.queryByRole("heading", { name: "Data integrations" })).not.toBeInTheDocument();
-    expect(screen.getByRole("group", { name: "Codex CLI AI provider" })).toHaveTextContent("Connected");
+    expect(await screen.findByRole("group", { name: "Codex CLI AI provider" })).toHaveTextContent("Connected");
 
     selectAiProvider("Codex CLI");
     fireEvent.click(defaultAiSettings().getByRole("combobox", { name: "Model" }));
     fireEvent.click(screen.getByRole("option", { name: "gpt-5.5" }));
     fireEvent.click(defaultAiSettings().getByRole("combobox", { name: "Reasoning" }));
     fireEvent.click(screen.getByRole("option", { name: "high" }));
-    fireEvent.click(defaultAiSettings().getByRole("checkbox", { name: "Fast mode" }));
+    fireEvent.click(defaultAiSettings().getByText("Mode", { selector: "label" }));
+    expect(defaultAiSettings().getByRole("combobox", { name: "Mode" })).toHaveAttribute("aria-expanded", "false");
+    expect(defaultAiSettings().getByRole("combobox", { name: "Mode" })).toHaveTextContent("Normal");
+    fireEvent.click(defaultAiSettings().getByRole("combobox", { name: "Mode" }));
+    fireEvent.click(screen.getByRole("option", { name: "Fast" }));
     expect(screen.queryByRole("button", { name: "Save AI settings" })).not.toBeInTheDocument();
 
     await waitFor(() => expect(saveAiSettingsMock).toHaveBeenCalledWith({
@@ -236,6 +304,13 @@ describe("SettingsPage integrations smoke tests", () => {
       reasoning: "high",
       fastMode: true,
     }));
+    const savingNotice = await screen.findByRole("status");
+    expect(savingNotice).toHaveTextContent("Saving");
+    expect(screen.getByRole("region", { name: "Action settings" })).not.toContainElement(savingNotice);
+    completeSave({ ...codexAiSettings, settings: saveAiSettingsMock.mock.calls[0][0] });
+    const notice = await screen.findByText("AI settings saved. They apply to new runs.");
+    expect(notice).toHaveTextContent("AI settings saved. They apply to new runs.");
+    expect(screen.getByRole("region", { name: "Action settings" })).not.toContainElement(notice);
   });
 
   it("saves an activity-specific provider and model override", async () => {
@@ -250,8 +325,6 @@ describe("SettingsPage integrations smoke tests", () => {
     render(<SettingsPage section="ai" />);
 
     await screen.findByRole("heading", { name: "AI settings" });
-    fireEvent.pointerDown(screen.getByRole("button", { name: "Add activity" }), { button: 0, ctrlKey: false });
-    fireEvent.click(screen.getByRole("menuitem", { name: "Task creation" }));
     const providerSelector = within(screen.getByRole("region", { name: "Task creation" })).getByRole("combobox", { name: "AI provider" });
     fireEvent.click(providerSelector);
     fireEvent.click(screen.getByRole("option", { name: "Claude Code CLI" }));
@@ -265,8 +338,8 @@ describe("SettingsPage integrations smoke tests", () => {
         fastMode: false,
       },
     })));
-    expect(await within(screen.getByRole("region", { name: "Task creation" })).findByText("AI settings saved.")).toBeInTheDocument();
-    expect(defaultAiSettings().queryByText("AI settings saved.")).not.toBeInTheDocument();
+    expect(await screen.findByText("AI settings saved. They apply to new runs.")).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "Action settings" })).not.toContainElement(screen.getByText("AI settings saved. They apply to new runs."));
   });
 
   it("saves a provider and model override for Sprint tasks / AI Summary", async () => {
@@ -281,8 +354,6 @@ describe("SettingsPage integrations smoke tests", () => {
     render(<SettingsPage section="ai" />);
 
     await screen.findByRole("heading", { name: "AI settings" });
-    fireEvent.pointerDown(screen.getByRole("button", { name: "Add activity" }), { button: 0, ctrlKey: false });
-    fireEvent.click(screen.getByRole("menuitem", { name: "Sprint tasks / AI Summary" }));
     const summary = within(screen.getByRole("region", { name: "Sprint tasks / AI Summary" }));
     fireEvent.click(summary.getByRole("combobox", { name: "AI provider" }));
     fireEvent.click(screen.getByRole("option", { name: "Claude Code CLI" }));
@@ -297,26 +368,7 @@ describe("SettingsPage integrations smoke tests", () => {
     })));
   });
 
-  it("adds each activity once and offers it again after removal", async () => {
-    render(<SettingsPage section="ai" />);
-    await screen.findByRole("heading", { name: "Activity-specific" });
-    const addButton = screen.getByRole("button", { name: "Add activity" });
-
-    fireEvent.pointerDown(addButton, { button: 0, ctrlKey: false });
-    fireEvent.click(screen.getByRole("menuitem", { name: "Task creation" }));
-    expect(screen.getByRole("region", { name: "Task creation" })).toBeInTheDocument();
-
-    fireEvent.pointerDown(addButton, { button: 0, ctrlKey: false });
-    expect(screen.queryByRole("menuitem", { name: "Task creation" })).not.toBeInTheDocument();
-    fireEvent.keyDown(screen.getByRole("menu"), { key: "Escape" });
-
-    fireEvent.click(screen.getByRole("button", { name: "Remove Task creation" }));
-    expect(screen.queryByRole("region", { name: "Task creation" })).not.toBeInTheDocument();
-    fireEvent.pointerDown(addButton, { button: 0, ctrlKey: false });
-    expect(screen.getByRole("menuitem", { name: "Task creation" })).toBeInTheDocument();
-  });
-
-  it("restores a configured activity when removing its override fails to save", async () => {
+  it("restores a configured action when saving inherited settings fails", async () => {
     getAiSettingsMock.mockResolvedValueOnce({
       ...codexAiSettings,
       settings: {
@@ -328,7 +380,8 @@ describe("SettingsPage integrations smoke tests", () => {
     render(<SettingsPage section="ai" />);
 
     await screen.findByRole("region", { name: "Task creation" });
-    fireEvent.click(screen.getByRole("button", { name: "Remove Task creation" }));
+    fireEvent.click(within(screen.getByRole("region", { name: "Task creation" })).getByRole("combobox", { name: "AI provider" }));
+    fireEvent.click(screen.getByRole("option", { name: "Use defaults" }));
 
     await waitFor(() => expect(saveAiSettingsMock).toHaveBeenCalled());
     expect(await within(screen.getByRole("region", { name: "Task creation" })).findByText(
@@ -430,7 +483,7 @@ describe("SettingsPage integrations smoke tests", () => {
     expect(screen.getByRole("button", { name: "Add CLI provider" })).toBeEnabled();
     selectAiProvider("Claude Code CLI");
     expect(defaultAiSettings().queryByRole("combobox", { name: "Reasoning" })).not.toBeInTheDocument();
-    expect(defaultAiSettings().queryByRole("checkbox", { name: "Fast mode" })).not.toBeInTheDocument();
+    expect(defaultAiSettings().queryByRole("combobox", { name: "Mode" })).not.toBeInTheDocument();
     fireEvent.click(defaultAiSettings().getByRole("combobox", { name: "Model" }));
     fireEvent.click(screen.getByRole("option", { name: "sonnet" }));
     await waitFor(() => expect(saveAiSettingsMock).toHaveBeenCalledWith({
@@ -441,10 +494,40 @@ describe("SettingsPage integrations smoke tests", () => {
     }));
   });
 
+  it("lists OpenCode after Claude Code and saves its reported model", async () => {
+    getAiSettingsMock.mockResolvedValue({
+      ...codexAiSettings,
+      providers: [...codexAiSettings.providers, {
+        id: "open-code-cli", name: "OpenCode CLI", status: "connected", available: true, models: ["example/sample-model"],
+      }, {
+        id: "claude-code-cli", name: "Claude Code CLI", status: "connected", available: true, models: ["example-model"],
+      }],
+    });
+    render(<SettingsPage section="ai" />);
+    const opencode = await screen.findByRole("group", { name: "OpenCode CLI AI provider" });
+    expect(screen.getByRole("group", { name: "Claude Code CLI AI provider" }).compareDocumentPosition(opencode) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    selectAiProvider("OpenCode CLI");
+    await waitFor(() => expect(saveAiSettingsMock).toHaveBeenCalledWith(expect.objectContaining({ provider: "open-code-cli", model: "example/sample-model" })));
+  });
+
+  it("selects Pi CLI and saves the model reported by the CLI", async () => {
+    getAiSettingsMock.mockResolvedValue({
+      ...codexAiSettings,
+      providers: [...codexAiSettings.providers, {
+        id: "pi-cli", name: "Pi CLI", status: "connected", available: true, models: ["example/sample-model"],
+      }],
+    });
+    render(<SettingsPage section="ai" />);
+    await screen.findByRole("group", { name: "Pi CLI AI provider" });
+    selectAiProvider("Pi CLI");
+    await waitFor(() => expect(saveAiSettingsMock).toHaveBeenCalledWith(expect.objectContaining({ provider: "pi-cli", model: "example/sample-model" })));
+  });
+
   it("shows the prefilled Hermes CLI as missing in mock mode", async () => {
     const hermes = { id: "hermes-cli" as const, name: "Hermes CLI", status: "not_found" as const, available: false, models: [], message: "Hermes CLI was not found on this computer" };
     const claude = { id: "claude-code-cli" as const, name: "Claude Code CLI", status: "not_found" as const, available: false, models: [], message: "Claude Code CLI was not found on this computer" };
-    getAiSettingsMock.mockResolvedValue({ ...codexAiSettings, providers: [...codexAiSettings.providers, claude, hermes] });
+    const pi = { id: "pi-cli" as const, name: "Pi CLI", status: "not_found" as const, available: false, models: [], message: "settings.pi.notFound" };
+    getAiSettingsMock.mockResolvedValue({ ...codexAiSettings, providers: [...codexAiSettings.providers, claude, { id: "open-code-cli", name: "OpenCode CLI", status: "not_found", available: false, models: [] }, hermes, pi] });
     render(<SettingsPage section="ai" mockMode />);
 
     const provider = within(await screen.findByRole("group", { name: "Hermes CLI AI provider" }));
@@ -539,7 +622,7 @@ describe("SettingsPage integrations smoke tests", () => {
     expect(defaultAiSettings().getByRole("combobox", { name: "AI provider" })).toHaveTextContent("Not selected");
   });
 
-  it("orders available CLI providers first and explains unavailable ones", async () => {
+  it("keeps CLI providers in product order and explains unavailable ones", async () => {
     const cleared = { provider: null, model: "", reasoning: "medium" as const, fastMode: false };
     deleteAiProviderMock.mockResolvedValue({ settings: cleared, providers: [] });
     let codexAvailable = false;
@@ -559,7 +642,7 @@ describe("SettingsPage integrations smoke tests", () => {
     expect(available).toBeEnabled();
     expect(unavailable).toHaveAttribute("aria-disabled", "true");
     expect(unavailable.parentElement).toHaveAttribute("title", "Codex CLI was not found on this computer.");
-    expect(available.compareDocumentPosition(unavailable) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(unavailable.compareDocumentPosition(available) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     codexAvailable = true;
     fireEvent.click(screen.getByRole("menuitem", { name: "Check again: Codex CLI" }));
     const refreshed = await screen.findByRole("menuitem", { name: "Codex CLI" });
@@ -592,7 +675,7 @@ describe("SettingsPage integrations smoke tests", () => {
 
     await screen.findByRole("heading", { name: "AI settings" });
     expect(screen.getByRole("heading", { name: "Model-testing" })).toBeInTheDocument();
-    expect(screen.getByRole("region", { name: "Activity-specific" })).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "Action settings" })).toBeInTheDocument();
     fireEvent.click(within(screen.getByRole("region", { name: "Model-testing" })).getByRole("combobox", { name: "AI provider" }));
     fireEvent.click(screen.getByRole("option", { name: /Codex CLI/ }));
 

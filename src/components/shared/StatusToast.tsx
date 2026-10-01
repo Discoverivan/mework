@@ -1,4 +1,4 @@
-import { Check, CircleAlert } from "lucide-react";
+import { Check, CircleAlert, Loader2 } from "lucide-react";
 import { useEffect, useRef } from "react";
 
 import { cn } from "@/lib/utils";
@@ -7,7 +7,7 @@ interface StatusToastProps {
   message?: string | null;
   duration?: number;
   onDismiss?: () => void;
-  variant?: "success" | "error";
+  variant?: "success" | "error" | "loading";
 }
 
 export function StatusToast({ message, duration = 2_400, onDismiss, variant = "success" }: StatusToastProps) {
@@ -18,10 +18,10 @@ export function StatusToast({ message, duration = 2_400, onDismiss, variant = "s
   }, [onDismiss]);
 
   useEffect(() => {
-    if (!message) return;
+    if (!message || variant === "loading") return;
     const timeoutId = window.setTimeout(() => onDismissRef.current?.(), duration);
     return () => window.clearTimeout(timeoutId);
-  }, [duration, message]);
+  }, [duration, message, variant]);
 
   if (!message) return null;
 
@@ -34,7 +34,9 @@ export function StatusToast({ message, duration = 2_400, onDismiss, variant = "s
       role={variant === "error" ? "alert" : "status"}
       aria-live={variant === "error" ? "assertive" : "polite"}
     >
-      {variant === "error"
+      {variant === "loading"
+        ? <Loader2 aria-hidden="true" className="size-4 shrink-0 animate-spin text-muted-foreground" />
+        : variant === "error"
         ? <CircleAlert aria-hidden="true" className="size-4 shrink-0 text-destructive" />
         : <Check aria-hidden="true" className="size-4 shrink-0 text-primary" />}
       <span>{message}</span>

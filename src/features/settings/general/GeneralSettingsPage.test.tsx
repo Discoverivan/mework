@@ -158,7 +158,6 @@ describe("GeneralSettingsPage", () => {
       authoredNotificationsEnabled: true,
       taskTrackerNotificationsEnabled: false,
       extraFunctionsEnabled: false,
-      aiReviewAttempts: 3,
       language: "english",
       aiResponseLanguage: "sameAsUi",
       themePreference: "system",
@@ -199,7 +198,6 @@ describe("GeneralSettingsPage", () => {
       authoredNotificationsEnabled: true,
       taskTrackerNotificationsEnabled: false,
       extraFunctionsEnabled: false,
-      aiReviewAttempts: 3,
       language: "english",
       aiResponseLanguage: "sameAsUi",
       themePreference: "light",
@@ -223,17 +221,6 @@ describe("GeneralSettingsPage", () => {
         <GeneralSettingsPage />
       </I18nProvider>,
     );
-
-    const attemptsInput = await screen.findByRole("spinbutton", { name: "AI review attempts" });
-    expect(attemptsInput).toHaveValue(3);
-    const notificationsCard = screen.getByRole("switch", { name: "Notifications" }).closest(".rounded-lg.border.bg-card");
-    const reliabilityHeading = screen.getByRole("heading", { name: "Reliability" });
-    const reliabilityCard = reliabilityHeading.closest(".rounded-lg.border.bg-card");
-    expect(reliabilityCard).not.toBe(notificationsCard);
-    expect(reliabilityCard).toContainElement(attemptsInput);
-    expect(Boolean(notificationsCard && reliabilityCard && (notificationsCard.compareDocumentPosition(reliabilityCard) & Node.DOCUMENT_POSITION_FOLLOWING))).toBe(true);
-    fireEvent.change(attemptsInput, { target: { value: "4" } });
-    await waitFor(() => expect(saveGeneralSettingsMock).toHaveBeenLastCalledWith(expect.objectContaining({ aiReviewAttempts: 4 })));
 
     const testButton = await screen.findByRole("button", { name: "Test Task tracker notification" });
     expect(testButton).toHaveAttribute("title", "Test Task tracker notification");
@@ -325,7 +312,7 @@ describe("GeneralSettingsPage", () => {
       expect(screen.getByText("New version 0.1.5 is available")).toBeInTheDocument();
       expect(screen.queryByText("An update is available")).not.toBeInTheDocument();
       const checkButton = screen.getByRole("button", { name: "Check for updates" });
-      expect(checkButton).not.toHaveTextContent("Check for updates");
+      expect(checkButton).toHaveTextContent("Check for updates");
       expect(checkButton.querySelector("svg.lucide-refresh-cw")).not.toBeNull();
       expect(screen.getByRole("button", { name: "View release notes" })).toBeInTheDocument();
       expect(screen.getByRole("button", { name: "Release notes" })).toBe(releasesButton);
@@ -384,7 +371,7 @@ describe("GeneralSettingsPage", () => {
     render(<ApplicationInfoPage />);
 
     const button = await screen.findByRole("button", { name: "Check for updates" });
-    expect(button).not.toHaveTextContent("Check for updates");
+    expect(button).toHaveTextContent("Check for updates");
     expect(button.querySelector("svg.lucide-refresh-cw")).not.toBeNull();
     fireEvent.click(button);
     await waitFor(() => expect(updaterCheckMock).toHaveBeenCalledWith({ timeout: 10_000 }));

@@ -1,4 +1,6 @@
 import { useEffect, useState } from "react";
+import { APP_EVENT, subscribeAppEvent } from "@/app/app-events";
+import { getPromptSettings } from "@/features/settings/prompts/api";
 import ReactMarkdown from "react-markdown";
 import { CheckCircle2, CircleAlert, ExternalLink, Loader2, RefreshCw, Send } from "lucide-react";
 
@@ -106,6 +108,21 @@ export function PullRequestReviewDialog({
   const { t } = useI18n();
   const result = review?.result;
   const reviewFailed = review?.status === "failed";
+  const [currentInstructions, setCurrentInstructions] = useState<string>();
+  useEffect(() => {
+    if (!open) return;
+    let active = true;
+    void getPromptSettings().then((values) => {
+      if (active) setCurrentInstructions(values.find((value) => value.action === "pullRequestReview")?.instructions);
+    }).catch(() => {});
+    const unsubscribe = subscribeAppEvent(APP_EVENT.aiPromptSettingsChanged, (value) => {
+      if (value.action === "pullRequestReview") setCurrentInstructions(value.instructions);
+    });
+    return () => { active = false; unsubscribe(); };
+  }, [open]);
+  const usedInstructions = review?.execution?.promptInstructions;
+  const instructionsChanged = review?.status !== "running" && (currentInstructions !== undefined && usedInstructions != null
+    ? currentInstructions !== usedInstructions : review?.instructionsChanged);
   const [pendingAction, setPendingAction] = useState<string>();
   const [publishedComments, setPublishedComments] = useState<Set<string>>(() => new Set());
   const [editingComment, setEditingComment] = useState<EditableComment>();
@@ -202,6 +219,7 @@ export function PullRequestReviewDialog({
           </div>
         </DialogHeader>
         <DialogBody className="max-h-[70vh] space-y-5 overflow-y-auto">
+          {instructionsChanged ? <Alert><AlertDescription>{t("settings.prompts.reviewChanged")}</AlertDescription></Alert> : null}
           {reviewFailed ? (
             <Alert variant="destructive">
               <CircleAlert aria-hidden="true" className="size-4 translate-y-0.5" />

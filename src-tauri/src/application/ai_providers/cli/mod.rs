@@ -14,6 +14,8 @@ use std::{
 pub mod claude_code;
 pub mod codex;
 pub mod hermes_cli;
+pub mod opencode;
+pub mod pi;
 
 #[cfg(target_os = "windows")]
 const CREATE_NO_WINDOW: u32 = 0x08000000;
@@ -176,6 +178,8 @@ pub fn ai_cli_candidate_diagnostics() -> Vec<AiCliCandidateDiagnostic> {
         (AiProviderId::CodexCli, "MEWORK_CODEX_BIN"),
         (AiProviderId::ClaudeCodeCli, "MEWORK_CLAUDE_BIN"),
         (AiProviderId::HermesCli, "MEWORK_HERMES_BIN"),
+        (AiProviderId::PiCli, "MEWORK_PI_BIN"),
+        (AiProviderId::OpenCodeCli, "MEWORK_OPENCODE_BIN"),
     ] {
         if let Some(path) = env::var_os(override_key) {
             candidates.push((provider, override_key.to_owned(), PathBuf::from(path)));
@@ -190,6 +194,8 @@ pub fn ai_cli_candidate_diagnostics() -> Vec<AiCliCandidateDiagnostic> {
                 ),
                 (AiProviderId::ClaudeCodeCli, claude_code::executable_names()),
                 (AiProviderId::HermesCli, hermes_cli::executable_names()),
+                (AiProviderId::PiCli, pi::executable_names()),
+                (AiProviderId::OpenCodeCli, opencode::executable_names()),
             ] {
                 for name in names {
                     candidates.push((provider, format!("PATH[{index}]/{name}"), entry.join(name)));
@@ -267,6 +273,12 @@ pub fn ai_cli_candidate_diagnostics() -> Vec<AiCliCandidateDiagnostic> {
     }
     for (source, path) in hermes_cli::diagnostic_install_paths() {
         candidates.push((AiProviderId::HermesCli, source.to_owned(), path));
+    }
+    for (source, path) in opencode::diagnostic_install_paths() {
+        candidates.push((AiProviderId::OpenCodeCli, source.to_owned(), path));
+    }
+    for (source, path) in pi::diagnostic_install_paths() {
+        candidates.push((AiProviderId::PiCli, source.to_owned(), path));
     }
     candidates
         .into_iter()
