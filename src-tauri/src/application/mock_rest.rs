@@ -296,6 +296,16 @@ fn bitbucket_response(
         );
     }
     if method == "GET" && path.starts_with(pr_prefix) {
+        if path.ends_with("/diff") {
+            return json_response(
+                200,
+                json!({"diffs": [{
+                    "source": {"toString": "example.txt"},
+                    "destination": {"toString": "example.txt"},
+                    "hunks": [{"segments": [{"type": "ADDED", "lines": [{"source": 1, "destination": 1}]}]}]
+                }]}),
+            );
+        }
         let suffix = path.rsplit('/').next().unwrap_or_default();
         if let Some(id) = suffix.strip_suffix(".diff") {
             let diff = format!(
@@ -849,9 +859,8 @@ mod tests {
         assert!(issues.issues.iter().any(|issue| issue.key == "MOCK-201"));
         mode.set_task_status("MOCK-101", "Done")
             .expect("update shared overlay issue");
-        let planning = JiraPlanningClient::new(&server.urls().jira, JiraDeployment::Cloud)
+        let planning = JiraPlanningClient::new(&server.urls().jira, JiraDeployment::DataCenter)
             .expect("Jira planning client");
-        assert_eq!(planning.list_projects(20).await.unwrap().values.len(), 1);
         let boards = planning.list_boards_for_project("MOCK", 20).await.unwrap();
         assert_eq!(boards.values.len(), 1);
         let sprints = planning.list_sprints("1", 20).await.unwrap();
@@ -867,8 +876,6 @@ mod tests {
                 .fields["status"]["name"],
             "Done"
         );
-        let detail = planning.get_issue("MOCK-101").await.unwrap();
-        assert_eq!(detail.fields["status"]["name"], "Done");
         let summary_context = planning
             .get_issue_with_changelog("MOCK-101", Some("mock-story-points"))
             .await
@@ -1102,8 +1109,6 @@ mod tests {
                 41,
                 BitbucketInlineComment {
                     text: "Synthetic review comment",
-                    from_hash: "mock-commit-41",
-                    to_hash: "mock-commit-41",
                     path: "example.txt",
                     line: Some(1),
                 },

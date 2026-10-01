@@ -756,7 +756,7 @@ export function MyPullRequestsPage() {
           {removeReviewerError ? <p role="alert" className="text-sm text-destructive">{removeReviewerError}</p> : null}
           <AlertDialogFooter>
             <AlertDialogCancel disabled={removingReviewer}>{t("settings.common.cancel")}</AlertDialogCancel>
-            <AlertDialogAction className="bg-destructive text-destructive-foreground hover:bg-destructive/90" disabled={removingReviewer} onClick={(event) => { event.preventDefault(); void confirmRemoveReviewer(); }}>{t("pr.actions.removeReviewerConfirm")}</AlertDialogAction>
+            <AlertDialogAction variant="destructive" disabled={removingReviewer} onClick={(event) => { event.preventDefault(); void confirmRemoveReviewer(); }}>{t("pr.actions.removeReviewerConfirm")}</AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>

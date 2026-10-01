@@ -108,7 +108,7 @@ describe("CreateTaskPage", () => {
     render(<CreateTaskPage />);
     fireEvent.click(screen.getByRole("button", { name: "Create task" }));
     fireEvent.change(screen.getByPlaceholderText("Describe your task"), { target: { value: "Let admins filter events by actor and date." } });
-    fireEvent.click(screen.getByRole("button", { name: "Create with AI" }));
+    fireEvent.click(screen.getByRole("button", { name: "Create" }));
 
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     const skeleton = screen.getByRole("article", { name: "AI is thinking…" });
@@ -142,7 +142,7 @@ describe("CreateTaskPage", () => {
     render(<CreateTaskPage />);
     fireEvent.click(screen.getByRole("button", { name: "Create task" }));
     fireEvent.change(screen.getByPlaceholderText("Describe your task"), { target: { value: "Create task" } });
-    fireEvent.click(screen.getByRole("button", { name: "Create with AI" }));
+    fireEvent.click(screen.getByRole("button", { name: "Create" }));
 
     expect(await screen.findByLabelText("Description")).toHaveValue("Initial description");
     fireEvent.click(screen.getByRole("button", { name: "Improve with AI" }));
@@ -167,7 +167,7 @@ describe("CreateTaskPage", () => {
     render(<CreateTaskPage />);
     fireEvent.click(screen.getByRole("button", { name: "Create task" }));
     fireEvent.change(screen.getByPlaceholderText("Describe your task"), { target: { value: "Create task" } });
-    fireEvent.click(screen.getByRole("button", { name: "Create with AI" }));
+    fireEvent.click(screen.getByRole("button", { name: "Create" }));
 
     expect(await screen.findByLabelText("Description")).toHaveValue("Initial description");
     fireEvent.click(screen.getByRole("button", { name: "Improve with AI" }));
@@ -187,7 +187,7 @@ describe("CreateTaskPage", () => {
     render(<CreateTaskPage />);
     fireEvent.click(screen.getByRole("button", { name: "Create task" }));
     fireEvent.change(screen.getByPlaceholderText("Describe your task"), { target: { value: "Create an audit filter" } });
-    fireEvent.click(screen.getByRole("button", { name: "Create with AI" }));
+    fireEvent.click(screen.getByRole("button", { name: "Create" }));
 
     expect(await screen.findByRole("alert")).toHaveTextContent(
       "OpenAI-compatible API authorization failed during task generation",
@@ -199,7 +199,7 @@ describe("CreateTaskPage", () => {
     const firstRender = render(<CreateTaskPage />);
     fireEvent.click(screen.getByRole("button", { name: "Create task" }));
     fireEvent.change(screen.getByPlaceholderText("Describe your task"), { target: { value: "Persist this task" } });
-    fireEvent.click(screen.getByRole("button", { name: "Create with AI" }));
+    fireEvent.click(screen.getByRole("button", { name: "Create" }));
     expect(await firstRender.findByDisplayValue("Persisted summary")).toBeInTheDocument();
     firstRender.unmount();
 
@@ -259,7 +259,7 @@ describe("CreateTaskPage", () => {
     generateMock.mockResolvedValue({ summary: "Route-aware task", description: "Route-selected sprint" });
     fireEvent.click(screen.getByRole("button", { name: "Create task" }));
     fireEvent.change(screen.getByPlaceholderText("Describe your task"), { target: { value: "Create a route-aware task" } });
-    fireEvent.click(screen.getByRole("button", { name: "Create with AI" }));
+    fireEvent.click(screen.getByRole("button", { name: "Create" }));
     expect(await screen.findByLabelText("Sprint")).toHaveTextContent("Payments Sprint");
   });
 
@@ -271,7 +271,7 @@ describe("CreateTaskPage", () => {
     const submitPrompt = (value: string) => {
       fireEvent.click(screen.getByRole("button", { name: "Create task" }));
       fireEvent.change(screen.getByPlaceholderText("Describe your task"), { target: { value } });
-      fireEvent.click(screen.getByRole("button", { name: "Create with AI" }));
+      fireEvent.click(screen.getByRole("button", { name: "Create" }));
     };
     submitPrompt("First task");
     submitPrompt("Second task");
@@ -319,7 +319,7 @@ describe("CreateTaskPage", () => {
     }));
     fireEvent.click(screen.getByRole("button", { name: "Create task" }));
     fireEvent.change(screen.getByPlaceholderText("Describe your task"), { target: { value: "Create task" } });
-    fireEvent.click(screen.getByRole("button", { name: "Create with AI" }));
+    fireEvent.click(screen.getByRole("button", { name: "Create" }));
     expect(await screen.findByRole("article", { name: "Editable Jira task draft" })).toBeInTheDocument();
     expect(screen.getByLabelText("Sprint")).toHaveTextContent("Platform Sprint");
     expect(screen.getByText("DEMO-EPIC-1 — Example epic")).toBeInTheDocument();
@@ -355,7 +355,7 @@ describe("CreateTaskPage", () => {
     render(<CreateTaskPage />);
     fireEvent.click(screen.getByRole("button", { name: "Create task" }));
     fireEvent.change(screen.getByPlaceholderText("Describe your task"), { target: { value: "Create task" } });
-    fireEvent.click(screen.getByRole("button", { name: "Create with AI" }));
+    fireEvent.click(screen.getByRole("button", { name: "Create" }));
 
     expect(await screen.findByRole("article", { name: "Editable Jira task draft" })).toBeInTheDocument();
     fireEvent.change(screen.getByLabelText("Summary"), { target: { value: "Edited summary" } });
@@ -469,7 +469,7 @@ describe("CreateTaskPage", () => {
     const submitPrompt = (value: string) => {
       fireEvent.click(screen.getByRole("button", { name: "Create task" }));
       fireEvent.change(screen.getByPlaceholderText("Describe your task"), { target: { value } });
-      fireEvent.click(screen.getByRole("button", { name: "Create with AI" }));
+      fireEvent.click(screen.getByRole("button", { name: "Create" }));
     };
     submitPrompt("First task");
     submitPrompt("Second task");
@@ -489,7 +489,7 @@ describe("CreateTaskPage", () => {
     render(<CreateTaskPage />);
     fireEvent.click(screen.getByRole("button", { name: "Create task" }));
     fireEvent.change(screen.getByPlaceholderText("Describe your task"), { target: { value: "Create task" } });
-    fireEvent.click(screen.getByRole("button", { name: "Create with AI" }));
+    fireEvent.click(screen.getByRole("button", { name: "Create" }));
 
     expect(await screen.findByRole("article", { name: "Editable Jira task draft" })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: /Delete/ }));

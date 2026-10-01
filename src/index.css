@@ -158,7 +158,7 @@
   }
 
   .app-icon-button:is([data-action-tone="delete"], [data-button-variant="destructive"]),
-  .app-action-text[data-action-tone="delete"] {
+  .app-action-text:is([data-action-tone="delete"], [data-button-variant="destructive"]) {
     --app-action-color: var(--destructive);
   }
 

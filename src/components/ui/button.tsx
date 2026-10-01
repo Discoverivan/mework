@@ -50,7 +50,7 @@ const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
         className={cn(
           buttonVariants({ variant, size }),
           size === "icon" && "app-icon-button",
-          size !== "icon" && actionTone && "app-action-text",
+          size !== "icon" && (variant !== "link" || actionTone) && "app-action-text",
           supportsToneText && (actionTone === "success" || actionTone === "add") && "hover:text-success focus-visible:text-success",
           supportsToneText && actionTone === "warning" && "hover:text-warning focus-visible:text-warning",
           supportsToneText && actionTone === "delete" && "hover:text-destructive focus-visible:text-destructive",
@@ -60,7 +60,7 @@ const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
           className,
         )}
         data-action-tone={actionTone}
-        data-button-variant={size === "icon" ? variant ?? "default" : undefined}
+        data-button-variant={variant ?? "default"}
         ref={ref}
         {...props}
       />

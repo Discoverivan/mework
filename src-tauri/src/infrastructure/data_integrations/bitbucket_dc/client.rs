@@ -7,8 +7,8 @@ use super::error::{BitbucketDcError, BitbucketHttpErrorKind};
 const MAX_PULL_REQUEST_DIFF_BYTES: usize = 2_000_000;
 
 use super::models::{
-    BitbucketBuildStatus, BitbucketComment, BitbucketDashboardPullRequest, BitbucketPage,
-    BitbucketParticipant, BitbucketPullRequest, BitbucketRepository, BitbucketUser,
+    BitbucketBuildStatus, BitbucketComment, BitbucketDashboardPullRequest, BitbucketDiffResponse,
+    BitbucketPage, BitbucketParticipant, BitbucketPullRequest, BitbucketRepository, BitbucketUser,
 };
 
 enum Authentication {
@@ -19,8 +19,6 @@ enum Authentication {
 #[derive(Debug, Clone, Copy)]
 pub struct BitbucketInlineComment<'a> {
     pub text: &'a str,
-    pub from_hash: &'a str,
-    pub to_hash: &'a str,
     pub path: &'a str,
     pub line: Option<i64>,
 }
@@ -457,13 +455,81 @@ impl BitbucketDcClient {
         validate_path_segment(project_key)?;
         validate_path_segment(repository_slug)?;
         if comment.text.trim().is_empty()
-            || comment.from_hash.trim().is_empty()
-            || comment.to_hash.trim().is_empty()
             || comment.path.trim().is_empty()
             || comment.path.chars().any(char::is_control)
             || comment.line.is_some_and(|value| value <= 0)
         {
             return Err(BitbucketDcError::InvalidRequest);
+        }
+        let diff_url = self.url_with_segments(&[
+            "rest",
+            "api",
+            "1.0",
+            "projects",
+            project_key,
+            "repos",
+            repository_slug,
+            "pull-requests",
+            &pull_request_id.to_string(),
+            "diff",
+        ])?;
+        let response = self
+            .authenticated_request(diff_url)
+            .query(&[("diffType", "EFFECTIVE"), ("withComments", "false")])
+            .header(header::ACCEPT, "application/json")
+            .send()
+            .await
+            .map_err(|_| BitbucketDcError::Transport)?;
+        if !response.status().is_success() {
+            return Err(Self::http_error(response).await);
+        }
+        let diff = response
+            .json::<BitbucketDiffResponse>()
+            .await
+            .map_err(|_| BitbucketDcError::InvalidResponse)?;
+        let file = diff
+            .diffs
+            .iter()
+            .find(|file| {
+                file.destination
+                    .as_ref()
+                    .or(file.source.as_ref())
+                    .is_some_and(|path| path.path == comment.path)
+            })
+            .ok_or(BitbucketDcError::InvalidRequest)?;
+        // Anchor to the complete PR diff, not an arbitrary branch-head commit pair.
+        let mut anchor = serde_json::json!({ "diffType": "EFFECTIVE", "path": comment.path });
+        if let Some(source) = &file.source {
+            if source.path != comment.path {
+                anchor["srcPath"] = serde_json::json!(source.path);
+            }
+        }
+        if let Some(requested_line) = comment.line {
+            let (segment, line) = file
+                .hunks
+                .iter()
+                .flat_map(|hunk| &hunk.segments)
+                .filter(|segment| matches!(segment.line_type.as_str(), "ADDED" | "CONTEXT"))
+                .find_map(|segment| {
+                    segment
+                        .lines
+                        .iter()
+                        .find(|line| line.destination == requested_line)
+                        .map(|line| (segment, line))
+                })
+                .ok_or(BitbucketDcError::InvalidRequest)?;
+            // AI findings use new-file coordinates. Context anchors use the corresponding old line.
+            let (line_number, side) = if segment.line_type == "CONTEXT" {
+                (line.source, "FROM")
+            } else {
+                (line.destination, "TO")
+            };
+            if line_number <= 0 {
+                return Err(BitbucketDcError::InvalidResponse);
+            }
+            anchor["line"] = serde_json::json!(line_number);
+            anchor["lineType"] = serde_json::json!(segment.line_type);
+            anchor["fileType"] = serde_json::json!(side);
         }
         let url = self.url_with_segments(&[
             "rest",
@@ -477,18 +543,6 @@ impl BitbucketDcClient {
             &pull_request_id.to_string(),
             "comments",
         ])?;
-        let mut anchor = serde_json::json!({
-            "diffType": "COMMIT",
-            "fromHash": comment.from_hash,
-            "toHash": comment.to_hash,
-            "path": comment.path,
-            "srcPath": comment.path,
-        });
-        if let Some(line) = comment.line {
-            anchor["line"] = serde_json::json!(line);
-            anchor["lineType"] = serde_json::json!("ADDED");
-            anchor["fileType"] = serde_json::json!("TO");
-        }
         let response = self
             .authenticated_request_with_method(Method::POST, url)
             .json(&serde_json::json!({ "text": comment.text, "anchor": anchor }))

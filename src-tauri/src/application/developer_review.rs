@@ -1344,8 +1344,8 @@ fn review_result_schema() -> &'static str {
         "required": ["severity", "file", "line", "comment"],
         "properties": {
           "severity": {"type": "string", "enum": ["blocker", "high", "medium", "low"]},
-          "file": {"type": "string"},
-          "line": {"type": ["integer", "null"], "minimum": 1},
+          "file": {"type": "string", "description": "Path in the new side of the PR diff; use the old path only for a deleted file."},
+          "line": {"type": ["integer", "null"], "minimum": 1, "description": "Line number in the new file, for an added or context line present in the supplied diff. Use null for file-level findings or removed-only locations."},
           "comment": {"type": "string"}
         }
       }

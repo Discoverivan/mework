@@ -169,7 +169,7 @@ export function PullRequestListItem({
   const reviewRunning = reviewStarting || review?.status === "running";
   const reviewCompleted = review?.status === "completed" && review.result != null;
   const reviewFailed = review?.status === "failed";
-  let reviewLabel = t("pr.aiReview");
+  let reviewLabel = t("pr.startAiReview");
   let reviewIconClassName: string | undefined;
   if (reviewRunning) {
     reviewLabel = t("pr.aiReviewRunning");
