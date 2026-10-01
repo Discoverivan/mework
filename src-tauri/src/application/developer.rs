@@ -873,7 +873,7 @@ pub async fn get_cached_my_pull_requests_page(
     })
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PullRequestCommentRequest {
     pub integration_id: String,
@@ -1021,18 +1021,13 @@ fn validate_action_request(
         .map_err(|_| command_error("invalid_input", "Pull request id is invalid", false))
 }
 
-struct CurrentPullRequestRevision {
-    source_commit: String,
-    target_commit: Option<String>,
-}
-
 async fn validate_current_pull_request(
     client: &BitbucketDcClient,
     project_key: &str,
     repository_slug: &str,
     pull_request_id: u64,
     latest_commit: &str,
-) -> Result<CurrentPullRequestRevision, DeveloperCommandError> {
+) -> Result<(), DeveloperCommandError> {
     let current_pull_request = client
         .get_pull_request(project_key, repository_slug, pull_request_id)
         .await
@@ -1058,10 +1053,7 @@ async fn validate_current_pull_request(
             false,
         ));
     }
-    Ok(CurrentPullRequestRevision {
-        source_commit: latest_commit.to_owned(),
-        target_commit: current_pull_request.to_ref.latest_commit,
-    })
+    Ok(())
 }
 
 fn validated_comment_text(
@@ -1100,8 +1092,13 @@ pub async fn publish_pull_request_comment(
         request.latest_commit.as_deref(),
     )?;
     let text = validated_comment_text(&request.file, request.line, &request.comment)?;
+    let request_json = serde_json::to_string(&request)
+        .map_err(|_| command_error("invalid_input", "Unable to prepare comment action", false))?;
+    if let Some(comment_id) = completed_comment_action(pool, &request_json).await? {
+        return Ok(PullRequestCommentStatus { comment_id });
+    }
     let context = bitbucket_action_context(pool, &request.integration_id).await?;
-    let revision = validate_current_pull_request(
+    validate_current_pull_request(
         &context.client,
         &request.project_key,
         &request.repository_slug,
@@ -1112,14 +1109,12 @@ pub async fn publish_pull_request_comment(
             .expect("validated latest commit"),
     )
     .await?;
-    let target_commit = revision.target_commit.ok_or_else(|| {
-        command_error(
-            "pull_request_unavailable",
-            "Pull request target commit is unavailable for an inline comment",
-            false,
-        )
-    })?;
-    let comment = context
+    // Persist a local action key before any write. Identical retries, including after restart,
+    // must not post a second comment when the remote result is unknown.
+    sqlx::query("INSERT INTO pull_request_comment_actions (idempotency_key, request_json, status) VALUES (?, ?, 'running')")
+        .bind(uuid::Uuid::now_v7().to_string()).bind(&request_json).execute(pool).await
+        .map_err(|_| command_error("idempotency_conflict", "This comment publication is already running", false))?;
+    let result = context
         .client
         .publish_pull_request_comment(
             &request.project_key,
@@ -1127,21 +1122,33 @@ pub async fn publish_pull_request_comment(
             pull_request_id,
             BitbucketInlineComment {
                 text: &text,
-                from_hash: &target_commit,
-                to_hash: &revision.source_commit,
                 path: request.file.trim(),
                 line: request.line,
             },
         )
-        .await
-        .map_err(|error| {
-            map_error_at(
+        .await;
+    let comment = match result {
+        Ok(comment) => comment,
+        Err(error) => {
+            // Input validation happens before POST, so these requests can safely be corrected/retried.
+            if matches!(error, BitbucketDcError::InvalidRequest) {
+                let _ =
+                    sqlx::query("DELETE FROM pull_request_comment_actions WHERE request_json = ?")
+                        .bind(&request_json)
+                        .execute(pool)
+                        .await;
+            }
+            return Err(map_error_at(
                 error,
                 "publish_pull_request_comment",
                 "POST",
                 "/rest/api/1.0/projects/{project}/repos/{repo}/pull-requests/{id}/comments",
-            )
-        })?;
+            ));
+        }
+    };
+    sqlx::query("UPDATE pull_request_comment_actions SET status = 'succeeded', comment_id = ? WHERE request_json = ?")
+        .bind(comment.id as i64).bind(&request_json).execute(pool).await
+        .map_err(|_| command_error("database", "Comment published but action status could not be saved", false))?;
     update_cached_comment_count(
         pool,
         &request.integration_id,
@@ -1153,6 +1160,25 @@ pub async fn publish_pull_request_comment(
     Ok(PullRequestCommentStatus {
         comment_id: comment.id,
     })
+}
+
+async fn completed_comment_action(
+    pool: &SqlitePool,
+    request_json: &str,
+) -> Result<Option<u64>, DeveloperCommandError> {
+    let existing: Option<(String, Option<i64>)> = sqlx::query_as(
+        "SELECT status, comment_id FROM pull_request_comment_actions WHERE request_json = ?",
+    )
+    .bind(request_json)
+    .fetch_optional(pool)
+    .await
+    .map_err(|_| command_error("database", "Unable to read comment action", false))?;
+    match existing {
+        None => Ok(None),
+        Some((status, Some(id))) if status == "succeeded" && id > 0 => Ok(Some(id as u64)),
+        Some(_) => Err(command_error("action_result_unknown",
+            "The previous comment publication was not confirmed. Check the pull request before trying again.", false)),
+    }
 }
 
 pub async fn set_pull_request_decision(
@@ -2272,6 +2298,46 @@ mod tests {
         BitbucketLink, BitbucketLinks, BitbucketParticipant, BitbucketRef, BitbucketUser,
     };
     use crate::infrastructure::db::open_database;
+
+    #[tokio::test]
+    async fn comment_publication_reuses_durable_action_after_restart() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("example.sqlite");
+        let pool = open_database(&path).await.unwrap();
+        let request = super::PullRequestCommentRequest {
+            integration_id: "example-integration".into(),
+            project_key: "DEMO".into(),
+            repository_slug: "sample-repository".into(),
+            pull_request_id: "7".into(),
+            latest_commit: Some("example-commit".into()),
+            file: "src/retry.ts".into(),
+            line: Some(42),
+            comment: "Check shutdown order.".into(),
+        };
+        let request_json = serde_json::to_string(&request).unwrap();
+        sqlx::query("INSERT INTO pull_request_comment_actions (idempotency_key, request_json, status) VALUES ('example-action', ?, 'running')")
+            .bind(&request_json).execute(&pool).await.unwrap();
+        // A pending/uncertain action must never reach the provider again.
+        assert_eq!(
+            super::publish_pull_request_comment(&pool, request.clone())
+                .await
+                .unwrap_err()
+                .code,
+            "action_result_unknown"
+        );
+        sqlx::query("UPDATE pull_request_comment_actions SET status = 'succeeded', comment_id = 11 WHERE request_json = ?")
+            .bind(&request_json).execute(&pool).await.unwrap();
+        pool.close().await;
+        let reopened = open_database(&path).await.unwrap();
+        assert_eq!(
+            super::publish_pull_request_comment(&reopened, request)
+                .await
+                .unwrap()
+                .comment_id,
+            11
+        );
+        reopened.close().await;
+    }
 
     #[test]
     fn bitbucket_error_dto_identifies_failing_operation_without_exposing_provider_body() {

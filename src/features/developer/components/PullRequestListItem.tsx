@@ -1,27 +1,30 @@
-import { CheckCircle2, CircleAlert, Clock3, ExternalLink, Eye, Loader2, MessageSquare, MoreHorizontal, RefreshCw, Sparkles, Ban } from "lucide-react";
+import { Check, CheckCircle2, CircleAlert, Clock3, ExternalLink, Loader2, MessageSquare, MoreHorizontal, RefreshCw, Sparkles, Ban, SmilePlus } from "lucide-react";
 import { useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { Separator } from "@/components/ui/separator";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuGroup, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import type {
   MyPullRequest,
   MyPullRequestDecision,
   PullRequestReviewSeverity,
+  PullRequestReviewState,
 } from "@/shared/contracts/developer";
 import { useI18n } from "@/i18n/context";
+import { cn } from "@/lib/utils";
 import type { TranslationKey } from "@/i18n/locales/en";
-import type { TranslationParams } from "@/i18n/types";
+import { formatRelativeDate } from "./pull-request-formatting";
+import { PullRequestReviewDetails } from "./PullRequestReviewDetails";
 
 export type PullRequestListMode = "reviewer" | "author";
 
-export const reviewSeverityBadgeClasses: Record<PullRequestReviewSeverity, string> = {
-  blocker: "border-destructive/30 bg-destructive/10 text-destructive",
-  high: "border-destructive/30 bg-destructive/10 text-destructive",
-  medium: "border-border bg-muted text-foreground",
-  low: "border-border bg-muted text-muted-foreground",
-};
+const reviewDecisionAppearance = {
+  approved: { icon: CheckCircle2, tone: "success" },
+  needs_work: { icon: CircleAlert, tone: "warning" },
+  not_reviewed: { icon: SmilePlus, tone: "neutral" },
+} as const;
 
 export const reviewSeveritySections: Array<{
   key: PullRequestReviewSeverity;
@@ -33,8 +36,6 @@ export const reviewSeveritySections: Array<{
   { key: "low", labelKey: "pr.severity.low" },
 ];
 
-type Translator = (key: TranslationKey, params?: TranslationParams) => string;
-
 function safePullRequestUrl(value?: string): string | undefined {
   if (!value) return undefined;
   try {
@@ -43,17 +44,6 @@ function safePullRequestUrl(value?: string): string | undefined {
   } catch {
     return undefined;
   }
-}
-
-export function formatRelativeDate(timestamp?: number, t?: Translator): string {
-  if (timestamp == null || !Number.isFinite(timestamp)) return t ? t("pr.relative.unknown") : "Unknown update";
-  const seconds = Math.max(0, Math.floor((Date.now() - timestamp) / 1000));
-  if (seconds < 60) return t ? t("pr.relative.justNow") : "just now";
-  if (seconds < 3600) return t ? t("pr.relative.minutes", { count: Math.floor(seconds / 60) }) : `${Math.floor(seconds / 60)}m ago`;
-  if (seconds < 86_400) return t ? t("pr.relative.hours", { count: Math.floor(seconds / 3600) }) : `${Math.floor(seconds / 3600)}h ago`;
-  if (seconds < 2_592_000) return t ? t("pr.relative.days", { count: Math.floor(seconds / 86_400) }) : `${Math.floor(seconds / 86_400)}d ago`;
-  if (seconds < 31_536_000) return t ? t("pr.relative.months", { count: Math.floor(seconds / 2_592_000) }) : `${Math.floor(seconds / 2_592_000)}mo ago`;
-  return t ? t("pr.relative.years", { count: Math.floor(seconds / 31_536_000) }) : `${Math.floor(seconds / 31_536_000)}y ago`;
 }
 
 function creatorInitials(displayName: string): string {
@@ -119,19 +109,22 @@ function ActivityBadge({ activity }: { activity: MyPullRequest["activity"] }) {
   );
 }
 
-export function AiVerdictBadge({ verdict }: { verdict: "ok" | "needs_changes" }) {
+export function AiVerdictBadge({ verdict, review }: { verdict: "ok" | "needs_changes"; review?: PullRequestReviewState }) {
   const { t } = useI18n();
   const approved = verdict === "ok";
   const label = t(approved ? "pr.decision.approved" : "pr.decision.needsWork");
   return (
     <Badge
       variant="outline"
-      className={approved ? "gap-1.5 px-2.5 py-1 text-success" : "gap-1.5 px-2.5 py-1 text-warning"}
+      className={cn("h-7 gap-1.5 rounded-md px-2.5 py-0", review && "pr-1.5", approved ? "text-success" : "text-warning")}
       aria-label={t("pr.aiVerdict", { verdict: label })}
     >
       <Sparkles className="size-3" aria-hidden="true" />
-      {t("pr.aiVerdictLabel")} · {approved ? <CheckCircle2 className="size-3.5" aria-hidden="true" /> : <CircleAlert className="size-3.5" aria-hidden="true" />}
+      {t("pr.aiVerdictLabel")}
+      <Separator orientation="vertical" className="h-4" />
+      {approved ? <CheckCircle2 className="size-3.5" aria-hidden="true" /> : <CircleAlert className="size-3.5" aria-hidden="true" />}
       {label}
+      {review ? <><Separator orientation="vertical" className="h-4" /><PullRequestReviewDetails review={review} inBadge /></> : null}
     </Badge>
   );
 }
@@ -148,8 +141,8 @@ export interface PullRequestListItemProps {
   onBlacklistProject?: (pullRequest: MyPullRequest) => void;
   onBlacklistRepository?: (pullRequest: MyPullRequest) => void;
   onRemoveReviewer?: (pullRequest: MyPullRequest) => void;
-  onApprove?: (pullRequest: MyPullRequest) => void;
-  approving?: boolean;
+  onReviewDecision?: (pullRequest: MyPullRequest, action: "approve" | "needs_work") => void;
+  decisionPending?: boolean;
   completedLabel?: string;
   showProjectKey?: boolean;
 }
@@ -166,8 +159,8 @@ export function PullRequestListItem({
   onBlacklistProject,
   onBlacklistRepository,
   onRemoveReviewer,
-  onApprove,
-  approving = false,
+  onReviewDecision,
+  decisionPending = false,
   completedLabel,
   showProjectKey = true,
 }: PullRequestListItemProps) {
@@ -176,9 +169,25 @@ export function PullRequestListItem({
   const reviewRunning = reviewStarting || review?.status === "running";
   const reviewCompleted = review?.status === "completed" && review.result != null;
   const reviewFailed = review?.status === "failed";
+  let reviewLabel = t("pr.startAiReview");
+  let reviewIconClassName: string | undefined;
+  if (reviewRunning) {
+    reviewLabel = t("pr.aiReviewRunning");
+    reviewIconClassName = "text-primary";
+  } else if (reviewFailed) {
+    reviewLabel = t("pr.aiReviewError");
+    reviewIconClassName = "text-destructive";
+  } else if (reviewCompleted) {
+    reviewLabel = completedLabel ?? t("pr.reviewResults");
+    reviewIconClassName = review?.result?.verdict === "ok" ? "text-success" : "text-warning";
+  }
+  const reviewTitle = !reviewRunning && !reviewFailed && !reviewCompleted && !aiReviewReady
+    ? t("pr.aiProviderRequired")
+    : reviewLabel;
   const needsAction = mode === "author" && (pullRequest.needsAction || (pullRequest.reviewSummary?.needsWork ?? 0) > 0);
   const reviewSummary = pullRequest.reviewSummary ?? { approved: 0, needsWork: 0, comments: 0 };
   const externalUrl = safePullRequestUrl(pullRequest.url);
+  const { icon: DecisionIcon, tone: decisionTone } = reviewDecisionAppearance[pullRequest.myDecision];
 
   return (
     <Card
@@ -240,32 +249,25 @@ export function PullRequestListItem({
           )}
         </div>
         <div className="flex shrink-0 flex-col items-end gap-2">
-          {reviewCompleted && review?.result ? <AiVerdictBadge verdict={review.result.verdict} /> : null}
+          {reviewRunning ? (
+            <Badge variant="outline" className="h-7 gap-1.5 rounded-md px-2.5 py-0 text-primary" role="status" aria-live="polite">
+              <Loader2 className="size-3.5 animate-spin" aria-hidden="true" />
+              {t("pr.aiReviewInProgress")}
+            </Badge>
+          ) : null}
+          {!reviewRunning && reviewCompleted && review?.result ? <AiVerdictBadge verdict={review.result.verdict} review={review} /> : null}
+          {!reviewRunning && reviewFailed ? (
+            <Badge variant="outline" className="h-7 gap-1.5 rounded-md py-0 pl-2.5 pr-1.5 text-destructive">
+              <Sparkles className="size-3" aria-hidden="true" />
+              {t("pr.aiReviewError")}
+              <Separator orientation="vertical" className="h-4" />
+              <Button type="button" variant="ghost" size="icon" actionTone="neutral" className="h-5 w-3.5 shrink-0 rounded-full [&_svg]:!size-3.5" onClick={() => onStartReview(pullRequest)} disabled={!aiReviewReady || reviewStarting} aria-label={t("pr.dialog.rerun")} title={t("pr.dialog.rerun")}>
+                <RefreshCw aria-hidden="true" />
+              </Button>
+              {review ? <><Separator orientation="vertical" className="h-4" /><PullRequestReviewDetails review={review} inBadge /></> : null}
+            </Badge>
+          ) : null}
           <div className="flex items-center gap-2">
-            {pullRequest.activity !== "read" ? (
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon"
-                actionTone="success"
-                className="size-8"
-                onClick={() => onMarkViewed(pullRequest)}
-                aria-label={t("pr.markViewed")}
-                title={t("pr.markViewed")}
-              >
-                <Eye aria-hidden="true" className="size-4" />
-              </Button>
-            ) : null}
-            {reviewFailed ? (
-              <Button type="button" variant="outline" size="icon" className="size-8" onClick={() => onStartReview(pullRequest)} disabled={!aiReviewReady || reviewStarting} aria-label={t("pr.dialog.rerun")} title={t("pr.dialog.rerun")}>
-                <RefreshCw aria-hidden="true" className="size-4" />
-              </Button>
-            ) : null}
-            {mode === "reviewer" && pullRequest.myDecision !== "approved" ? (
-              <Button type="button" variant="outline" size="icon" actionTone="success" className="size-8" onClick={() => onApprove?.(pullRequest)} disabled={!onApprove || approving} aria-label={t("pr.actions.quickApprove")} title={t("pr.actions.quickApprove")}>
-                {approving ? <Loader2 aria-hidden="true" className="size-4 animate-spin" /> : <CheckCircle2 aria-hidden="true" className="size-4" />}
-              </Button>
-            ) : null}
             <Button
               type="button"
               variant="outline"
@@ -273,24 +275,43 @@ export function PullRequestListItem({
               className="size-8"
               onClick={() => reviewCompleted || reviewFailed ? onOpenResults(pullRequest) : onStartReview(pullRequest)}
               disabled={reviewRunning || (!reviewCompleted && !reviewFailed && !aiReviewReady)}
-              aria-label={reviewRunning ? t("pr.aiReviewRunning") : reviewFailed ? t("pr.aiReviewError") : reviewCompleted ? completedLabel ?? t("pr.reviewResults") : t("pr.aiReview")}
-              title={reviewRunning ? t("pr.aiReviewRunning") : reviewFailed ? t("pr.aiReviewError") : reviewCompleted ? completedLabel ?? t("pr.reviewResults") : !aiReviewReady ? t("pr.aiProviderRequired") : t("pr.aiReview")}
+              aria-label={reviewLabel}
+              title={reviewTitle}
             >
-              {reviewRunning ? <Loader2 aria-hidden="true" className="animate-spin" /> : reviewFailed ? <CircleAlert aria-hidden="true" /> : reviewCompleted ? <Eye aria-hidden="true" /> : <Sparkles aria-hidden="true" />}
+              <Sparkles
+                aria-hidden="true"
+                className={reviewIconClassName}
+              />
             </Button>
             {mode === "reviewer" ? (
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
-                  <Button type="button" variant="ghost" size="icon" className="size-8" aria-label={t("pr.actions.more")} title={t("pr.actions.more")}><MoreHorizontal aria-hidden="true" className="size-4" /></Button>
+                  <Button type="button" variant="outline" size="icon" actionTone={decisionTone} className="size-8" disabled={!onReviewDecision || decisionPending} aria-label={t("pr.actions.reviewDecision")} title={t("pr.actions.reviewDecision")}>
+                    {decisionPending ? <Loader2 aria-hidden="true" className="animate-spin" /> : <DecisionIcon aria-hidden="true" />}
+                  </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end">
-                  <DropdownMenuItem disabled={!externalUrl} onSelect={() => { if (externalUrl) { window.open(externalUrl, "_blank", "noopener,noreferrer"); onOpenPullRequest(pullRequest); } }}><ExternalLink aria-hidden="true" />{t("pr.dialog.openWeb")}</DropdownMenuItem>
-                  <DropdownMenuItem onSelect={() => onBlacklistProject?.(pullRequest)}><Ban aria-hidden="true" />{t("pr.actions.blacklistProject")}</DropdownMenuItem>
-                  <DropdownMenuItem onSelect={() => onBlacklistRepository?.(pullRequest)}><Ban aria-hidden="true" />{t("pr.actions.blacklistRepository")}</DropdownMenuItem>
-                  <DropdownMenuItem disabled={!onRemoveReviewer} onSelect={() => onRemoveReviewer?.(pullRequest)}><CircleAlert aria-hidden="true" />{t("pr.actions.removeReviewer")}</DropdownMenuItem>
+                  <DropdownMenuGroup>
+                    <DropdownMenuItem disabled={pullRequest.myDecision === "approved"} onSelect={() => onReviewDecision?.(pullRequest, "approve")}><CheckCircle2 aria-hidden="true" className="text-success" />{t("pr.dialog.approve")}</DropdownMenuItem>
+                    <DropdownMenuItem disabled={pullRequest.myDecision === "needs_work"} onSelect={() => onReviewDecision?.(pullRequest, "needs_work")}><CircleAlert aria-hidden="true" className="text-warning" />{t("pr.dialog.needsWork")}</DropdownMenuItem>
+                  </DropdownMenuGroup>
                 </DropdownMenuContent>
               </DropdownMenu>
             ) : null}
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button type="button" variant="ghost" size="icon" className="size-8" aria-label={t("pr.actions.more")} title={t("pr.actions.more")}><MoreHorizontal aria-hidden="true" className="size-4" /></Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                {pullRequest.activity !== "read" ? <DropdownMenuItem onSelect={() => onMarkViewed(pullRequest)}><Check aria-hidden="true" />{t("pr.markViewed")}</DropdownMenuItem> : null}
+                <DropdownMenuItem disabled={!externalUrl} onSelect={() => { if (externalUrl) { window.open(externalUrl, "_blank", "noopener,noreferrer"); onOpenPullRequest(pullRequest); } }}><ExternalLink aria-hidden="true" />{t("pr.dialog.openWeb")}</DropdownMenuItem>
+                {mode === "reviewer" ? <>
+                  <DropdownMenuItem onSelect={() => onBlacklistProject?.(pullRequest)}><Ban aria-hidden="true" />{t("pr.actions.blacklistProject")}</DropdownMenuItem>
+                  <DropdownMenuItem onSelect={() => onBlacklistRepository?.(pullRequest)}><Ban aria-hidden="true" />{t("pr.actions.blacklistRepository")}</DropdownMenuItem>
+                  <DropdownMenuItem disabled={!onRemoveReviewer} onSelect={() => onRemoveReviewer?.(pullRequest)}><CircleAlert aria-hidden="true" />{t("pr.actions.removeReviewer")}</DropdownMenuItem>
+                </> : null}
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
         </div>
       </CardContent>

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { CheckCheck, Filter, RefreshCw, Settings2 } from "lucide-react";
 
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -192,9 +192,8 @@ export function MyPullRequestsPage() {
   const [removeReviewerTarget, setRemoveReviewerTarget] = useState<MyPullRequest>();
   const [removingReviewer, setRemovingReviewer] = useState(false);
   const [removeReviewerError, setRemoveReviewerError] = useState<string>();
-  const [quickApproveTarget, setQuickApproveTarget] = useState<MyPullRequest>();
-  const [quickApprovePending, setQuickApprovePending] = useState(false);
-  const [quickApproveError, setQuickApproveError] = useState<string>();
+  const [pendingDecisionKey, setPendingDecisionKey] = useState<string>();
+  const decisionPendingRef = useRef(false);
 
   const applyPage = useCallback((page: MyPullRequestPage) => {
     setPullRequests((current) => {
@@ -496,18 +495,12 @@ export function MyPullRequestsPage() {
     }
   }
 
-  async function confirmQuickApprove() {
-    const target = quickApproveTarget;
-    if (!target) return;
-    setQuickApprovePending(true);
-    setQuickApproveError(undefined);
+  async function applyReviewDecision(target: MyPullRequest, action: "approve" | "needs_work") {
+    setError(undefined);
     try {
-      await updateReviewDecision(target, "approve");
-      setQuickApproveTarget(undefined);
+      await updateReviewDecision(target, action);
     } catch (reason) {
-      setQuickApproveError(commandError(reason));
-    } finally {
-      setQuickApprovePending(false);
+      setError(commandError(reason));
     }
   }
 
@@ -581,6 +574,9 @@ export function MyPullRequestsPage() {
   }
 
   async function updateReviewDecision(pullRequest: MyPullRequest, action: "approve" | "needs_work") {
+    if (decisionPendingRef.current) throw new Error(t("pr.dialog.decisionPending"));
+    decisionPendingRef.current = true;
+    setPendingDecisionKey(pullRequestKey(pullRequest));
     try {
       const status = await setPullRequestDecision(pullRequest, action);
       const key = pullRequestKey(pullRequest);
@@ -589,6 +585,9 @@ export function MyPullRequestsPage() {
       )));
     } catch (reason) {
       throw new Error(commandError(reason));
+    } finally {
+      decisionPendingRef.current = false;
+      setPendingDecisionKey(undefined);
     }
   }
 
@@ -612,8 +611,8 @@ export function MyPullRequestsPage() {
         onBlacklistProject={(item) => void blacklistPullRequest(item, "project")}
         onBlacklistRepository={(item) => void blacklistPullRequest(item, "repository")}
         onRemoveReviewer={(item) => { setRemoveReviewerError(undefined); setRemoveReviewerTarget(item); }}
-        onApprove={(item) => { setQuickApproveError(undefined); setQuickApproveTarget(item); }}
-        approving={quickApprovePending && quickApproveTarget && pullRequestKey(quickApproveTarget) === itemKey}
+        onReviewDecision={pendingDecisionKey ? undefined : (item, action) => { void applyReviewDecision(item, action); }}
+        decisionPending={pendingDecisionKey === itemKey}
         onOpenResults={(item) => {
           if (item.activity !== "read") void markRead(item);
           setReviewDialogKey(pullRequestKey(item));
@@ -692,7 +691,7 @@ export function MyPullRequestsPage() {
             type="button"
             variant="outline"
             size="icon"
-            actionTone="success"
+            actionTone="neutral"
             className="h-9 w-9"
             aria-label={t("pr.readAll")}
             title={t("pr.readAll")}
@@ -745,7 +744,7 @@ export function MyPullRequestsPage() {
         onOpenPullRequest={(item) => void markRead(item)}
         onRerunReview={(item) => void startReview(item)}
         onPublishComment={publishReviewComment}
-        onSetDecision={updateReviewDecision}
+        onSetDecision={pendingDecisionKey ? undefined : updateReviewDecision}
       />
 
       <AlertDialog open={Boolean(removeReviewerTarget)} onOpenChange={(open) => { if (!open && !removingReviewer) setRemoveReviewerTarget(undefined); }}>
@@ -757,21 +756,7 @@ export function MyPullRequestsPage() {
           {removeReviewerError ? <p role="alert" className="text-sm text-destructive">{removeReviewerError}</p> : null}
           <AlertDialogFooter>
             <AlertDialogCancel disabled={removingReviewer}>{t("settings.common.cancel")}</AlertDialogCancel>
-            <AlertDialogAction className="bg-destructive text-destructive-foreground hover:bg-destructive/90" disabled={removingReviewer} onClick={(event) => { event.preventDefault(); void confirmRemoveReviewer(); }}>{t("pr.actions.removeReviewerConfirm")}</AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-
-      <AlertDialog open={Boolean(quickApproveTarget)} onOpenChange={(open) => { if (!open && !quickApprovePending) setQuickApproveTarget(undefined); }}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>{t("pr.actions.quickApprove")}</AlertDialogTitle>
-            <AlertDialogDescription>{t("pr.actions.quickApproveDescription")}</AlertDialogDescription>
-          </AlertDialogHeader>
-          {quickApproveError ? <p role="alert" className="text-sm text-destructive">{quickApproveError}</p> : null}
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={quickApprovePending}>{t("settings.common.cancel")}</AlertDialogCancel>
-            <AlertDialogAction disabled={quickApprovePending} onClick={(event) => { event.preventDefault(); void confirmQuickApprove(); }}>{t("pr.dialog.approve")}</AlertDialogAction>
+            <AlertDialogAction variant="destructive" disabled={removingReviewer} onClick={(event) => { event.preventDefault(); void confirmRemoveReviewer(); }}>{t("pr.actions.removeReviewerConfirm")}</AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>

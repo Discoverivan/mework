@@ -242,9 +242,7 @@ function TaskStatusMenu({
           {task.status}
         </button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="start" className="w-56">
-        <DropdownMenuLabel>{t("daily.availableTransitions", { key: task.key })}</DropdownMenuLabel>
-        <DropdownMenuSeparator />
+      <DropdownMenuContent align="start" className="w-max min-w-0 max-w-[var(--radix-dropdown-menu-content-available-width)]">
         <DropdownMenuGroup>
           {loading ? (
             <DropdownMenuItem disabled>{t("daily.loadingTransitions")}</DropdownMenuItem>
@@ -652,7 +650,11 @@ export function DailyPage() {
         <div className="ml-auto flex items-center gap-2">
           <Button
             type="button"
-            className="h-9 bg-gradient-to-r from-chart-5 to-primary px-3 text-primary-foreground shadow-sm hover:brightness-110"
+            variant="outline"
+            size="icon"
+            className="h-9 w-9"
+            aria-label={t("daily.aiSummary")}
+            title={t("daily.aiSummary")}
             disabled={!workspace || loadingWorkspace}
             onClick={() => {
               setAiSprintId(workspace?.selectedSprintId ?? "");
@@ -664,7 +666,6 @@ export function DailyPage() {
             }}
           >
             <Sparkles data-icon="inline-start" aria-hidden="true" />
-            {t("daily.aiSummary")}
           </Button>
           <Button
             type="button"

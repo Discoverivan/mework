@@ -154,8 +154,11 @@ describe("AuthoredPullRequestsPage", () => {
     expect(screen.getByLabelText("Needs work: 1")).toBeInTheDocument();
     expect(screen.getByLabelText("Comments: 4")).toBeInTheDocument();
     expect(screen.getByText("Needs action", { selector: "div" })).toBeInTheDocument();
-    expect(screen.getByText("AI verdict · Needs work")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Mark as viewed" })).toBeInTheDocument();
+    expect(screen.getByLabelText("AI verdict: Needs work")).toHaveTextContent("Needs work");
+    fireEvent.pointerDown(screen.getByRole("button", { name: "More actions" }), { button: 0, ctrlKey: false });
+    expect(await screen.findByRole("menuitem", { name: "Mark as viewed" })).toBeInTheDocument();
+    fireEvent.keyDown(screen.getByRole("menu"), { key: "Escape" });
+    await waitFor(() => expect(screen.queryByRole("menu")).not.toBeInTheDocument());
     const refreshButton = screen.getByRole("button", { name: "Refresh" });
     expect(refreshButton).toHaveClass("h-9");
     expect(refreshButton).not.toHaveTextContent("Refresh");
@@ -246,7 +249,7 @@ describe("AuthoredPullRequestsPage", () => {
   it("marks an authored PR read before opening shared review results without reviewer actions", async () => {
     await renderFlatPage();
 
-    fireEvent.click(await screen.findByRole("button", { name: "View results" }));
+    fireEvent.click(await screen.findByRole("button", { name: "View AI review results" }));
 
     await waitFor(() => expect(markAuthoredPullRequestReadMock).toHaveBeenCalledWith(
       "bitbucket-owned",
@@ -254,7 +257,6 @@ describe("AuthoredPullRequestsPage", () => {
       "owned-commit-1",
     ));
     expect(await screen.findByRole("heading", { name: "AI summary" })).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Mark as viewed" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Approve" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Needs work" })).not.toBeInTheDocument();
   });
@@ -266,8 +268,9 @@ describe("AuthoredPullRequestsPage", () => {
     fireEvent.click(screen.getByRole("button", { name: "Mark all as read" }));
 
     await waitFor(() => expect(markAllAuthoredPullRequestsReadMock).toHaveBeenCalledTimes(1));
-    expect(screen.queryByRole("button", { name: "Mark as viewed" })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Mark all as read" })).toBeDisabled();
+    fireEvent.pointerDown(screen.getByRole("button", { name: "More actions" }), { button: 0, ctrlKey: false });
+    expect(screen.queryByRole("menuitem", { name: "Mark as viewed" })).not.toBeInTheDocument();
   });
 
   it("marks a read PR unread when a review activity update arrives with the same commit", async () => {
@@ -282,12 +285,12 @@ describe("AuthoredPullRequestsPage", () => {
 
     await renderFlatPage();
     await screen.findByRole("heading", { name: "Owned pull request" });
-    expect(screen.queryByRole("button", { name: "Mark as viewed" })).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Refresh" }));
 
-    expect(await screen.findByRole("button", { name: "Mark as viewed" })).toBeInTheDocument();
-    expect(screen.getByText("UPDATED")).toBeInTheDocument();
+    expect(await screen.findByText("UPDATED")).toBeInTheDocument();
+    fireEvent.pointerDown(screen.getByRole("button", { name: "More actions" }), { button: 0, ctrlKey: false });
+    expect(await screen.findByRole("menuitem", { name: "Mark as viewed" })).toBeInTheDocument();
   });
 
   it("persists the independent authored AI auto-review toggle", async () => {

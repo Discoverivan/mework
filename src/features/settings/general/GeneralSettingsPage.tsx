@@ -230,14 +230,14 @@ export function GeneralSettingsPage() {
             {t("general.languageDescription")}
           </CardDescription>
         </CardHeader>
-        <CardContent className="flex flex-col gap-4 px-4 pb-3.5 pt-4">
+        <CardContent className="flex flex-col gap-3 px-4 pb-3.5 pt-4">
           <Separator />
-          <div className="flex flex-wrap items-center justify-between gap-4">
+          <div className="flex flex-wrap items-center justify-between gap-4 pl-4">
             <div className="min-w-0">
               <Label htmlFor="general-language" alignment="inline" className="font-medium">
                 {t("general.languageUi")}
               </Label>
-              <CardDescription className="mt-1 leading-snug">
+              <CardDescription className="mt-1 text-xs leading-snug">
                 {t("general.languageUiDescription")}
               </CardDescription>
             </div>
@@ -251,13 +251,13 @@ export function GeneralSettingsPage() {
               </Select>
             </div>
           </div>
-          <Separator />
-          <div className="flex flex-wrap items-center justify-between gap-4">
+          <div className="pl-4"><Separator /></div>
+          <div className="flex flex-wrap items-center justify-between gap-4 pl-4">
             <div className="min-w-0">
               <Label htmlFor="general-ai-response-language" alignment="inline" className="font-medium">
                 {t("general.aiResponseLanguage")}
               </Label>
-              <CardDescription className="mt-1 leading-snug">
+              <CardDescription className="mt-1 text-xs leading-snug">
                 {t("general.aiResponseLanguageDescription")}
               </CardDescription>
             </div>
@@ -435,7 +435,7 @@ export function GeneralSettingsPage() {
                         : <BellRing aria-hidden="true" />}
                   </Button>
                 </div>
-                <CardDescription className="mt-1">Notifications from Task tracker monitors.</CardDescription>
+                <CardDescription className="mt-1 text-xs">Notifications from Task tracker monitors.</CardDescription>
               </div>
               <Switch
                 id="general-task-tracker-notifications-enabled"
@@ -469,7 +469,7 @@ export function GeneralSettingsPage() {
                         : <BellRing aria-hidden="true" />}
                   </Button>
                 </div>
-                <CardDescription className="mt-1">
+                <CardDescription className="mt-1 text-xs">
                   {t("general.notificationsReviewDescription")}
                 </CardDescription>
               </div>
@@ -507,7 +507,7 @@ export function GeneralSettingsPage() {
                         : <BellRing aria-hidden="true" />}
                   </Button>
                 </div>
-                <CardDescription className="mt-1">
+                <CardDescription className="mt-1 text-xs">
                   {t("general.notificationsAuthoredDescription")}
                 </CardDescription>
               </div>
