@@ -166,6 +166,14 @@ export function PullRequestReviewDialog({
     }
   }
 
+  const openInBrowser = pullRequest?.url ? (
+    <Button asChild type="button" variant="outline" size="icon" actionTone="neutral" className="size-8 shrink-0">
+      <a href={pullRequest.url} target="_blank" rel="noreferrer" aria-label={t("pr.dialog.openWeb")} title={t("pr.dialog.openWeb")} onClick={() => onOpenPullRequest(pullRequest)}>
+        <ExternalLink aria-hidden="true" />
+      </a>
+    </Button>
+  ) : null;
+
   return (
     <>
       <Dialog open={open} onOpenChange={onOpenChange}>
@@ -190,20 +198,7 @@ export function PullRequestReviewDialog({
                 </div>
               ) : null}
             </div>
-            {pullRequest?.url ? (
-              <Button asChild type="button" variant="outline" size="icon" actionTone="neutral" className="size-8 shrink-0">
-                <a
-                  href={pullRequest.url}
-                  target="_blank"
-                  rel="noreferrer"
-                  aria-label={t("pr.dialog.openWeb")}
-                  title={t("pr.dialog.openWeb")}
-                  onClick={() => onOpenPullRequest(pullRequest)}
-                >
-                  <ExternalLink aria-hidden="true" />
-                </a>
-              </Button>
-            ) : null}
+            {!result || reviewFailed ? openInBrowser : null}
           </div>
         </DialogHeader>
         <DialogBody className="max-h-[70vh] space-y-5 overflow-y-auto">
@@ -217,7 +212,10 @@ export function PullRequestReviewDialog({
           {result && !reviewFailed ? (
             <>
               <div className="space-y-1 text-xs text-muted-foreground">
-                {finishedAt ? <p>{t("pr.dialog.completedAt")} <time dateTime={finishedAt.toISOString()}>{finishedAt.toLocaleString(locale)} · {formatRelativeDate(review?.finishedAt ?? undefined, t)}</time></p> : null}
+                <div className="flex items-center justify-between gap-3">
+                  {finishedAt ? <p className="min-w-0 flex-1">{t("pr.dialog.completedAt")} <time dateTime={finishedAt.toISOString()}>{finishedAt.toLocaleString(locale)} · {formatRelativeDate(review?.finishedAt ?? undefined, t)}</time></p> : null}
+                  {openInBrowser}
+                </div>
                 {execution ? (
                   <dl aria-label={t("pr.dialog.aiConfiguration")} className="flex flex-wrap gap-x-4 gap-y-1">
                     <div className="flex gap-1"><dt>{t("settings.ai.provider")}:</dt><dd className="break-words text-foreground">{execution.providerName}</dd></div>
