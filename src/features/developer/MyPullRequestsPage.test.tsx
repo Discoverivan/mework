@@ -724,8 +724,8 @@ describe("MyPullRequestsPage", () => {
     const aiConfiguration = within(reviewDetails).getByLabelText("AI configuration used for this review");
     expect(aiConfiguration).toHaveTextContent("Codex CLI");
     expect(aiConfiguration).toHaveTextContent("example-review-model");
-    expect(aiConfiguration).toHaveTextContent("Reasoninghigh");
-    expect(aiConfiguration).toHaveTextContent("Fast modeOn");
+    expect(aiConfiguration).toHaveTextContent("Reasoning:high");
+    expect(aiConfiguration).toHaveTextContent("Fast mode:On");
     fireEvent.click(within(dialog).getByRole("button", { name: "Show review details" }));
     expect(screen.getByText("Coordinates an example background refresh lifecycle.")).toHaveClass("text-foreground");
     expect(screen.getByText("The change can lose data when the retry races with shutdown.")).toHaveClass("text-foreground");

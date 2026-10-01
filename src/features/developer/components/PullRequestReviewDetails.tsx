@@ -17,16 +17,16 @@ export function PullRequestReviewDetails({ review }: { review: PullRequestReview
           <Info className="size-3.5" aria-hidden="true" />
         </button>
       </PopoverTrigger>
-      <PopoverContent align="start" aria-label={t("pr.dialog.reviewDetails")} className="w-80 space-y-3">
-        <p className="font-medium text-foreground">{t("pr.dialog.reviewDetails")}</p>
-        <div className="space-y-2 text-sm text-muted-foreground">
+      <PopoverContent align="start" aria-label={t("pr.dialog.reviewDetails")} className="w-80 space-y-2">
+        <p className="text-xs font-medium text-foreground">{t("pr.dialog.reviewDetails")}</p>
+        <div className="space-y-1.5 text-xs text-muted-foreground">
           {finishedAt ? <p>{t(review.status === "failed" ? "pr.dialog.endedAt" : "pr.dialog.completedAt")} <time dateTime={finishedAt.toISOString()}>{finishedAt.toLocaleString("ru-RU", { hour12: false })} · {formatRelativeDate(review.finishedAt ?? undefined, t)}</time></p> : null}
           {execution ? (
-            <dl aria-label={t("pr.dialog.aiConfiguration")} className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-2">
-              <dt>{t("settings.ai.provider")}</dt><dd className="break-words text-foreground">{execution.providerName}</dd>
-              <dt>{t("settings.ai.model")}</dt><dd className="break-all font-mono text-foreground">{execution.model}</dd>
-              {execution.reasoning != null ? <><dt>{t("settings.ai.reasoning")}</dt><dd className="text-foreground">{execution.reasoning}</dd></> : null}
-              {execution.fastMode != null ? <><dt>{t("settings.ai.fastMode")}</dt><dd className="text-foreground">{t(execution.fastMode ? "pr.dialog.enabled" : "pr.dialog.disabled")}</dd></> : null}
+            <dl aria-label={t("pr.dialog.aiConfiguration")} className="flex flex-wrap gap-x-3 gap-y-1">
+              <div className="flex min-w-0 gap-1"><dt className="shrink-0">{t("settings.ai.provider")}:</dt><dd className="min-w-0 break-words text-foreground">{execution.providerName}</dd></div>
+              <div className="flex min-w-0 gap-1"><dt className="shrink-0">{t("settings.ai.model")}:</dt><dd className="min-w-0 break-all text-foreground">{execution.model}</dd></div>
+              {execution.reasoning != null ? <div className="flex gap-1"><dt>{t("settings.ai.reasoning")}:</dt><dd className="text-foreground">{execution.reasoning}</dd></div> : null}
+              {execution.fastMode != null ? <div className="flex gap-1"><dt>{t("settings.ai.fastMode")}:</dt><dd className="text-foreground">{t(execution.fastMode ? "pr.dialog.enabled" : "pr.dialog.disabled")}</dd></div> : null}
             </dl>
           ) : <p>{t("pr.dialog.executionUnavailable")}</p>}
         </div>
