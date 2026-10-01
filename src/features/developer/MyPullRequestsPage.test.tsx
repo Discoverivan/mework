@@ -670,9 +670,19 @@ describe("MyPullRequestsPage", () => {
   }, 8_000);
 
   it("opens persisted review results and can restart the review", async () => {
+    const markdownReview: PullRequestReviewState = {
+      ...completedReview,
+      result: {
+        ...completedReview.result!,
+        summary: `${completedReview.result!.summary}\n\n- **Check shutdown order**\n- Keep \`retry\` guarded`,
+        comments: completedReview.result!.comments.map((comment, index) => index === 1
+          ? { ...comment, comment: `${comment.comment}\n\n1. Check the timer\n2. Retry safely` }
+          : comment),
+      },
+    };
     listMyPullRequestsMock.mockResolvedValueOnce({
       ...firstPage,
-      values: [{ ...pullRequests[0], review: completedReview }, pullRequests[1]],
+      values: [{ ...pullRequests[0], review: markdownReview }, pullRequests[1]],
     });
     await renderFlatPage();
     await screen.findByRole("button", { name: "Review results" });
@@ -690,13 +700,21 @@ describe("MyPullRequestsPage", () => {
     expect(screen.getByText("Coordinates an example background refresh lifecycle.")).toHaveClass("text-foreground");
     expect(screen.getByText("The change can lose data when the retry races with shutdown.")).toHaveClass("text-foreground");
     expect(dialog).toHaveTextContent("AI comments");
+    expect(screen.getByText("Check shutdown order").tagName).toBe("STRONG");
+    expect(screen.getByText("Check shutdown order").closest("li")?.parentElement?.tagName).toBe("UL");
+    expect(screen.getByText("Check the timer").closest("li")?.parentElement?.tagName).toBe("OL");
     expect(screen.queryByText("Blocker (0)")).not.toBeInTheDocument();
     expect(screen.getByText("High (1)").closest("details")).toHaveAttribute("open");
     expect(screen.getByText("Medium (1)").closest("details")).toHaveAttribute("open");
     expect(screen.getByText("Low (1)").closest("details")).toHaveAttribute("open");
-    expect(screen.getByText("src/retry.ts:42")).toBeInTheDocument();
-    expect(screen.getByText("src/timeout.ts:18")).toBeInTheDocument();
-    expect(screen.getByText("src/logging.ts:7")).toBeInTheDocument();
+    const findingLocation = screen.getByRole("link", { name: "src/retry.ts:42" });
+    expect(findingLocation).toHaveAttribute("href", `${pullRequests[0].url}/diff#src/retry.ts?t=42`);
+    expect(findingLocation).toHaveAttribute("target", "_blank");
+    expect(findingLocation).toHaveClass("text-sm", "font-medium", "font-mono", "text-primary");
+    expect(findingLocation.querySelector("wbr")).toBeInTheDocument();
+    expect(within(findingLocation).getByText("retry.ts:42")).toHaveClass("inline-block");
+    expect(screen.getByRole("link", { name: "src/timeout.ts:18" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "src/logging.ts:7" })).toBeInTheDocument();
     expect(screen.getByText("Guard this operation before retrying.")).toBeInTheDocument();
     expect(screen.getByText("High (1)").closest("summary")).toHaveClass("text-destructive", "bg-destructive/10");
     const mediumSection = screen.getByText("Medium (1)").closest("details");
@@ -705,9 +723,11 @@ describe("MyPullRequestsPage", () => {
     expect(mediumSection?.querySelector("summary")?.nextElementSibling).toHaveClass("bg-background", "text-foreground");
     const publishButton = screen.getByRole("button", { name: "Publish comment for src/retry.ts" });
     expect(publishButton).not.toBeDisabled();
-    expect(publishButton).toHaveClass("h-7", "px-2", "text-xs");
-    expect(publishButton.querySelector("svg")).toHaveClass("size-3.5");
-    expect(publishButton.parentElement).toHaveClass("flex", "items-start", "justify-between");
+    expect(publishButton).toHaveClass("app-icon-button", "size-8");
+    expect(publishButton.parentElement).toHaveClass("flex", "items-center", "justify-between");
+    expect(publishButton).toHaveAttribute("data-action-tone", "success");
+    expect(publishButton).toHaveAttribute("title", "Publish");
+    expect(publishButton).not.toHaveTextContent("Publish");
     expect(screen.getAllByRole("button", { name: /Publish comment for/ })).toHaveLength(3);
     const openInBrowser = screen.getByRole("link", { name: "Open in browser" });
     expect(openInBrowser).toHaveAttribute("href", pullRequests[0].url);
@@ -727,7 +747,7 @@ describe("MyPullRequestsPage", () => {
       { ...completedReview.result!.comments[0], comment: "Guard this operation before retrying before the next attempt." },
     ));
     await waitFor(() => expect(screen.queryByRole("dialog", { name: "Edit review comment" })).not.toBeInTheDocument());
-    await waitFor(() => expect(publishButton).toHaveTextContent("Published"));
+    await waitFor(() => expect(publishButton).toHaveAttribute("title", "Published"));
     expect(publishButton).toBeDisabled();
     expect(screen.getByRole("button", { name: "Re-run review" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Needs work" })).not.toBeDisabled();

@@ -1013,6 +1013,7 @@ export const ru: Record<TranslationKey, string> = {
   "pr.actions.removeReviewerDescription": "Убрать вас из ревью этого PR в Bitbucket? Может потребоваться право записи в репозитории.",
   "pr.actions.removeReviewerConfirm": "Убрать из ревью",
   "pr.dialog.openWeb": "Открыть в браузере",
+  "pr.dialog.openCommentLocation": "Открыть {location} в diff PR",
   "pr.dialog.aiSummary": "Резюме ИИ",
   "pr.dialog.aiComments": "Комментарии ИИ",
   "pr.dialog.noComments": "В AI-ревью нет комментариев.",

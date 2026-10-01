@@ -1,9 +1,11 @@
 import { useEffect, useState } from "react";
+import ReactMarkdown from "react-markdown";
 import { CheckCircle2, CircleAlert, ExternalLink, Loader2, RefreshCw, Send } from "lucide-react";
 
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
+import { Separator } from "@/components/ui/separator";
 import {
   Dialog,
   DialogBody,
@@ -47,6 +49,46 @@ const severitySectionStyles: Record<PullRequestReviewSeverity, { border: string;
   medium: { border: "border-warning/40", header: "bg-warning/10 text-warning" },
   low: { border: "border-primary/40", header: "bg-primary/10 text-primary" },
 };
+
+function commentDiffUrl(pullRequestUrl: string | undefined, comment: PullRequestReviewComment): string | undefined {
+  if (!pullRequestUrl || !comment.file.trim()) return undefined;
+  try {
+    const url = new URL(pullRequestUrl);
+    if (!["http:", "https:"].includes(url.protocol) || url.username || url.password) return undefined;
+    if (!/\/pull-requests\/\d+(?:\/.*)?$/.test(url.pathname)) return undefined;
+    url.pathname = url.pathname.replace(/(\/pull-requests\/\d+)(?:\/.*)?$/, "$1/diff");
+    url.search = "";
+    // Bitbucket Server/DC uses ?t= for lines on the destination side of the diff.
+    const line = comment.line != null && Number.isSafeInteger(comment.line) && comment.line > 0 ? `?t=${comment.line}` : "";
+    url.hash = `${comment.file.split("/").map(encodeURIComponent).join("/")}${line}`;
+    return url.href;
+  } catch {
+    return undefined;
+  }
+}
+
+function ReviewMarkdown({ children }: { children: string }) {
+  return (
+    <div className="min-w-0 break-words text-sm text-foreground [&>*+*]:mt-2 [&_h1]:font-semibold [&_h2]:font-semibold [&_h3]:font-semibold [&_h4]:font-semibold [&_h5]:font-semibold [&_h6]:font-semibold [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5 [&_li+li]:mt-1 [&_pre]:overflow-x-auto [&_pre]:rounded-md [&_pre]:bg-muted [&_pre]:p-3 [&_code]:rounded-sm [&_code]:bg-muted [&_code]:px-1 [&_code]:font-mono [&_code]:text-xs [&_blockquote]:border-l-2 [&_blockquote]:border-border [&_blockquote]:pl-3 [&_blockquote]:text-muted-foreground">
+      <ReactMarkdown skipHtml allowedElements={["h1", "h2", "h3", "h4", "h5", "h6", "p", "ul", "ol", "li", "strong", "em", "code", "pre", "a", "blockquote", "br", "hr"]}
+        components={{
+          hr: () => <Separator />,
+          p: ({ children: text }) => <p className="whitespace-pre-wrap text-foreground">{text}</p>,
+          a: ({ href, children: text }) => href && /^https?:\/\//i.test(href)
+            ? <a href={href} target="_blank" rel="noopener noreferrer" className="text-primary underline underline-offset-2">{text}</a>
+            : <span>{text}</span>,
+        }}>
+        {children}
+      </ReactMarkdown>
+    </div>
+  );
+}
+
+function CommentLocation({ comment }: { comment: PullRequestReviewComment }) {
+  const segments = comment.file.split("/");
+  const filename = segments.pop();
+  return <>{segments.map((segment, index) => <span key={index}>{segment}/<wbr /></span>)}<span className="inline-block max-w-full break-all">{filename}{comment.line != null ? `:${comment.line}` : ""}</span></>;
+}
 
 export function PullRequestReviewDialog({
   open,
@@ -176,8 +218,8 @@ export function PullRequestReviewDialog({
                   <h3 id="ai-summary-title" className="text-sm font-semibold">{t("pr.dialog.aiSummary")}</h3>
                   <AiVerdictBadge verdict={result.verdict} />
                 </div>
-                <p className="whitespace-pre-wrap break-words text-sm text-foreground">{result.description}</p>
-                <p className="whitespace-pre-wrap break-words text-sm text-foreground">{result.summary}</p>
+                <ReviewMarkdown>{result.description}</ReviewMarkdown>
+                <ReviewMarkdown>{result.summary}</ReviewMarkdown>
               </section>
               <section aria-labelledby="ai-comments-title" className="space-y-3">
                 <h3 id="ai-comments-title" className="text-sm font-semibold">{t("pr.dialog.aiComments")}</h3>
@@ -193,30 +235,40 @@ export function PullRequestReviewDialog({
                         </summary>
                         <div className={cn("border-t bg-background px-3 py-2 text-foreground", severitySectionStyles[section.key].border)}>
                           <ul className="space-y-2">
-                            {comments.map((comment, index) => (
-                              <li key={`${comment.file}:${comment.line ?? "na"}:${index}`} className="space-y-2 rounded-md border bg-background p-3">
-                                <div className="flex items-start justify-between gap-2">
-                                  <p className="min-w-0 break-words text-xs font-medium text-muted-foreground">
-                                    {comment.file}{comment.line != null ? `:${comment.line}` : ""}
-                                  </p>
-                                  {reviewerActions ? (
-                                    <Button
-                                      type="button"
-                                      variant="outline"
-                                      size="sm"
-                                      className="h-7 shrink-0 px-2 text-xs"
-                                      disabled={!onPublishComment || pendingAction != null || publishedComments.has(commentKey(comment, index))}
-                                      onClick={() => openCommentEditor(comment, index)}
-                                      aria-label={t("pr.dialog.publishFor", { file: comment.file })}
-                                    >
-                                      {pendingAction === commentKey(comment, index) ? <Loader2 aria-hidden="true" className="size-3.5 animate-spin" /> : <Send aria-hidden="true" className="size-3.5" />}
-                                      {publishedComments.has(commentKey(comment, index)) ? t("pr.dialog.published") : pendingAction === commentKey(comment, index) ? t("pr.dialog.publishing") : t("pr.dialog.publish")}
-                                    </Button>
-                                  ) : null}
-                                </div>
-                                <p className="whitespace-pre-wrap break-words text-sm">{comment.comment}</p>
-                              </li>
-                            ))}
+                            {comments.map((comment, index) => {
+                              const diffUrl = commentDiffUrl(pullRequest?.url, comment);
+                              const location = `${comment.file}${comment.line != null ? `:${comment.line}` : ""}`;
+                              const published = publishedComments.has(commentKey(comment, index));
+                              const publishLabel = published ? t("pr.dialog.published") : pendingAction === commentKey(comment, index) ? t("pr.dialog.publishing") : t("pr.dialog.publish");
+                              const locationClass = "min-w-0 rounded-md border bg-muted/50 px-2 py-1 font-mono text-sm font-medium text-primary";
+                              return (
+                                <li key={`${comment.file}:${comment.line ?? "na"}:${index}`} className="space-y-2 rounded-md border bg-background p-3">
+                                  <div className="flex items-center justify-between gap-2">
+                                    {diffUrl ? (
+                                      <a href={diffUrl} target="_blank" rel="noopener noreferrer" className={cn(locationClass, "hover:bg-accent hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring")} title={t("pr.dialog.openCommentLocation", { location })} onClick={() => { if (pullRequest) onOpenPullRequest(pullRequest); }}>
+                                        <CommentLocation comment={comment} />
+                                      </a>
+                                    ) : <p className={locationClass}><CommentLocation comment={comment} /></p>}
+                                    {reviewerActions ? (
+                                      <Button
+                                        type="button"
+                                        variant="outline"
+                                        size="icon"
+                                        actionTone="success"
+                                        className="size-8 shrink-0"
+                                        disabled={!onPublishComment || pendingAction != null || publishedComments.has(commentKey(comment, index))}
+                                        onClick={() => openCommentEditor(comment, index)}
+                                        aria-label={t("pr.dialog.publishFor", { file: comment.file })}
+                                        title={publishLabel}
+                                      >
+                                        {pendingAction === commentKey(comment, index) ? <Loader2 aria-hidden="true" className="animate-spin" /> : published ? <CheckCircle2 aria-hidden="true" /> : <Send aria-hidden="true" />}
+                                      </Button>
+                                    ) : null}
+                                  </div>
+                                  <ReviewMarkdown>{comment.comment}</ReviewMarkdown>
+                                </li>
+                              );
+                            })}
                           </ul>
                         </div>
                       </details>

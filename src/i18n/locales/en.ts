@@ -1011,6 +1011,7 @@ export const en = {
   "pr.actions.removeReviewerDescription": "Remove your reviewer assignment from this pull request in Bitbucket? You may need repository write permission.",
   "pr.actions.removeReviewerConfirm": "Remove reviewer",
   "pr.dialog.openWeb": "Open in browser",
+  "pr.dialog.openCommentLocation": "Open {location} in the pull request diff",
   "pr.dialog.aiSummary": "AI summary",
   "pr.dialog.aiComments": "AI comments",
   "pr.dialog.noComments": "The AI review has no comments.",
