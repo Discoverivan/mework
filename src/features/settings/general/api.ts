@@ -32,6 +32,7 @@ export interface GeneralSettings {
   authoredNotificationsEnabled: boolean;
   taskTrackerNotificationsEnabled: boolean;
   extraFunctionsEnabled: boolean;
+  aiReviewAttempts: number;
   notificationPermission: NotificationPermission;
   permissionCheckError?: string;
 }
@@ -42,6 +43,7 @@ export interface GeneralSettingsSaveInput {
   authoredNotificationsEnabled: boolean;
   taskTrackerNotificationsEnabled: boolean;
   extraFunctionsEnabled: boolean;
+  aiReviewAttempts: number;
   language: AppLanguage;
   aiResponseLanguage: AiResponseLanguage;
   themePreference: ThemePreference;
@@ -61,6 +63,7 @@ export const saveGeneralSettings = (input: GeneralSettingsSaveInput) =>
     authoredNotificationsEnabled: input.authoredNotificationsEnabled,
     taskTrackerNotificationsEnabled: input.taskTrackerNotificationsEnabled,
     extraFunctionsEnabled: input.extraFunctionsEnabled,
+    aiReviewAttempts: input.aiReviewAttempts,
     aiResponseLanguage: input.aiResponseLanguage,
   });
 

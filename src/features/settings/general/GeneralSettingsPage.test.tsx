@@ -64,6 +64,7 @@ describe("GeneralSettingsPage", () => {
       authoredNotificationsEnabled: true,
       taskTrackerNotificationsEnabled: true,
       extraFunctionsEnabled: false,
+      aiReviewAttempts: 3,
       notificationPermission: "denied",
     };
     generalSettingsMock.mockResolvedValue(initialSettings);
@@ -155,6 +156,7 @@ describe("GeneralSettingsPage", () => {
       authoredNotificationsEnabled: true,
       taskTrackerNotificationsEnabled: false,
       extraFunctionsEnabled: false,
+      aiReviewAttempts: 3,
       language: "english",
       aiResponseLanguage: "sameAsUi",
       themePreference: "system",
@@ -195,6 +197,7 @@ describe("GeneralSettingsPage", () => {
       authoredNotificationsEnabled: true,
       taskTrackerNotificationsEnabled: false,
       extraFunctionsEnabled: false,
+      aiReviewAttempts: 3,
       language: "english",
       aiResponseLanguage: "sameAsUi",
       themePreference: "light",
@@ -218,6 +221,17 @@ describe("GeneralSettingsPage", () => {
         <GeneralSettingsPage />
       </I18nProvider>,
     );
+
+    const attemptsInput = await screen.findByRole("spinbutton", { name: "AI review attempts" });
+    expect(attemptsInput).toHaveValue(3);
+    const notificationsCard = screen.getByRole("switch", { name: "Notifications" }).closest(".rounded-lg.border.bg-card");
+    const reliabilityHeading = screen.getByRole("heading", { name: "Reliability" });
+    const reliabilityCard = reliabilityHeading.closest(".rounded-lg.border.bg-card");
+    expect(reliabilityCard).not.toBe(notificationsCard);
+    expect(reliabilityCard).toContainElement(attemptsInput);
+    expect(Boolean(notificationsCard && reliabilityCard && (notificationsCard.compareDocumentPosition(reliabilityCard) & Node.DOCUMENT_POSITION_FOLLOWING))).toBe(true);
+    fireEvent.change(attemptsInput, { target: { value: "4" } });
+    await waitFor(() => expect(saveGeneralSettingsMock).toHaveBeenLastCalledWith(expect.objectContaining({ aiReviewAttempts: 4 })));
 
     const testButton = await screen.findByRole("button", { name: "Test Task tracker notification" });
     expect(testButton).toHaveAttribute("title", "Test Task tracker notification");

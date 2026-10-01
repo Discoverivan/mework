@@ -336,6 +336,7 @@ pub async fn start_review_with_diff<R: Runtime>(
     )
     .await?;
     let general_settings = crate::application::general::load(pool).await?;
+    let ai_review_attempts = general_settings.ai_review_attempts;
     let output_language = general_settings
         .ai_response_language
         .output_language(general_settings.language);
@@ -413,14 +414,16 @@ pub async fn start_review_with_diff<R: Runtime>(
     };
     tauri::async_runtime::spawn(async move {
         let execution = tauri::async_runtime::spawn_blocking(move || {
-            execute_review_with_usage(
-                &request,
-                &worker_run_id,
-                &ai_settings,
-                openai_runtime,
-                &diff,
-                output_language,
-            )
+            retry_review(ai_review_attempts, || {
+                execute_review_with_usage(
+                    &request,
+                    &worker_run_id,
+                    &ai_settings,
+                    openai_runtime.clone(),
+                    &diff,
+                    output_language,
+                )
+            })
         })
         .await;
         let (outcome, usage_counts) = match execution {
@@ -550,6 +553,20 @@ async fn finish_review<R: Runtime>(
         );
     }
     deactivate_review_run(run_id);
+}
+
+fn retry_review<T>(
+    attempts: u8,
+    mut operation: impl FnMut() -> Result<T, String>,
+) -> Result<T, String> {
+    let mut last_error = None;
+    for _ in 0..attempts.max(1) {
+        match operation() {
+            Ok(result) => return Ok(result),
+            Err(error) => last_error = Some(error),
+        }
+    }
+    Err(last_error.unwrap_or_else(|| "AI review failed".to_owned()))
 }
 
 fn deactivate_review_run(run_id: &str) {
@@ -1396,13 +1413,28 @@ mod tests {
     use super::PullRequestReviewRequest;
     use super::{
         migrate_legacy_state, openai_review_prompt, parse_review_result, pull_request_review_key,
-        request_openai_review, review_prompt, validate_result, PullRequestReviewComment,
-        PullRequestReviewResult, PullRequestReviewSeverity, PullRequestReviewStatus,
-        PullRequestReviewVerdict,
+        request_openai_review, retry_review, review_prompt, validate_result,
+        PullRequestReviewComment, PullRequestReviewResult, PullRequestReviewSeverity,
+        PullRequestReviewStatus, PullRequestReviewVerdict,
     };
     #[cfg(unix)]
     use crate::application::ai::{AiProviderId, AiReasoning, AiSettings};
     use crate::application::general::AppLanguage;
+
+    #[test]
+    fn retries_provider_failure_without_failing_the_review_run() {
+        let mut attempts = 0;
+        let result = retry_review(3, || {
+            attempts += 1;
+            if attempts < 3 {
+                Err("temporary provider error".to_owned())
+            } else {
+                Ok("review complete")
+            }
+        });
+        assert_eq!(result.unwrap(), "review complete");
+        assert_eq!(attempts, 3);
+    }
 
     #[test]
     fn uses_composite_pull_request_review_key() {
