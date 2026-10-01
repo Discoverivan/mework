@@ -586,6 +586,8 @@ describe("MyPullRequestsPage", () => {
       pullRequestId: pullRequests[0].pullRequestId,
     })));
     expect(screen.getByRole("button", { name: "AI review…" }).querySelector("svg.lucide-sparkles")).toHaveClass("text-primary");
+    expect(screen.getByText("AI review in progress")).toHaveAttribute("role", "status");
+    expect(screen.queryByText("AI review error")).not.toBeInTheDocument();
     resolveReview(runningReview);
   });
 

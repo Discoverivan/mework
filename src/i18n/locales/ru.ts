@@ -988,6 +988,7 @@ export const ru: Record<TranslationKey, string> = {
   "pr.aiProviderRequired": "Выберите подключённого ИИ-провайдера в Настройки → Интеграции",
   "pr.aiReview": "ИИ-ревью",
   "pr.aiReviewRunning": "ИИ-ревью…",
+  "pr.aiReviewInProgress": "ИИ-ревью выполняется",
   "pr.aiReviewError": "Ошибка ИИ-ревью",
   "pr.reviewResults": "Результаты ревью",
   "pr.aiVerdict": "Вердикт ИИ: {verdict}",

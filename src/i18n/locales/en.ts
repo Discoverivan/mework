@@ -986,6 +986,7 @@ export const en = {
   "pr.aiProviderRequired": "Select a connected AI provider in Settings → Integrations",
   "pr.aiReview": "AI review",
   "pr.aiReviewRunning": "AI review…",
+  "pr.aiReviewInProgress": "AI review in progress",
   "pr.aiReviewError": "AI review error",
   "pr.reviewResults": "Review results",
   "pr.aiVerdict": "AI verdict: {verdict}",

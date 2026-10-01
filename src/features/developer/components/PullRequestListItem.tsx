@@ -256,8 +256,14 @@ export function PullRequestListItem({
           )}
         </div>
         <div className="flex shrink-0 flex-col items-end gap-2">
-          {reviewCompleted && review?.result ? <AiVerdictBadge verdict={review.result.verdict} /> : null}
-          {reviewFailed ? (
+          {reviewRunning ? (
+            <Badge variant="outline" className="h-7 gap-1.5 rounded-md px-2.5 py-0 text-primary" role="status" aria-live="polite">
+              <Loader2 className="size-3.5 animate-spin" aria-hidden="true" />
+              {t("pr.aiReviewInProgress")}
+            </Badge>
+          ) : null}
+          {!reviewRunning && reviewCompleted && review?.result ? <AiVerdictBadge verdict={review.result.verdict} /> : null}
+          {!reviewRunning && reviewFailed ? (
             <div className="flex items-center gap-1">
               <Badge variant="outline" className="h-7 gap-1.5 rounded-md px-2.5 py-0 text-destructive">
                 <Sparkles className="size-3" aria-hidden="true" />
