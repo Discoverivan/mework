@@ -609,7 +609,7 @@ export function MyPullRequestsPage() {
         onBlacklistRepository={(item) => void blacklistPullRequest(item, "repository")}
         onRemoveReviewer={(item) => { setRemoveReviewerError(undefined); setRemoveReviewerTarget(item); }}
         onReviewDecision={pendingDecisionKey ? undefined : (item, action) => { void applyReviewDecision(item, action); }}
-        approving={pendingDecisionKey === itemKey}
+        decisionPending={pendingDecisionKey === itemKey}
         onOpenResults={(item) => {
           if (item.activity !== "read") void markRead(item);
           setReviewDialogKey(pullRequestKey(item));

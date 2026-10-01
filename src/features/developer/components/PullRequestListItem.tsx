@@ -17,12 +17,11 @@ import type { TranslationParams } from "@/i18n/types";
 
 export type PullRequestListMode = "reviewer" | "author";
 
-export const reviewSeverityBadgeClasses: Record<PullRequestReviewSeverity, string> = {
-  blocker: "border-destructive/30 bg-destructive/10 text-destructive",
-  high: "border-destructive/30 bg-destructive/10 text-destructive",
-  medium: "border-border bg-muted text-foreground",
-  low: "border-border bg-muted text-muted-foreground",
-};
+const reviewDecisionAppearance = {
+  approved: { icon: CheckCircle2, tone: "success" },
+  needs_work: { icon: CircleAlert, tone: "warning" },
+  not_reviewed: { icon: SmilePlus, tone: "neutral" },
+} as const;
 
 export const reviewSeveritySections: Array<{
   key: PullRequestReviewSeverity;
@@ -150,7 +149,7 @@ export interface PullRequestListItemProps {
   onBlacklistRepository?: (pullRequest: MyPullRequest) => void;
   onRemoveReviewer?: (pullRequest: MyPullRequest) => void;
   onReviewDecision?: (pullRequest: MyPullRequest, action: "approve" | "needs_work") => void;
-  approving?: boolean;
+  decisionPending?: boolean;
   completedLabel?: string;
   showProjectKey?: boolean;
 }
@@ -168,7 +167,7 @@ export function PullRequestListItem({
   onBlacklistRepository,
   onRemoveReviewer,
   onReviewDecision,
-  approving = false,
+  decisionPending = false,
   completedLabel,
   showProjectKey = true,
 }: PullRequestListItemProps) {
@@ -195,6 +194,7 @@ export function PullRequestListItem({
   const needsAction = mode === "author" && (pullRequest.needsAction || (pullRequest.reviewSummary?.needsWork ?? 0) > 0);
   const reviewSummary = pullRequest.reviewSummary ?? { approved: 0, needsWork: 0, comments: 0 };
   const externalUrl = safePullRequestUrl(pullRequest.url);
+  const { icon: DecisionIcon, tone: decisionTone } = reviewDecisionAppearance[pullRequest.myDecision];
 
   return (
     <Card
@@ -293,8 +293,8 @@ export function PullRequestListItem({
             {mode === "reviewer" ? (
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
-                  <Button type="button" variant="outline" size="icon" actionTone={pullRequest.myDecision === "approved" ? "success" : pullRequest.myDecision === "needs_work" ? "warning" : "neutral"} className="size-8" disabled={!onReviewDecision || approving} aria-label={t("pr.actions.reviewDecision")} title={t("pr.actions.reviewDecision")}>
-                    {approving ? <Loader2 aria-hidden="true" className="animate-spin" /> : pullRequest.myDecision === "approved" ? <CheckCircle2 aria-hidden="true" /> : pullRequest.myDecision === "needs_work" ? <CircleAlert aria-hidden="true" /> : <SmilePlus aria-hidden="true" />}
+                  <Button type="button" variant="outline" size="icon" actionTone={decisionTone} className="size-8" disabled={!onReviewDecision || decisionPending} aria-label={t("pr.actions.reviewDecision")} title={t("pr.actions.reviewDecision")}>
+                    {decisionPending ? <Loader2 aria-hidden="true" className="animate-spin" /> : <DecisionIcon aria-hidden="true" />}
                   </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end">

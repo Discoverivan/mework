@@ -77,13 +77,14 @@ export function PullRequestDisplayOptionsDialog({
         <DialogBody className="space-y-5">
           <section className="space-y-3" aria-labelledby="pull-request-automation-options">
             <h3 id="pull-request-automation-options" className="text-base font-semibold">{t("pr.options.automation")}</h3>
-            <div className="flex items-center justify-between gap-6 rounded-lg border p-4">
-              <div className="space-y-1">
-                <Label htmlFor="pull-request-auto-review" alignment="inline">{t("pr.aiAutoReview")}</Label>
-                <p className="text-sm text-muted-foreground">{t("pr.options.autoReviewDescription")}</p>
+            <div className="flex items-center justify-between gap-4 rounded-lg border p-4">
+              <div className="min-w-0 flex-1 space-y-1">
+                <Label htmlFor="pull-request-auto-review" alignment="inline" className="text-sm font-semibold leading-tight">{t("pr.aiAutoReview")}</Label>
+                <p className="text-xs text-muted-foreground">{t("pr.options.autoReviewDescription")}</p>
               </div>
               <Switch
                 id="pull-request-auto-review"
+                size="md"
                 checked={draftAutoReview}
                 onCheckedChange={setDraftAutoReview}
                 disabled={autoReviewDisabled}
