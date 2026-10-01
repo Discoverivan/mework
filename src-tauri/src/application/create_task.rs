@@ -1446,6 +1446,7 @@ mod tests {
             "Add an example filter",
             AppLanguage::English,
             directory.path(),
+            ai_prompts::TASK_DEFAULT,
         )
         .unwrap();
 
@@ -1507,6 +1508,7 @@ mod tests {
             "Create an audit filter",
             AppLanguage::English,
             directory.path(),
+            ai_prompts::TASK_DEFAULT,
         )
         .unwrap();
 

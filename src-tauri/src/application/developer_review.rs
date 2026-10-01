@@ -1823,6 +1823,7 @@ mod tests {
             None,
             "diff --git a/src/lib.rs b/src/lib.rs\n+return true;\n",
             AppLanguage::Russian,
+            ai_prompts::REVIEW_DEFAULT,
         )
         .unwrap();
         assert_eq!(
@@ -1887,6 +1888,7 @@ mod tests {
             None,
             "diff --git a/src/lib.rs b/src/lib.rs\n+return true;\n",
             AppLanguage::English,
+            ai_prompts::REVIEW_DEFAULT,
         )
         .unwrap();
         std::env::remove_var("MEWORK_CLAUDE_BIN");
