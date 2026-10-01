@@ -491,10 +491,9 @@ describe("MyPullRequestsPage", () => {
     await renderFlatPage();
     await screen.findByRole("heading", { name: "Example pull request" });
 
-    expect(screen.getAllByRole("button", { name: "Mark as viewed" })).toHaveLength(2);
-    const markViewedButton = screen.getAllByRole("button", { name: "Mark as viewed" })[0]!;
-    expect(markViewedButton.nextElementSibling).toBe(screen.getAllByRole("button", { name: "More actions" })[0]);
-    fireEvent.click(markViewedButton);
+    const moreActionsButton = screen.getAllByRole("button", { name: "More actions" })[0]!;
+    fireEvent.pointerDown(moreActionsButton, { button: 0, ctrlKey: false });
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Mark as viewed" }));
 
     await waitFor(() => expect(markPullRequestReadMock).toHaveBeenCalledWith(
       "bitbucket-1",
@@ -503,7 +502,8 @@ describe("MyPullRequestsPage", () => {
       "7",
       "commit-7",
     ));
-    expect(screen.getAllByRole("button", { name: "Mark as viewed" })).toHaveLength(1);
+    fireEvent.pointerDown(moreActionsButton, { button: 0, ctrlKey: false });
+    expect(screen.queryByRole("menuitem", { name: "Mark as viewed" })).not.toBeInTheDocument();
   });
 
   it("marks all persisted PR snapshots read", async () => {
@@ -641,7 +641,7 @@ describe("MyPullRequestsPage", () => {
     expect(reviewResultsButton.querySelector("svg.lucide-sparkles")).toHaveClass("text-success");
     const completedCard = reviewResultsButton.closest(".rounded-lg");
     expect(completedCard).not.toBeNull();
-    expect(within(completedCard as HTMLElement).getByRole("button", { name: "Mark as viewed" }).parentElement)
+    expect(within(completedCard as HTMLElement).getByRole("button", { name: "More actions" }).parentElement)
       .toBe(reviewResultsButton.parentElement);
   });
   it("reconciles a completed review when the completion event was missed", async () => {

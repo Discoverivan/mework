@@ -295,33 +295,20 @@ export function PullRequestListItem({
                 {approving ? <Loader2 aria-hidden="true" className="size-4 animate-spin" /> : <CheckCircle2 aria-hidden="true" className="size-4" />}
               </Button>
             ) : null}
-            {pullRequest.activity !== "read" ? (
-              <Button
-                type="button"
-                variant="outline"
-                size="icon"
-                actionTone="neutral"
-                className="size-8"
-                onClick={() => onMarkViewed(pullRequest)}
-                aria-label={t("pr.markViewed")}
-                title={t("pr.markViewed")}
-              >
-                <Check aria-hidden="true" />
-              </Button>
-            ) : null}
-            {mode === "reviewer" ? (
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button type="button" variant="ghost" size="icon" className="size-8" aria-label={t("pr.actions.more")} title={t("pr.actions.more")}><MoreHorizontal aria-hidden="true" className="size-4" /></Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end">
-                  <DropdownMenuItem disabled={!externalUrl} onSelect={() => { if (externalUrl) { window.open(externalUrl, "_blank", "noopener,noreferrer"); onOpenPullRequest(pullRequest); } }}><ExternalLink aria-hidden="true" />{t("pr.dialog.openWeb")}</DropdownMenuItem>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button type="button" variant="ghost" size="icon" className="size-8" aria-label={t("pr.actions.more")} title={t("pr.actions.more")}><MoreHorizontal aria-hidden="true" className="size-4" /></Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                {pullRequest.activity !== "read" ? <DropdownMenuItem onSelect={() => onMarkViewed(pullRequest)}><Check aria-hidden="true" />{t("pr.markViewed")}</DropdownMenuItem> : null}
+                <DropdownMenuItem disabled={!externalUrl} onSelect={() => { if (externalUrl) { window.open(externalUrl, "_blank", "noopener,noreferrer"); onOpenPullRequest(pullRequest); } }}><ExternalLink aria-hidden="true" />{t("pr.dialog.openWeb")}</DropdownMenuItem>
+                {mode === "reviewer" ? <>
                   <DropdownMenuItem onSelect={() => onBlacklistProject?.(pullRequest)}><Ban aria-hidden="true" />{t("pr.actions.blacklistProject")}</DropdownMenuItem>
                   <DropdownMenuItem onSelect={() => onBlacklistRepository?.(pullRequest)}><Ban aria-hidden="true" />{t("pr.actions.blacklistRepository")}</DropdownMenuItem>
                   <DropdownMenuItem disabled={!onRemoveReviewer} onSelect={() => onRemoveReviewer?.(pullRequest)}><CircleAlert aria-hidden="true" />{t("pr.actions.removeReviewer")}</DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
-            ) : null}
+                </> : null}
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
         </div>
       </CardContent>
