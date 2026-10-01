@@ -754,6 +754,30 @@ pub async fn configured_openai_credential_refs(pool: &SqlitePool) -> Result<Vec<
         .collect())
 }
 
+pub async fn provider_display_name(
+    pool: &SqlitePool,
+    provider: AiProviderId,
+    instance_id: Option<&str>,
+) -> Result<String, String> {
+    match provider {
+        AiProviderId::CodexCli => Ok("Codex CLI".to_owned()),
+        AiProviderId::ClaudeCodeCli => Ok("Claude Code CLI".to_owned()),
+        AiProviderId::HermesCli => Ok("Hermes CLI".to_owned()),
+        AiProviderId::OpenAiCompatible => {
+            let config = load_openai_configs(pool)
+                .await?
+                .into_iter()
+                .find(|config| config.id == instance_id.unwrap_or("legacy"))
+                .ok_or_else(|| "OpenAI-compatible API is not configured".to_owned())?;
+            Ok(if config.alias.is_empty() {
+                "OpenAI-compatible API".to_owned()
+            } else {
+                config.alias
+            })
+        }
+    }
+}
+
 pub async fn openai_compatible_runtime_config(
     pool: &SqlitePool,
     instance_id: Option<&str>,

@@ -84,6 +84,17 @@ pub struct PullRequestReviewResult {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
+pub struct PullRequestReviewExecution {
+    pub provider: crate::application::ai::AiProviderId,
+    pub provider_name: String,
+    pub provider_instance_id: Option<String>,
+    pub model: String,
+    pub reasoning: Option<crate::application::ai::AiReasoning>,
+    pub fast_mode: Option<bool>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
 pub struct PullRequestReviewDto {
     pub run_id: String,
     pub status: PullRequestReviewStatus,
@@ -92,6 +103,32 @@ pub struct PullRequestReviewDto {
     pub error: Option<String>,
     pub started_at: i64,
     pub finished_at: Option<i64>,
+    #[serde(default)]
+    pub execution: Option<PullRequestReviewExecution>,
+}
+
+async fn review_execution(
+    pool: &SqlitePool,
+    settings: &crate::application::ai::AiSettings,
+) -> Result<Option<PullRequestReviewExecution>, String> {
+    let Some(provider) = settings.provider else {
+        return Ok(None);
+    };
+    Ok(Some(PullRequestReviewExecution {
+        provider,
+        provider_name: crate::application::ai::provider_display_name(
+            pool,
+            provider,
+            settings.provider_instance_id.as_deref(),
+        )
+        .await?,
+        provider_instance_id: settings.provider_instance_id.clone(),
+        model: settings.model.clone(),
+        reasoning: (provider == crate::application::ai::AiProviderId::CodexCli)
+            .then_some(settings.reasoning),
+        fast_mode: (provider == crate::application::ai::AiProviderId::CodexCli)
+            .then_some(settings.fast_mode),
+    }))
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -387,6 +424,7 @@ pub async fn start_review_with_diff<R: Runtime>(
         error: None,
         started_at: now_millis(),
         finished_at: None,
+        execution: review_execution(pool, &ai_settings).await?,
     };
     state.reviews.insert(key.clone(), run.clone());
     save_state(pool, &state).await?;
@@ -626,6 +664,7 @@ fn migrate_legacy_state(raw: &str) -> Option<PersistedReviewState> {
                     error: value.error,
                     started_at: value.started_at,
                     finished_at: value.finished_at,
+                    execution: None,
                 },
             )
         })
@@ -1420,6 +1459,70 @@ mod tests {
     #[cfg(unix)]
     use crate::application::ai::{AiProviderId, AiReasoning, AiSettings};
     use crate::application::general::AppLanguage;
+
+    #[tokio::test]
+    async fn persists_review_execution_with_the_result() {
+        use crate::application::ai::{AiProviderId, AiReasoning, AiSettings};
+        let directory = tempfile::tempdir().unwrap();
+        let pool =
+            crate::infrastructure::db::open_database(&directory.path().join("review.sqlite"))
+                .await
+                .unwrap();
+        super::repositories::upsert_setting(
+            &pool,
+            "ai.openai-compatible",
+            r#"{"baseUrl":"https://ai.example.invalid/v1","alias":"Example AI","credentialRef":""}"#,
+            1,
+        )
+        .await
+        .unwrap();
+        let settings = AiSettings {
+            provider: Some(AiProviderId::OpenAiCompatible),
+            model: "example-model".to_owned(),
+            reasoning: AiReasoning::High,
+            fast_mode: true,
+            ..AiSettings::default()
+        };
+        let review = super::PullRequestReviewDto {
+            run_id: "example-run".to_owned(),
+            status: PullRequestReviewStatus::Completed,
+            reviewed_commit: Some("example-commit".to_owned()),
+            result: Some(PullRequestReviewResult {
+                verdict: PullRequestReviewVerdict::Ok,
+                description: "Example review".to_owned(),
+                summary: "No findings".to_owned(),
+                comments: vec![],
+            }),
+            error: None,
+            started_at: 1,
+            finished_at: Some(2),
+            execution: super::review_execution(&pool, &settings).await.unwrap(),
+        };
+        let key = pull_request_review_key("example", "DEMO", "sample", "7");
+        let mut state = super::PersistedReviewState::default();
+        state.reviews.insert(key.clone(), review);
+        super::save_state(&pool, &state).await.unwrap();
+        let restored = super::get_review_state(
+            &pool,
+            super::PullRequestReviewStateRequest {
+                integration_id: "example".to_owned(),
+                project_key: "DEMO".to_owned(),
+                repository_slug: "sample".to_owned(),
+                pull_request_id: "7".to_owned(),
+                latest_commit: Some("example-commit".to_owned()),
+            },
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        let execution = restored.execution.unwrap();
+        assert_eq!(execution.provider_name, "Example AI");
+        assert_eq!(execution.model, "example-model");
+        assert_eq!(execution.reasoning, None);
+        assert_eq!(execution.fast_mode, None);
+        assert_eq!(restored.finished_at, Some(2));
+        pool.close().await;
+    }
 
     #[test]
     fn retries_provider_failure_without_failing_the_review_run() {

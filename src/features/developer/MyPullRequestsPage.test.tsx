@@ -674,6 +674,8 @@ describe("MyPullRequestsPage", () => {
   it("opens persisted review results and can restart the review", async () => {
     const markdownReview: PullRequestReviewState = {
       ...completedReview,
+      finishedAt: Date.now() - 5 * 60_000,
+      execution: { provider: "codex-cli", providerName: "Codex CLI", providerInstanceId: null, model: "example-review-model", reasoning: "high", fastMode: true },
       result: {
         ...completedReview.result!,
         summary: `${completedReview.result!.summary}\n\n- **Check shutdown order**\n- Keep \`retry\` guarded`,
@@ -699,6 +701,13 @@ describe("MyPullRequestsPage", () => {
     expect(dialog).toHaveTextContent("Test Author A");
     expect(dialog).toHaveTextContent("Needs work");
     expect(dialog).toHaveTextContent("AI summary");
+    expect(dialog).toHaveTextContent("Review completed:");
+    expect(within(dialog).getByText(/5m ago/)).toHaveAttribute("dateTime", new Date(markdownReview.finishedAt!).toISOString());
+    const aiConfiguration = within(dialog).getByLabelText("AI configuration used for this review");
+    expect(aiConfiguration).toHaveTextContent("Codex CLI");
+    expect(aiConfiguration).toHaveTextContent("example-review-model");
+    expect(aiConfiguration).toHaveTextContent("Reasoning:high");
+    expect(aiConfiguration).toHaveTextContent("Fast mode:On");
     expect(screen.getByText("Coordinates an example background refresh lifecycle.")).toHaveClass("text-foreground");
     expect(screen.getByText("The change can lose data when the retry races with shutdown.")).toHaveClass("text-foreground");
     expect(dialog).toHaveTextContent("AI comments");
@@ -727,7 +736,7 @@ describe("MyPullRequestsPage", () => {
     expect(publishButton).not.toBeDisabled();
     expect(publishButton).toHaveClass("app-icon-button", "size-8");
     expect(publishButton.parentElement).toHaveClass("flex", "items-center", "justify-between");
-    expect(publishButton).toHaveAttribute("data-action-tone", "success");
+    expect(publishButton).toHaveAttribute("data-action-tone", "neutral");
     expect(publishButton).toHaveAttribute("title", "Publish");
     expect(publishButton).not.toHaveTextContent("Publish");
     expect(screen.getAllByRole("button", { name: /Publish comment for/ })).toHaveLength(3);
