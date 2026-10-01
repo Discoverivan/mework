@@ -35,22 +35,33 @@ body,
   min-height: 0;
   height: 100%;
   overflow: hidden;
-  padding: 24px 12px 0;
+  padding: 4px 12px 0;
   border-right: 1px solid var(--border);
   background: var(--card);
 }
 
 .app-brand {
+  position: relative;
+  z-index: 2;
   display: flex;
   flex: 0 0 auto;
   align-items: center;
   gap: 9px;
-  min-height: 48px;
-  margin: -24px -12px 6px;
-  padding: 8px 20px;
-  border-bottom: 1px solid var(--border);
-  background: var(--background);
+  padding: 6px 8px;
+  margin-bottom: 4px;
   color: var(--card-foreground);
+  background: var(--card);
+}
+
+.app-brand::after {
+  position: absolute;
+  top: 100%;
+  right: -12px;
+  left: -12px;
+  height: 20px;
+  background: linear-gradient(to bottom, var(--card), transparent);
+  content: "";
+  pointer-events: none;
 }
 
 .app-brand img {
@@ -80,6 +91,7 @@ body,
 
 .app-shell nav {
   display: grid;
+  align-content: start;
   gap: 6px;
 }
 
