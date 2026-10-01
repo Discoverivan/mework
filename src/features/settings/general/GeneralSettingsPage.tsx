@@ -435,7 +435,7 @@ export function GeneralSettingsPage() {
                         : <BellRing aria-hidden="true" />}
                   </Button>
                 </div>
-                <CardDescription className="mt-1">Notifications from Task tracker monitors.</CardDescription>
+                <CardDescription className="mt-1 text-xs">Notifications from Task tracker monitors.</CardDescription>
               </div>
               <Switch
                 id="general-task-tracker-notifications-enabled"
@@ -469,7 +469,7 @@ export function GeneralSettingsPage() {
                         : <BellRing aria-hidden="true" />}
                   </Button>
                 </div>
-                <CardDescription className="mt-1">
+                <CardDescription className="mt-1 text-xs">
                   {t("general.notificationsReviewDescription")}
                 </CardDescription>
               </div>
@@ -507,7 +507,7 @@ export function GeneralSettingsPage() {
                         : <BellRing aria-hidden="true" />}
                   </Button>
                 </div>
-                <CardDescription className="mt-1">
+                <CardDescription className="mt-1 text-xs">
                   {t("general.notificationsAuthoredDescription")}
                 </CardDescription>
               </div>

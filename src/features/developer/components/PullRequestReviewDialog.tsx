@@ -164,15 +164,13 @@ export function PullRequestReviewDialog({
           ) : null}
           {result ? (
             <>
-              <section aria-labelledby="ai-summary-title" className="rounded-lg border bg-card p-4">
-                <div className="flex items-start justify-between gap-4">
-                  <div className="min-w-0 space-y-2">
-                    <h3 id="ai-summary-title" className="text-sm font-semibold">{t("pr.dialog.aiSummary")}</h3>
-                    <p className="whitespace-pre-wrap break-words text-sm text-foreground">{result.description}</p>
-                    <p className="whitespace-pre-wrap break-words text-sm text-foreground">{result.summary}</p>
-                  </div>
+              <section aria-labelledby="ai-summary-title" className="space-y-2 rounded-lg border bg-card p-4">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <h3 id="ai-summary-title" className="text-sm font-semibold">{t("pr.dialog.aiSummary")}</h3>
                   <AiVerdictBadge verdict={result.verdict} />
                 </div>
+                <p className="whitespace-pre-wrap break-words text-sm text-foreground">{result.description}</p>
+                <p className="whitespace-pre-wrap break-words text-sm text-foreground">{result.summary}</p>
               </section>
               <section aria-labelledby="ai-comments-title" className="space-y-3">
                 <h3 id="ai-comments-title" className="text-sm font-semibold">{t("pr.dialog.aiComments")}</h3>
@@ -252,6 +250,7 @@ export function PullRequestReviewDialog({
                 type="button"
                 variant="outline"
                 size="sm"
+                actionTone="warning"
                 disabled={!pullRequest || !onSetDecision || pendingAction != null}
                 onClick={() => void setDecision("needs_work")}
               >
@@ -260,7 +259,9 @@ export function PullRequestReviewDialog({
               </Button>
               <Button
                 type="button"
+                variant="outline"
                 size="sm"
+                actionTone="success"
                 disabled={!pullRequest || !onSetDecision || pendingAction != null}
                 onClick={() => void setDecision("approve")}
               >

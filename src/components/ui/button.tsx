@@ -13,10 +13,10 @@ const buttonVariants = cva(
         destructive:
           "bg-destructive text-destructive-foreground hover:bg-destructive/90",
         outline:
-          "border border-input bg-background hover:bg-accent hover:text-accent-foreground",
+          "border border-input bg-background hover:bg-accent hover:text-primary focus-visible:text-primary",
         secondary:
-          "bg-secondary text-secondary-foreground hover:bg-secondary/80",
-        ghost: "hover:bg-accent hover:text-accent-foreground",
+          "bg-secondary text-secondary-foreground hover:bg-secondary/80 hover:text-primary focus-visible:text-primary",
+        ghost: "hover:bg-accent hover:text-primary focus-visible:text-primary",
         link: "text-primary underline-offset-4 hover:underline",
       },
       size: {
@@ -37,15 +37,27 @@ export interface ButtonProps
   extends React.ButtonHTMLAttributes<HTMLButtonElement>,
     VariantProps<typeof buttonVariants> {
   asChild?: boolean
-  actionTone?: "add" | "edit" | "delete" | "neutral" | "success"
+  actionTone?: "add" | "edit" | "delete" | "neutral" | "success" | "warning"
 }
 
 const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
   ({ actionTone, className, variant, size, asChild = false, ...props }, ref) => {
     const Comp = asChild ? Slot : "button"
+    const toneText = size !== "icon" && (variant === "outline" || variant === "ghost" || variant === "secondary" || variant === "link")
     return (
       <Comp
-        className={cn(buttonVariants({ variant, size, className }), size === "icon" && "app-icon-button", size !== "icon" && actionTone && "app-action-text")}
+        className={cn(
+          buttonVariants({ variant, size }),
+          size === "icon" && "app-icon-button",
+          size !== "icon" && actionTone && "app-action-text",
+          (actionTone === "success" || actionTone === "add") && "hover:text-success focus-visible:text-success",
+          actionTone === "warning" && "hover:text-warning focus-visible:text-warning",
+          actionTone === "delete" && "hover:text-destructive focus-visible:text-destructive",
+          toneText && (actionTone === "success" || actionTone === "add") && "text-success",
+          toneText && actionTone === "warning" && "text-warning",
+          toneText && actionTone === "delete" && "text-destructive",
+          className,
+        )}
         data-action-tone={actionTone}
         data-button-variant={size === "icon" ? variant ?? "default" : undefined}
         ref={ref}

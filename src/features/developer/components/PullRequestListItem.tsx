@@ -1,4 +1,4 @@
-import { CheckCircle2, CircleAlert, Clock3, ExternalLink, Eye, Loader2, MessageSquare, MoreHorizontal, RefreshCw, Sparkles, Ban } from "lucide-react";
+import { Check, CheckCircle2, CircleAlert, Clock3, ExternalLink, Loader2, MessageSquare, MoreHorizontal, RefreshCw, Sparkles, Ban } from "lucide-react";
 import { useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
@@ -11,6 +11,7 @@ import type {
   PullRequestReviewSeverity,
 } from "@/shared/contracts/developer";
 import { useI18n } from "@/i18n/context";
+import { cn } from "@/lib/utils";
 import type { TranslationKey } from "@/i18n/locales/en";
 import type { TranslationParams } from "@/i18n/types";
 
@@ -126,7 +127,7 @@ export function AiVerdictBadge({ verdict }: { verdict: "ok" | "needs_changes" })
   return (
     <Badge
       variant="outline"
-      className={approved ? "gap-1.5 px-2.5 py-1 text-success" : "gap-1.5 px-2.5 py-1 text-warning"}
+      className={cn("h-7 gap-1.5 rounded-md px-2.5 py-0", approved ? "text-success" : "text-warning")}
       aria-label={t("pr.aiVerdict", { verdict: label })}
     >
       <Sparkles className="size-3" aria-hidden="true" />
@@ -241,31 +242,19 @@ export function PullRequestListItem({
         </div>
         <div className="flex shrink-0 flex-col items-end gap-2">
           {reviewCompleted && review?.result ? <AiVerdictBadge verdict={review.result.verdict} /> : null}
+          {reviewFailed ? (
+            <div className="flex items-center gap-1">
+              <Badge variant="outline" className="h-7 gap-1.5 rounded-md px-2.5 py-0 text-destructive">
+                <Sparkles className="size-3" aria-hidden="true" />
+                <CircleAlert className="size-3.5" aria-hidden="true" />
+                {t("pr.aiReviewError")}
+              </Badge>
+              <Button type="button" variant="ghost" size="icon" className="size-7 [&_svg]:!size-3.5" onClick={() => onStartReview(pullRequest)} disabled={!aiReviewReady || reviewStarting} aria-label={t("pr.dialog.rerun")} title={t("pr.dialog.rerun")}>
+                <RefreshCw aria-hidden="true" />
+              </Button>
+            </div>
+          ) : null}
           <div className="flex items-center gap-2">
-            {pullRequest.activity !== "read" ? (
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon"
-                actionTone="success"
-                className="size-8"
-                onClick={() => onMarkViewed(pullRequest)}
-                aria-label={t("pr.markViewed")}
-                title={t("pr.markViewed")}
-              >
-                <Eye aria-hidden="true" className="size-4" />
-              </Button>
-            ) : null}
-            {reviewFailed ? (
-              <Button type="button" variant="outline" size="icon" className="size-8" onClick={() => onStartReview(pullRequest)} disabled={!aiReviewReady || reviewStarting} aria-label={t("pr.dialog.rerun")} title={t("pr.dialog.rerun")}>
-                <RefreshCw aria-hidden="true" className="size-4" />
-              </Button>
-            ) : null}
-            {mode === "reviewer" && pullRequest.myDecision !== "approved" ? (
-              <Button type="button" variant="outline" size="icon" actionTone="success" className="size-8" onClick={() => onApprove?.(pullRequest)} disabled={!onApprove || approving} aria-label={t("pr.actions.quickApprove")} title={t("pr.actions.quickApprove")}>
-                {approving ? <Loader2 aria-hidden="true" className="size-4 animate-spin" /> : <CheckCircle2 aria-hidden="true" className="size-4" />}
-              </Button>
-            ) : null}
             <Button
               type="button"
               variant="outline"
@@ -276,8 +265,30 @@ export function PullRequestListItem({
               aria-label={reviewRunning ? t("pr.aiReviewRunning") : reviewFailed ? t("pr.aiReviewError") : reviewCompleted ? completedLabel ?? t("pr.reviewResults") : t("pr.aiReview")}
               title={reviewRunning ? t("pr.aiReviewRunning") : reviewFailed ? t("pr.aiReviewError") : reviewCompleted ? completedLabel ?? t("pr.reviewResults") : !aiReviewReady ? t("pr.aiProviderRequired") : t("pr.aiReview")}
             >
-              {reviewRunning ? <Loader2 aria-hidden="true" className="animate-spin" /> : reviewFailed ? <CircleAlert aria-hidden="true" /> : reviewCompleted ? <Eye aria-hidden="true" /> : <Sparkles aria-hidden="true" />}
+              <Sparkles
+                aria-hidden="true"
+                className={reviewFailed ? "text-destructive" : reviewRunning ? "text-primary" : reviewCompleted ? review?.result?.verdict === "ok" ? "text-success" : "text-warning" : undefined}
+              />
             </Button>
+            {mode === "reviewer" && pullRequest.myDecision !== "approved" ? (
+              <Button type="button" variant="outline" size="icon" actionTone="success" className="size-8 text-success" onClick={() => onApprove?.(pullRequest)} disabled={!onApprove || approving} aria-label={t("pr.actions.quickApprove")} title={t("pr.actions.quickApprove")}>
+                {approving ? <Loader2 aria-hidden="true" className="size-4 animate-spin" /> : <CheckCircle2 aria-hidden="true" className="size-4" />}
+              </Button>
+            ) : null}
+            {pullRequest.activity !== "read" ? (
+              <Button
+                type="button"
+                variant="outline"
+                size="icon"
+                actionTone="neutral"
+                className="size-8"
+                onClick={() => onMarkViewed(pullRequest)}
+                aria-label={t("pr.markViewed")}
+                title={t("pr.markViewed")}
+              >
+                <Check aria-hidden="true" />
+              </Button>
+            ) : null}
             {mode === "reviewer" ? (
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
