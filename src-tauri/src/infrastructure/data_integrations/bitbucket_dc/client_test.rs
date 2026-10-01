@@ -343,22 +343,31 @@ async fn searches_bitbucket_repositories_by_name_and_project_name() {
 #[tokio::test]
 async fn publishes_inline_pull_request_comment() {
     let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/rest/api/1.0/projects/DEMO/repos/sample-repository/pull-requests/7/diff"))
+        .and(query_param("diffType", "EFFECTIVE"))
+        .and(query_param("withComments", "false"))
+        .and(header("accept", "application/json"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "diffs": [{
+                "source": {"toString": "src/retry.ts"},
+                "destination": {"toString": "src/retry.ts"},
+                "hunks": [{"segments": [{"type": "CONTEXT", "lines": [{"source": 39, "destination": 42}]}]}]
+            }]
+        })))
+        .expect(1).mount(&server).await;
     Mock::given(method("POST"))
         .and(path(
             "/rest/api/1.0/projects/DEMO/repos/sample-repository/pull-requests/7/comments",
         ))
-        .and(header("authorization", "Bearer test-token"))
         .and(body_json(serde_json::json!({
             "text": "AI review: handle this edge case",
             "anchor": {
-                "diffType": "COMMIT",
-                "fromHash": "target-commit",
-                "toHash": "source-commit",
+                "diffType": "EFFECTIVE",
                 "path": "src/retry.ts",
-                "srcPath": "src/retry.ts",
-                "line": 42,
-                "lineType": "ADDED",
-                "fileType": "TO"
+                "line": 39,
+                "lineType": "CONTEXT",
+                "fileType": "FROM"
             }
         })))
         .respond_with(ResponseTemplate::new(201).set_body_json(serde_json::json!({
@@ -367,15 +376,16 @@ async fn publishes_inline_pull_request_comment() {
             "text": "AI review: handle this edge case",
             "anchor": {
                 "path": "src/retry.ts",
-                "line": 42,
-                "lineType": "ADDED"
+                "diffType": "EFFECTIVE",
+                "line": 39,
+                "lineType": "CONTEXT"
             }
         })))
         .expect(1)
         .mount(&server)
         .await;
 
-    let client = BitbucketDcClient::with_bearer_token(server.uri(), "test-token").unwrap();
+    let client = BitbucketDcClient::new(server.uri()).unwrap();
     let comment = client
         .publish_pull_request_comment(
             "DEMO",
@@ -383,8 +393,6 @@ async fn publishes_inline_pull_request_comment() {
             7,
             BitbucketInlineComment {
                 text: "AI review: handle this edge case",
-                from_hash: "target-commit",
-                to_hash: "source-commit",
                 path: "src/retry.ts",
                 line: Some(42),
             },
@@ -394,6 +402,9 @@ async fn publishes_inline_pull_request_comment() {
 
     assert_eq!(comment.id, 11);
     assert_eq!(comment.text, "AI review: handle this edge case");
+    let anchor = comment.anchor.unwrap();
+    assert_eq!(anchor.diff_type.as_deref(), Some("EFFECTIVE"));
+    assert_eq!(anchor.line, Some(39));
 }
 
 #[tokio::test]

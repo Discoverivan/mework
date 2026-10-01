@@ -164,6 +164,42 @@ pub struct BitbucketCommentAnchor {
     pub src_path: Option<String>,
 }
 
+#[derive(Debug, Deserialize)]
+pub struct BitbucketDiffResponse {
+    pub diffs: Vec<BitbucketFileDiff>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct BitbucketFileDiff {
+    pub source: Option<BitbucketDiffPath>,
+    pub destination: Option<BitbucketDiffPath>,
+    pub hunks: Vec<BitbucketDiffHunk>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct BitbucketDiffPath {
+    #[serde(rename = "toString")]
+    pub path: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct BitbucketDiffHunk {
+    pub segments: Vec<BitbucketDiffSegment>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct BitbucketDiffSegment {
+    #[serde(rename = "type")]
+    pub line_type: String,
+    pub lines: Vec<BitbucketDiffLine>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct BitbucketDiffLine {
+    pub source: i64,
+    pub destination: i64,
+}
+
 #[derive(Debug, Clone, Deserialize)]
 pub struct BitbucketBuildStatus {
     pub key: String,

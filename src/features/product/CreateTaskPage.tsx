@@ -829,7 +829,6 @@ export function CreateTaskPage() {
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
         <DialogContent className="create-task-dialog">
           <DialogHeader>
-            <div className="create-task-dialog-icon"><Sparkles aria-hidden="true" /></div>
             <DialogTitle>{t("task.describe")}</DialogTitle>
             <DialogDescription>{t("task.describeDescription")}</DialogDescription>
           </DialogHeader>
@@ -839,11 +838,11 @@ export function CreateTaskPage() {
               <textarea id="task-description" className="create-task-textarea create-task-textarea--dialog" value={prompt} placeholder={t("task.describe")} autoFocus required onChange={(event) => setPrompt(event.target.value)} />
             </form>
           </DialogBody>
-          <DialogFooter className="create-task-dialog-footer">
+          <DialogFooter>
             <Button type="button" variant="outline" onClick={() => setDialogOpen(false)}>{t("settings.common.cancel")}</Button>
             <Button type="submit" form="create-task-form" disabled={!prompt.trim()}>
               <Sparkles aria-hidden="true" />
-              {t("task.createWithAi")}
+              {t("task.create")}
             </Button>
           </DialogFooter>
         </DialogContent>

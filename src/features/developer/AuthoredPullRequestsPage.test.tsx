@@ -249,7 +249,7 @@ describe("AuthoredPullRequestsPage", () => {
   it("marks an authored PR read before opening shared review results without reviewer actions", async () => {
     await renderFlatPage();
 
-    fireEvent.click(await screen.findByRole("button", { name: "View results" }));
+    fireEvent.click(await screen.findByRole("button", { name: "View AI review results" }));
 
     await waitFor(() => expect(markAuthoredPullRequestReadMock).toHaveBeenCalledWith(
       "bitbucket-owned",

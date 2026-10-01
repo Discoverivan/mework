@@ -59,7 +59,8 @@ function commentDiffUrl(pullRequestUrl: string | undefined, comment: PullRequest
     if (!/\/pull-requests\/\d+(?:\/.*)?$/.test(url.pathname)) return undefined;
     url.pathname = url.pathname.replace(/(\/pull-requests\/\d+)(?:\/.*)?$/, "$1/diff");
     url.search = "";
-    // Bitbucket Server/DC uses ?t= for lines on the destination side of the diff.
+    // Bitbucket Server/DC: ?t= selects the new (TO) side, ?f= the old (FROM) side.
+    // AI findings use new-file line numbers; publication resolves the actual line type from the PR diff.
     const line = comment.line != null && Number.isSafeInteger(comment.line) && comment.line > 0 ? `?t=${comment.line}` : "";
     url.hash = `${comment.file.split("/").map(encodeURIComponent).join("/")}${line}`;
     return url.href;
