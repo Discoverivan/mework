@@ -25,8 +25,11 @@ export function getPromptSettings(): Promise<PromptSettings[]> {
   if (request) return request;
   const currentRevision = revision;
   const sharedRequest = invoke<PromptSettings[]>("ai_prompt_settings").then((values) => {
-    if (revision === currentRevision) cache = values;
-    return cache ?? values;
+    // A save can arrive before the initial preload has populated the cache.
+    // Wait for a current read rather than returning that stale first snapshot.
+    if (revision !== currentRevision) return cache ?? getPromptSettings();
+    cache = values;
+    return values;
   }).finally(() => { if (request === sharedRequest) request = null; });
   request = sharedRequest;
   return sharedRequest;

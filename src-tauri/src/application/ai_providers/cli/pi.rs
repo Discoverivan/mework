@@ -1,15 +1,13 @@
 use std::{
     env,
-    io::{Read, Write},
     path::{Path, PathBuf},
-    process::{Command, Stdio},
-    thread,
-    time::{Duration, Instant},
+    process::Command,
+    time::Duration,
 };
 
 use serde_json::Value;
 
-use super::{local_cli_command, usable_cli_path};
+use super::{capture_cli_output, local_cli_command, usable_cli_path};
 use crate::application::ai::{AiProviderDto, AiProviderId, AiProviderStatus};
 use crate::application::ai_usage_statistics::AiTokenUsageCounts;
 
@@ -21,7 +19,6 @@ const ISOLATION_FLAGS: &[&str] = &[
     "--no-context-files",
     "--no-session",
 ];
-const OUTPUT_LIMIT: u64 = 8 * 1024 * 1024;
 
 pub fn inspect() -> AiProviderDto {
     match resolve_binary() {
@@ -39,7 +36,14 @@ pub fn inspect() -> AiProviderDto {
 fn inspect_at(path: &Path) -> AiProviderDto {
     let mut command = isolated_command(path);
     command.arg("--version");
-    let Ok(output) = capture(command, None, Duration::from_secs(10)) else {
+    let Ok(output) = capture_cli_output(
+        command,
+        None,
+        Duration::from_secs(10),
+        "Pi CLI",
+        "inspect",
+        None,
+    ) else {
         return provider(
             AiProviderStatus::Unavailable,
             Some(path),
@@ -66,7 +70,14 @@ fn inspect_at(path: &Path) -> AiProviderDto {
     }
     let mut command = isolated_command(path);
     command.arg("--list-models");
-    let Ok(output) = capture(command, None, Duration::from_secs(10)) else {
+    let Ok(output) = capture_cli_output(
+        command,
+        None,
+        Duration::from_secs(10),
+        "Pi CLI",
+        "inspect",
+        None,
+    ) else {
         return provider(
             AiProviderStatus::Unavailable,
             Some(path),
@@ -161,7 +172,14 @@ fn isolated_command(binary: &Path) -> Command {
 fn check_isolation(binary: &Path) -> Result<(), String> {
     let mut command = isolated_command(binary);
     command.arg("--help");
-    let help = capture(command, None, Duration::from_secs(10))?;
+    let help = capture_cli_output(
+        command,
+        None,
+        Duration::from_secs(10),
+        "Pi CLI",
+        "inspect",
+        None,
+    )?;
     let help = String::from_utf8_lossy(&help);
     if ISOLATION_FLAGS.iter().any(|flag| !help.contains(flag)) {
         return Err("Pi CLI must be updated to support isolated runs".to_owned());
@@ -251,80 +269,15 @@ fn run_at(
     command
         .args(["--print", "--mode", "json", "--model", model])
         .current_dir(workdir);
-    let output = capture(command, Some(input), Duration::from_secs(15 * 60))?;
+    let output = capture_cli_output(
+        command,
+        Some(input),
+        Duration::from_secs(15 * 60),
+        "Pi CLI",
+        "run_structured",
+        Some(model),
+    )?;
     parse_result(&output)
-}
-
-fn capture(
-    mut command: Command,
-    input: Option<String>,
-    timeout: Duration,
-) -> Result<Vec<u8>, String> {
-    let mut child = command
-        .stdin(if input.is_some() {
-            Stdio::piped()
-        } else {
-            Stdio::null()
-        })
-        .stdout(Stdio::piped())
-        .stderr(Stdio::null())
-        .spawn()
-        .map_err(|_| "Unable to start Pi CLI".to_owned())?;
-    let mut stdout = child
-        .stdout
-        .take()
-        .ok_or_else(|| "Pi CLI output is unavailable".to_owned())?;
-    let reader = thread::spawn(move || {
-        let mut bytes = Vec::new();
-        stdout
-            .by_ref()
-            .take(OUTPUT_LIMIT + 1)
-            .read_to_end(&mut bytes)?;
-        if bytes.len() as u64 > OUTPUT_LIMIT {
-            std::io::copy(&mut stdout, &mut std::io::sink())?;
-        }
-        Ok::<_, std::io::Error>(bytes)
-    });
-    let writer = input.and_then(|input| {
-        child
-            .stdin
-            .take()
-            .map(|mut stdin| thread::spawn(move || stdin.write_all(input.as_bytes())))
-    });
-    let deadline = Instant::now() + timeout;
-    let status = loop {
-        match child.try_wait() {
-            Ok(Some(status)) => break Some(status),
-            Ok(None) if Instant::now() < deadline => thread::sleep(Duration::from_millis(10)),
-            _ => {
-                #[cfg(windows)]
-                {
-                    let _ = local_cli_command("taskkill.exe")
-                        .args(["/PID", &child.id().to_string(), "/T", "/F"])
-                        .stdout(Stdio::null())
-                        .stderr(Stdio::null())
-                        .status();
-                }
-                let _ = child.kill();
-                let _ = child.wait();
-                break None;
-            }
-        }
-    };
-    let output = reader
-        .join()
-        .ok()
-        .and_then(Result::ok)
-        .ok_or_else(|| "Pi CLI output could not be read".to_owned())?;
-    let sent = writer.is_none_or(|writer| writer.join().is_ok_and(|result| result.is_ok()));
-    let status = status.ok_or_else(|| "Pi CLI timed out".to_owned())?;
-    if !status.success() || !sent {
-        return Err("Pi CLI run failed".to_owned());
-    }
-    if output.len() as u64 > OUTPUT_LIMIT {
-        return Err("Pi CLI output is too large".to_owned());
-    }
-    Ok(output)
 }
 
 fn parse_result(output: &[u8]) -> Result<(Vec<u8>, Option<AiTokenUsageCounts>), String> {

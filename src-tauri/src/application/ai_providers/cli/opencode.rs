@@ -1,17 +1,13 @@
-use super::{local_cli_command, usable_cli_path};
+use super::{capture_cli_output, local_cli_command, usable_cli_path};
 use crate::application::ai::{AiProviderDto, AiProviderId, AiProviderStatus};
 use crate::application::ai_usage_statistics::AiTokenUsageCounts;
 use serde_json::{json, Value};
 use std::{
     env,
-    io::{Read, Write},
     path::{Path, PathBuf},
-    process::{Command, Stdio},
-    thread,
-    time::{Duration, Instant},
+    process::Command,
+    time::Duration,
 };
-
-const OUTPUT_LIMIT: u64 = 8 * 1024 * 1024;
 
 // OpenCode keeps ownership of its credentials. Only non-secret run configuration is created here.
 struct Workspace {
@@ -101,14 +97,28 @@ fn supported_version(version: &str) -> bool {
 fn capabilities(binary: &Path, workspace: &Workspace) -> Result<String, String> {
     let mut command = workspace.command(binary);
     command.arg("--version");
-    let bytes = capture(command, None, Duration::from_secs(10))?;
+    let bytes = capture_cli_output(
+        command,
+        None,
+        Duration::from_secs(10),
+        "OpenCode CLI",
+        "inspect",
+        None,
+    )?;
     let version = String::from_utf8_lossy(&bytes).trim().to_owned();
     if !supported_version(&version) {
         return Err("OpenCode CLI requires a supported stable 1.18+ version".to_owned());
     }
     let mut command = workspace.command(binary);
     command.args(["run", "--help"]);
-    let bytes = capture(command, None, Duration::from_secs(10))?;
+    let bytes = capture_cli_output(
+        command,
+        None,
+        Duration::from_secs(10),
+        "OpenCode CLI",
+        "inspect",
+        None,
+    )?;
     let help = String::from_utf8_lossy(&bytes);
     if ["--pure", "--format", "--model", "--agent", "--title"]
         .iter()
@@ -139,7 +149,14 @@ fn inspect_at(binary: &Path) -> AiProviderDto {
     };
     let mut command = workspace.command(binary);
     command.args(["--pure", "models"]);
-    let Ok(output) = capture(command, None, Duration::from_secs(30)) else {
+    let Ok(output) = capture_cli_output(
+        command,
+        None,
+        Duration::from_secs(30),
+        "OpenCode CLI",
+        "inspect",
+        None,
+    ) else {
         return provider(
             AiProviderStatus::Unavailable,
             Some(binary),
@@ -281,79 +298,15 @@ fn run_at(
         "--title",
         "mework AI action",
     ]);
-    let output = capture(command, Some(input), Duration::from_secs(15 * 60))?;
+    let output = capture_cli_output(
+        command,
+        Some(input),
+        Duration::from_secs(15 * 60),
+        "OpenCode CLI",
+        "run_structured",
+        Some(model),
+    )?;
     parse_result(&output)
-}
-fn capture(
-    mut command: Command,
-    input: Option<String>,
-    timeout: Duration,
-) -> Result<Vec<u8>, String> {
-    let mut child = command
-        .stdin(if input.is_some() {
-            Stdio::piped()
-        } else {
-            Stdio::null()
-        })
-        .stdout(Stdio::piped())
-        .stderr(Stdio::null())
-        .spawn()
-        .map_err(|_| "Unable to start OpenCode CLI".to_owned())?;
-    let mut stdout = child
-        .stdout
-        .take()
-        .ok_or_else(|| "OpenCode CLI output is unavailable".to_owned())?;
-    let reader = thread::spawn(move || {
-        let mut bytes = Vec::new();
-        stdout
-            .by_ref()
-            .take(OUTPUT_LIMIT + 1)
-            .read_to_end(&mut bytes)?;
-        if bytes.len() as u64 > OUTPUT_LIMIT {
-            std::io::copy(&mut stdout, &mut std::io::sink())?;
-        }
-        Ok::<_, std::io::Error>(bytes)
-    });
-    let writer = input.and_then(|input| {
-        child
-            .stdin
-            .take()
-            .map(|mut stdin| thread::spawn(move || stdin.write_all(input.as_bytes())))
-    });
-    let deadline = Instant::now() + timeout;
-    let status = loop {
-        match child.try_wait() {
-            Ok(Some(status)) => break Some(status),
-            Ok(None) if Instant::now() < deadline => thread::sleep(Duration::from_millis(10)),
-            _ => {
-                #[cfg(windows)]
-                {
-                    let _ = local_cli_command("taskkill.exe")
-                        .args(["/PID", &child.id().to_string(), "/T", "/F"])
-                        .stdout(Stdio::null())
-                        .stderr(Stdio::null())
-                        .status();
-                }
-                let _ = child.kill();
-                let _ = child.wait();
-                break None;
-            }
-        }
-    };
-    let output = reader
-        .join()
-        .ok()
-        .and_then(Result::ok)
-        .ok_or_else(|| "OpenCode CLI output could not be read".to_owned())?;
-    let sent = writer.is_none_or(|writer| writer.join().is_ok_and(|result| result.is_ok()));
-    let status = status.ok_or_else(|| "OpenCode CLI timed out".to_owned())?;
-    if !status.success() || !sent {
-        return Err("OpenCode CLI run failed".to_owned());
-    }
-    if output.len() as u64 > OUTPUT_LIMIT {
-        return Err("OpenCode CLI output is too large".to_owned());
-    }
-    Ok(output)
 }
 
 fn parse_result(output: &[u8]) -> Result<(Vec<u8>, Option<AiTokenUsageCounts>), String> {
