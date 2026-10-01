@@ -172,6 +172,11 @@ function statusValues(issues: TaskTrackerIssue[]): string[] {
   return [...new Set(issues.map((issue) => issue.status).filter(Boolean))].sort();
 }
 
+function unreadChangeCount(monitor: TaskTrackerMonitor, readChanges: Record<string, string | null>): number {
+  if (readChanges[monitor.id] === (monitor.lastSuccessAt ?? null)) return 0;
+  return monitor.issues.filter((issue) => issue.changed).length;
+}
+
 function SortableHeader({
   label,
   sortKey,
@@ -237,7 +242,6 @@ export function TaskTrackerPage({ mockMode = false }: { mockMode?: boolean }) {
   const [filterDraftChange, setFilterDraftChange] = useState<FilterChange>("all");
   const [filterDraftOnlyChanged, setFilterDraftOnlyChanged] = useState(false);
   const [filtersOpen, setFiltersOpen] = useState(false);
-  const [viewedChanges, setViewedChanges] = useState<Record<string, string | null>>({});
   const [readChanges, setReadChanges] = useState<Record<string, string | null>>(() => loadTaskTrackerReadCheckpoints());
   const [page, setPage] = useState(1);
   const [now, setNow] = useState(() => Date.now());
@@ -250,11 +254,6 @@ export function TaskTrackerPage({ mockMode = false }: { mockMode?: boolean }) {
     const timer = window.setInterval(() => setNow(Date.now()), 60_000);
     return () => window.clearInterval(timer);
   }, []);
-
-  useEffect(() => {
-    if (!activeMonitor) return;
-    setViewedChanges((current) => ({ ...current, [activeMonitor.id]: activeMonitor.lastSuccessAt ?? null }));
-  }, [activeMonitor?.id, activeMonitor?.lastSuccessAt]);
 
   function applyMonitorSnapshot(next: TaskTrackerMonitor[], publish = false) {
     monitorsRef.current = next;
@@ -390,7 +389,6 @@ export function TaskTrackerPage({ mockMode = false }: { mockMode?: boolean }) {
     if (!activeMonitor) return;
     const checkpoint = activeMonitor.lastSuccessAt ?? null;
     setReadChanges(saveTaskTrackerReadCheckpoint(activeMonitor.id, checkpoint));
-    setViewedChanges((current) => ({ ...current, [activeMonitor.id]: checkpoint }));
     emitAppEvent(APP_EVENT.taskTrackerReadStateChanged, { monitorId: activeMonitor.id, checkpoint });
   }
 
@@ -556,20 +554,21 @@ export function TaskTrackerPage({ mockMode = false }: { mockMode?: boolean }) {
       {pageError ? <Alert variant="destructive"><AlertTitle>{t("taskTracker.unavailable")}</AlertTitle><AlertDescription>{pageError}</AlertDescription></Alert> : null}
 
       {monitors.length > 0 ? <div className="flex min-w-0 items-center gap-2 overflow-x-auto border-b border-border pb-2" role="tablist" aria-label={t("taskTracker.monitors")}>
-        {monitors.map((monitor) => (
-          <button
+        {monitors.map((monitor) => {
+          const hasUnreadChanges = unreadChangeCount(monitor, readChanges) > 0;
+          return <button
             key={monitor.id}
             type="button"
             role="tab"
             aria-selected={activeMonitor?.id === monitor.id}
             onClick={() => selectMonitor(monitor.id)}
-            className={`flex min-w-40 items-center gap-2 rounded-md px-3 py-2 text-left text-sm transition-colors ${activeMonitor?.id === monitor.id ? "bg-accent text-accent-foreground" : "hover:bg-muted"}`}
+            className={`flex min-w-40 items-center gap-2 rounded-md px-3 py-2 text-left text-sm transition-colors ${hasUnreadChanges ? "bg-blue-500/10 text-blue-700 hover:bg-blue-500/15 dark:text-blue-300" : activeMonitor?.id === monitor.id ? "bg-accent text-accent-foreground" : "hover:bg-muted"}`}
           >
+            {hasUnreadChanges ? <span className="size-2 shrink-0 rounded-full bg-blue-500" aria-hidden="true" /> : null}
             <span className="min-w-0 flex-1 truncate">{monitor.name}</span>
             {monitor.exceedsLimit ? <AlertTriangle role="img" aria-label={t("taskTracker.issueLimitExceeded")} className="size-4 shrink-0 text-destructive" /> : <span className="text-xs opacity-75">{monitor.currentIssueCount}</span>}
-            {monitor.changesAfterLastCheck > 0 && viewedChanges[monitor.id] !== (monitor.lastSuccessAt ?? null) ? <span className="size-2 shrink-0 rounded-full bg-blue-500" aria-hidden="true" /> : null}
-          </button>
-        ))}
+          </button>;
+        })}
       </div> : null}
 
       {!activeMonitor ? (
