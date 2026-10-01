@@ -709,7 +709,11 @@ describe("MyPullRequestsPage", () => {
     expect(publishButton.querySelector("svg")).toHaveClass("size-3.5");
     expect(publishButton.parentElement).toHaveClass("flex", "items-start", "justify-between");
     expect(screen.getAllByRole("button", { name: /Publish comment for/ })).toHaveLength(3);
-    expect(screen.getByRole("link", { name: "Open in browser" })).toHaveAttribute("href", pullRequests[0].url);
+    const openInBrowser = screen.getByRole("link", { name: "Open in browser" });
+    expect(openInBrowser).toHaveAttribute("href", pullRequests[0].url);
+    expect(openInBrowser).toHaveAttribute("title", "Open in browser");
+    expect(openInBrowser).toHaveClass("app-icon-button", "size-8");
+    expect(openInBrowser.textContent).toBe("");
     fireEvent.click(publishButton);
     expect(publishCommentMock).not.toHaveBeenCalled();
     const commentDialog = await screen.findByRole("dialog", { name: "Edit review comment" });
