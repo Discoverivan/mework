@@ -15,6 +15,7 @@ pub mod events;
 pub mod general;
 pub mod inbox;
 pub mod integration_error;
+pub mod logging;
 #[cfg(feature = "dev-mock-rest")]
 pub mod mock_rest;
 pub mod notifications;

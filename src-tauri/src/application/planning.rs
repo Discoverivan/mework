@@ -12,6 +12,7 @@ use sqlx::SqlitePool;
 use uuid::Uuid;
 
 use crate::application::confluence::ConfluenceSpaceDto;
+use crate::application::logging::HttpRequestBuilderExt;
 use crate::domain::models::IntegrationKind;
 use crate::domain::planning::models::{
     ManagedProject, ManagedProjectConfluenceSpace, PlanningItem, PlanningStatus, SubtaskPlan,
@@ -1632,10 +1633,21 @@ pub async fn load_jira_avatar_data(
     let response = client
         .get(image_url)
         .bearer_auth(secret)
-        .send()
+        .send_logged(
+            "data_integrations.jira",
+            "avatar_image",
+            crate::application::logging::HttpBodyPolicy::Integration,
+        )
         .await
         .map_err(|_| command_error("remote_error", "Unable to load Jira avatar", true))?;
     if !response.status().is_success() {
+        crate::application::logging::log_http_error_body(
+            response,
+            "data_integrations.jira",
+            "avatar_image",
+            true,
+        )
+        .await;
         return Ok(None);
     }
     let content_type = response

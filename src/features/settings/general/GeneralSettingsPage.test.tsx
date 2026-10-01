@@ -5,7 +5,7 @@ import { ApplicationInfoPage } from "../ApplicationInfoPage";
 import { APP_EVENT, subscribeAppEvent } from "@/app/app-events";
 import { I18nProvider } from "@/i18n/I18nProvider";
 
-const { generalSettingsMock, commandBoardTerminalPreferencesMock, saveCommandBoardTerminalPreferenceMock, openNotificationSettingsMock, requestNotificationPermissionMock, saveAppearanceSettingsMock, saveButtonStyleMock, saveGeneralSettingsMock, sendNotificationTestMock, updaterCheckMock, installAvailableUpdateMock, openUrlMock, beginUpdateCheckMock, recordUpdateCheckResultMock } = vi.hoisted(() => ({
+const { generalSettingsMock, commandBoardTerminalPreferencesMock, saveCommandBoardTerminalPreferenceMock, openNotificationSettingsMock, requestNotificationPermissionMock, saveAppearanceSettingsMock, saveButtonStyleMock, saveGeneralSettingsMock, sendNotificationTestMock, updaterCheckMock, installAvailableUpdateMock, openUrlMock, invokeMock, beginUpdateCheckMock, recordUpdateCheckResultMock } = vi.hoisted(() => ({
   generalSettingsMock: vi.fn(),
   commandBoardTerminalPreferencesMock: vi.fn(),
   saveCommandBoardTerminalPreferenceMock: vi.fn(),
@@ -18,6 +18,7 @@ const { generalSettingsMock, commandBoardTerminalPreferencesMock, saveCommandBoa
   updaterCheckMock: vi.fn(),
   installAvailableUpdateMock: vi.fn(),
   openUrlMock: vi.fn(),
+  invokeMock: vi.fn(),
   beginUpdateCheckMock: vi.fn().mockResolvedValue({ checkId: 1, snapshot: { availableVersion: null, lastCheckedAt: null, status: "checking", revision: 1 } }),
   recordUpdateCheckResultMock: vi.fn(),
 }));
@@ -29,6 +30,7 @@ vi.mock("@/components/shared/update-check", () => ({
   recordUpdateCheckResult: recordUpdateCheckResultMock,
 }));
 vi.mock("@tauri-apps/plugin-opener", () => ({ openUrl: openUrlMock }));
+vi.mock("@tauri-apps/api/core", () => ({ invoke: invokeMock }));
 
 vi.mock("./api", () => ({
   AiResponseLanguage: {
@@ -346,6 +348,15 @@ describe("GeneralSettingsPage", () => {
     } finally {
       unsubscribe();
     }
+  });
+
+  it("opens the local diagnostics folder from Troubleshooting", async () => {
+    invokeMock.mockResolvedValue(undefined);
+    render(<ApplicationInfoPage />);
+
+    expect(screen.getByRole("heading", { name: "Troubleshooting" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Open logs folder" }));
+    await waitFor(() => expect(invokeMock).toHaveBeenCalledWith("application_open_logs_directory"));
   });
 
   it("shows the development build with a placeholder version badge", () => {

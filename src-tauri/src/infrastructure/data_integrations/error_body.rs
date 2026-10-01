@@ -1,20 +1,66 @@
 use serde_json::{Map, Value};
 
-// Never pass raw provider bytes into Tauri IPC. Only known error-envelope
-// fields can leave the native process, with an intentionally strict text gate.
+// Keep provider error values returned to application/IPC callers on a strict allowlist.
+// The shared diagnostics layer separately logs a bounded, secret-redacted body excerpt.
 const MAX_BODY_BYTES: usize = 8192;
 const MAX_MESSAGE_CHARS: usize = 240;
 const REDACTED: &str = "[REDACTED]";
 
 pub async fn read_safe_error_body(mut response: reqwest::Response) -> Option<Value> {
+    let status = response.status().as_u16();
+    let url = crate::application::logging::safe_url(response.url().as_str());
     let mut bytes = Vec::new();
-    while let Some(chunk) = response.chunk().await.ok()? {
-        if chunk.len() > MAX_BODY_BYTES.saturating_sub(bytes.len()) {
-            return None;
+    let mut truncated = false;
+    loop {
+        let chunk = match response.chunk().await {
+            Ok(Some(chunk)) => chunk,
+            Ok(None) => break,
+            Err(_) => {
+                crate::application::logging::error(
+                    "data_integrations",
+                    "http_error_body_read_failure",
+                    serde_json::json!({"status": status, "url": url}),
+                );
+                return None;
+            }
+        };
+        let remaining = MAX_BODY_BYTES.saturating_sub(bytes.len());
+        if chunk.len() > remaining {
+            bytes.extend_from_slice(&chunk[..remaining]);
+            truncated = true;
+            break;
         }
         bytes.extend_from_slice(&chunk);
     }
-    sanitize_error_body(&bytes)
+    let safe_body = (!truncated).then(|| sanitize_error_body(&bytes)).flatten();
+    if truncated {
+        crate::application::logging::log_parse_failure(
+            "data_integrations",
+            "http_error_response",
+            "body_truncated",
+            &bytes,
+        );
+    }
+    if safe_body.is_none() && !truncated {
+        crate::application::logging::log_parse_failure(
+            "data_integrations",
+            "http_error_response",
+            "error_envelope",
+            &bytes,
+        );
+    }
+    crate::application::logging::error(
+        "data_integrations",
+        "http_error_response",
+        serde_json::json!({
+            "status": status,
+            "url": url,
+            "body": crate::application::logging::safe_http_body_excerpt(&bytes),
+            "body_available": safe_body.is_some(),
+            "body_truncated": truncated,
+        }),
+    );
+    safe_body
 }
 
 pub fn sanitize_error_body(body: &[u8]) -> Option<Value> {

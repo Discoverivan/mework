@@ -7,6 +7,8 @@ use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Manager, Runtime};
 use tokio::sync::Mutex;
 
+use crate::application::logging::HttpRequestBuilderExt;
+
 const RELEASES_URL: &str = "https://api.github.com/repos/Discoverivan/mework/releases";
 const MAX_NOTE_BYTES: usize = 128 * 1024;
 const MAX_CATALOG_BYTES: usize = 8 * 1024 * 1024;
@@ -181,10 +183,21 @@ async fn fetch_catalog(client: &Client) -> Result<Vec<GithubRelease>, String> {
             .query(&[("per_page", "100"), ("page", &page.to_string())])
             .header("User-Agent", "mework-release-notes")
             .header("Accept", "application/vnd.github+json")
-            .send()
+            .send_logged(
+                "application.release_notes",
+                "fetch_catalog",
+                crate::application::logging::HttpBodyPolicy::Omit,
+            )
             .await
             .map_err(|_| "failed to fetch GitHub releases")?;
         if !response.status().is_success() {
+            crate::application::logging::log_http_error_body(
+                response,
+                "application.release_notes",
+                "fetch_catalog",
+                true,
+            )
+            .await;
             return Err("GitHub releases are unavailable".to_owned());
         }
         if response
@@ -352,10 +365,21 @@ async fn download_asset(client: &Client, raw_url: &str) -> Result<String, String
     let response = client
         .get(url)
         .header("User-Agent", "mework-release-notes")
-        .send()
+        .send_logged(
+            "application.release_notes",
+            "download_asset",
+            crate::application::logging::HttpBodyPolicy::Omit,
+        )
         .await
         .map_err(|_| "failed to download release notes")?;
     if !response.status().is_success() {
+        crate::application::logging::log_http_error_body(
+            response,
+            "application.release_notes",
+            "download_asset",
+            true,
+        )
+        .await;
         return Err("release notes asset is unavailable".to_owned());
     }
     if response

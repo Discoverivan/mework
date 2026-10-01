@@ -4,6 +4,7 @@ use reqwest::{header, Client, Method, Url};
 use serde::de::DeserializeOwned;
 
 use super::error::{BitbucketDcError, BitbucketHttpErrorKind};
+use crate::application::logging::HttpRequestBuilderExt;
 const MAX_PULL_REQUEST_DIFF_BYTES: usize = 2_000_000;
 
 use super::models::{
@@ -96,17 +97,28 @@ impl BitbucketDcClient {
         T: DeserializeOwned,
     {
         let url = self.url_with_segments(path_segments)?;
-        let response = self.authenticated_request(url).query(query).send().await;
-        let response = response.map_err(|_| BitbucketDcError::Transport)?;
+        let response = self
+            .authenticated_request(url)
+            .query(query)
+            .send_logged(
+                "data_integrations.bitbucket_dc",
+                "fetch_page",
+                crate::application::logging::HttpBodyPolicy::Integration,
+            )
+            .await
+            .map_err(|_| BitbucketDcError::Transport)?;
 
         if !response.status().is_success() {
             return Err(Self::http_error(response).await);
         }
 
-        response
-            .json::<BitbucketPage<T>>()
-            .await
-            .map_err(|_| BitbucketDcError::InvalidResponse)
+        crate::application::logging::parse_json_response::<BitbucketPage<T>>(
+            response,
+            "data_integrations.bitbucket_dc",
+            "fetch_page",
+        )
+        .await
+        .map_err(|_| BitbucketDcError::InvalidResponse)
     }
 
     pub async fn list_repositories_page(
@@ -309,7 +321,11 @@ impl BitbucketDcClient {
         let response = self
             .authenticated_request(url)
             .query(&[("limit", "1")])
-            .send()
+            .send_logged(
+                "data_integrations.bitbucket_dc",
+                "authenticated_user_slug",
+                crate::application::logging::HttpBodyPolicy::Integration,
+            )
             .await
             .map_err(|_| BitbucketDcError::Transport)?;
         if !response.status().is_success() {
@@ -322,7 +338,15 @@ impl BitbucketDcClient {
             .map(str::trim)
             .filter(|value| !value.is_empty() && !value.chars().any(char::is_whitespace))
             .map(str::to_owned)
-            .ok_or(BitbucketDcError::InvalidResponse)
+            .ok_or_else(|| {
+                crate::application::logging::log_business_failure(
+                    "data_integrations.bitbucket_dc",
+                    "authenticated_user_slug",
+                    "username_header_missing",
+                    "successful response omitted the expected username header",
+                );
+                BitbucketDcError::InvalidResponse
+            })
     }
 
     pub async fn get_pull_request(
@@ -346,16 +370,23 @@ impl BitbucketDcClient {
         ])?;
         let response = self
             .authenticated_request(url)
-            .send()
+            .send_logged(
+                "data_integrations.bitbucket_dc",
+                "get_pull_request",
+                crate::application::logging::HttpBodyPolicy::Integration,
+            )
             .await
             .map_err(|_| BitbucketDcError::Transport)?;
         if !response.status().is_success() {
             return Err(Self::http_error(response).await);
         }
-        response
-            .json::<BitbucketPullRequest>()
-            .await
-            .map_err(|_| BitbucketDcError::InvalidResponse)
+        crate::application::logging::parse_json_response::<BitbucketPullRequest>(
+            response,
+            "data_integrations.bitbucket_dc",
+            "get_pull_request",
+        )
+        .await
+        .map_err(|_| BitbucketDcError::InvalidResponse)
     }
 
     pub async fn pull_request_diff(
@@ -380,7 +411,11 @@ impl BitbucketDcClient {
         ])?;
         let response = self
             .authenticated_request(url)
-            .send()
+            .send_logged(
+                "data_integrations.bitbucket_dc",
+                "pull_request_diff",
+                crate::application::logging::HttpBodyPolicy::Integration,
+            )
             .await
             .map_err(|_| BitbucketDcError::Transport)?;
         if !response.status().is_success() {
@@ -391,6 +426,12 @@ impl BitbucketDcClient {
             .await
             .map_err(|_| BitbucketDcError::InvalidResponse)?;
         if body.len() > MAX_PULL_REQUEST_DIFF_BYTES {
+            crate::application::logging::log_business_failure(
+                "data_integrations.bitbucket_dc",
+                "pull_request_diff",
+                "response_size_limit",
+                "successful response exceeded the supported diff size",
+            );
             return Err(BitbucketDcError::InvalidResponse);
         }
         Ok(body)
@@ -546,16 +587,23 @@ impl BitbucketDcClient {
         let response = self
             .authenticated_request_with_method(Method::POST, url)
             .json(&serde_json::json!({ "text": comment.text, "anchor": anchor }))
-            .send()
+            .send_logged(
+                "data_integrations.bitbucket_dc",
+                "publish_pull_request_comment",
+                crate::application::logging::HttpBodyPolicy::Integration,
+            )
             .await
             .map_err(|_| BitbucketDcError::Transport)?;
         if !response.status().is_success() {
             return Err(Self::http_error(response).await);
         }
-        response
-            .json::<BitbucketComment>()
-            .await
-            .map_err(|_| BitbucketDcError::InvalidResponse)
+        crate::application::logging::parse_json_response::<BitbucketComment>(
+            response,
+            "data_integrations.bitbucket_dc",
+            "publish_pull_request_comment",
+        )
+        .await
+        .map_err(|_| BitbucketDcError::InvalidResponse)
     }
 
     pub async fn set_pull_request_participant_status(
@@ -592,16 +640,23 @@ impl BitbucketDcClient {
                 "approved": status == "APPROVED",
                 "status": status,
             }))
-            .send()
+            .send_logged(
+                "data_integrations.bitbucket_dc",
+                "set_pull_request_participant_status",
+                crate::application::logging::HttpBodyPolicy::Integration,
+            )
             .await
             .map_err(|_| BitbucketDcError::Transport)?;
         if !response.status().is_success() {
             return Err(Self::http_error(response).await);
         }
-        response
-            .json::<BitbucketParticipant>()
-            .await
-            .map_err(|_| BitbucketDcError::InvalidResponse)
+        crate::application::logging::parse_json_response::<BitbucketParticipant>(
+            response,
+            "data_integrations.bitbucket_dc",
+            "set_pull_request_participant_status",
+        )
+        .await
+        .map_err(|_| BitbucketDcError::InvalidResponse)
     }
 
     pub async fn unassign_pull_request_reviewer(
@@ -629,7 +684,11 @@ impl BitbucketDcClient {
         ])?;
         let response = self
             .authenticated_request_with_method(Method::DELETE, url)
-            .send()
+            .send_logged(
+                "data_integrations.bitbucket_dc",
+                "unassign_pull_request_reviewer",
+                crate::application::logging::HttpBodyPolicy::Integration,
+            )
             .await
             .map_err(|_| BitbucketDcError::Transport)?;
         if !response.status().is_success() {

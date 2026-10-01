@@ -67,8 +67,7 @@ pub fn run() {
 
             let app_data_dir = app.path().app_data_dir()?;
             std::fs::create_dir_all(&app_data_dir)?;
-            #[cfg(debug_assertions)]
-            crate::application::ai::initialize_openai_debug_log(&app_data_dir);
+            crate::application::logging::initialize(&app_data_dir);
             let database_path = if mock_mode_enabled {
                 crate::infrastructure::db::reset_mock_database_file(&app_data_dir)?
             } else {
@@ -435,6 +434,7 @@ pub fn run() {
             commands::general::notification_test,
             commands::general::notification_request_permission,
             commands::general::notification_open_settings,
+            commands::general::application_open_logs_directory,
             commands::updates::background_update_state,
             commands::updates::background_update_version,
             commands::updates::begin_update_check,

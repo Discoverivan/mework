@@ -7,7 +7,7 @@ use std::{
 
 use serde_json::Value;
 
-use super::{local_cli_command, usable_cli_path};
+use super::{local_cli_command, run_cli_output, spawn_cli, usable_cli_path};
 use crate::application::ai::{AiProviderDto, AiProviderId, AiProviderStatus};
 use crate::application::ai_usage_statistics::AiTokenUsageCounts;
 
@@ -21,10 +21,9 @@ pub fn inspect() -> AiProviderDto {
             "Hermes CLI was not found on this computer",
         );
     };
-    let Ok(version_output) = local_cli_command(&path)
-        .arg("--version")
-        .stderr(Stdio::null())
-        .output()
+    let mut version_command = local_cli_command(&path);
+    version_command.arg("--version").stderr(Stdio::piped());
+    let Ok(version_output) = run_cli_output(&mut version_command, "hermes", "version_probe", None)
     else {
         return provider(
             AiProviderStatus::Unavailable,
@@ -53,10 +52,11 @@ pub fn inspect() -> AiProviderDto {
                 .take(120)
                 .collect()
         });
-    let Ok(model_output) = local_cli_command(&path)
+    let mut model_command = local_cli_command(&path);
+    model_command
         .args(["config", "get", "model.default", "--json"])
-        .stderr(Stdio::null())
-        .output()
+        .stderr(Stdio::piped());
+    let Ok(model_output) = run_cli_output(&mut model_command, "hermes", "model_config_probe", None)
     else {
         return provider(
             AiProviderStatus::Unavailable,
@@ -75,9 +75,16 @@ pub fn inspect() -> AiProviderDto {
             "Configure a model with hermes model",
         );
     }
-    let model = serde_json::from_slice::<String>(&model_output.stdout)
-        .ok()
-        .filter(|value| valid_model(value));
+    let parsed_model = serde_json::from_slice::<String>(&model_output.stdout);
+    if parsed_model.is_err() {
+        crate::application::logging::log_parse_failure(
+            "ai.cli",
+            "hermes_model_config",
+            "model_json",
+            &model_output.stdout,
+        );
+    }
+    let model = parsed_model.ok().filter(|value| valid_model(value));
     match model {
         Some(model) => provider(
             AiProviderStatus::Connected,
@@ -190,10 +197,13 @@ pub fn run_structured_with_usage(
     if !valid_model(model) {
         return Err("Selected Hermes model is invalid".to_owned());
     }
-    let binary =
-        resolve_binary().ok_or_else(|| "Hermes CLI executable was not found".to_owned())?;
+    let binary = resolve_binary().ok_or_else(|| {
+        crate::application::logging::error("ai.cli", "executable_missing", serde_json::json!({"provider": "hermes", "operation": "structured_generation", "model": model}));
+        "Hermes CLI executable was not found".to_owned()
+    })?;
     let input = format!("Return only a JSON object matching this schema. Do not use tools or modify files.\nSchema:\n{schema}\n\nInput:\n{prompt}");
-    let mut child = local_cli_command(binary)
+    let mut command = local_cli_command(binary);
+    command
         .args([
             "chat",
             "--oneshot",
@@ -214,22 +224,39 @@ pub fn run_structured_with_usage(
         .current_dir(workdir)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
-        .stderr(Stdio::null())
-        .spawn()
-        .map_err(|_| "Unable to start Hermes CLI".to_owned())?;
-    child
-        .stdin
-        .take()
-        .ok_or_else(|| "Unable to send input to Hermes CLI".to_owned())?
-        .write_all(input.as_bytes())
-        .map_err(|_| "Unable to send input to Hermes CLI".to_owned())?;
-    let output = child
-        .wait_with_output()
-        .map_err(|_| "Hermes CLI did not return a result".to_owned())?;
+        .stderr(Stdio::piped());
+    let (mut child, invocation) =
+        spawn_cli(&mut command, "hermes", "structured_generation", Some(model))
+            .map_err(|_| "Unable to start Hermes CLI".to_owned())?;
+    let Some(mut stdin) = child.stdin.take() else {
+        invocation.failed(None, &[], &[]);
+        let _ = child.kill();
+        let _ = child.wait();
+        return Err("Unable to send input to Hermes CLI".to_owned());
+    };
+    if stdin.write_all(input.as_bytes()).is_err() {
+        invocation.failed(None, &[], &[]);
+        crate::application::logging::error(
+            "ai.cli",
+            "stdin_write_failure",
+            serde_json::json!({"provider": "hermes", "operation": "structured_generation", "model": model}),
+        );
+        let _ = child.kill();
+        let _ = child.wait();
+        return Err("Unable to send input to Hermes CLI".to_owned());
+    }
+    drop(stdin);
+    let output = child.wait_with_output().map_err(|_| {
+        invocation.failed(None, &[], &[]);
+        "Hermes CLI did not return a result".to_owned()
+    })?;
     if !output.status.success() {
+        invocation.failed(output.status.code(), &output.stdout, &output.stderr);
         return Err("Hermes CLI run failed".to_owned());
     }
-    parse_result(&output.stdout)
+    let result = parse_result(&output.stdout)?;
+    invocation.completed(result.0.len());
+    Ok(result)
 }
 
 fn parse_result(output: &[u8]) -> Result<(Vec<u8>, Option<AiTokenUsageCounts>), String> {
@@ -237,16 +264,42 @@ fn parse_result(output: &[u8]) -> Result<(Vec<u8>, Option<AiTokenUsageCounts>), 
         .split(|byte| *byte == b'\n')
         .filter_map(|line| serde_json::from_slice::<Value>(line).ok())
         .find(|event| event.get("type").and_then(Value::as_str) == Some("result"))
-        .ok_or_else(|| "Hermes CLI returned no result".to_owned())?;
+        .ok_or_else(|| {
+            crate::application::logging::log_parse_failure(
+                "ai.cli",
+                "hermes_structured_generation",
+                "missing_result_event",
+                output,
+            );
+            "Hermes CLI returned no result".to_owned()
+        })?;
     if result.get("exit_code").and_then(Value::as_i64) != Some(0) {
+        crate::application::logging::log_parse_failure(
+            "ai.cli",
+            "hermes_structured_generation",
+            "nonzero_result_exit_code",
+            output,
+        );
         return Err("Hermes CLI run failed".to_owned());
     }
-    let text = result
-        .get("text")
-        .and_then(Value::as_str)
-        .ok_or_else(|| "Hermes CLI returned no structured result".to_owned())?;
-    let value: Value = serde_json::from_str(text.trim())
-        .map_err(|_| "Hermes CLI returned invalid structured output".to_owned())?;
+    let text = result.get("text").and_then(Value::as_str).ok_or_else(|| {
+        crate::application::logging::log_parse_failure(
+            "ai.cli",
+            "hermes_structured_generation",
+            "missing_text",
+            output,
+        );
+        "Hermes CLI returned no structured result".to_owned()
+    })?;
+    let value: Value = serde_json::from_str(text.trim()).map_err(|_| {
+        crate::application::logging::log_parse_failure(
+            "ai.cli",
+            "hermes_structured_generation",
+            "structured_json",
+            text.as_bytes(),
+        );
+        "Hermes CLI returned invalid structured output".to_owned()
+    })?;
     let structured = serde_json::to_vec(&value)
         .map_err(|_| "Hermes CLI returned invalid structured output".to_owned())?;
     let tokens = result.get("tokens");

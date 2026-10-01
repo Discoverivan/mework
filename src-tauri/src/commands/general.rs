@@ -1,5 +1,6 @@
 use sqlx::SqlitePool;
-use tauri::{AppHandle, State};
+use tauri::{AppHandle, Manager, State};
+use tauri_plugin_opener::OpenerExt;
 
 use crate::application::{
     dev_overlay::DevMockMode,
@@ -92,4 +93,17 @@ pub async fn notification_request_permission(
 #[tauri::command]
 pub fn notification_open_settings() -> Result<(), String> {
     general::open_notification_settings()
+}
+
+#[tauri::command]
+pub fn application_open_logs_directory(app: AppHandle) -> Result<(), String> {
+    let app_data_dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|_| "Application data directory is unavailable".to_owned())?;
+    let logs_dir = crate::application::logging::ensure_logs_dir(&app_data_dir)
+        .map_err(|_| "Application log directory is unavailable".to_owned())?;
+    app.opener()
+        .open_path(logs_dir.to_string_lossy().into_owned(), None::<String>)
+        .map_err(|_| "Application log directory could not be opened".to_owned())
 }

@@ -1,9 +1,9 @@
-use super::{local_cli_command, usable_cli_path};
+use super::{local_cli_command, run_cli_output, spawn_cli, usable_cli_path};
 use crate::application::ai::{AiProviderDto, AiProviderId, AiProviderStatus, AiSettings};
 use crate::application::ai_usage_statistics::{self, AiTokenUsageCounts};
 use std::{
     env,
-    io::{BufRead, BufReader, Write},
+    io::{BufRead, BufReader, Read, Write},
     path::{Path, PathBuf},
     process::{ChildStdin, Command, Stdio},
     sync::mpsc,
@@ -30,7 +30,11 @@ pub(crate) fn run_structured_with_usage(
     output_path: &Path,
     workdir: &Path,
 ) -> Result<(Vec<u8>, Option<AiTokenUsageCounts>), RunError> {
-    let binary = resolve_codex_binary().ok_or(RunError::MissingBinary)?;
+    let binary = resolve_codex_binary().ok_or_else(|| {
+        crate::application::logging::error("ai.cli", "executable_missing", serde_json::json!({"provider": "codex", "operation": "structured_generation", "model": settings.model}));
+        RunError::MissingBinary
+    })?;
+
     let reasoning = settings.reasoning.as_str();
     let service_tier = if settings.fast_mode {
         "fast"
@@ -66,14 +70,33 @@ pub(crate) fn run_structured_with_usage(
             "-",
         ])
         .current_dir(workdir)
-        .stdin(Stdio::from(
-            std::fs::File::open(prompt_path).map_err(|_| RunError::PromptOpen)?,
-        ));
-    let output = command.output().map_err(|_| RunError::Spawn)?;
+        .stdin(Stdio::from(std::fs::File::open(prompt_path).map_err(|_| {
+            crate::application::logging::error("ai.cli", "prompt_file_open_failure", serde_json::json!({"provider": "codex", "operation": "structured_generation", "model": settings.model}));
+            RunError::PromptOpen
+        })?));
+    let output = match run_cli_output(
+        &mut command,
+        "codex",
+        "structured_generation",
+        Some(&settings.model),
+    ) {
+        Ok(output) => output,
+        Err(_) => return Err(RunError::Spawn),
+    };
     if !output.status.success() {
         return Err(RunError::Failed(output));
     }
-    let bytes = std::fs::read(output_path).map_err(|_| RunError::ResultRead)?;
+    let bytes = match std::fs::read(output_path) {
+        Ok(bytes) => bytes,
+        Err(_) => {
+            crate::application::logging::error(
+                "ai.cli",
+                "result_file_read_failure",
+                serde_json::json!({"provider": "codex", "operation": "structured_generation"}),
+            );
+            return Err(RunError::ResultRead);
+        }
+    };
     let usage = ai_usage_statistics::parse_cli_usage(&output.stdout);
     Ok((bytes, usage))
 }
@@ -95,7 +118,9 @@ pub fn inspect_codex_cli() -> AiProviderDto {
         };
     };
 
-    let version_output = command(&path).arg("--version").output();
+    let mut version_command = command(&path);
+    version_command.arg("--version");
+    let version_output = run_cli_output(&mut version_command, "codex", "version_probe", None);
     let Ok(version_output) = version_output else {
         return unavailable_provider(path, Vec::new(), "Codex CLI could not be started");
     };
@@ -105,7 +130,9 @@ pub fn inspect_codex_cli() -> AiProviderDto {
     let version =
         safe_first_line(&version_output.stdout).or_else(|| safe_first_line(&version_output.stderr));
 
-    let login_output = command(&path).args(["login", "status"]).output();
+    let mut login_command = command(&path);
+    login_command.args(["login", "status"]);
+    let login_output = run_cli_output(&mut login_command, "codex", "login_status_probe", None);
     let Ok(login_output) = login_output else {
         return AiProviderDto {
             id: AiProviderId::CodexCli,
@@ -121,6 +148,7 @@ pub fn inspect_codex_cli() -> AiProviderDto {
             message: Some("Codex CLI login status could not be checked".to_owned()),
         };
     };
+
     let login_text = format!(
         "{} {}",
         String::from_utf8_lossy(&login_output.stdout),
@@ -199,15 +227,40 @@ pub(crate) fn query_codex_models_with_timeout(
     path: &Path,
     timeout: Duration,
 ) -> Option<Vec<String>> {
-    let mut child = command(path)
+    let mut model_command = command(path);
+    model_command
         .args(["app-server", "--stdio"])
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
-        .stderr(Stdio::null())
-        .spawn()
-        .ok()?;
-    let mut stdin = child.stdin.take()?;
-    let stdout = child.stdout.take()?;
+        .stderr(Stdio::piped());
+    let (mut child, invocation) =
+        match spawn_cli(&mut model_command, "codex", "model_catalog", None) {
+            Ok(process) => process,
+            Err(_) => return None,
+        };
+    let Some(mut stdin) = child.stdin.take() else {
+        invocation.failed(None, &[], &[]);
+        let _ = child.kill();
+        let _ = child.wait();
+        return None;
+    };
+    let Some(stdout) = child.stdout.take() else {
+        invocation.failed(None, &[], &[]);
+        let _ = child.kill();
+        let _ = child.wait();
+        return None;
+    };
+    let Some(mut stderr) = child.stderr.take() else {
+        invocation.failed(None, &[], &[]);
+        let _ = child.kill();
+        let _ = child.wait();
+        return None;
+    };
+    let stderr_reader = thread::spawn(move || {
+        let mut bytes = Vec::new();
+        let _ = stderr.read_to_end(&mut bytes);
+        bytes
+    });
     let requests_written = (|| {
         write_app_server_message(
             &mut stdin,
@@ -238,7 +291,7 @@ pub(crate) fn query_codex_models_with_timeout(
         )
     })();
 
-    let result = if requests_written.is_some() {
+    let (result, exit_code) = if requests_written.is_some() {
         let (sender, receiver) = mpsc::channel();
         let reader_handle = thread::spawn(move || {
             let mut reader = BufReader::new(stdout);
@@ -252,10 +305,25 @@ pub(crate) fn query_codex_models_with_timeout(
                     return;
                 }
                 let Ok(message) = serde_json::from_str::<serde_json::Value>(line.trim()) else {
+                    crate::application::logging::log_parse_failure(
+                        "ai.cli",
+                        "codex_model_catalog",
+                        "json_line",
+                        line.as_bytes(),
+                    );
                     continue;
                 };
                 if message.get("id").and_then(serde_json::Value::as_u64) == Some(2) {
-                    let _ = sender.send(parse_codex_model_list_response(&message));
+                    let models = parse_codex_model_list_response(&message);
+                    if models.is_none() {
+                        crate::application::logging::log_parse_failure(
+                            "ai.cli",
+                            "codex_model_catalog",
+                            "response_shape",
+                            line.as_bytes(),
+                        );
+                    }
+                    let _ = sender.send(models);
                     return;
                 }
             }
@@ -263,15 +331,21 @@ pub(crate) fn query_codex_models_with_timeout(
         let result = receiver.recv_timeout(timeout).ok().flatten();
         drop(stdin);
         let _ = child.kill();
-        let _ = child.wait();
+        let exit_code = child.wait().ok().and_then(|status| status.code());
         let _ = reader_handle.join();
-        result
+        (result, exit_code)
     } else {
         drop(stdin);
         let _ = child.kill();
-        let _ = child.wait();
-        None
+        let exit_code = child.wait().ok().and_then(|status| status.code());
+        (None, exit_code)
     };
+    let stderr = stderr_reader.join().unwrap_or_default();
+    if result.is_none() {
+        invocation.failed(exit_code, &[], &stderr);
+    } else {
+        invocation.completed(result.as_ref().map_or(0, Vec::len));
+    }
     result
 }
 

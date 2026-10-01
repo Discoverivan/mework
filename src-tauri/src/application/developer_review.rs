@@ -13,6 +13,7 @@ use uuid::Uuid;
 
 use super::developer::MyPullRequestDto;
 use crate::application::ai_usage_statistics;
+use crate::application::logging::HttpRequestBuilderExt;
 use crate::infrastructure::db::repositories;
 
 const REVIEW_STATE_SETTING_KEY: &str = "developer.pull_request_reviews";
@@ -1126,14 +1127,14 @@ async fn request_openai_review_content_with_max_tokens(
         .post(format!("{}/chat/completions", runtime.base_url))
         .bearer_auth(&runtime.token)
         .json(&payload)
-        .send()
+        .send_logged(
+            "ai.openai_compatible",
+            "review",
+            crate::application::logging::HttpBodyPolicy::Omit,
+        )
         .await
-        .map_err(|error| {
-            crate::application::ai::log_openai_transport_error("review", &error.to_string());
-            "OpenAI-compatible API review request could not be completed".to_owned()
-        })?;
+        .map_err(|_| "OpenAI-compatible API review request could not be completed".to_owned())?;
     let status = response.status();
-    let headers = response.headers().clone();
     let body = response.bytes().await.map_err(|error| {
         crate::application::ai::log_openai_transport_error(
             "review_response_body",
@@ -1141,7 +1142,7 @@ async fn request_openai_review_content_with_max_tokens(
         );
         "OpenAI-compatible API returned an invalid review response".to_owned()
     })?;
-    crate::application::ai::log_openai_chat_response("review", status.as_u16(), &headers, &body);
+    crate::application::ai::log_openai_chat_response("review", status.as_u16(), &body);
     if status == reqwest::StatusCode::UNAUTHORIZED || status == reqwest::StatusCode::FORBIDDEN {
         return Err("OpenAI-compatible API authorization failed during review".to_owned());
     }
@@ -1161,6 +1162,14 @@ async fn request_openai_review_content_with_max_tokens(
         .ok()
         .and_then(|payload| openai_response_content(&payload))
         .or_else(|| crate::application::ai::openai_stream_message_content(&body));
+    if content.is_none() {
+        crate::application::logging::log_parse_failure(
+            "ai.openai_compatible",
+            "review",
+            "missing_response_content",
+            &body,
+        );
+    }
     let usage = serde_json::from_slice::<serde_json::Value>(&body)
         .ok()
         .and_then(|payload| ai_usage_statistics::parse_response_usage(&payload))
@@ -1366,8 +1375,29 @@ fn parse_review_result(output: &[u8]) -> Result<PullRequestReviewResult, String>
                 .ok_or(serde_json::Error::io(std::io::Error::other("missing JSON")))?;
             serde_json::from_str::<PullRequestReviewResult>(&text[start..=end])
         })
-        .map_err(|_| "AI provider returned invalid review JSON".to_owned())?;
-    validate_result(parsed)
+        .map_err(|_| {
+            crate::application::logging::log_parse_failure(
+                "ai",
+                "pull_request_review",
+                "result_json",
+                output,
+            );
+            "AI provider returned invalid review JSON".to_owned()
+        })?;
+    validate_result(parsed).inspect_err(|error| {
+        crate::application::logging::log_parse_failure(
+            "ai",
+            "pull_request_review",
+            "result_validation",
+            output,
+        );
+        crate::application::logging::log_business_failure(
+            "ai",
+            "pull_request_review",
+            "result_validation",
+            error,
+        );
+    })
 }
 
 fn validate_result(mut result: PullRequestReviewResult) -> Result<PullRequestReviewResult, String> {

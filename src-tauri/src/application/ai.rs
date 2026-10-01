@@ -1,16 +1,11 @@
 use super::ai_providers::cli;
 pub use cli::{ai_cli_candidate_diagnostics, AiCliCandidateDiagnostic};
 
-use std::{
-    fs,
-    io::Write,
-    path::{Path, PathBuf},
-    sync::OnceLock,
-    time::{Duration, SystemTime, UNIX_EPOCH},
-};
+use std::time::Duration;
 
-use reqwest::header::HeaderMap;
 use serde::{Deserialize, Serialize};
+
+use crate::application::logging::HttpRequestBuilderExt;
 use serde_json::Value;
 use sqlx::SqlitePool;
 
@@ -291,6 +286,12 @@ pub async fn save_openai_compatible_provider(
     };
     let models = load_openai_models(&base_url, &token, request.allow_insecure_tls).await?;
     if models.is_empty() {
+        crate::application::logging::log_business_failure(
+            "ai.openai_compatible",
+            "model_catalog",
+            "empty_model_list",
+            "successful response did not include any available models",
+        );
         return Err("Authorization succeeded, but the API returned no models".to_owned());
     }
     if !request.token.trim().is_empty() {
@@ -901,26 +902,77 @@ fn normalize_openai_base_url(value: &str) -> Result<String, String> {
 
 pub fn safe_openai_error_detail(value: &serde_json::Value) -> Option<String> {
     let error = value.get("error")?;
-    let label = safe_openai_error_label(error.get("code"))
-        .or_else(|| safe_openai_error_label(error.get("type")))?;
-    let parameter = safe_openai_error_label(error.get("param"));
+    const SAFE_CODES: &[&str] = &[
+        "invalid_api_key",
+        "model_not_found",
+        "context_length_exceeded",
+        "rate_limit_exceeded",
+        "insufficient_quota",
+        "unsupported_parameter",
+        "unsupported_value",
+        "invalid_request_error",
+        "server_error",
+        "internal_server_error",
+        "overloaded_error",
+        "request_timeout",
+        "content_policy_violation",
+        "billing_not_active",
+        "organization_deactivated",
+        "model_not_available",
+        "invalid_model",
+        "too_many_requests",
+        "authentication_error",
+        "permission_denied",
+    ];
+    const SAFE_TYPES: &[&str] = &[
+        "invalid_request_error",
+        "authentication_error",
+        "permission_error",
+        "rate_limit_error",
+        "server_error",
+        "insufficient_quota",
+        "request_timeout",
+        "service_unavailable_error",
+        "not_found_error",
+        "conflict_error",
+        "unprocessable_entity_error",
+    ];
+    const SAFE_PARAMS: &[&str] = &[
+        "model",
+        "messages",
+        "temperature",
+        "top_p",
+        "max_tokens",
+        "max_completion_tokens",
+        "stream",
+        "tools",
+        "tool_choice",
+        "response_format",
+        "n",
+        "stop",
+        "presence_penalty",
+        "frequency_penalty",
+        "seed",
+        "user",
+        "input",
+        "prompt",
+    ];
+    let code = safe_openai_error_label(error.get("code"), SAFE_CODES);
+    let error_type = safe_openai_error_label(error.get("type"), SAFE_TYPES);
+    let label = code.or(error_type)?;
+    let parameter = safe_openai_error_label(error.get("param"), SAFE_PARAMS);
     Some(match parameter {
         Some(parameter) => format!("{label} (parameter: {parameter})"),
         None => label,
     })
 }
 
-fn safe_openai_error_label(value: Option<&serde_json::Value>) -> Option<String> {
+fn safe_openai_error_label(
+    value: Option<&serde_json::Value>,
+    allowlist: &[&str],
+) -> Option<String> {
     let label = value?.as_str()?.trim();
-    if label.is_empty()
-        || label.chars().count() > 80
-        || !label.chars().all(|character| {
-            character.is_ascii_alphanumeric() || matches!(character, '_' | '-' | '.' | '[' | ']')
-        })
-    {
-        return None;
-    }
-    Some(label.to_owned())
+    allowlist.contains(&label).then(|| label.to_owned())
 }
 
 pub fn openai_http_client(
@@ -937,17 +989,6 @@ pub fn openai_http_client(
 }
 
 const OPENAI_DEBUG_LOG_MAX_CHARS: usize = 8_000;
-const OPENAI_DEBUG_LOG_MAX_BYTES: u64 = 2 * 1024 * 1024;
-static OPENAI_DEBUG_LOG_PATH: OnceLock<PathBuf> = OnceLock::new();
-
-#[cfg(debug_assertions)]
-pub fn initialize_openai_debug_log(app_data_dir: &Path) {
-    let path = app_data_dir
-        .join("logs")
-        .join("openai-compatible-debug.log");
-    let _ = fs::create_dir_all(path.parent().unwrap_or(app_data_dir));
-    let _ = OPENAI_DEBUG_LOG_PATH.set(path);
-}
 
 pub fn log_openai_chat_request(
     operation: &str,
@@ -965,65 +1006,28 @@ pub fn log_openai_chat_request(
     }));
 }
 
-pub fn log_openai_chat_response(operation: &str, status: u16, headers: &HeaderMap, body: &[u8]) {
-    let mut safe_headers = serde_json::Map::new();
-    for header_name in [
-        "content-type",
-        "content-length",
-        "server",
-        "allow",
-        "x-request-id",
-        "request-id",
-        "retry-after",
-    ] {
-        if let Some(value) = headers
-            .get(header_name)
-            .and_then(|value| value.to_str().ok())
-        {
-            safe_headers.insert(
-                header_name.to_owned(),
-                Value::String(truncate_openai_log_text(&redact_bearer_tokens(value))),
-            );
-        }
+pub fn log_openai_chat_response(operation: &str, status: u16, body: &[u8]) {
+    if !(200..300).contains(&status) {
+        crate::application::logging::log_http_error_payload(
+            status,
+            "ai.openai_compatible",
+            operation,
+            body,
+            false,
+        );
     }
-    append_openai_debug_json(&serde_json::json!({
-        "event": "response",
-        "operation": operation,
-        "status": status,
-        "headers": safe_headers,
-        "body": redact_openai_debug_body(body),
-    }));
 }
 
-pub fn log_openai_transport_error(operation: &str, detail: &str) {
+pub fn log_openai_transport_error(operation: &str, _detail: &str) {
     append_openai_debug_json(&serde_json::json!({
         "event": "transport_error",
         "operation": operation,
-        "detail": truncate_openai_log_text(&redact_bearer_tokens(detail)),
+        "detail": "[omitted to avoid logging request URLs or provider data]",
     }));
 }
 
 fn append_openai_debug_json(value: &Value) {
-    let Some(path) = OPENAI_DEBUG_LOG_PATH.get() else {
-        return;
-    };
-    if fs::metadata(path)
-        .map(|metadata| metadata.len() > OPENAI_DEBUG_LOG_MAX_BYTES)
-        .unwrap_or(false)
-    {
-        let _ = fs::write(path, "");
-    }
-    let timestamp = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|value| value.as_millis())
-        .unwrap_or_default();
-    let Ok(line) = serde_json::to_string(value) else {
-        return;
-    };
-    let Ok(mut file) = fs::OpenOptions::new().create(true).append(true).open(path) else {
-        return;
-    };
-    let _ = writeln!(file, "{timestamp} {line}");
+    crate::application::logging::info("ai.openai_compatible", "http", value.clone());
 }
 
 fn summarize_openai_chat_payload(payload: &Value) -> Value {
@@ -1084,74 +1088,17 @@ fn summarize_openai_content(value: &Value) -> Value {
     }
 }
 
-fn redact_openai_debug_body(body: &[u8]) -> Value {
-    let text = String::from_utf8_lossy(body);
-    let value = serde_json::from_slice::<Value>(body)
-        .map(redact_openai_debug_value)
-        .ok();
-    match value {
-        Some(value) => Value::String(truncate_openai_log_text(
-            &serde_json::to_string(&value).unwrap_or_else(|_| "[invalid-json]".to_owned()),
-        )),
-        None => Value::String(truncate_openai_log_text(&redact_bearer_tokens(&text))),
+#[cfg(test)]
+fn safe_openai_log_body(status: u16, body: &[u8]) -> Value {
+    if (200..300).contains(&status) {
+        return Value::String("[successful response body omitted]".to_owned());
     }
-}
-
-fn redact_openai_debug_value(value: Value) -> Value {
-    match value {
-        Value::Object(object) => Value::Object(
-            object
-                .into_iter()
-                .map(|(key, value)| {
-                    let lower_key = key.to_ascii_lowercase();
-                    let value = if [
-                        "authorization",
-                        "api_key",
-                        "apikey",
-                        "credential",
-                        "password",
-                        "secret",
-                        "token",
-                    ]
-                    .iter()
-                    .any(|part| lower_key.contains(part))
-                    {
-                        Value::String("[REDACTED]".to_owned())
-                    } else {
-                        redact_openai_debug_value(value)
-                    };
-                    (key, value)
-                })
-                .collect(),
-        ),
-        Value::Array(values) => {
-            Value::Array(values.into_iter().map(redact_openai_debug_value).collect())
-        }
-        Value::String(value) => Value::String(redact_bearer_tokens(&value)),
-        value => value,
-    }
-}
-
-fn redact_bearer_tokens(value: &str) -> String {
-    let lower = value.to_ascii_lowercase();
-    let mut result = String::new();
-    let mut cursor = 0;
-    while let Some(relative_start) = lower[cursor..].find("bearer ") {
-        let start = cursor + relative_start;
-        result.push_str(&value[cursor..start]);
-        result.push_str("Bearer [REDACTED]");
-        let token_start = start + "bearer ".len();
-        let token_end = value[token_start..]
-            .char_indices()
-            .find(|(_, character)| {
-                character.is_whitespace() || matches!(character, '"' | '\'' | ',' | ')' | ']')
-            })
-            .map(|(index, _)| token_start + index)
-            .unwrap_or(value.len());
-        cursor = token_end;
-    }
-    result.push_str(&value[cursor..]);
-    result
+    let safe_detail = serde_json::from_slice::<Value>(body)
+        .ok()
+        .and_then(|payload| safe_openai_error_detail(&payload));
+    safe_detail
+        .map(Value::String)
+        .unwrap_or_else(|| Value::String("[unrecognized error body omitted]".to_owned()))
 }
 
 fn truncate_openai_log_text(value: &str) -> String {
@@ -1237,26 +1184,46 @@ async fn query_openai_models(
     let response = client
         .get(format!("{base_url}/models"))
         .bearer_auth(token)
-        .send()
+        .send_logged(
+            "ai.openai_compatible",
+            "model_catalog",
+            crate::application::logging::HttpBodyPolicy::Omit,
+        )
         .await
         .map_err(|_| "OpenAI-compatible API could not be reached".to_owned())?;
-    if response.status() == reqwest::StatusCode::UNAUTHORIZED
-        || response.status() == reqwest::StatusCode::FORBIDDEN
-    {
-        return Err("OpenAI-compatible API authorization failed".to_owned());
-    }
     if !response.status().is_success() {
+        let status = response.status().as_u16();
+        crate::application::logging::log_http_error_body(
+            response,
+            "ai.openai_compatible",
+            "model_catalog",
+            false,
+        )
+        .await;
+        if status == 401 || status == 403 {
+            return Err("OpenAI-compatible API authorization failed".to_owned());
+        }
         return Err(format!(
-            "OpenAI-compatible API returned HTTP {} while loading models",
-            response.status().as_u16()
+            "OpenAI-compatible API returned HTTP {status} while loading models"
         ));
     }
-    let payload = response
-        .json::<serde_json::Value>()
-        .await
-        .map_err(|_| "OpenAI-compatible API returned an invalid model catalog".to_owned())?;
-    parse_openai_model_list_response(&payload)
-        .ok_or_else(|| "OpenAI-compatible API returned an invalid model catalog".to_owned())
+    let payload: serde_json::Value = crate::application::logging::parse_json_response(
+        response,
+        "ai.openai_compatible",
+        "model_catalog",
+    )
+    .await
+    .map_err(|_| "OpenAI-compatible API returned an invalid model catalog".to_owned())?;
+    parse_openai_model_list_response(&payload).ok_or_else(|| {
+        let raw = serde_json::to_vec(&payload).unwrap_or_default();
+        crate::application::logging::log_parse_failure(
+            "ai.openai_compatible",
+            "model_catalog",
+            "response_shape",
+            &raw,
+        );
+        "OpenAI-compatible API returned an invalid model catalog".to_owned()
+    })
 }
 
 pub fn parse_openai_model_list_response(value: &serde_json::Value) -> Option<Vec<String>> {
@@ -1404,16 +1371,28 @@ mod tests {
         assert!(!safe_openai_error_detail(&payload)
             .unwrap()
             .contains("synthetic-token"));
+        let untrusted_code = serde_json::json!({"error": {"code": "sk-abc123"}});
+        assert_eq!(safe_openai_error_detail(&untrusted_code), None);
+        let untrusted_param =
+            serde_json::json!({"error": {"code": "server_error", "param": "token"}});
+        assert_eq!(
+            safe_openai_error_detail(&untrusted_param),
+            Some("server_error".to_owned())
+        );
     }
 
     #[test]
-    fn debug_body_redacts_bearer_and_credential_fields() {
-        let body = br#"{"error":{"message":"Bearer synthetic-token is invalid","api_key":"synthetic-key","detail":"keep this diagnostic"}}"#;
-        let logged = super::redact_openai_debug_body(body).to_string();
-        assert!(!logged.contains("synthetic-token"));
-        assert!(!logged.contains("synthetic-key"));
-        assert!(logged.contains("[REDACTED]"));
-        assert!(logged.contains("keep this diagnostic"));
+    fn openai_logging_omits_success_body_and_only_keeps_allowlisted_error_metadata() {
+        let success_body = br#"{"choices":[{"message":{"content":"private synthetic code"}}]}"#;
+        let success = super::safe_openai_log_body(200, success_body).to_string();
+        assert!(!success.contains("private synthetic code"));
+        assert!(success.contains("omitted"));
+
+        let error_body = br#"{"error":{"message":"private synthetic explanation","type":"invalid_request_error","code":"unsupported_parameter","detail":"do not log this"}}"#;
+        let error = super::safe_openai_log_body(500, error_body).to_string();
+        assert!(error.contains("unsupported_parameter"));
+        assert!(!error.contains("private synthetic explanation"));
+        assert!(!error.contains("do not log this"));
     }
 
     #[test]
