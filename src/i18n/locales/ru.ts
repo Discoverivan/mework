@@ -1016,6 +1016,7 @@ export const ru: Record<TranslationKey, string> = {
   "pr.dialog.openCommentLocation": "Открыть {location} в diff PR",
   "pr.dialog.aiSummary": "Резюме ИИ",
   "pr.dialog.completedAt": "Ревью завершено:",
+  "pr.dialog.reviewDetails": "Сведения о ревью",
   "pr.dialog.aiConfiguration": "Конфигурация AI для этого ревью",
   "pr.dialog.executionUnavailable": "Конфигурация AI для этого ревью не была сохранена.",
   "pr.dialog.enabled": "Вкл.",

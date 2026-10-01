@@ -1014,6 +1014,7 @@ export const en = {
   "pr.dialog.openCommentLocation": "Open {location} in the pull request diff",
   "pr.dialog.aiSummary": "AI summary",
   "pr.dialog.completedAt": "Review completed:",
+  "pr.dialog.reviewDetails": "Review details",
   "pr.dialog.aiConfiguration": "AI configuration used for this review",
   "pr.dialog.executionUnavailable": "AI configuration was not saved for this review.",
   "pr.dialog.enabled": "On",

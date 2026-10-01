@@ -198,7 +198,7 @@ export function PullRequestReviewDialog({
                 </div>
               ) : null}
             </div>
-            {!result || reviewFailed ? openInBrowser : null}
+            {openInBrowser}
           </div>
         </DialogHeader>
         <DialogBody className="max-h-[70vh] space-y-5 overflow-y-auto">
@@ -211,8 +211,9 @@ export function PullRequestReviewDialog({
           ) : null}
           {result && !reviewFailed ? (
             <>
-              <div className="flex items-center justify-between gap-3 text-xs text-muted-foreground">
-                <div className="min-w-0 flex-1 space-y-1">
+              <section aria-labelledby="review-details-title" className="space-y-2 rounded-lg border bg-card p-4">
+                <h3 id="review-details-title" className="text-sm font-semibold">{t("pr.dialog.reviewDetails")}</h3>
+                <div className="space-y-1 text-xs text-muted-foreground">
                   {finishedAt ? <p>{t("pr.dialog.completedAt")} <time dateTime={finishedAt.toISOString()}>{finishedAt.toLocaleString(locale)} · {formatRelativeDate(review?.finishedAt ?? undefined, t)}</time></p> : null}
                   {execution ? (
                     <dl aria-label={t("pr.dialog.aiConfiguration")} className="flex flex-wrap gap-x-4 gap-y-1">
@@ -223,8 +224,7 @@ export function PullRequestReviewDialog({
                     </dl>
                   ) : <p>{t("pr.dialog.executionUnavailable")}</p>}
                 </div>
-                {openInBrowser}
-              </div>
+              </section>
               <section aria-labelledby="ai-summary-title" className="space-y-2 rounded-lg border bg-card p-4">
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <h3 id="ai-summary-title" className="text-sm font-semibold">{t("pr.dialog.aiSummary")}</h3>
