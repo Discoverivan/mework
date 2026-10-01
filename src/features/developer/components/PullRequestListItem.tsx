@@ -13,7 +13,8 @@ import type {
 import { useI18n } from "@/i18n/context";
 import { cn } from "@/lib/utils";
 import type { TranslationKey } from "@/i18n/locales/en";
-import type { TranslationParams } from "@/i18n/types";
+import { formatRelativeDate } from "./pull-request-formatting";
+import { PullRequestReviewDetails } from "./PullRequestReviewDetails";
 
 export type PullRequestListMode = "reviewer" | "author";
 
@@ -33,8 +34,6 @@ export const reviewSeveritySections: Array<{
   { key: "low", labelKey: "pr.severity.low" },
 ];
 
-type Translator = (key: TranslationKey, params?: TranslationParams) => string;
-
 function safePullRequestUrl(value?: string): string | undefined {
   if (!value) return undefined;
   try {
@@ -43,17 +42,6 @@ function safePullRequestUrl(value?: string): string | undefined {
   } catch {
     return undefined;
   }
-}
-
-export function formatRelativeDate(timestamp?: number, t?: Translator): string {
-  if (timestamp == null || !Number.isFinite(timestamp)) return t ? t("pr.relative.unknown") : "Unknown update";
-  const seconds = Math.max(0, Math.floor((Date.now() - timestamp) / 1000));
-  if (seconds < 60) return t ? t("pr.relative.justNow") : "just now";
-  if (seconds < 3600) return t ? t("pr.relative.minutes", { count: Math.floor(seconds / 60) }) : `${Math.floor(seconds / 60)}m ago`;
-  if (seconds < 86_400) return t ? t("pr.relative.hours", { count: Math.floor(seconds / 3600) }) : `${Math.floor(seconds / 3600)}h ago`;
-  if (seconds < 2_592_000) return t ? t("pr.relative.days", { count: Math.floor(seconds / 86_400) }) : `${Math.floor(seconds / 86_400)}d ago`;
-  if (seconds < 31_536_000) return t ? t("pr.relative.months", { count: Math.floor(seconds / 2_592_000) }) : `${Math.floor(seconds / 2_592_000)}mo ago`;
-  return t ? t("pr.relative.years", { count: Math.floor(seconds / 31_536_000) }) : `${Math.floor(seconds / 31_536_000)}y ago`;
 }
 
 function creatorInitials(displayName: string): string {
@@ -262,9 +250,15 @@ export function PullRequestListItem({
               {t("pr.aiReviewInProgress")}
             </Badge>
           ) : null}
-          {!reviewRunning && reviewCompleted && review?.result ? <AiVerdictBadge verdict={review.result.verdict} /> : null}
+          {!reviewRunning && reviewCompleted && review?.result ? (
+            <div className="flex items-center gap-1">
+              <PullRequestReviewDetails review={review} />
+              <AiVerdictBadge verdict={review.result.verdict} />
+            </div>
+          ) : null}
           {!reviewRunning && reviewFailed ? (
             <div className="flex items-center gap-1">
+              {review ? <PullRequestReviewDetails review={review} /> : null}
               <Badge variant="outline" className="h-7 gap-1.5 rounded-md px-2.5 py-0 text-destructive">
                 <Sparkles className="size-3" aria-hidden="true" />
                 {t("pr.aiReviewError")}

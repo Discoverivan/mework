@@ -567,6 +567,7 @@ describe("MyPullRequestsPage", () => {
       error: "Example review failure details",
       startedAt: 1,
       finishedAt: 2,
+      execution: { provider: "codex-cli", providerName: "Codex CLI", providerInstanceId: null, model: "example-failed-model", reasoning: "high", fastMode: false },
     };
     listMyPullRequestsMock.mockResolvedValueOnce({
       ...firstPage,
@@ -579,12 +580,23 @@ describe("MyPullRequestsPage", () => {
     expect(rerunButton.previousElementSibling).toBe(screen.getByText("AI review error"));
     expect(screen.getByText("AI review error")).toHaveClass("text-destructive");
     expect(screen.getByRole("button", { name: "AI review error" }).querySelector("svg.lucide-sparkles")).toHaveClass("text-destructive");
+    fireEvent.click(screen.getByRole("button", { name: "Show review details" }));
+    let failureDetails = await screen.findByRole("dialog", { name: "Review details" });
+    expect(failureDetails).toHaveTextContent("Review ended:");
+    expect(failureDetails).toHaveTextContent("Codex CLI");
+    expect(failureDetails).toHaveTextContent("example-failed-model");
+    fireEvent.click(screen.getByRole("button", { name: "Show review details" }));
     fireEvent.click(await screen.findByRole("button", { name: "AI review error" }));
 
     let dialog = await screen.findByRole("dialog", { name: "Review results" });
     expect(within(dialog).getByText("Example review failure details")).toBeInTheDocument();
-    expect(within(dialog).getAllByRole("button").map((button) => button.textContent)).toEqual(["Retry review", "Close"]);
+    expect(within(dialog).getAllByRole("button").map((button) => button.textContent)).toEqual(["", "Retry review", "Close"]);
     expect(within(dialog).getByRole("link", { name: "Open in browser" })).toHaveAttribute("href", pullRequests[0].url);
+    fireEvent.click(within(dialog).getByRole("button", { name: "Show review details" }));
+    failureDetails = await screen.findByRole("dialog", { name: "Review details" });
+    expect(failureDetails).toHaveTextContent("example-failed-model");
+    expect(failureDetails.querySelector("time")).toHaveAttribute("dateTime", new Date(failedReview.finishedAt!).toISOString());
+    fireEvent.click(within(dialog).getByRole("button", { name: "Show review details" }));
     fireEvent.click(within(dialog).getAllByRole("button", { name: "Close" })[0]);
     await waitFor(() => expect(screen.queryByRole("dialog", { name: "Review results" })).not.toBeInTheDocument());
     fireEvent.click(screen.getByRole("button", { name: "AI review error" }));
@@ -691,6 +703,7 @@ describe("MyPullRequestsPage", () => {
     await renderFlatPage();
     await screen.findByRole("button", { name: "Review results" });
     expect(screen.getByText("AI verdict · Needs work")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Show review details" })).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Review results" }));
     await waitFor(() => expect(markPullRequestReadMock).toHaveBeenCalledWith("bitbucket-1", "DEMO", "sample-repository", "7", "commit-7"));
@@ -701,13 +714,18 @@ describe("MyPullRequestsPage", () => {
     expect(dialog).toHaveTextContent("Test Author A");
     expect(dialog).toHaveTextContent("Needs work");
     expect(dialog).toHaveTextContent("AI summary");
-    expect(dialog).toHaveTextContent("Review completed:");
-    expect(within(dialog).getByText(/5m ago/)).toHaveAttribute("dateTime", new Date(markdownReview.finishedAt!).toISOString());
-    const aiConfiguration = within(dialog).getByLabelText("AI configuration used for this review");
+    expect(dialog).not.toHaveTextContent("Review completed:");
+    fireEvent.click(within(dialog).getByRole("button", { name: "Show review details" }));
+    const reviewDetails = await screen.findByRole("dialog", { name: "Review details" });
+    expect(reviewDetails).toHaveTextContent("Review completed:");
+    expect(within(reviewDetails).getByText(/5m ago/)).toHaveAttribute("dateTime", new Date(markdownReview.finishedAt!).toISOString());
+    expect(reviewDetails.querySelector("time")?.textContent).toMatch(/\d{2}\.\d{2}\.\d{4}/);
+    const aiConfiguration = within(reviewDetails).getByLabelText("AI configuration used for this review");
     expect(aiConfiguration).toHaveTextContent("Codex CLI");
     expect(aiConfiguration).toHaveTextContent("example-review-model");
-    expect(aiConfiguration).toHaveTextContent("Reasoning:high");
-    expect(aiConfiguration).toHaveTextContent("Fast mode:On");
+    expect(aiConfiguration).toHaveTextContent("Reasoninghigh");
+    expect(aiConfiguration).toHaveTextContent("Fast modeOn");
+    fireEvent.click(within(dialog).getByRole("button", { name: "Show review details" }));
     expect(screen.getByText("Coordinates an example background refresh lifecycle.")).toHaveClass("text-foreground");
     expect(screen.getByText("The change can lose data when the retry races with shutdown.")).toHaveClass("text-foreground");
     expect(dialog).toHaveTextContent("AI comments");

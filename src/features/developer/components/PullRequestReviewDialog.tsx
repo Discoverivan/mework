@@ -22,9 +22,10 @@ import { cn } from "@/lib/utils";
 import {
   CreatorAvatar,
   AiVerdictBadge,
-  formatRelativeDate,
   reviewSeveritySections,
 } from "./PullRequestListItem";
+import { formatRelativeDate } from "./pull-request-formatting";
+import { PullRequestReviewDetails } from "./PullRequestReviewDetails";
 
 export interface PullRequestReviewDialogProps {
   open: boolean;
@@ -101,11 +102,9 @@ export function PullRequestReviewDialog({
   onPublishComment,
   onSetDecision,
 }: PullRequestReviewDialogProps) {
-  const { t, locale } = useI18n();
+  const { t } = useI18n();
   const result = review?.result;
   const reviewFailed = review?.status === "failed";
-  const finishedAt = review?.finishedAt != null ? new Date(review.finishedAt) : undefined;
-  const execution = review?.execution;
   const [pendingAction, setPendingAction] = useState<string>();
   const [publishedComments, setPublishedComments] = useState<Set<string>>(() => new Set());
   const [editingComment, setEditingComment] = useState<EditableComment>();
@@ -204,28 +203,23 @@ export function PullRequestReviewDialog({
           {reviewFailed ? (
             <Alert variant="destructive">
               <CircleAlert aria-hidden="true" />
-              <AlertTitle>{t("pr.aiReviewError")}</AlertTitle>
+              <AlertTitle className="flex items-center gap-2">
+                {review ? <PullRequestReviewDetails review={review} /> : null}
+                {t("pr.aiReviewError")}
+              </AlertTitle>
               <AlertDescription className="break-words">{review.error || t("pr.dialog.unknownReviewError")}</AlertDescription>
             </Alert>
           ) : null}
           {result && !reviewFailed ? (
             <>
-              <div className="space-y-1 text-xs text-muted-foreground">
-                {finishedAt ? <p>{t("pr.dialog.completedAt")} <time dateTime={finishedAt.toISOString()}>{finishedAt.toLocaleString(locale)} · {formatRelativeDate(review?.finishedAt ?? undefined, t)}</time></p> : null}
-                {execution ? (
-                  <dl aria-label={t("pr.dialog.aiConfiguration")} className="flex flex-wrap gap-x-4 gap-y-1">
-                    <div className="flex gap-1"><dt>{t("settings.ai.provider")}:</dt><dd className="break-words text-foreground">{execution.providerName}</dd></div>
-                    <div className="flex gap-1"><dt>{t("settings.ai.model")}:</dt><dd className="break-all font-mono text-foreground">{execution.model}</dd></div>
-                    {execution.reasoning != null ? <div className="flex gap-1"><dt>{t("settings.ai.reasoning")}:</dt><dd className="text-foreground">{execution.reasoning}</dd></div> : null}
-                    {execution.fastMode != null ? <div className="flex gap-1"><dt>{t("settings.ai.fastMode")}:</dt><dd className="text-foreground">{t(execution.fastMode ? "pr.dialog.enabled" : "pr.dialog.disabled")}</dd></div> : null}
-                  </dl>
-                ) : <p>{t("pr.dialog.executionUnavailable")}</p>}
-              </div>
               <section aria-labelledby="ai-summary-title" className="space-y-2 rounded-lg border bg-card px-4 pb-4 pt-3">
                 <div className="space-y-2">
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <h3 id="ai-summary-title" className="text-base font-semibold leading-tight">{t("pr.dialog.aiSummary")}</h3>
-                    <AiVerdictBadge verdict={result.verdict} />
+                    <div className="flex items-center gap-2">
+                      {review ? <PullRequestReviewDetails review={review} /> : null}
+                      <AiVerdictBadge verdict={result.verdict} />
+                    </div>
                   </div>
                   <ReviewMarkdown>{result.description}</ReviewMarkdown>
                 </div>

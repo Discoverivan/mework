@@ -3,7 +3,7 @@ import { Info } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { useI18n } from "@/i18n/context";
 
-import { formatRelativeDate } from "./PullRequestListItem";
+import { formatRelativeDate } from "./pull-request-formatting";
 import type { PullRequestSortOrder } from "./pull-request-projects";
 
 const POLL_INTERVAL_MS = 300_000;
