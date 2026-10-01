@@ -1452,6 +1452,8 @@ mod tests {
                 fast_mode: false,
             }),
         };
+        let stored = serde_json::to_value(&settings).unwrap();
+        assert_eq!(stored["sprintSummary"]["model"], "example-summary-model");
         let task = super::effective_settings(settings.clone(), super::AiActivity::TaskCreation);
         let review =
             super::effective_settings(settings.clone(), super::AiActivity::PullRequestReview);
