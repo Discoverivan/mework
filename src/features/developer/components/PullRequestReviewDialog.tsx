@@ -222,7 +222,7 @@ export function PullRequestReviewDialog({
                 ) : <p>{t("pr.dialog.executionUnavailable")}</p>}
               </div>
               <section aria-labelledby="ai-summary-title" className="space-y-2 rounded-lg border bg-card px-4 pb-4 pt-3">
-                <div className="space-y-1">
+                <div className="space-y-2">
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <h3 id="ai-summary-title" className="text-base font-semibold leading-tight">{t("pr.dialog.aiSummary")}</h3>
                     <AiVerdictBadge verdict={result.verdict} />
