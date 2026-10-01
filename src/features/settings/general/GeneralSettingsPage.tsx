@@ -4,6 +4,7 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
+import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
 import { Switch } from "@/components/ui/switch";
@@ -108,6 +109,7 @@ export function GeneralSettingsPage() {
       authoredNotificationsEnabled: settings.authoredNotificationsEnabled,
       taskTrackerNotificationsEnabled: settings.taskTrackerNotificationsEnabled,
       extraFunctionsEnabled: settings.extraFunctionsEnabled,
+      aiReviewAttempts: settings.aiReviewAttempts,
       language: settings.language,
       aiResponseLanguage: settings.aiResponseLanguage ?? AiResponseLanguage.SameAsUi,
       themePreference: settings.themePreference,
@@ -522,6 +524,42 @@ export function GeneralSettingsPage() {
         <span className="sr-only" role="status" aria-live="polite">
           {testedNotification ? t("general.testSent") : ""}
         </span>
+      </Card>
+
+      <Card>
+        <CardHeader className="space-y-4 px-4 py-3.5">
+          <div>
+            <CardTitle className="text-base font-semibold leading-tight">{t("general.reliability")}</CardTitle>
+            <CardDescription className="mt-1 leading-snug">{t("general.reliabilityDescription")}</CardDescription>
+          </div>
+        </CardHeader>
+        <CardContent className="px-4 pb-4 pt-0">
+          <div className="flex items-center justify-between gap-4 border-t pt-4 pl-4">
+            <div>
+              <Label htmlFor="general-ai-review-attempts" alignment="inline" className="font-medium">
+                {t("general.aiReviewAttempts")}
+              </Label>
+              <CardDescription className="mt-1">{t("general.aiReviewAttemptsDescription")}</CardDescription>
+            </div>
+            <Input
+              id="general-ai-review-attempts"
+              type="number"
+              min={1}
+              max={10}
+              step={1}
+              className="w-20"
+              value={settings?.aiReviewAttempts ?? 3}
+              disabled={loading || saving}
+              onChange={(event) => {
+                const value = Number(event.target.value);
+                if (Number.isInteger(value) && value >= 1 && value <= 10) {
+                  void handlePreferencesChange({ aiReviewAttempts: value });
+                }
+              }}
+              aria-label={t("general.aiReviewAttempts")}
+            />
+          </div>
+        </CardContent>
       </Card>
 
       <Card>

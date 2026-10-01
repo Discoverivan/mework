@@ -37,6 +37,7 @@ pub async fn general_settings_save(
     task_tracker_notifications_enabled: bool,
     ai_response_language: AiResponseLanguage,
     extra_functions_enabled: bool,
+    ai_review_attempts: u8,
 ) -> Result<GeneralSettingsDto, String> {
     general::save_general_preferences(
         &state,
@@ -46,6 +47,7 @@ pub async fn general_settings_save(
         task_tracker_notifications_enabled,
         ai_response_language,
         extra_functions_enabled,
+        ai_review_attempts,
     )
     .await?;
     general::dto(&state, &app).await

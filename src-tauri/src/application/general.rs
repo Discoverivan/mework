@@ -11,6 +11,8 @@ use crate::os::notifications::{
 
 const GENERAL_SETTINGS_KEY: &str = "general.settings";
 const GENERAL_SETTINGS_SCHEMA_VERSION: i64 = 6;
+pub const DEFAULT_AI_REVIEW_ATTEMPTS: u8 = 3;
+pub const MAX_AI_REVIEW_ATTEMPTS: u8 = 10;
 static GENERAL_SETTINGS_WRITE_LOCK: OnceLock<tokio::sync::Mutex<()>> = OnceLock::new();
 
 fn general_settings_write_lock() -> &'static tokio::sync::Mutex<()> {
@@ -19,6 +21,10 @@ fn general_settings_write_lock() -> &'static tokio::sync::Mutex<()> {
 
 const fn enabled_by_default() -> bool {
     true
+}
+
+const fn default_ai_review_attempts() -> u8 {
+    DEFAULT_AI_REVIEW_ATTEMPTS
 }
 
 #[derive(Debug, Clone, Copy, Default, Deserialize, Serialize, PartialEq, Eq)]
@@ -102,6 +108,8 @@ pub struct GeneralSettings {
     pub button_style: ButtonStyle,
     #[serde(default)]
     pub extra_functions_enabled: bool,
+    #[serde(default = "default_ai_review_attempts")]
+    pub ai_review_attempts: u8,
 }
 
 impl Default for GeneralSettings {
@@ -116,6 +124,7 @@ impl Default for GeneralSettings {
             theme_preference: ThemePreference::System,
             button_style: ButtonStyle::Filled,
             extra_functions_enabled: false,
+            ai_review_attempts: DEFAULT_AI_REVIEW_ATTEMPTS,
         }
     }
 }
@@ -132,6 +141,7 @@ pub struct GeneralSettingsDto {
     pub theme_preference: ThemePreference,
     pub button_style: ButtonStyle,
     pub extra_functions_enabled: bool,
+    pub ai_review_attempts: u8,
     pub notification_permission: NotificationPermission,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub permission_check_error: Option<String>,
@@ -208,7 +218,13 @@ pub async fn save_general_preferences(
     task_tracker_notifications_enabled: bool,
     ai_response_language: AiResponseLanguage,
     extra_functions_enabled: bool,
+    ai_review_attempts: u8,
 ) -> Result<(), String> {
+    if !(1..=MAX_AI_REVIEW_ATTEMPTS).contains(&ai_review_attempts) {
+        return Err(format!(
+            "AI review attempts must be between 1 and {MAX_AI_REVIEW_ATTEMPTS}"
+        ));
+    }
     update(pool, |settings| {
         settings.notifications_enabled = notifications_enabled;
         settings.review_notifications_enabled = review_notifications_enabled;
@@ -216,6 +232,7 @@ pub async fn save_general_preferences(
         settings.task_tracker_notifications_enabled = task_tracker_notifications_enabled;
         settings.ai_response_language = ai_response_language;
         settings.extra_functions_enabled = extra_functions_enabled;
+        settings.ai_review_attempts = ai_review_attempts;
     })
     .await
 }
@@ -256,6 +273,7 @@ pub async fn dto<R: Runtime>(
         theme_preference: settings.theme_preference,
         button_style: settings.button_style,
         extra_functions_enabled: settings.extra_functions_enabled,
+        ai_review_attempts: settings.ai_review_attempts,
         notification_permission,
         permission_check_error,
     })
@@ -333,7 +351,7 @@ mod tests {
         initialize_if_missing, initialize_if_missing_with_extra_functions, load,
         save_appearance_preferences, save_button_style, save_general_preferences,
         AiResponseLanguage, AppLanguage, ButtonStyle, GeneralSettings, NotificationTestKind,
-        ThemePreference,
+        ThemePreference, DEFAULT_AI_REVIEW_ATTEMPTS,
     };
     use sqlx::sqlite::SqlitePoolOptions;
 
@@ -355,6 +373,7 @@ mod tests {
         assert_eq!(settings.theme_preference, ThemePreference::System);
         assert_eq!(settings.button_style, ButtonStyle::Filled);
         assert!(!settings.extra_functions_enabled);
+        assert_eq!(settings.ai_review_attempts, DEFAULT_AI_REVIEW_ATTEMPTS);
     }
 
     #[test]
@@ -365,6 +384,7 @@ mod tests {
         .unwrap();
         assert_eq!(legacy.ai_response_language, AiResponseLanguage::SameAsUi);
         assert_eq!(legacy.button_style, ButtonStyle::Filled);
+        assert_eq!(legacy.ai_review_attempts, DEFAULT_AI_REVIEW_ATTEMPTS);
         assert_eq!(
             legacy.ai_response_language.output_language(legacy.language),
             AppLanguage::Russian
@@ -439,6 +459,7 @@ mod tests {
             false,
             AiResponseLanguage::Russian,
             true,
+            DEFAULT_AI_REVIEW_ATTEMPTS,
         )
         .await
         .unwrap();
