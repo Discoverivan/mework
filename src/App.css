@@ -101,6 +101,7 @@ body,
   overflow-x: hidden;
   overflow-y: auto;
   overscroll-behavior: contain;
+  scroll-padding-block-start: 20px;
 }
 
 .settings-nav-group {
