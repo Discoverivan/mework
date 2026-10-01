@@ -364,6 +364,9 @@ describe("MyPullRequestsPage", () => {
     const displayOptions = screen.getByRole("dialog", { name: "Options" });
     const sortOrder = within(displayOptions).getByRole("combobox", { name: "Sort order" });
     const grouping = within(displayOptions).getByRole("combobox", { name: "Group by" });
+    const displaySection = sortOrder.closest(".rounded-lg.border");
+    expect(displaySection).toBe(grouping.closest(".rounded-lg.border"));
+    expect(displaySection?.querySelector('[data-orientation="horizontal"]')).toBeInTheDocument();
     const expandProjects = within(displayOptions).getByRole("switch", { name: "Expand groups by default" });
     expect(sortOrder).toHaveTextContent("Recently updated first");
     expect(within(demoGroup).getAllByRole("heading", { level: 2 }).map((heading) => heading.textContent)).toEqual([

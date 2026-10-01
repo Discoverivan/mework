@@ -92,21 +92,22 @@ export function PullRequestDisplayOptionsDialog({
           </section>
           <section className="space-y-3" aria-labelledby="pull-request-display-options">
             <h3 id="pull-request-display-options" className="text-base font-semibold">{t("pr.options.display")}</h3>
-            <div className="flex flex-wrap items-center justify-between gap-4 rounded-lg border p-4">
-              <div className="min-w-0 flex-1">
-                <Label htmlFor="pull-request-sort-order" alignment="inline" className="text-sm font-semibold leading-tight">{t("pr.options.sortOrder")}</Label>
-              </div>
-              <div className="w-full sm:w-auto">
-                <Select value={draftSort} onValueChange={(value) => setDraftSort(value as PullRequestSortOrder)}>
-                  <SelectTrigger id="pull-request-sort-order" aria-label={t("pr.options.sortOrder")} className="h-9 gap-2 px-3 py-1.5 text-sm"><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="newest">{t("pr.options.newestFirst")}</SelectItem>
-                    <SelectItem value="oldest">{t("pr.options.oldestFirst")}</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
             <div className="space-y-4 rounded-lg border p-4">
+              <div className="flex flex-wrap items-center justify-between gap-4">
+                <div className="min-w-0 flex-1">
+                  <Label htmlFor="pull-request-sort-order" alignment="inline" className="text-sm font-semibold leading-tight">{t("pr.options.sortOrder")}</Label>
+                </div>
+                <div className="w-full sm:w-auto">
+                  <Select value={draftSort} onValueChange={(value) => setDraftSort(value as PullRequestSortOrder)}>
+                    <SelectTrigger id="pull-request-sort-order" aria-label={t("pr.options.sortOrder")} className="h-9 gap-2 px-3 py-1.5 text-sm"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="newest">{t("pr.options.newestFirst")}</SelectItem>
+                      <SelectItem value="oldest">{t("pr.options.oldestFirst")}</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+              <Separator />
               <div className="flex flex-wrap items-center justify-between gap-4">
                 <Label htmlFor="pull-request-grouping" alignment="inline" className="min-w-0 text-sm font-semibold leading-tight">{t("pr.options.grouping")}</Label>
                 <div className="w-full sm:w-auto">
