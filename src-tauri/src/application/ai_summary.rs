@@ -120,14 +120,13 @@ fn generate_blocking(
                     );
                     "AI provider returned no summary".to_owned()
                 })?;
-            let text = validate_text(text).map_err(|error| {
+            let text = validate_text(text).inspect_err(|error| {
                 crate::application::logging::log_business_failure(
                     "ai.openai_compatible",
                     "sprint_summary",
                     "summary_validation",
-                    &error,
+                    error,
                 );
-                error
             })?;
             let usage = ai_usage_statistics::parse_response_usage(&value);
             Ok((text, usage))
@@ -218,14 +217,13 @@ fn parse_text(bytes: &[u8]) -> Result<String, String> {
         );
         "AI provider returned an invalid summary".to_owned()
     })?;
-    validate_text(value.text).map_err(|error| {
+    validate_text(value.text).inspect_err(|_| {
         crate::application::logging::log_parse_failure(
             "ai.cli",
             "sprint_summary",
             "summary_validation",
             bytes,
         );
-        error
     })
 }
 

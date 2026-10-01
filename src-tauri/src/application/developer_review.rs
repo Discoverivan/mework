@@ -1345,7 +1345,7 @@ fn parse_review_result(output: &[u8]) -> Result<PullRequestReviewResult, String>
             );
             "AI provider returned invalid review JSON".to_owned()
         })?;
-    validate_result(parsed).map_err(|error| {
+    validate_result(parsed).inspect_err(|error| {
         crate::application::logging::log_parse_failure(
             "ai",
             "pull_request_review",
@@ -1356,9 +1356,8 @@ fn parse_review_result(output: &[u8]) -> Result<PullRequestReviewResult, String>
             "ai",
             "pull_request_review",
             "result_validation",
-            &error,
+            error,
         );
-        error
     })
 }
 

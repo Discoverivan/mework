@@ -1134,14 +1134,13 @@ fn parse_cli_task_draft(output: &[u8], provider: &str) -> Result<TaskDraftDto, S
         return Err(error);
     }
     draft.description = jira_wiki_description(
-        &required_text(&draft.description, "AI description", 50_000).map_err(|error| {
+        &required_text(&draft.description, "AI description", 50_000).inspect_err(|_| {
             crate::application::logging::log_parse_failure(
                 "ai.cli",
                 "task_generation",
                 "description_validation",
                 output,
             );
-            error
         })?,
     );
     Ok(draft)
@@ -1269,34 +1268,31 @@ fn execute_openai_task_draft_with_usage(
         );
         "OpenAI-compatible API returned invalid task JSON".to_owned()
     })?;
-    required_text(&draft.summary, "AI summary", 255).map_err(|error| {
+    required_text(&draft.summary, "AI summary", 255).inspect_err(|error| {
         crate::application::logging::log_business_failure(
             "ai.openai_compatible",
             "task_generation",
             "summary_validation",
-            &error,
+            error,
         );
-        error
     })?;
     draft.description = jira_wiki_description(
-        &required_text(&draft.description, "AI description", 50_000).map_err(|error| {
+        &required_text(&draft.description, "AI description", 50_000).inspect_err(|error| {
             crate::application::logging::log_business_failure(
                 "ai.openai_compatible",
                 "task_generation",
                 "description_validation",
-                &error,
+                error,
             );
-            error
         })?,
     );
-    required_text(&draft.description, "AI description", 50_000).map_err(|error| {
+    required_text(&draft.description, "AI description", 50_000).inspect_err(|error| {
         crate::application::logging::log_business_failure(
             "ai.openai_compatible",
             "task_generation",
             "normalized_description_validation",
-            &error,
+            error,
         );
-        error
     })?;
     Ok((draft, usage))
 }

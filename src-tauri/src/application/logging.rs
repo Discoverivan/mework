@@ -155,11 +155,14 @@ fn diagnostic_shape(value: Value, key: Option<&str>) -> Value {
     }
 }
 
+#[derive(Debug)]
+pub struct LoggedJsonResponseError;
+
 pub async fn parse_json_response<T: DeserializeOwned>(
     response: reqwest::Response,
     component: &str,
     operation: &str,
-) -> Result<T, ()> {
+) -> Result<T, LoggedJsonResponseError> {
     let body = match response.bytes().await {
         Ok(body) => body,
         Err(_) => {
@@ -168,7 +171,7 @@ pub async fn parse_json_response<T: DeserializeOwned>(
                 "response_body_read_failure",
                 serde_json::json!({"operation": operation}),
             );
-            return Err(());
+            return Err(LoggedJsonResponseError);
         }
     };
     match serde_json::from_slice(&body) {
@@ -181,7 +184,7 @@ pub async fn parse_json_response<T: DeserializeOwned>(
                 serde_json::error::Category::Eof => "eof",
             };
             log_parse_failure(component, operation, category, &body);
-            Err(())
+            Err(LoggedJsonResponseError)
         }
     }
 }
@@ -255,9 +258,8 @@ pub async fn send_http_request(
     if let Some(request) = diagnostic.as_ref() {
         log_http_request(request, component, operation, body_policy);
     }
-    let response = request.send().await.map_err(|error| {
-        error_log_http_transport(component, operation, diagnostic.as_ref(), &error);
-        error
+    let response = request.send().await.inspect_err(|error| {
+        error_log_http_transport(component, operation, diagnostic.as_ref(), error);
     })?;
     log_http_response(
         component,
@@ -277,9 +279,8 @@ pub async fn execute_http_request(
 ) -> Result<Response, reqwest::Error> {
     let method = request.method().as_str().to_owned();
     log_http_request(&request, component, operation, body_policy);
-    let response = client.execute(request).await.map_err(|error| {
-        error_log_http_transport(component, operation, None, &error);
-        error
+    let response = client.execute(request).await.inspect_err(|error| {
+        error_log_http_transport(component, operation, None, error);
     })?;
     log_http_response(component, operation, Some(&method), &response);
     Ok(response)
@@ -534,8 +535,7 @@ fn redact_labeled_secrets(mut text: String) -> String {
         while let Some(relative) = lower[cursor..].find(label) {
             let start = cursor + relative + label.len();
             let tail = &text[start..];
-            let Some(delimiter) = tail.find(|character: char| character == '=' || character == ':')
-            else {
+            let Some(delimiter) = tail.find(['=', ':']) else {
                 cursor = start;
                 continue;
             };
