@@ -257,16 +257,15 @@ export function PullRequestListItem({
           ) : null}
           {!reviewRunning && reviewCompleted && review?.result ? <AiVerdictBadge verdict={review.result.verdict} review={review} /> : null}
           {!reviewRunning && reviewFailed ? (
-            <div className="flex items-center gap-1">
-              <Badge variant="outline" className={cn("h-7 gap-1.5 rounded-md px-2.5 py-0 text-destructive", review && "pr-1.5")}>
-                <Sparkles className="size-3" aria-hidden="true" />
-                {t("pr.aiReviewError")}
-                {review ? <><Separator orientation="vertical" className="h-4" /><PullRequestReviewDetails review={review} inBadge /></> : null}
-              </Badge>
-              <Button type="button" variant="ghost" size="icon" className="size-7 [&_svg]:!size-3.5" onClick={() => onStartReview(pullRequest)} disabled={!aiReviewReady || reviewStarting} aria-label={t("pr.dialog.rerun")} title={t("pr.dialog.rerun")}>
+            <Badge variant="outline" className="h-7 gap-1.5 rounded-md py-0 pl-2.5 pr-1.5 text-destructive">
+              <Sparkles className="size-3" aria-hidden="true" />
+              {t("pr.aiReviewError")}
+              <Separator orientation="vertical" className="h-4" />
+              <Button type="button" variant="ghost" size="icon" actionTone="neutral" className="h-5 w-3.5 shrink-0 rounded-full [&_svg]:!size-3.5" onClick={() => onStartReview(pullRequest)} disabled={!aiReviewReady || reviewStarting} aria-label={t("pr.dialog.rerun")} title={t("pr.dialog.rerun")}>
                 <RefreshCw aria-hidden="true" />
               </Button>
-            </div>
+              {review ? <><Separator orientation="vertical" className="h-4" /><PullRequestReviewDetails review={review} inBadge /></> : null}
+            </Badge>
           ) : null}
           <div className="flex items-center gap-2">
             <Button

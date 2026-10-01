@@ -576,8 +576,8 @@ describe("MyPullRequestsPage", () => {
 
     await renderFlatPage();
     const rerunButton = await screen.findByRole("button", { name: "Re-run review" });
-    expect(rerunButton).toHaveClass("size-7");
-    expect(rerunButton.previousElementSibling).toBe(screen.getByText("AI review error"));
+    expect(rerunButton).toHaveClass("h-5", "w-3.5");
+    expect(rerunButton.parentElement).toBe(screen.getByText("AI review error"));
     expect(screen.getByText("AI review error")).toHaveClass("text-destructive");
     expect(screen.getByRole("button", { name: "AI review error" }).querySelector("svg.lucide-sparkles")).toHaveClass("text-destructive");
     fireEvent.click(screen.getByRole("button", { name: "Show review details" }));
