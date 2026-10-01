@@ -259,13 +259,13 @@ export function PullRequestListItem({
           {reviewCompleted && review?.result ? <AiVerdictBadge verdict={review.result.verdict} /> : null}
           {reviewFailed ? (
             <div className="flex items-center gap-1">
-              <Button type="button" variant="ghost" size="icon" className="size-7 [&_svg]:!size-3.5" onClick={() => onStartReview(pullRequest)} disabled={!aiReviewReady || reviewStarting} aria-label={t("pr.dialog.rerun")} title={t("pr.dialog.rerun")}>
-                <RefreshCw aria-hidden="true" />
-              </Button>
               <Badge variant="outline" className="h-7 gap-1.5 rounded-md px-2.5 py-0 text-destructive">
                 <Sparkles className="size-3" aria-hidden="true" />
                 {t("pr.aiReviewError")}
               </Badge>
+              <Button type="button" variant="ghost" size="icon" className="size-7 [&_svg]:!size-3.5" onClick={() => onStartReview(pullRequest)} disabled={!aiReviewReady || reviewStarting} aria-label={t("pr.dialog.rerun")} title={t("pr.dialog.rerun")}>
+                <RefreshCw aria-hidden="true" />
+              </Button>
             </div>
           ) : null}
           <div className="flex items-center gap-2">
