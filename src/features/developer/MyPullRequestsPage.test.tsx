@@ -364,6 +364,9 @@ describe("MyPullRequestsPage", () => {
     const displayOptions = screen.getByRole("dialog", { name: "Options" });
     const sortOrder = within(displayOptions).getByRole("combobox", { name: "Sort order" });
     const grouping = within(displayOptions).getByRole("combobox", { name: "Group by" });
+    const displaySection = sortOrder.closest(".rounded-lg.border");
+    expect(displaySection).toBe(grouping.closest(".rounded-lg.border"));
+    expect(displaySection?.querySelector('[data-orientation="horizontal"]')).toBeInTheDocument();
     const expandProjects = within(displayOptions).getByRole("switch", { name: "Expand groups by default" });
     expect(sortOrder).toHaveTextContent("Recently updated first");
     expect(within(demoGroup).getAllByRole("heading", { level: 2 }).map((heading) => heading.textContent)).toEqual([
@@ -459,6 +462,10 @@ describe("MyPullRequestsPage", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Options" }));
     const toggle = screen.getByRole("switch", { name: "AI auto-review" });
+    expect(toggle).toHaveClass("h-[22px]", "w-10");
+    expect(screen.getByText("AI auto-review", { selector: "label" })).toHaveClass("text-sm", "font-semibold", "leading-tight");
+    expect(screen.getByRole("button", { name: "Apply" })).toHaveClass("app-action-text", "hover:text-success");
+    expect(screen.getByRole("button", { name: "Cancel" })).toHaveClass("app-action-text", "hover:text-primary");
     expect(toggle).not.toBeChecked();
     fireEvent.click(toggle);
     expect(saveSettingsMock).not.toHaveBeenCalled();
@@ -560,6 +567,7 @@ describe("MyPullRequestsPage", () => {
       error: "Example review failure details",
       startedAt: 1,
       finishedAt: 2,
+      execution: { provider: "codex-cli", providerName: "Codex CLI", providerInstanceId: null, model: "example-failed-model", reasoning: "high", fastMode: false },
     };
     listMyPullRequestsMock.mockResolvedValueOnce({
       ...firstPage,
@@ -568,14 +576,27 @@ describe("MyPullRequestsPage", () => {
 
     await renderFlatPage();
     const rerunButton = await screen.findByRole("button", { name: "Re-run review" });
-    expect(rerunButton).toHaveClass("size-7");
-    expect(rerunButton.previousElementSibling).toBe(screen.getByText("AI review error"));
+    expect(rerunButton).toHaveClass("h-5", "w-3.5");
+    expect(rerunButton.parentElement).toBe(screen.getByText("AI review error"));
     expect(screen.getByText("AI review error")).toHaveClass("text-destructive");
     expect(screen.getByRole("button", { name: "AI review error" }).querySelector("svg.lucide-sparkles")).toHaveClass("text-destructive");
+    fireEvent.click(screen.getByRole("button", { name: "Show review details" }));
+    let failureDetails = await screen.findByRole("dialog", { name: "Review details" });
+    expect(failureDetails).toHaveTextContent("Review ended:");
+    expect(failureDetails).toHaveTextContent("Codex CLI");
+    expect(failureDetails).toHaveTextContent("example-failed-model");
+    fireEvent.click(screen.getByRole("button", { name: "Show review details" }));
     fireEvent.click(await screen.findByRole("button", { name: "AI review error" }));
 
     let dialog = await screen.findByRole("dialog", { name: "Review results" });
     expect(within(dialog).getByText("Example review failure details")).toBeInTheDocument();
+    expect(within(dialog).getAllByRole("button").map((button) => button.textContent)).toEqual(["", "Retry review", "Close"]);
+    expect(within(dialog).getByRole("link", { name: "Open in browser" })).toHaveAttribute("href", pullRequests[0].url);
+    fireEvent.click(within(dialog).getByRole("button", { name: "Show review details" }));
+    failureDetails = await screen.findByRole("dialog", { name: "Review details" });
+    expect(failureDetails).toHaveTextContent("example-failed-model");
+    expect(failureDetails.querySelector("time")).toHaveAttribute("dateTime", new Date(failedReview.finishedAt!).toISOString());
+    fireEvent.click(within(dialog).getByRole("button", { name: "Show review details" }));
     fireEvent.click(within(dialog).getAllByRole("button", { name: "Close" })[0]);
     await waitFor(() => expect(screen.queryByRole("dialog", { name: "Review results" })).not.toBeInTheDocument());
     fireEvent.click(screen.getByRole("button", { name: "AI review error" }));
@@ -612,20 +633,37 @@ describe("MyPullRequestsPage", () => {
     await waitFor(() => expect(removeReviewerMock).toHaveBeenCalledWith(expect.objectContaining({ pullRequestId: "7" }), expect.any(String)));
   });
 
-  it("confirms quick approval before publishing the review decision", async () => {
+  it("publishes the selected review decision directly from the menu", async () => {
+    listMyPullRequestsMock.mockResolvedValueOnce({
+      ...firstPage,
+      values: [{ ...pullRequests[0], review: completedReview }, pullRequests[1]],
+    });
+    let finishDecision!: () => void;
+    setDecisionMock.mockImplementationOnce(() => new Promise((resolve) => {
+      finishDecision = () => resolve({ integrationId: "bitbucket-1", pullRequestId: "7", myDecision: "approved" });
+    }));
     await renderFlatPage();
     const card = (await screen.findByRole("heading", { name: "Example pull request" })).closest("[class*='border-l-']") as HTMLElement;
-    fireEvent.click(within(card).getByRole("button", { name: "Approve pull request" }));
+    fireEvent.pointerDown(within(card).getByRole("button", { name: "Review decision" }), { button: 0, ctrlKey: false });
     expect(setDecisionMock).not.toHaveBeenCalled();
-    fireEvent.click(screen.getByRole("button", { name: "Approve" }));
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Approve" }));
+    expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
     await waitFor(() => expect(setDecisionMock).toHaveBeenCalledWith(expect.objectContaining({ pullRequestId: "7" }), "approve"));
-    await waitFor(() => expect(within(card).queryByRole("button", { name: "Approve pull request" })).not.toBeInTheDocument());
+    expect(within(card).getByRole("button", { name: "Review decision" })).toBeDisabled();
+    fireEvent.click(within(card).getByRole("button", { name: "Review results" }));
+    const dialog = await screen.findByRole("dialog", { name: "Review results" });
+    expect(within(dialog).getByRole("button", { name: "Approve" })).toBeDisabled();
+    expect(within(dialog).getByRole("button", { name: "Needs work" })).toBeDisabled();
+    finishDecision();
+    await waitFor(() => expect(within(dialog).getByRole("button", { name: "Needs work" })).not.toBeDisabled());
+    fireEvent.click(within(dialog).getByRole("button", { name: "Close" }));
+    await waitFor(() => expect(within(card).getByRole("button", { name: "Review decision" }).querySelector("svg.lucide-circle-check")).toBeInTheDocument());
   });
 
-  it("shows an AI verdict badge for an approved review", async () => {
+  it("shows an approved AI verdict and a message when the review has no comments", async () => {
     const approvedReview: PullRequestReviewState = {
       ...completedReview,
-      result: { ...completedReview.result!, verdict: "ok" },
+      result: { ...completedReview.result!, verdict: "ok", comments: [] },
     };
     listMyPullRequestsMock.mockResolvedValueOnce({
       ...firstPage,
@@ -636,13 +674,17 @@ describe("MyPullRequestsPage", () => {
 
     expect(await screen.findByRole("button", { name: "Review results" })).toBeInTheDocument();
     expect(screen.getByLabelText("AI verdict: Approved")).toHaveClass("text-success");
-    expect(screen.getByText("AI verdict · Approved")).toBeInTheDocument();
+    expect(screen.getByLabelText("AI verdict: Approved")).toHaveTextContent("Approved");
     const reviewResultsButton = screen.getByRole("button", { name: "Review results" });
     expect(reviewResultsButton.querySelector("svg.lucide-sparkles")).toHaveClass("text-success");
     const completedCard = reviewResultsButton.closest(".rounded-lg");
     expect(completedCard).not.toBeNull();
     expect(within(completedCard as HTMLElement).getByRole("button", { name: "More actions" }).parentElement)
       .toBe(reviewResultsButton.parentElement);
+    fireEvent.click(reviewResultsButton);
+    const dialog = await screen.findByRole("dialog", { name: "Review results" });
+    expect(within(dialog).getByText("The AI review has no comments.")).toBeInTheDocument();
+    expect(dialog.querySelector("details")).toBeNull();
   });
   it("reconciles a completed review when the completion event was missed", async () => {
     getReviewStatesMock.mockResolvedValue({
@@ -658,13 +700,26 @@ describe("MyPullRequestsPage", () => {
   }, 8_000);
 
   it("opens persisted review results and can restart the review", async () => {
+    const markdownReview: PullRequestReviewState = {
+      ...completedReview,
+      finishedAt: Date.now() - 5 * 60_000,
+      execution: { provider: "codex-cli", providerName: "Codex CLI", providerInstanceId: null, model: "example-review-model", reasoning: "high", fastMode: true },
+      result: {
+        ...completedReview.result!,
+        summary: `${completedReview.result!.summary}\n\n- **Check shutdown order**\n- Keep \`retry\` guarded`,
+        comments: completedReview.result!.comments.map((comment, index) => index === 1
+          ? { ...comment, comment: `${comment.comment}\n\n1. Check the timer\n2. Retry safely` }
+          : comment),
+      },
+    };
     listMyPullRequestsMock.mockResolvedValueOnce({
       ...firstPage,
-      values: [{ ...pullRequests[0], review: completedReview }, pullRequests[1]],
+      values: [{ ...pullRequests[0], review: markdownReview }, pullRequests[1]],
     });
     await renderFlatPage();
     await screen.findByRole("button", { name: "Review results" });
-    expect(screen.getByText("AI verdict · Needs work")).toBeInTheDocument();
+    expect(screen.getByLabelText("AI verdict: Needs work")).toHaveTextContent("Needs work");
+    expect(screen.getByRole("button", { name: "Show review details" })).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Review results" }));
     await waitFor(() => expect(markPullRequestReadMock).toHaveBeenCalledWith("bitbucket-1", "DEMO", "sample-repository", "7", "commit-7"));
@@ -675,26 +730,58 @@ describe("MyPullRequestsPage", () => {
     expect(dialog).toHaveTextContent("Test Author A");
     expect(dialog).toHaveTextContent("Needs work");
     expect(dialog).toHaveTextContent("AI summary");
+    expect(dialog).not.toHaveTextContent("Review completed:");
+    const verdictBadge = within(dialog).getByLabelText("AI verdict: Needs work");
+    fireEvent.click(within(verdictBadge).getByRole("button", { name: "Show review details" }));
+    const reviewDetails = await screen.findByRole("dialog", { name: "Review details" });
+    expect(reviewDetails).toHaveTextContent("Review completed:");
+    expect(within(reviewDetails).getByText(/5m ago/)).toHaveAttribute("dateTime", new Date(markdownReview.finishedAt!).toISOString());
+    expect(reviewDetails.querySelector("time")?.textContent).toMatch(/\d{2}\.\d{2}\.\d{4}/);
+    const aiConfiguration = within(reviewDetails).getByLabelText("AI configuration used for this review");
+    expect(aiConfiguration).toHaveTextContent("Codex CLI");
+    expect(aiConfiguration).toHaveTextContent("example-review-model");
+    expect(aiConfiguration).toHaveTextContent("AI provider: Codex CLI");
+    expect(aiConfiguration).toHaveTextContent("Reasoning: high");
+    expect(aiConfiguration).toHaveTextContent("Fast mode: On");
+    fireEvent.click(within(dialog).getByRole("button", { name: "Show review details" }));
     expect(screen.getByText("Coordinates an example background refresh lifecycle.")).toHaveClass("text-foreground");
     expect(screen.getByText("The change can lose data when the retry races with shutdown.")).toHaveClass("text-foreground");
     expect(dialog).toHaveTextContent("AI comments");
-    expect(screen.getByText("Blocker (0)").closest("details")).not.toHaveAttribute("open");
+    expect(screen.getByText("Check shutdown order").tagName).toBe("STRONG");
+    expect(screen.getByText("Check shutdown order").closest("li")?.parentElement?.tagName).toBe("UL");
+    expect(screen.getByText("Check the timer").closest("li")?.parentElement?.tagName).toBe("OL");
+    expect(screen.queryByText("Blocker (0)")).not.toBeInTheDocument();
     expect(screen.getByText("High (1)").closest("details")).toHaveAttribute("open");
     expect(screen.getByText("Medium (1)").closest("details")).toHaveAttribute("open");
     expect(screen.getByText("Low (1)").closest("details")).toHaveAttribute("open");
-    expect(screen.getByText("src/retry.ts:42")).toBeInTheDocument();
-    expect(screen.getByText("src/timeout.ts:18")).toBeInTheDocument();
-    expect(screen.getByText("src/logging.ts:7")).toBeInTheDocument();
+    const findingLocation = screen.getByRole("link", { name: "src/retry.ts:42" });
+    expect(findingLocation).toHaveAttribute("href", `${pullRequests[0].url}/diff#src/retry.ts?t=42`);
+    expect(findingLocation).toHaveAttribute("target", "_blank");
+    expect(findingLocation).toHaveClass("text-sm", "font-medium", "font-mono", "text-primary");
+    expect(findingLocation.querySelector("wbr")).toBeInTheDocument();
+    expect(within(findingLocation).getByText("retry.ts:42")).toHaveClass("inline-block");
+    expect(screen.getByRole("link", { name: "src/timeout.ts:18" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "src/logging.ts:7" })).toBeInTheDocument();
     expect(screen.getByText("Guard this operation before retrying.")).toBeInTheDocument();
-    expect(screen.getByText("Blocker (0)")).toHaveClass("text-destructive");
-    expect(screen.getByText("High (1)")).toHaveClass("text-destructive");
+    expect(screen.getByText("High (1)").closest("summary")).toHaveClass("text-destructive", "bg-destructive/10");
+    const mediumSection = screen.getByText("Medium (1)").closest("details");
+    expect(mediumSection).toHaveClass("border-warning/40");
+    expect(mediumSection?.querySelector("summary")).toHaveClass("bg-warning/10", "text-warning");
+    expect(mediumSection?.querySelector("summary")?.nextElementSibling).toHaveClass("bg-background", "text-foreground");
     const publishButton = screen.getByRole("button", { name: "Publish comment for src/retry.ts" });
     expect(publishButton).not.toBeDisabled();
-    expect(publishButton).toHaveClass("h-7", "px-2", "text-xs");
-    expect(publishButton.querySelector("svg")).toHaveClass("size-3.5");
-    expect(publishButton.parentElement).toHaveClass("flex", "items-start", "justify-between");
+    expect(publishButton).toHaveClass("app-icon-button", "size-8");
+    expect(publishButton.parentElement).toHaveClass("flex", "items-center", "justify-between");
+    expect(publishButton).toHaveAttribute("data-action-tone", "neutral");
+    expect(publishButton).toHaveAttribute("title", "Publish");
+    expect(publishButton).not.toHaveTextContent("Publish");
     expect(screen.getAllByRole("button", { name: /Publish comment for/ })).toHaveLength(3);
-    expect(screen.getByRole("link", { name: "Open in browser" })).toHaveAttribute("href", pullRequests[0].url);
+    const openInBrowser = screen.getByRole("link", { name: "Open in browser" });
+    expect(openInBrowser).toHaveAttribute("href", pullRequests[0].url);
+    expect(openInBrowser).toHaveAttribute("title", "Open in browser");
+    expect(openInBrowser).toHaveClass("app-action-text", "h-9");
+    expect(screen.getByRole("button", { name: "Re-run review" })).toHaveClass("app-action-text", "h-9");
+    expect(openInBrowser).toHaveTextContent("Open in browser");
     fireEvent.click(publishButton);
     expect(publishCommentMock).not.toHaveBeenCalled();
     const commentDialog = await screen.findByRole("dialog", { name: "Edit review comment" });
@@ -708,7 +795,7 @@ describe("MyPullRequestsPage", () => {
       { ...completedReview.result!.comments[0], comment: "Guard this operation before retrying before the next attempt." },
     ));
     await waitFor(() => expect(screen.queryByRole("dialog", { name: "Edit review comment" })).not.toBeInTheDocument());
-    await waitFor(() => expect(publishButton).toHaveTextContent("Published"));
+    await waitFor(() => expect(publishButton).toHaveAttribute("title", "Published"));
     expect(publishButton).toBeDisabled();
     expect(screen.getByRole("button", { name: "Re-run review" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Needs work" })).not.toBeDisabled();

@@ -1,9 +1,11 @@
 import { useEffect, useState } from "react";
+import ReactMarkdown from "react-markdown";
 import { CheckCircle2, CircleAlert, ExternalLink, Loader2, RefreshCw, Send } from "lucide-react";
 
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
+import { Separator } from "@/components/ui/separator";
 import {
   Dialog,
   DialogBody,
@@ -13,16 +15,17 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import type { MyPullRequest, PullRequestReviewComment, PullRequestReviewState } from "@/shared/contracts/developer";
+import type { MyPullRequest, PullRequestReviewComment, PullRequestReviewSeverity, PullRequestReviewState } from "@/shared/contracts/developer";
 import { useI18n } from "@/i18n/context";
+import { cn } from "@/lib/utils";
 
 import {
   CreatorAvatar,
   AiVerdictBadge,
-  formatRelativeDate,
-  reviewSeverityBadgeClasses,
   reviewSeveritySections,
 } from "./PullRequestListItem";
+import { formatRelativeDate } from "./pull-request-formatting";
+import { PullRequestReviewDetails } from "./PullRequestReviewDetails";
 
 export interface PullRequestReviewDialogProps {
   open: boolean;
@@ -41,6 +44,53 @@ type EditableComment = {
   index: number;
 };
 
+const severitySectionStyles: Record<PullRequestReviewSeverity, { border: string; header: string }> = {
+  blocker: { border: "border-destructive/60", header: "bg-destructive/20 text-destructive" },
+  high: { border: "border-destructive/40", header: "bg-destructive/10 text-destructive" },
+  medium: { border: "border-warning/40", header: "bg-warning/10 text-warning" },
+  low: { border: "border-primary/40", header: "bg-primary/10 text-primary" },
+};
+
+function commentDiffUrl(pullRequestUrl: string | undefined, comment: PullRequestReviewComment): string | undefined {
+  if (!pullRequestUrl || !comment.file.trim()) return undefined;
+  try {
+    const url = new URL(pullRequestUrl);
+    if (!["http:", "https:"].includes(url.protocol) || url.username || url.password) return undefined;
+    if (!/\/pull-requests\/\d+(?:\/.*)?$/.test(url.pathname)) return undefined;
+    url.pathname = url.pathname.replace(/(\/pull-requests\/\d+)(?:\/.*)?$/, "$1/diff");
+    url.search = "";
+    // Bitbucket Server/DC uses ?t= for lines on the destination side of the diff.
+    const line = comment.line != null && Number.isSafeInteger(comment.line) && comment.line > 0 ? `?t=${comment.line}` : "";
+    url.hash = `${comment.file.split("/").map(encodeURIComponent).join("/")}${line}`;
+    return url.href;
+  } catch {
+    return undefined;
+  }
+}
+
+function ReviewMarkdown({ children }: { children: string }) {
+  return (
+    <div className="min-w-0 break-words text-sm text-foreground [&>*+*]:mt-2 [&_h1]:font-semibold [&_h2]:font-semibold [&_h3]:font-semibold [&_h4]:font-semibold [&_h5]:font-semibold [&_h6]:font-semibold [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5 [&_li+li]:mt-1 [&_pre]:overflow-x-auto [&_pre]:rounded-md [&_pre]:bg-muted [&_pre]:p-3 [&_code]:rounded-sm [&_code]:bg-muted [&_code]:px-1 [&_code]:font-mono [&_code]:text-xs [&_blockquote]:border-l-2 [&_blockquote]:border-border [&_blockquote]:pl-3 [&_blockquote]:text-muted-foreground">
+      <ReactMarkdown skipHtml allowedElements={["h1", "h2", "h3", "h4", "h5", "h6", "p", "ul", "ol", "li", "strong", "em", "code", "pre", "a", "blockquote", "br", "hr"]}
+        components={{
+          hr: () => <Separator />,
+          p: ({ children: text }) => <p className="whitespace-pre-wrap text-foreground">{text}</p>,
+          a: ({ href, children: text }) => href && /^https?:\/\//i.test(href)
+            ? <a href={href} target="_blank" rel="noopener noreferrer" className="text-primary underline underline-offset-2">{text}</a>
+            : <span>{text}</span>,
+        }}>
+        {children}
+      </ReactMarkdown>
+    </div>
+  );
+}
+
+function CommentLocation({ comment }: { comment: PullRequestReviewComment }) {
+  const segments = comment.file.split("/");
+  const filename = segments.pop();
+  return <>{segments.map((segment, index) => <span key={index}>{segment}/<wbr /></span>)}<span className="inline-block max-w-full break-all">{filename}{comment.line != null ? `:${comment.line}` : ""}</span></>;
+}
+
 export function PullRequestReviewDialog({
   open,
   pullRequest,
@@ -54,6 +104,7 @@ export function PullRequestReviewDialog({
 }: PullRequestReviewDialogProps) {
   const { t } = useI18n();
   const result = review?.result;
+  const reviewFailed = review?.status === "failed";
   const [pendingAction, setPendingAction] = useState<string>();
   const [publishedComments, setPublishedComments] = useState<Set<string>>(() => new Set());
   const [editingComment, setEditingComment] = useState<EditableComment>();
@@ -114,6 +165,15 @@ export function PullRequestReviewDialog({
     }
   }
 
+  const openInBrowser = pullRequest?.url ? (
+    <Button asChild type="button" variant="outline" size="sm" actionTone="neutral" className="shrink-0 text-foreground">
+      <a href={pullRequest.url} target="_blank" rel="noreferrer" aria-label={t("pr.dialog.openWeb")} title={t("pr.dialog.openWeb")} onClick={() => onOpenPullRequest(pullRequest)}>
+        <ExternalLink aria-hidden="true" />
+        {t("pr.dialog.openWeb")}
+      </a>
+    </Button>
+  ) : null;
+
   return (
     <>
       <Dialog open={open} onOpenChange={onOpenChange}>
@@ -138,81 +198,80 @@ export function PullRequestReviewDialog({
                 </div>
               ) : null}
             </div>
-            {pullRequest?.url ? (
-              <Button asChild type="button" variant="outline" size="sm" className="shrink-0">
-                <a
-                  href={pullRequest.url}
-                  target="_blank"
-                  rel="noreferrer"
-                  aria-label={t("pr.dialog.openWeb")}
-                  onClick={() => onOpenPullRequest(pullRequest)}
-                >
-                  <ExternalLink aria-hidden="true" className="size-4" />
-                  {t("pr.dialog.openWeb")}
-                </a>
-              </Button>
-            ) : null}
           </div>
         </DialogHeader>
         <DialogBody className="max-h-[70vh] space-y-5 overflow-y-auto">
-          {review?.status === "failed" ? (
+          {reviewFailed ? (
             <Alert variant="destructive">
-              <CircleAlert aria-hidden="true" />
-              <AlertTitle>{t("pr.aiReviewError")}</AlertTitle>
+              <CircleAlert aria-hidden="true" className="size-4 translate-y-0.5" />
+              <AlertTitle className="flex items-center gap-2">
+                {t("pr.aiReviewError")}
+                {review ? <PullRequestReviewDetails review={review} /> : null}
+              </AlertTitle>
               <AlertDescription className="break-words">{review.error || t("pr.dialog.unknownReviewError")}</AlertDescription>
             </Alert>
           ) : null}
-          {result ? (
+          {result && !reviewFailed ? (
             <>
-              <section aria-labelledby="ai-summary-title" className="space-y-2 rounded-lg border bg-card p-4">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <h3 id="ai-summary-title" className="text-sm font-semibold">{t("pr.dialog.aiSummary")}</h3>
-                  <AiVerdictBadge verdict={result.verdict} />
+              <section aria-labelledby="ai-summary-title" className="space-y-2 rounded-lg border bg-card px-4 pb-4 pt-3">
+                <div className="space-y-2">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <h3 id="ai-summary-title" className="text-base font-semibold leading-tight">{t("pr.dialog.aiSummary")}</h3>
+                    <AiVerdictBadge verdict={result.verdict} review={review} />
+                  </div>
+                  <ReviewMarkdown>{result.description}</ReviewMarkdown>
                 </div>
-                <p className="whitespace-pre-wrap break-words text-sm text-foreground">{result.description}</p>
-                <p className="whitespace-pre-wrap break-words text-sm text-foreground">{result.summary}</p>
+                <ReviewMarkdown>{result.summary}</ReviewMarkdown>
               </section>
               <section aria-labelledby="ai-comments-title" className="space-y-3">
                 <h3 id="ai-comments-title" className="text-sm font-semibold">{t("pr.dialog.aiComments")}</h3>
                 <div className="space-y-2">
+                  {result.comments.length === 0 ? <p className="text-sm text-muted-foreground">{t("pr.dialog.noComments")}</p> : null}
                   {reviewSeveritySections.map((section) => {
                     const comments = result.comments.filter((comment) => comment.severity === section.key);
+                    if (comments.length === 0) return null;
                     return (
-                      <details key={section.key} open={comments.length > 0} className="rounded-lg border">
-                        <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-3 py-2 text-sm font-semibold">
-                          <span className={`rounded-full border px-2 py-0.5 text-xs ${reviewSeverityBadgeClasses[section.key]}`}>{t(section.labelKey)} ({comments.length})</span>
+                      <details key={section.key} open className={cn("overflow-hidden rounded-lg border", severitySectionStyles[section.key].border)}>
+                        <summary className={cn("flex cursor-pointer list-none items-center justify-between gap-3 px-3 py-2 text-sm font-semibold", severitySectionStyles[section.key].header)}>
+                          <span>{t(section.labelKey)} ({comments.length})</span>
                         </summary>
-                        <div className="border-t px-3 py-2">
-                          {comments.length === 0 ? (
-                            <p className="text-sm text-muted-foreground">{t("pr.dialog.noComments")}</p>
-                          ) : (
-                            <ul className="space-y-2">
-                              {comments.map((comment, index) => (
+                        <div className={cn("border-t bg-background px-3 py-2 text-foreground", severitySectionStyles[section.key].border)}>
+                          <ul className="space-y-2">
+                            {comments.map((comment, index) => {
+                              const diffUrl = commentDiffUrl(pullRequest?.url, comment);
+                              const location = `${comment.file}${comment.line != null ? `:${comment.line}` : ""}`;
+                              const published = publishedComments.has(commentKey(comment, index));
+                              const publishLabel = published ? t("pr.dialog.published") : pendingAction === commentKey(comment, index) ? t("pr.dialog.publishing") : t("pr.dialog.publish");
+                              const locationClass = "min-w-0 rounded-md border bg-muted/50 px-2 py-1 font-mono text-sm font-medium text-primary";
+                              return (
                                 <li key={`${comment.file}:${comment.line ?? "na"}:${index}`} className="space-y-2 rounded-md border bg-background p-3">
-                                  <div className="flex items-start justify-between gap-2">
-                                    <p className="min-w-0 break-words text-xs font-medium text-muted-foreground">
-                                      {comment.file}{comment.line != null ? `:${comment.line}` : ""}
-                                    </p>
+                                  <div className="flex items-center justify-between gap-2">
+                                    {diffUrl ? (
+                                      <a href={diffUrl} target="_blank" rel="noopener noreferrer" className={cn(locationClass, "hover:bg-accent hover:[&_span]:underline focus-visible:[&_span]:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring")} title={t("pr.dialog.openCommentLocation", { location })} onClick={() => { if (pullRequest) onOpenPullRequest(pullRequest); }}>
+                                        <CommentLocation comment={comment} />
+                                      </a>
+                                    ) : <p className={locationClass}><CommentLocation comment={comment} /></p>}
                                     {reviewerActions ? (
                                       <Button
                                         type="button"
                                         variant="outline"
-                                        size="sm"
-                                        className="h-7 shrink-0 px-2 text-xs"
+                                        size="icon"
+                                        actionTone="neutral"
+                                        className="size-8 shrink-0"
                                         disabled={!onPublishComment || pendingAction != null || publishedComments.has(commentKey(comment, index))}
                                         onClick={() => openCommentEditor(comment, index)}
                                         aria-label={t("pr.dialog.publishFor", { file: comment.file })}
+                                        title={publishLabel}
                                       >
-                                        {pendingAction === commentKey(comment, index) ? <Loader2 aria-hidden="true" className="size-3.5 animate-spin" /> : <Send aria-hidden="true" className="size-3.5" />}
-                                        {publishedComments.has(commentKey(comment, index)) ? t("pr.dialog.published") : pendingAction === commentKey(comment, index) ? t("pr.dialog.publishing") : t("pr.dialog.publish")}
+                                        {pendingAction === commentKey(comment, index) ? <Loader2 aria-hidden="true" className="animate-spin" /> : published ? <CheckCircle2 aria-hidden="true" /> : <Send aria-hidden="true" />}
                                       </Button>
                                     ) : null}
                                   </div>
-                                  <p className="whitespace-pre-wrap break-words text-sm">{comment.comment}</p>
+                                  <ReviewMarkdown>{comment.comment}</ReviewMarkdown>
                                 </li>
-                              ))}
-                            </ul>
-                          )}
+                              );
+                            })}
+                          </ul>
                         </div>
                       </details>
                     );
@@ -223,28 +282,28 @@ export function PullRequestReviewDialog({
             </>
           ) : null}
         </DialogBody>
-        <DialogFooter className="items-center justify-between gap-2 sm:justify-between">
-          {review?.status === "failed" ? (
-            <Button type="button" variant="outline" size="sm" onClick={() => onOpenChange(false)}>
-              {t("pr.dialog.closeError")}
+        <DialogFooter className={cn("items-center gap-2", !reviewFailed && "justify-between sm:justify-between")}>
+          <div className="flex flex-wrap items-center gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              actionTone="neutral"
+              className="text-foreground"
+              onClick={() => {
+                if (pullRequest) {
+                  onOpenChange(false);
+                  onRerunReview(pullRequest);
+                }
+              }}
+              disabled={!pullRequest}
+            >
+              <RefreshCw aria-hidden="true" className="size-4" />
+              {t(reviewFailed ? "pr.dialog.retryReview" : "pr.dialog.rerun")}
             </Button>
-          ) : null}
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={() => {
-              if (pullRequest) {
-                onOpenChange(false);
-                onRerunReview(pullRequest);
-              }
-            }}
-            disabled={!pullRequest}
-          >
-            <RefreshCw aria-hidden="true" className="size-4" />
-            {t(review?.status === "failed" ? "pr.dialog.retryReview" : "pr.dialog.rerun")}
-          </Button>
-          {reviewerActions ? (
+            {openInBrowser}
+          </div>
+          {reviewerActions && !reviewFailed ? (
             <div className="flex items-center gap-2">
               <Button
                 type="button"

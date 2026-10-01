@@ -1,4 +1,5 @@
 import type { TeamMember } from "./planning";
+import type { AiProviderId, AiReasoning } from "./settings";
 
 export interface DailyIssueTransition {
   id: string;
@@ -90,6 +91,15 @@ export interface PullRequestReviewResult {
   comments: PullRequestReviewComment[];
 }
 
+export interface PullRequestReviewExecution {
+  provider: AiProviderId;
+  providerName: string;
+  providerInstanceId: string | null;
+  model: string;
+  reasoning: AiReasoning | null;
+  fastMode: boolean | null;
+}
+
 export interface PullRequestReviewState {
   runId: string;
   status: PullRequestReviewStatus;
@@ -98,6 +108,7 @@ export interface PullRequestReviewState {
   error: string | null;
   startedAt: number;
   finishedAt: number | null;
+  execution?: PullRequestReviewExecution | null;
 }
 
 export interface PullRequestReviewChangedEvent {

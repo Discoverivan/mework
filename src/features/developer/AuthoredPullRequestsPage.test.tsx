@@ -154,7 +154,7 @@ describe("AuthoredPullRequestsPage", () => {
     expect(screen.getByLabelText("Needs work: 1")).toBeInTheDocument();
     expect(screen.getByLabelText("Comments: 4")).toBeInTheDocument();
     expect(screen.getByText("Needs action", { selector: "div" })).toBeInTheDocument();
-    expect(screen.getByText("AI verdict · Needs work")).toBeInTheDocument();
+    expect(screen.getByLabelText("AI verdict: Needs work")).toHaveTextContent("Needs work");
     fireEvent.pointerDown(screen.getByRole("button", { name: "More actions" }), { button: 0, ctrlKey: false });
     expect(await screen.findByRole("menuitem", { name: "Mark as viewed" })).toBeInTheDocument();
     fireEvent.keyDown(screen.getByRole("menu"), { key: "Escape" });
