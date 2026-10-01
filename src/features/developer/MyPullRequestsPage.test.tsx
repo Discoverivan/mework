@@ -583,6 +583,8 @@ describe("MyPullRequestsPage", () => {
 
     let dialog = await screen.findByRole("dialog", { name: "Review results" });
     expect(within(dialog).getByText("Example review failure details")).toBeInTheDocument();
+    expect(within(dialog).getAllByRole("button").map((button) => button.textContent)).toEqual(["Retry review", "Close"]);
+    expect(within(dialog).getByRole("link", { name: "Open in browser" })).toHaveAttribute("href", pullRequests[0].url);
     fireEvent.click(within(dialog).getAllByRole("button", { name: "Close" })[0]);
     await waitFor(() => expect(screen.queryByRole("dialog", { name: "Review results" })).not.toBeInTheDocument());
     fireEvent.click(screen.getByRole("button", { name: "AI review error" }));

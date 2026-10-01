@@ -103,6 +103,7 @@ export function PullRequestReviewDialog({
 }: PullRequestReviewDialogProps) {
   const { t } = useI18n();
   const result = review?.result;
+  const reviewFailed = review?.status === "failed";
   const [pendingAction, setPendingAction] = useState<string>();
   const [publishedComments, setPublishedComments] = useState<Set<string>>(() => new Set());
   const [editingComment, setEditingComment] = useState<EditableComment>();
@@ -204,14 +205,14 @@ export function PullRequestReviewDialog({
           </div>
         </DialogHeader>
         <DialogBody className="max-h-[70vh] space-y-5 overflow-y-auto">
-          {review?.status === "failed" ? (
+          {reviewFailed ? (
             <Alert variant="destructive">
               <CircleAlert aria-hidden="true" />
               <AlertTitle>{t("pr.aiReviewError")}</AlertTitle>
               <AlertDescription className="break-words">{review.error || t("pr.dialog.unknownReviewError")}</AlertDescription>
             </Alert>
           ) : null}
-          {result ? (
+          {result && !reviewFailed ? (
             <>
               <section aria-labelledby="ai-summary-title" className="space-y-2 rounded-lg border bg-card p-4">
                 <div className="flex flex-wrap items-center justify-between gap-2">
@@ -280,12 +281,7 @@ export function PullRequestReviewDialog({
             </>
           ) : null}
         </DialogBody>
-        <DialogFooter className="items-center justify-between gap-2 sm:justify-between">
-          {review?.status === "failed" ? (
-            <Button type="button" variant="outline" size="sm" onClick={() => onOpenChange(false)}>
-              {t("pr.dialog.closeError")}
-            </Button>
-          ) : null}
+        <DialogFooter className={cn("items-center gap-2", !reviewFailed && "justify-between sm:justify-between")}>
           <Button
             type="button"
             variant="outline"
@@ -299,9 +295,9 @@ export function PullRequestReviewDialog({
             disabled={!pullRequest}
           >
             <RefreshCw aria-hidden="true" className="size-4" />
-            {t(review?.status === "failed" ? "pr.dialog.retryReview" : "pr.dialog.rerun")}
+            {t(reviewFailed ? "pr.dialog.retryReview" : "pr.dialog.rerun")}
           </Button>
-          {reviewerActions ? (
+          {reviewerActions && !reviewFailed ? (
             <div className="flex items-center gap-2">
               <Button
                 type="button"
