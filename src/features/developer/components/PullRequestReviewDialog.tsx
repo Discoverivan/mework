@@ -216,21 +216,21 @@ export function PullRequestReviewDialog({
           ) : null}
           {result && !reviewFailed ? (
             <>
+              <div className="space-y-1 text-xs text-muted-foreground">
+                {finishedAt ? <p>{t("pr.dialog.completedAt")} <time dateTime={finishedAt.toISOString()}>{finishedAt.toLocaleString(locale)} · {formatRelativeDate(review?.finishedAt ?? undefined, t)}</time></p> : null}
+                {execution ? (
+                  <dl aria-label={t("pr.dialog.aiConfiguration")} className="flex flex-wrap gap-x-4 gap-y-1">
+                    <div className="flex gap-1"><dt>{t("settings.ai.provider")}:</dt><dd className="break-words text-foreground">{execution.providerName}</dd></div>
+                    <div className="flex gap-1"><dt>{t("settings.ai.model")}:</dt><dd className="break-all font-mono text-foreground">{execution.model}</dd></div>
+                    {execution.reasoning != null ? <div className="flex gap-1"><dt>{t("settings.ai.reasoning")}:</dt><dd className="text-foreground">{execution.reasoning}</dd></div> : null}
+                    {execution.fastMode != null ? <div className="flex gap-1"><dt>{t("settings.ai.fastMode")}:</dt><dd className="text-foreground">{t(execution.fastMode ? "pr.dialog.enabled" : "pr.dialog.disabled")}</dd></div> : null}
+                  </dl>
+                ) : <p>{t("pr.dialog.executionUnavailable")}</p>}
+              </div>
               <section aria-labelledby="ai-summary-title" className="space-y-2 rounded-lg border bg-card p-4">
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <h3 id="ai-summary-title" className="text-sm font-semibold">{t("pr.dialog.aiSummary")}</h3>
                   <AiVerdictBadge verdict={result.verdict} />
-                </div>
-                <div className="space-y-1 text-xs text-muted-foreground">
-                  {finishedAt ? <p>{t("pr.dialog.completedAt")} <time dateTime={finishedAt.toISOString()}>{finishedAt.toLocaleString(locale)} · {formatRelativeDate(review?.finishedAt ?? undefined, t)}</time></p> : null}
-                  {execution ? (
-                    <dl aria-label={t("pr.dialog.aiConfiguration")} className="flex flex-wrap gap-x-4 gap-y-1">
-                      <div className="flex gap-1"><dt>{t("settings.ai.provider")}:</dt><dd className="break-words text-foreground">{execution.providerName}</dd></div>
-                      <div className="flex gap-1"><dt>{t("settings.ai.model")}:</dt><dd className="break-all font-mono text-foreground">{execution.model}</dd></div>
-                      {execution.reasoning != null ? <div className="flex gap-1"><dt>{t("settings.ai.reasoning")}:</dt><dd className="text-foreground">{execution.reasoning}</dd></div> : null}
-                      {execution.fastMode != null ? <div className="flex gap-1"><dt>{t("settings.ai.fastMode")}:</dt><dd className="text-foreground">{t(execution.fastMode ? "pr.dialog.enabled" : "pr.dialog.disabled")}</dd></div> : null}
-                    </dl>
-                  ) : <p>{t("pr.dialog.executionUnavailable")}</p>}
                 </div>
                 <ReviewMarkdown>{result.description}</ReviewMarkdown>
                 <ReviewMarkdown>{result.summary}</ReviewMarkdown>
