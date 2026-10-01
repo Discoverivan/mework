@@ -124,7 +124,7 @@ export function AiVerdictBadge({ verdict, review }: { verdict: "ok" | "needs_cha
       <Separator orientation="vertical" className="h-4" />
       {approved ? <CheckCircle2 className="size-3.5" aria-hidden="true" /> : <CircleAlert className="size-3.5" aria-hidden="true" />}
       {label}
-      {review ? <><Separator orientation="vertical" className="h-4" /><PullRequestReviewDetails review={review} /></> : null}
+      {review ? <><Separator orientation="vertical" className="h-4" /><PullRequestReviewDetails review={review} inBadge /></> : null}
     </Badge>
   );
 }
@@ -261,7 +261,7 @@ export function PullRequestListItem({
               <Badge variant="outline" className="h-7 gap-1.5 rounded-md px-2.5 py-0 text-destructive">
                 <Sparkles className="size-3" aria-hidden="true" />
                 {t("pr.aiReviewError")}
-                {review ? <><Separator orientation="vertical" className="h-4" /><PullRequestReviewDetails review={review} /></> : null}
+                {review ? <><Separator orientation="vertical" className="h-4" /><PullRequestReviewDetails review={review} inBadge /></> : null}
               </Badge>
               <Button type="button" variant="ghost" size="icon" className="size-7 [&_svg]:!size-3.5" onClick={() => onStartReview(pullRequest)} disabled={!aiReviewReady || reviewStarting} aria-label={t("pr.dialog.rerun")} title={t("pr.dialog.rerun")}>
                 <RefreshCw aria-hidden="true" />

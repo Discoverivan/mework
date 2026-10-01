@@ -2,18 +2,19 @@ import { Info } from "lucide-react";
 
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { useI18n } from "@/i18n/context";
+import { cn } from "@/lib/utils";
 import type { PullRequestReviewState } from "@/shared/contracts/developer";
 
 import { formatRelativeDate } from "./pull-request-formatting";
 
-export function PullRequestReviewDetails({ review }: { review: PullRequestReviewState }) {
+export function PullRequestReviewDetails({ review, inBadge = false }: { review: PullRequestReviewState; inBadge?: boolean }) {
   const { t } = useI18n();
   const finishedAt = review.finishedAt != null ? new Date(review.finishedAt) : undefined;
   const execution = review.execution;
   return (
     <Popover>
       <PopoverTrigger asChild>
-        <button type="button" className="inline-flex size-5 shrink-0 items-center justify-center rounded-full text-foreground/70 transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" aria-label={t("pr.dialog.showReviewDetails")} title={t("pr.dialog.showReviewDetails")}>
+        <button type="button" className={cn("inline-flex h-5 shrink-0 items-center justify-center rounded-full text-foreground/70 transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring", inBadge ? "w-3.5" : "w-5")} aria-label={t("pr.dialog.showReviewDetails")} title={t("pr.dialog.showReviewDetails")}>
           <Info className="size-3.5" aria-hidden="true" />
         </button>
       </PopoverTrigger>
