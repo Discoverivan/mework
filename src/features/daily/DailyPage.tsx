@@ -528,7 +528,30 @@ export function DailyPage() {
       });
       setAiResult(generated.text);
     } catch (reason) {
-      setAiError(commandError(reason));
+      const message = commandError(reason);
+      const parentTaskFailure = message.match(/^Unable to load parent task (.+): (issue|changelog) request failed: (.+)$/);
+      if (parentTaskFailure) {
+        const [, key, stage, failure] = parentTaskFailure;
+        const httpFailure = failure.match(/^Jira HTTP error \((\d+)\)$/);
+        const localizedFailure = httpFailure
+          ? t("daily.aiJiraHttpError", { status: httpFailure[1] })
+          : failure === "Jira transport error"
+            ? t("daily.aiJiraTransportError")
+            : failure.startsWith("invalid Jira response")
+              ? t("daily.aiJiraInvalidResponse")
+              : failure === "unsupported Jira capability"
+                ? t("daily.aiJiraUnsupportedCapability")
+                : failure === "invalid Jira base URL"
+                  ? t("daily.aiJiraInvalidBaseUrl")
+                  : failure;
+        setAiError(t("daily.aiParentTaskLoadError", {
+          key,
+          stage: t(stage === "issue" ? "daily.aiIssueRequest" : "daily.aiChangelogRequest"),
+          reason: localizedFailure,
+        }));
+      } else {
+        setAiError(message);
+      }
     } finally {
       setAiBusy(false);
     }

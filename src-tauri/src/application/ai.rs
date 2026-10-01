@@ -111,6 +111,8 @@ pub struct AiSettings {
     pub pull_request_review: Option<AiSettingsProfile>,
     #[serde(default)]
     pub token_burner: Option<AiSettingsProfile>,
+    #[serde(default)]
+    pub sprint_summary: Option<AiSettingsProfile>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
@@ -145,6 +147,7 @@ impl Default for AiSettings {
             task_creation: None,
             pull_request_review: None,
             token_burner: None,
+            sprint_summary: None,
         }
     }
 }
@@ -337,6 +340,7 @@ pub async fn dto(pool: &SqlitePool) -> Result<AiSettingsPageDto, String> {
                 &settings.task_creation,
                 &settings.pull_request_review,
                 &settings.token_burner,
+                &settings.sprint_summary,
             ]
             .into_iter()
             .any(|profile| {
@@ -462,6 +466,7 @@ pub async fn delete_provider(
         &mut settings.task_creation,
         &mut settings.pull_request_review,
         &mut settings.token_burner,
+        &mut settings.sprint_summary,
     ] {
         if profile.as_ref().is_some_and(|item| {
             matches_provider(Some(item.provider), item.provider_instance_id.as_deref())
@@ -578,7 +583,7 @@ fn effective_settings(mut settings: AiSettings, activity: AiActivity) -> AiSetti
         AiActivity::TaskCreation => settings.task_creation.clone(),
         AiActivity::PullRequestReview => settings.pull_request_review.clone(),
         AiActivity::TokenBurner => settings.token_burner.clone(),
-        AiActivity::SprintSummary => None,
+        AiActivity::SprintSummary => settings.sprint_summary.clone(),
     };
     if let Some(profile) = profile {
         profile.apply_to(&mut settings);
@@ -586,6 +591,7 @@ fn effective_settings(mut settings: AiSettings, activity: AiActivity) -> AiSetti
     settings.task_creation = None;
     settings.pull_request_review = None;
     settings.token_burner = None;
+    settings.sprint_summary = None;
     settings
 }
 
@@ -639,6 +645,7 @@ async fn validate_settings(pool: &SqlitePool, settings: &AiSettings) -> Result<(
     } else if settings.task_creation.is_none()
         && settings.pull_request_review.is_none()
         && settings.token_burner.is_none()
+        && settings.sprint_summary.is_none()
     {
         return Err("Select an AI provider before saving".to_owned());
     }
@@ -646,6 +653,7 @@ async fn validate_settings(pool: &SqlitePool, settings: &AiSettings) -> Result<(
         settings.task_creation.as_ref(),
         settings.pull_request_review.as_ref(),
         settings.token_burner.as_ref(),
+        settings.sprint_summary.as_ref(),
     ]
     .into_iter()
     .flatten()
@@ -1318,6 +1326,7 @@ mod tests {
             task_creation: None,
             pull_request_review: None,
             token_burner: None,
+            sprint_summary: None,
         };
         crate::infrastructure::db::repositories::upsert_setting(
             &pool,
@@ -1412,6 +1421,7 @@ mod tests {
         .unwrap();
         assert!(legacy.task_creation.is_none());
         assert!(legacy.pull_request_review.is_none());
+        assert!(legacy.sprint_summary.is_none());
 
         let settings = AiSettings {
             provider: Some(AiProviderId::CodexCli),
@@ -1434,6 +1444,13 @@ mod tests {
                 reasoning: AiReasoning::Medium,
                 fast_mode: false,
             }),
+            sprint_summary: Some(super::AiSettingsProfile {
+                provider: AiProviderId::ClaudeCodeCli,
+                provider_instance_id: None,
+                model: "example-summary-model".to_owned(),
+                reasoning: AiReasoning::Low,
+                fast_mode: false,
+            }),
         };
         let task = super::effective_settings(settings.clone(), super::AiActivity::TaskCreation);
         let review =
@@ -1447,8 +1464,10 @@ mod tests {
         assert_eq!(review.reasoning, AiReasoning::High);
         assert!(review.fast_mode);
         assert!(review.pull_request_review.is_none());
-        assert_eq!(summary.provider, Some(AiProviderId::CodexCli));
-        assert_eq!(summary.model, "example-model");
+        assert_eq!(summary.provider, Some(AiProviderId::ClaudeCodeCli));
+        assert_eq!(summary.model, "example-summary-model");
+        assert_eq!(summary.reasoning, AiReasoning::Low);
+        assert!(summary.sprint_summary.is_none());
         assert_eq!(burner.provider, Some(AiProviderId::OpenAiCompatible));
         assert_eq!(burner.provider_instance_id.as_deref(), Some("provider-id"));
         assert_eq!(burner.model, "example-review-model");
@@ -1466,6 +1485,7 @@ mod tests {
             task_creation: None,
             pull_request_review: None,
             token_burner: None,
+            sprint_summary: None,
         };
         let value = serde_json::to_value(settings).unwrap();
         assert_eq!(value["provider"], "codex-cli");
