@@ -569,7 +569,7 @@ describe("MyPullRequestsPage", () => {
     await renderFlatPage();
     const rerunButton = await screen.findByRole("button", { name: "Re-run review" });
     expect(rerunButton).toHaveClass("size-7");
-    expect(rerunButton.previousElementSibling).toBe(screen.getByText("AI review error"));
+    expect(rerunButton.nextElementSibling).toBe(screen.getByText("AI review error"));
     expect(screen.getByText("AI review error")).toHaveClass("text-destructive");
     expect(screen.getByRole("button", { name: "AI review error" }).querySelector("svg.lucide-sparkles")).toHaveClass("text-destructive");
     fireEvent.click(await screen.findByRole("button", { name: "AI review error" }));
@@ -712,7 +712,7 @@ describe("MyPullRequestsPage", () => {
     expect(screen.getByRole("button", { name: "Needs work" })).not.toBeDisabled();
     expect(screen.getByRole("button", { name: "Needs work" }).querySelector("svg")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Approve" })).not.toBeDisabled();
-    expect(screen.getByRole("button", { name: "Approve" })).toHaveClass("text-success", "hover:text-success");
+    expect(screen.getByRole("button", { name: "Approve" })).toHaveClass("text-foreground", "hover:text-success");
     expect(screen.getByRole("button", { name: "Approve" }).querySelector("svg")).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Approve" }));

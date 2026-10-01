@@ -251,6 +251,7 @@ export function PullRequestReviewDialog({
                 variant="outline"
                 size="sm"
                 actionTone="warning"
+                className="text-foreground"
                 disabled={!pullRequest || !onSetDecision || pendingAction != null}
                 onClick={() => void setDecision("needs_work")}
               >
@@ -262,6 +263,7 @@ export function PullRequestReviewDialog({
                 variant="outline"
                 size="sm"
                 actionTone="success"
+                className="text-foreground"
                 disabled={!pullRequest || !onSetDecision || pendingAction != null}
                 onClick={() => void setDecision("approve")}
               >
