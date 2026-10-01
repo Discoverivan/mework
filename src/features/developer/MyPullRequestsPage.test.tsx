@@ -761,7 +761,8 @@ describe("MyPullRequestsPage", () => {
     const openInBrowser = screen.getByRole("link", { name: "Open in browser" });
     expect(openInBrowser).toHaveAttribute("href", pullRequests[0].url);
     expect(openInBrowser).toHaveAttribute("title", "Open in browser");
-    expect(openInBrowser).toHaveClass("app-icon-button", "size-9");
+    expect(openInBrowser).toHaveClass("app-action-text", "h-9", "w-9");
+    expect(screen.getByRole("button", { name: "Re-run review" })).toHaveClass("app-action-text", "h-9");
     expect(openInBrowser.textContent).toBe("");
     fireEvent.click(publishButton);
     expect(publishCommentMock).not.toHaveBeenCalled();

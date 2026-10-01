@@ -166,7 +166,7 @@ export function PullRequestReviewDialog({
   }
 
   const openInBrowser = pullRequest?.url ? (
-    <Button asChild type="button" variant="outline" size="icon" actionTone="neutral" className="size-9 shrink-0">
+    <Button asChild type="button" variant="outline" size="sm" actionTone="neutral" className="w-9 shrink-0 px-0 text-foreground">
       <a href={pullRequest.url} target="_blank" rel="noreferrer" aria-label={t("pr.dialog.openWeb")} title={t("pr.dialog.openWeb")} onClick={() => onOpenPullRequest(pullRequest)}>
         <ExternalLink aria-hidden="true" />
       </a>
@@ -204,8 +204,8 @@ export function PullRequestReviewDialog({
             <Alert variant="destructive">
               <CircleAlert aria-hidden="true" />
               <AlertTitle className="flex items-center gap-2">
-                {review ? <PullRequestReviewDetails review={review} /> : null}
                 {t("pr.aiReviewError")}
+                {review ? <PullRequestReviewDetails review={review} /> : null}
               </AlertTitle>
               <AlertDescription className="break-words">{review.error || t("pr.dialog.unknownReviewError")}</AlertDescription>
             </Alert>
@@ -290,6 +290,8 @@ export function PullRequestReviewDialog({
               type="button"
               variant="outline"
               size="sm"
+              actionTone="neutral"
+              className="text-foreground"
               onClick={() => {
                 if (pullRequest) {
                   onOpenChange(false);
