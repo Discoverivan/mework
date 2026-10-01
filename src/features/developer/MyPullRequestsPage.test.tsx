@@ -548,6 +548,10 @@ describe("MyPullRequestsPage", () => {
   });
 
   it("opens AI review errors and allows retrying the review", async () => {
+    let resolveReview!: (review: PullRequestReviewState) => void;
+    startReviewMock.mockImplementationOnce(() => new Promise<PullRequestReviewState>((resolve) => {
+      resolveReview = resolve;
+    }));
     const failedReview: PullRequestReviewState = {
       runId: "run-failed-example",
       status: "failed",
@@ -581,6 +585,8 @@ describe("MyPullRequestsPage", () => {
       integrationId: pullRequests[0].integrationId,
       pullRequestId: pullRequests[0].pullRequestId,
     })));
+    expect(screen.getByRole("button", { name: "AI review…" }).querySelector("svg.lucide-sparkles")).toHaveClass("text-primary");
+    resolveReview(runningReview);
   });
 
   it("excludes a repository from the PR actions menu", async () => {

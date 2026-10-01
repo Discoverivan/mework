@@ -177,6 +177,21 @@ export function PullRequestListItem({
   const reviewRunning = reviewStarting || review?.status === "running";
   const reviewCompleted = review?.status === "completed" && review.result != null;
   const reviewFailed = review?.status === "failed";
+  let reviewLabel = t("pr.aiReview");
+  let reviewIconClassName: string | undefined;
+  if (reviewRunning) {
+    reviewLabel = t("pr.aiReviewRunning");
+    reviewIconClassName = "text-primary";
+  } else if (reviewFailed) {
+    reviewLabel = t("pr.aiReviewError");
+    reviewIconClassName = "text-destructive";
+  } else if (reviewCompleted) {
+    reviewLabel = completedLabel ?? t("pr.reviewResults");
+    reviewIconClassName = review?.result?.verdict === "ok" ? "text-success" : "text-warning";
+  }
+  const reviewTitle = !reviewRunning && !reviewFailed && !reviewCompleted && !aiReviewReady
+    ? t("pr.aiProviderRequired")
+    : reviewLabel;
   const needsAction = mode === "author" && (pullRequest.needsAction || (pullRequest.reviewSummary?.needsWork ?? 0) > 0);
   const reviewSummary = pullRequest.reviewSummary ?? { approved: 0, needsWork: 0, comments: 0 };
   const externalUrl = safePullRequestUrl(pullRequest.url);
@@ -262,12 +277,12 @@ export function PullRequestListItem({
               className="size-8"
               onClick={() => reviewCompleted || reviewFailed ? onOpenResults(pullRequest) : onStartReview(pullRequest)}
               disabled={reviewRunning || (!reviewCompleted && !reviewFailed && !aiReviewReady)}
-              aria-label={reviewRunning ? t("pr.aiReviewRunning") : reviewFailed ? t("pr.aiReviewError") : reviewCompleted ? completedLabel ?? t("pr.reviewResults") : t("pr.aiReview")}
-              title={reviewRunning ? t("pr.aiReviewRunning") : reviewFailed ? t("pr.aiReviewError") : reviewCompleted ? completedLabel ?? t("pr.reviewResults") : !aiReviewReady ? t("pr.aiProviderRequired") : t("pr.aiReview")}
+              aria-label={reviewLabel}
+              title={reviewTitle}
             >
               <Sparkles
                 aria-hidden="true"
-                className={reviewFailed ? "text-destructive" : reviewRunning ? "text-primary" : reviewCompleted ? review?.result?.verdict === "ok" ? "text-success" : "text-warning" : undefined}
+                className={reviewIconClassName}
               />
             </Button>
             {mode === "reviewer" && pullRequest.myDecision !== "approved" ? (
