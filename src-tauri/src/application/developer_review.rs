@@ -1586,6 +1586,7 @@ mod tests {
             task_creation: None,
             pull_request_review: None,
             token_burner: None,
+            sprint_summary: None,
         };
         let (result, codex_usage) = super::execute_review_in_workspace_with_usage(
             &request,
