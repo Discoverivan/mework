@@ -182,6 +182,7 @@ const DEFAULT_AI_SETTINGS: AiSettings = {
   reasoning: "medium",
   fastMode: false,
   tokenBurner: null,
+  sprintSummary: null,
 };
 
 const INITIAL_AI_DATA: AiSettingsPageData = { settings: DEFAULT_AI_SETTINGS, providers: [] };
@@ -302,13 +303,14 @@ function AiOverrideEditor({
 
 
 export type SettingsSection = "general" | "ai" | "integrations" | "projects";
-type AiSettingsScope = "default" | "taskCreation" | "pullRequestReview" | "tokenBurner";
+type AiSettingsScope = "default" | "taskCreation" | "pullRequestReview" | "tokenBurner" | "sprintSummary";
 type AiActivity = Exclude<AiSettingsScope, "default">;
 
 const AI_ACTIVITIES: { key: AiActivity; labelKey: TranslationKey; idPrefix: string }[] = [
   { key: "taskCreation", labelKey: "settings.ai.taskCreation", idPrefix: "ai-task" },
   { key: "pullRequestReview", labelKey: "settings.ai.pullRequestReview", idPrefix: "ai-review" },
   { key: "tokenBurner", labelKey: "settings.ai.tokenBurner", idPrefix: "ai-token-burner" },
+  { key: "sprintSummary", labelKey: "settings.ai.sprintSummary", idPrefix: "ai-sprint-summary" },
 ];
 
 const CLI_PROVIDER_OPTIONS: { id: AiCliProviderId; name: string }[] = [
@@ -572,7 +574,8 @@ export function SettingsPage({ section = "integrations", focusActivity, mockMode
       && aiDraft.fastMode === aiData.settings.fastMode
       && JSON.stringify(aiDraft.taskCreation ?? null) === JSON.stringify(aiData.settings.taskCreation ?? null)
       && JSON.stringify(aiDraft.pullRequestReview ?? null) === JSON.stringify(aiData.settings.pullRequestReview ?? null)
-      && JSON.stringify(aiDraft.tokenBurner ?? null) === JSON.stringify(aiData.settings.tokenBurner ?? null);
+      && JSON.stringify(aiDraft.tokenBurner ?? null) === JSON.stringify(aiData.settings.tokenBurner ?? null)
+      && JSON.stringify(aiDraft.sprintSummary ?? null) === JSON.stringify(aiData.settings.sprintSummary ?? null);
     const defaultSettingsUnchanged = aiDraft.provider === aiData.settings.provider
       && (aiDraft.providerInstanceId ?? null) === (aiData.settings.providerInstanceId ?? null)
       && aiDraft.model === aiData.settings.model
@@ -582,6 +585,7 @@ export function SettingsPage({ section = "integrations", focusActivity, mockMode
       [aiDraft.taskCreation, aiData.settings.taskCreation],
       [aiDraft.pullRequestReview, aiData.settings.pullRequestReview],
       [aiDraft.tokenBurner, aiData.settings.tokenBurner],
+      [aiDraft.sprintSummary, aiData.settings.sprintSummary],
     ] as const;
     const changedProfilesReady = profileChanges.some(([draft, saved]) =>
       JSON.stringify(draft ?? null) !== JSON.stringify(saved ?? null))
@@ -670,12 +674,12 @@ export function SettingsPage({ section = "integrations", focusActivity, mockMode
 
   function updateAiSetting<K extends keyof AiSettings>(field: K, value: AiSettings[K]) {
     setAiDraft((current) => ({ ...current, [field]: value }));
-    setAiStatusScope(field === "taskCreation" || field === "pullRequestReview" || field === "tokenBurner" ? field : "default");
+    setAiStatusScope(field === "taskCreation" || field === "pullRequestReview" || field === "tokenBurner" || field === "sprintSummary" ? field : "default");
     setAiSaved(false);
     setAiError(null);
   }
 
-  function updateAiProfile(field: "taskCreation" | "pullRequestReview" | "tokenBurner", profile: AiSettingsProfile | null) {
+  function updateAiProfile(field: AiActivity, profile: AiSettingsProfile | null) {
     updateAiSetting(field, profile);
   }
 
@@ -702,7 +706,8 @@ export function SettingsPage({ section = "integrations", focusActivity, mockMode
     if (aiStatusScope !== scope) return null;
     const profile = scope === "taskCreation" ? aiDraft.taskCreation
       : scope === "pullRequestReview" ? aiDraft.pullRequestReview
-        : scope === "tokenBurner" ? aiDraft.tokenBurner : null;
+        : scope === "tokenBurner" ? aiDraft.tokenBurner
+          : scope === "sprintSummary" ? aiDraft.sprintSummary : null;
     const statusProvider = scope === "default" ? selectedAiProvider : aiData.providers.find((candidate) => candidate.id === profile?.provider
       && (candidate.id !== "openai-compatible" || (candidate.instanceId ?? "legacy") === (profile?.providerInstanceId ?? "legacy")));
     const showReadiness = scope === "default"

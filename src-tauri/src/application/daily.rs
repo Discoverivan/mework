@@ -154,7 +154,7 @@ pub async fn generate_ai_summary(
     let mut tasks = Vec::new();
     for key in parent_keys {
         let issue = client
-            .get_issue_with_changelog(
+            .get_issue_with_changelog_diagnostic(
                 &key,
                 project
                     .story_points_field_id
@@ -162,7 +162,7 @@ pub async fn generate_ai_summary(
                     .or(Some(DEFAULT_STORY_POINTS_FIELD_ID)),
             )
             .await
-            .map_err(|_| format!("Unable to load parent task {key}"))?;
+            .map_err(|error| format!("Unable to load parent task {key}: {error}"))?;
         let fields = issue.get("fields").unwrap_or(&Value::Null);
         let histories = issue
             .pointer("/changelog/histories")

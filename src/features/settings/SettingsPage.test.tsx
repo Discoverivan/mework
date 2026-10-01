@@ -269,6 +269,34 @@ describe("SettingsPage integrations smoke tests", () => {
     expect(defaultAiSettings().queryByText("AI settings saved.")).not.toBeInTheDocument();
   });
 
+  it("saves a provider and model override for Sprint tasks / AI Summary", async () => {
+    getAiSettingsMock.mockResolvedValue({
+      ...codexAiSettings,
+      settings: { ...codexAiSettings.settings, provider: "codex-cli" },
+      providers: [
+        ...codexAiSettings.providers,
+        { id: "claude-code-cli", name: "Claude Code CLI", status: "connected", available: true, models: ["sonnet"] },
+      ],
+    });
+    render(<SettingsPage section="ai" />);
+
+    await screen.findByRole("heading", { name: "AI settings" });
+    fireEvent.pointerDown(screen.getByRole("button", { name: "Add activity" }), { button: 0, ctrlKey: false });
+    fireEvent.click(screen.getByRole("menuitem", { name: "Sprint tasks / AI Summary" }));
+    const summary = within(screen.getByRole("region", { name: "Sprint tasks / AI Summary" }));
+    fireEvent.click(summary.getByRole("combobox", { name: "AI provider" }));
+    fireEvent.click(screen.getByRole("option", { name: "Claude Code CLI" }));
+
+    await waitFor(() => expect(saveAiSettingsMock).toHaveBeenCalledWith(expect.objectContaining({
+      sprintSummary: {
+        provider: "claude-code-cli",
+        model: "sonnet",
+        reasoning: "medium",
+        fastMode: false,
+      },
+    })));
+  });
+
   it("adds each activity once and offers it again after removal", async () => {
     render(<SettingsPage section="ai" />);
     await screen.findByRole("heading", { name: "Activity-specific" });

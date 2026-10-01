@@ -20,6 +20,7 @@ export interface AiSettings {
   taskCreation?: AiSettingsProfile | null;
   pullRequestReview?: AiSettingsProfile | null;
   tokenBurner?: AiSettingsProfile | null;
+  sprintSummary?: AiSettingsProfile | null;
 }
 
 export interface AiProvider {

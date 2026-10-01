@@ -64,6 +64,18 @@ pub struct PlanningIssue {
     pub fields: Value,
 }
 
+#[derive(Debug)]
+pub struct JiraIssueLoadError {
+    pub stage: &'static str,
+    pub source: JiraError,
+}
+
+impl std::fmt::Display for JiraIssueLoadError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(formatter, "{} request failed: {}", self.stage, self.source)
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct JiraIssueTransition {
@@ -607,10 +619,32 @@ impl JiraPlanningClient {
         issue_id_or_key: &str,
         story_points_field_id: Option<&str>,
     ) -> Result<Value, JiraError> {
-        validate_path_component(issue_id_or_key)?;
-        self.ensure_data_center()?;
+        self.get_issue_with_changelog_diagnostic(issue_id_or_key, story_points_field_id)
+            .await
+            .map_err(|error| error.source)
+    }
+
+    pub async fn get_issue_with_changelog_diagnostic(
+        &self,
+        issue_id_or_key: &str,
+        story_points_field_id: Option<&str>,
+    ) -> Result<Value, JiraIssueLoadError> {
+        validate_path_component(issue_id_or_key).map_err(|source| JiraIssueLoadError {
+            stage: "issue",
+            source,
+        })?;
+        self.ensure_data_center()
+            .map_err(|source| JiraIssueLoadError {
+                stage: "issue",
+                source,
+            })?;
         let api_version = "2";
-        let endpoint = self.endpoint(&format!("rest/api/{api_version}/issue/{issue_id_or_key}"))?;
+        let endpoint = self
+            .endpoint(&format!("rest/api/{api_version}/issue/{issue_id_or_key}"))
+            .map_err(|source| JiraIssueLoadError {
+                stage: "issue",
+                source,
+            })?;
         let fields = ["summary", "description", "status", "assignee", "parent"]
             .into_iter()
             .chain(story_points_field_id)
@@ -620,13 +654,25 @@ impl JiraPlanningClient {
         endpoint.query_pairs_mut().append_pair("fields", &fields);
         let mut issue: Value = self
             .send(Method::GET, endpoint, None)
-            .await?
+            .await
+            .map_err(|source| JiraIssueLoadError {
+                stage: "issue",
+                source,
+            })?
             .json()
             .await
-            .map_err(|_| JiraError::InvalidResponse)?;
-        let changelog_endpoint = self.endpoint(&format!(
-            "rest/api/{api_version}/issue/{issue_id_or_key}/changelog"
-        ))?;
+            .map_err(|_| JiraIssueLoadError {
+                stage: "issue",
+                source: JiraError::InvalidResponse,
+            })?;
+        let changelog_endpoint = self
+            .endpoint(&format!(
+                "rest/api/{api_version}/issue/{issue_id_or_key}/changelog"
+            ))
+            .map_err(|source| JiraIssueLoadError {
+                stage: "changelog",
+                source,
+            })?;
         let mut start_at = 0_u64;
         let mut histories = Vec::new();
         loop {
@@ -635,29 +681,82 @@ impl JiraPlanningClient {
                 .query_pairs_mut()
                 .append_pair("startAt", &start_at.to_string())
                 .append_pair("maxResults", "100");
-            let page: Value = self
-                .send(Method::GET, page_endpoint, None)
-                .await?
-                .json()
-                .await
-                .map_err(|_| JiraError::InvalidResponse)?;
-            let page_total = page
-                .get("total")
-                .and_then(Value::as_u64)
-                .ok_or(JiraError::InvalidResponse)?;
-            let page_values = page
-                .get("values")
-                .and_then(Value::as_array)
-                .ok_or(JiraError::InvalidResponse)?;
-            let returned =
-                u64::try_from(page_values.len()).map_err(|_| JiraError::InvalidResponse)?;
+            let response = match self.send(Method::GET, page_endpoint, None).await {
+                Ok(response) => response,
+                Err(source) if source.status() == Some(404) => {
+                    let mut expanded_endpoint = self
+                        .endpoint(&format!("rest/api/{api_version}/issue/{issue_id_or_key}"))
+                        .map_err(|source| JiraIssueLoadError {
+                            stage: "changelog",
+                            source,
+                        })?;
+                    expanded_endpoint
+                        .query_pairs_mut()
+                        .append_pair("fields", &fields)
+                        .append_pair("expand", "changelog");
+                    issue = self
+                        .send(Method::GET, expanded_endpoint, None)
+                        .await
+                        .map_err(|source| JiraIssueLoadError {
+                            stage: "changelog",
+                            source,
+                        })?
+                        .json()
+                        .await
+                        .map_err(|_| JiraIssueLoadError {
+                            stage: "changelog",
+                            source: JiraError::InvalidResponse,
+                        })?;
+                    let expanded_histories = issue
+                        .pointer("/changelog/histories")
+                        .and_then(Value::as_array)
+                        .ok_or(JiraIssueLoadError {
+                            stage: "changelog",
+                            source: JiraError::InvalidResponse,
+                        })?;
+                    histories.extend(expanded_histories.iter().cloned());
+                    break;
+                }
+                Err(source) => {
+                    return Err(JiraIssueLoadError {
+                        stage: "changelog",
+                        source,
+                    });
+                }
+            };
+            let page: Value = response.json().await.map_err(|_| JiraIssueLoadError {
+                stage: "changelog",
+                source: JiraError::InvalidResponse,
+            })?;
+            let page_total =
+                page.get("total")
+                    .and_then(Value::as_u64)
+                    .ok_or(JiraIssueLoadError {
+                        stage: "changelog",
+                        source: JiraError::InvalidResponse,
+                    })?;
+            let page_values =
+                page.get("values")
+                    .and_then(Value::as_array)
+                    .ok_or(JiraIssueLoadError {
+                        stage: "changelog",
+                        source: JiraError::InvalidResponse,
+                    })?;
+            let returned = u64::try_from(page_values.len()).map_err(|_| JiraIssueLoadError {
+                stage: "changelog",
+                source: JiraError::InvalidResponse,
+            })?;
             if returned == 0 && start_at < page_total {
-                return Err(JiraError::InvalidResponse);
+                return Err(JiraIssueLoadError {
+                    stage: "changelog",
+                    source: JiraError::InvalidResponse,
+                });
             }
             histories.extend(page_values.iter().cloned());
-            start_at = start_at
-                .checked_add(returned)
-                .ok_or(JiraError::InvalidResponse)?;
+            start_at = start_at.checked_add(returned).ok_or(JiraIssueLoadError {
+                stage: "changelog",
+                source: JiraError::InvalidResponse,
+            })?;
             if start_at >= page_total {
                 break;
             }
@@ -949,7 +1048,7 @@ async fn check_response(response: reqwest::Response) -> Result<reqwest::Response
 mod tests {
     use std::sync::Arc;
 
-    use wiremock::matchers::{body_json, method, path, query_param};
+    use wiremock::matchers::{body_json, method, path, query_param, query_param_is_missing};
     use wiremock::{Mock, MockServer, ResponseTemplate};
 
     use super::super::planning_write::ReqwestPlanningTransport;
@@ -971,6 +1070,94 @@ mod tests {
             client.get_issue_with_changelog("DEMO-1", None).await,
             Err(JiraError::UnsupportedCapability)
         ));
+    }
+
+    #[tokio::test]
+    async fn falls_back_to_expanded_issue_changelog_when_page_endpoint_is_not_found() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/rest/api/2/issue/DEMO-1"))
+            .and(query_param_is_missing("expand"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "key": "DEMO-1",
+                "fields": {"summary": "Synthetic task"}
+            })))
+            .expect(1)
+            .mount(&server)
+            .await;
+        Mock::given(method("GET"))
+            .and(path("/rest/api/2/issue/DEMO-1/changelog"))
+            .respond_with(ResponseTemplate::new(404))
+            .expect(1)
+            .mount(&server)
+            .await;
+        Mock::given(method("GET"))
+            .and(path("/rest/api/2/issue/DEMO-1"))
+            .and(query_param("expand", "changelog"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "key": "DEMO-1",
+                "fields": {"summary": "Synthetic task"},
+                "changelog": {
+                    "startAt": 0,
+                    "maxResults": 1,
+                    "total": 1,
+                    "histories": [{
+                        "created": "2026-01-01T00:00:00.000+0000",
+                        "items": [{"field": "status", "fromString": "To Do", "toString": "In Progress"}]
+                    }]
+                }
+            })))
+            .expect(1)
+            .mount(&server)
+            .await;
+        let client = JiraPlanningClient::new_with_dependencies(
+            server.uri(),
+            JiraDeployment::DataCenter,
+            Arc::new(ReqwestPlanningTransport::new(reqwest::Client::new())),
+            None,
+            None,
+        )
+        .expect("valid Jira base URL");
+
+        let issue = client
+            .get_issue_with_changelog_diagnostic("DEMO-1", None)
+            .await
+            .expect("expanded issue response should supply its changelog");
+        assert_eq!(
+            issue.pointer("/changelog/histories/0/items/0/toString"),
+            Some(&serde_json::json!("In Progress"))
+        );
+    }
+
+    #[tokio::test]
+    async fn reports_issue_request_stage_and_status_without_jira_body() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/rest/api/2/issue/DEMO-1"))
+            .respond_with(
+                ResponseTemplate::new(403).set_body_string("synthetic private server detail"),
+            )
+            .expect(1)
+            .mount(&server)
+            .await;
+        let client = JiraPlanningClient::new_with_dependencies(
+            server.uri(),
+            JiraDeployment::DataCenter,
+            Arc::new(ReqwestPlanningTransport::new(reqwest::Client::new())),
+            None,
+            None,
+        )
+        .expect("valid Jira base URL");
+
+        let error = client
+            .get_issue_with_changelog_diagnostic("DEMO-1", None)
+            .await
+            .expect_err("the synthetic request is forbidden");
+        assert_eq!(error.stage, "issue");
+        assert_eq!(error.source.status(), Some(403));
+        assert!(!error
+            .to_string()
+            .contains("synthetic private server detail"));
     }
 
     #[tokio::test]

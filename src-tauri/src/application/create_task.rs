@@ -1260,6 +1260,7 @@ mod tests {
             task_creation: None,
             pull_request_review: None,
             token_burner: None,
+            sprint_summary: None,
         };
 
         let (draft, usage) = super::execute_draft_in_workspace_with_usage(
@@ -1321,6 +1322,7 @@ mod tests {
             task_creation: None,
             pull_request_review: None,
             token_burner: None,
+            sprint_summary: None,
         };
         let (draft, usage) = super::execute_draft_in_workspace_with_usage(
             &settings,
