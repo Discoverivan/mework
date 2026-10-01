@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { CheckCheck, Filter, RefreshCw, Settings2 } from "lucide-react";
 
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -193,6 +193,7 @@ export function MyPullRequestsPage() {
   const [removingReviewer, setRemovingReviewer] = useState(false);
   const [removeReviewerError, setRemoveReviewerError] = useState<string>();
   const [pendingDecisionKey, setPendingDecisionKey] = useState<string>();
+  const decisionPendingRef = useRef(false);
 
   const applyPage = useCallback((page: MyPullRequestPage) => {
     setPullRequests((current) => {
@@ -495,15 +496,11 @@ export function MyPullRequestsPage() {
   }
 
   async function applyReviewDecision(target: MyPullRequest, action: "approve" | "needs_work") {
-    if (pendingDecisionKey) return;
-    setPendingDecisionKey(pullRequestKey(target));
     setError(undefined);
     try {
       await updateReviewDecision(target, action);
     } catch (reason) {
       setError(commandError(reason));
-    } finally {
-      setPendingDecisionKey(undefined);
     }
   }
 
@@ -577,6 +574,9 @@ export function MyPullRequestsPage() {
   }
 
   async function updateReviewDecision(pullRequest: MyPullRequest, action: "approve" | "needs_work") {
+    if (decisionPendingRef.current) throw new Error(t("pr.dialog.decisionPending"));
+    decisionPendingRef.current = true;
+    setPendingDecisionKey(pullRequestKey(pullRequest));
     try {
       const status = await setPullRequestDecision(pullRequest, action);
       const key = pullRequestKey(pullRequest);
@@ -585,6 +585,9 @@ export function MyPullRequestsPage() {
       )));
     } catch (reason) {
       throw new Error(commandError(reason));
+    } finally {
+      decisionPendingRef.current = false;
+      setPendingDecisionKey(undefined);
     }
   }
 
@@ -741,7 +744,7 @@ export function MyPullRequestsPage() {
         onOpenPullRequest={(item) => void markRead(item)}
         onRerunReview={(item) => void startReview(item)}
         onPublishComment={publishReviewComment}
-        onSetDecision={updateReviewDecision}
+        onSetDecision={pendingDecisionKey ? undefined : updateReviewDecision}
       />
 
       <AlertDialog open={Boolean(removeReviewerTarget)} onOpenChange={(open) => { if (!open && !removingReviewer) setRemoveReviewerTarget(undefined); }}>

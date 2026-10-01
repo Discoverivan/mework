@@ -1032,6 +1032,7 @@ export const en = {
   "pr.dialog.closeError": "Close",
   "pr.dialog.unknownReviewError": "No error details are available.",
   "pr.dialog.saving": "Saving…",
+  "pr.dialog.decisionPending": "A review decision is already being saved.",
   "pr.dialog.needsWork": "Needs work",
   "pr.dialog.approve": "Approve",
   "pr.dialog.editComment": "Edit review comment",

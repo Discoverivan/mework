@@ -634,6 +634,14 @@ describe("MyPullRequestsPage", () => {
   });
 
   it("publishes the selected review decision directly from the menu", async () => {
+    listMyPullRequestsMock.mockResolvedValueOnce({
+      ...firstPage,
+      values: [{ ...pullRequests[0], review: completedReview }, pullRequests[1]],
+    });
+    let finishDecision!: () => void;
+    setDecisionMock.mockImplementationOnce(() => new Promise((resolve) => {
+      finishDecision = () => resolve({ integrationId: "bitbucket-1", pullRequestId: "7", myDecision: "approved" });
+    }));
     await renderFlatPage();
     const card = (await screen.findByRole("heading", { name: "Example pull request" })).closest("[class*='border-l-']") as HTMLElement;
     fireEvent.pointerDown(within(card).getByRole("button", { name: "Review decision" }), { button: 0, ctrlKey: false });
@@ -641,6 +649,14 @@ describe("MyPullRequestsPage", () => {
     fireEvent.click(await screen.findByRole("menuitem", { name: "Approve" }));
     expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
     await waitFor(() => expect(setDecisionMock).toHaveBeenCalledWith(expect.objectContaining({ pullRequestId: "7" }), "approve"));
+    expect(within(card).getByRole("button", { name: "Review decision" })).toBeDisabled();
+    fireEvent.click(within(card).getByRole("button", { name: "Review results" }));
+    const dialog = await screen.findByRole("dialog", { name: "Review results" });
+    expect(within(dialog).getByRole("button", { name: "Approve" })).toBeDisabled();
+    expect(within(dialog).getByRole("button", { name: "Needs work" })).toBeDisabled();
+    finishDecision();
+    await waitFor(() => expect(within(dialog).getByRole("button", { name: "Needs work" })).not.toBeDisabled());
+    fireEvent.click(within(dialog).getByRole("button", { name: "Close" }));
     await waitFor(() => expect(within(card).getByRole("button", { name: "Review decision" }).querySelector("svg.lucide-circle-check")).toBeInTheDocument());
   });
 

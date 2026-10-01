@@ -1034,6 +1034,7 @@ export const ru: Record<TranslationKey, string> = {
   "pr.dialog.closeError": "Закрыть",
   "pr.dialog.unknownReviewError": "Подробности ошибки недоступны.",
   "pr.dialog.saving": "Сохранение…",
+  "pr.dialog.decisionPending": "Решение по ревью уже сохраняется.",
   "pr.dialog.needsWork": "Требуются доработки",
   "pr.dialog.approve": "Одобрить",
   "pr.dialog.editComment": "Редактирование комментария ревью",
