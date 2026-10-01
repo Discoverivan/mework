@@ -150,6 +150,11 @@
     --app-action-color: var(--success);
   }
 
+  .app-icon-button[data-action-tone="warning"],
+  .app-action-text[data-action-tone="warning"] {
+    --app-action-color: var(--warning);
+  }
+
   .app-icon-button:is([data-action-tone="delete"], [data-button-variant="destructive"]),
   .app-action-text[data-action-tone="delete"] {
     --app-action-color: var(--destructive);

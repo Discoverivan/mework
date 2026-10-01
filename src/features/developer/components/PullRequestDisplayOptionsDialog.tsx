@@ -3,7 +3,6 @@ import {
   Dialog,
   DialogBody,
   DialogContent,
-  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
@@ -71,14 +70,13 @@ export function PullRequestDisplayOptionsDialog({
   }
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-md">
+      <DialogContent className="max-w-md" aria-describedby={undefined}>
         <DialogHeader>
           <DialogTitle>{t("pr.displayOptions")}</DialogTitle>
-          <DialogDescription>{t("pr.options.description")}</DialogDescription>
         </DialogHeader>
         <DialogBody className="space-y-5">
           <section className="space-y-3" aria-labelledby="pull-request-automation-options">
-            <h3 id="pull-request-automation-options" className="text-sm font-semibold">{t("pr.options.automation")}</h3>
+            <h3 id="pull-request-automation-options" className="text-base font-semibold">{t("pr.options.automation")}</h3>
             <div className="flex items-center justify-between gap-6 rounded-lg border p-4">
               <div className="space-y-1">
                 <Label htmlFor="pull-request-auto-review" alignment="inline">{t("pr.aiAutoReview")}</Label>
@@ -93,14 +91,14 @@ export function PullRequestDisplayOptionsDialog({
             </div>
           </section>
           <section className="space-y-3" aria-labelledby="pull-request-display-options">
-            <h3 id="pull-request-display-options" className="text-sm font-semibold">{t("pr.options.display")}</h3>
+            <h3 id="pull-request-display-options" className="text-base font-semibold">{t("pr.options.display")}</h3>
             <div className="flex flex-wrap items-center justify-between gap-4 rounded-lg border p-4">
               <div className="min-w-0 flex-1">
-                <Label htmlFor="pull-request-sort-order" alignment="inline">{t("pr.options.sortOrder")}</Label>
+                <Label htmlFor="pull-request-sort-order" alignment="inline" className="text-sm font-semibold leading-tight">{t("pr.options.sortOrder")}</Label>
               </div>
               <div className="w-full sm:w-auto">
                 <Select value={draftSort} onValueChange={(value) => setDraftSort(value as PullRequestSortOrder)}>
-                  <SelectTrigger id="pull-request-sort-order" aria-label={t("pr.options.sortOrder")}><SelectValue /></SelectTrigger>
+                  <SelectTrigger id="pull-request-sort-order" aria-label={t("pr.options.sortOrder")} className="h-9 gap-2 px-3 py-1.5 text-sm"><SelectValue /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="newest">{t("pr.options.newestFirst")}</SelectItem>
                     <SelectItem value="oldest">{t("pr.options.oldestFirst")}</SelectItem>
@@ -110,10 +108,10 @@ export function PullRequestDisplayOptionsDialog({
             </div>
             <div className="space-y-4 rounded-lg border p-4">
               <div className="flex flex-wrap items-center justify-between gap-4">
-                <Label htmlFor="pull-request-grouping" alignment="inline" className="min-w-0">{t("pr.options.grouping")}</Label>
+                <Label htmlFor="pull-request-grouping" alignment="inline" className="min-w-0 text-sm font-semibold leading-tight">{t("pr.options.grouping")}</Label>
                 <div className="w-full sm:w-auto">
                   <Select value={draftGrouping} onValueChange={(value) => setDraftGrouping(value as PullRequestGrouping)}>
-                    <SelectTrigger id="pull-request-grouping" aria-label={t("pr.options.grouping")}><SelectValue /></SelectTrigger>
+                    <SelectTrigger id="pull-request-grouping" aria-label={t("pr.options.grouping")} className="h-9 gap-2 px-3 py-1.5 text-sm"><SelectValue /></SelectTrigger>
                     <SelectContent>
                       <SelectItem value="none">{t("pr.options.groupNone")}</SelectItem>
                       <SelectItem value="project">{t("pr.options.groupProject")}</SelectItem>
@@ -124,9 +122,9 @@ export function PullRequestDisplayOptionsDialog({
               </div>
               {draftGrouping !== "none" ? <><Separator /><div className="flex items-center justify-between gap-6 pl-4">
                 <div>
-                  <Label htmlFor="expand-pull-request-projects-by-default" alignment="inline">{t("pr.options.expandGroups")}</Label>
+                  <Label htmlFor="expand-pull-request-projects-by-default" alignment="inline" className="text-sm font-medium">{t("pr.options.expandGroups")}</Label>
                 </div>
-                <Switch id="expand-pull-request-projects-by-default" checked={draftExpand} onCheckedChange={setDraftExpand} />
+                <Switch id="expand-pull-request-projects-by-default" size="sm" checked={draftExpand} onCheckedChange={setDraftExpand} />
               </div></> : null}
             </div>
           </section>

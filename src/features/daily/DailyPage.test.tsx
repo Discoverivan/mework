@@ -180,6 +180,8 @@ describe("DailyPage smoke test", () => {
     expect(screen.queryByText("Unavailable")).not.toBeInTheDocument();
     expect(screen.queryByText("Active sprint: Sprint 42")).not.toBeInTheDocument();
     const aiSummaryButton = screen.getByRole("button", { name: "AI Summary" });
+    expect(aiSummaryButton).toHaveClass("h-9", "w-9");
+    expect(aiSummaryButton).not.toHaveTextContent("AI Summary");
     const refreshButton = screen.getByRole("button", { name: "Refresh" });
     const sprintBoardButton = screen.getByRole("button", { name: "Open sprint board in Jira" });
     const assigneeBoardButton = screen.getByRole("button", { name: "Open sprint board for Test Author A in Jira" });

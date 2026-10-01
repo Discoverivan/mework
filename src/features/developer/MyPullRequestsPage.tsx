@@ -692,7 +692,7 @@ export function MyPullRequestsPage() {
             type="button"
             variant="outline"
             size="icon"
-            actionTone="success"
+            actionTone="neutral"
             className="h-9 w-9"
             aria-label={t("pr.readAll")}
             title={t("pr.readAll")}
