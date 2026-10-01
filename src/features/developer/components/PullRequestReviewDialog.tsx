@@ -206,7 +206,7 @@ export function PullRequestReviewDialog({
               <CircleAlert aria-hidden="true" className="size-4 translate-y-0.5" />
               <AlertTitle className="flex items-center gap-2">
                 {t("pr.aiReviewError")}
-                {review ? <><Separator asChild orientation="vertical" className="h-4"><span /></Separator><PullRequestReviewDetails review={review} /></> : null}
+                {review ? <PullRequestReviewDetails review={review} /> : null}
               </AlertTitle>
               <AlertDescription className="break-words">{review.error || t("pr.dialog.unknownReviewError")}</AlertDescription>
             </Alert>
