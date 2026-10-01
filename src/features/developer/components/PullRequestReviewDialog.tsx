@@ -166,9 +166,10 @@ export function PullRequestReviewDialog({
   }
 
   const openInBrowser = pullRequest?.url ? (
-    <Button asChild type="button" variant="outline" size="sm" actionTone="neutral" className="w-9 shrink-0 px-0 text-foreground">
+    <Button asChild type="button" variant="outline" size="sm" actionTone="neutral" className="shrink-0 text-foreground">
       <a href={pullRequest.url} target="_blank" rel="noreferrer" aria-label={t("pr.dialog.openWeb")} title={t("pr.dialog.openWeb")} onClick={() => onOpenPullRequest(pullRequest)}>
         <ExternalLink aria-hidden="true" />
+        {t("pr.dialog.openWeb")}
       </a>
     </Button>
   ) : null;
@@ -285,7 +286,7 @@ export function PullRequestReviewDialog({
           ) : null}
         </DialogBody>
         <DialogFooter className={cn("items-center gap-2", !reviewFailed && "justify-between sm:justify-between")}>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <Button
               type="button"
               variant="outline"
