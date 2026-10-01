@@ -783,13 +783,11 @@ async fn inspect_openai_compatible(config: OpenAiCompatibleProviderConfig) -> Ai
         Ok(base_url) => base_url,
         Err(message) => {
             return openai_provider(
-                &config.id,
-                &config.alias,
+                &config,
                 AiProviderStatus::Unavailable,
                 false,
-                config.base_url,
+                config.base_url.clone(),
                 Vec::new(),
-                Some(config.allow_insecure_tls),
                 Some(message),
             )
         }
@@ -798,13 +796,11 @@ async fn inspect_openai_compatible(config: OpenAiCompatibleProviderConfig) -> Ai
         match openai_credential_store().load(&config.credential_ref) {
             Ok(token) => token,
             Err(_) => return openai_provider(
-                &config.id,
-                &config.alias,
+                &config,
                 AiProviderStatus::NotAuthenticated,
                 false,
                 base_url,
                 Vec::new(),
-                Some(config.allow_insecure_tls),
                 Some(
                     "OpenAI-compatible API token is not available in the operating system keyring"
                         .to_owned(),
@@ -813,45 +809,39 @@ async fn inspect_openai_compatible(config: OpenAiCompatibleProviderConfig) -> Ai
         };
     match load_openai_models(&base_url, &token, config.allow_insecure_tls).await {
         Ok(models) => openai_provider(
-            &config.id,
-            &config.alias,
+            &config,
             AiProviderStatus::Connected,
             true,
             base_url,
             models,
-            Some(config.allow_insecure_tls),
             None,
         ),
         Err(message) => openai_provider(
-            &config.id,
-            &config.alias,
+            &config,
             AiProviderStatus::Unavailable,
             false,
             base_url,
             Vec::new(),
-            Some(config.allow_insecure_tls),
             Some(message),
         ),
     }
 }
 
 fn openai_provider(
-    instance_id: &str,
-    alias: &str,
+    config: &OpenAiCompatibleProviderConfig,
     status: AiProviderStatus,
     available: bool,
     base_url: String,
     models: Vec<String>,
-    allow_insecure_tls: Option<bool>,
     message: Option<String>,
 ) -> AiProviderDto {
     AiProviderDto {
         id: AiProviderId::OpenAiCompatible,
-        instance_id: Some(instance_id.to_owned()),
-        name: if alias.is_empty() {
+        instance_id: Some(config.id.clone()),
+        name: if config.alias.is_empty() {
             "OpenAI-compatible API"
         } else {
-            alias
+            &config.alias
         }
         .to_owned(),
         status,
@@ -860,7 +850,7 @@ fn openai_provider(
         executable_path: None,
         version: None,
         base_url: (!base_url.is_empty()).then_some(base_url),
-        allow_insecure_tls,
+        allow_insecure_tls: Some(config.allow_insecure_tls),
         message,
     }
 }
@@ -1702,7 +1692,7 @@ mod tests {
             credential_ref: "ai-openai-compatible".to_owned(),
             allow_insecure_tls: true,
         };
-        let value = serde_json::to_value(config).unwrap();
+        let value = serde_json::to_value(&config).unwrap();
 
         assert!(value.get("staticModels").is_none());
         assert_eq!(value["allowInsecureTls"], true);
@@ -1710,13 +1700,11 @@ mod tests {
         assert_eq!(value["alias"], "Example API");
         assert_eq!(
             super::openai_provider(
-                "legacy",
-                "Example API",
+                &config,
                 AiProviderStatus::Connected,
                 true,
                 "https://api.example.invalid/v1".to_owned(),
                 vec!["example-model".to_owned()],
-                Some(false),
                 None
             )
             .name,
