@@ -132,8 +132,8 @@ export function PullRequestDisplayOptionsDialog({
           </section>
         </DialogBody>
         <DialogFooter>
-          <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>{t("settings.common.cancel")}</Button>
-          <Button type="button" onClick={apply}>{t("pr.options.apply")}</Button>
+          <Button type="button" variant="outline" actionTone="neutral" onClick={() => onOpenChange(false)}>{t("settings.common.cancel")}</Button>
+          <Button type="button" variant="outline" actionTone="success" className="text-foreground" onClick={apply}>{t("pr.options.apply")}</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
