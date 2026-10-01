@@ -4,11 +4,13 @@ import { useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { Separator } from "@/components/ui/separator";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuGroup, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import type {
   MyPullRequest,
   MyPullRequestDecision,
   PullRequestReviewSeverity,
+  PullRequestReviewState,
 } from "@/shared/contracts/developer";
 import { useI18n } from "@/i18n/context";
 import { cn } from "@/lib/utils";
@@ -107,7 +109,7 @@ function ActivityBadge({ activity }: { activity: MyPullRequest["activity"] }) {
   );
 }
 
-export function AiVerdictBadge({ verdict }: { verdict: "ok" | "needs_changes" }) {
+export function AiVerdictBadge({ verdict, review }: { verdict: "ok" | "needs_changes"; review?: PullRequestReviewState }) {
   const { t } = useI18n();
   const approved = verdict === "ok";
   const label = t(approved ? "pr.decision.approved" : "pr.decision.needsWork");
@@ -117,8 +119,11 @@ export function AiVerdictBadge({ verdict }: { verdict: "ok" | "needs_changes" })
       className={cn("h-7 gap-1.5 rounded-md px-2.5 py-0", approved ? "text-success" : "text-warning")}
       aria-label={t("pr.aiVerdict", { verdict: label })}
     >
+      {review ? <><PullRequestReviewDetails review={review} /><Separator orientation="vertical" className="h-4" /></> : null}
       <Sparkles className="size-3" aria-hidden="true" />
-      {t("pr.aiVerdictLabel")} · {approved ? <CheckCircle2 className="size-3.5" aria-hidden="true" /> : <CircleAlert className="size-3.5" aria-hidden="true" />}
+      {t("pr.aiVerdictLabel")}
+      <Separator orientation="vertical" className="h-4" />
+      {approved ? <CheckCircle2 className="size-3.5" aria-hidden="true" /> : <CircleAlert className="size-3.5" aria-hidden="true" />}
       {label}
     </Badge>
   );
@@ -250,16 +255,11 @@ export function PullRequestListItem({
               {t("pr.aiReviewInProgress")}
             </Badge>
           ) : null}
-          {!reviewRunning && reviewCompleted && review?.result ? (
-            <div className="flex items-center gap-1">
-              <PullRequestReviewDetails review={review} />
-              <AiVerdictBadge verdict={review.result.verdict} />
-            </div>
-          ) : null}
+          {!reviewRunning && reviewCompleted && review?.result ? <AiVerdictBadge verdict={review.result.verdict} review={review} /> : null}
           {!reviewRunning && reviewFailed ? (
             <div className="flex items-center gap-1">
-              {review ? <PullRequestReviewDetails review={review} /> : null}
               <Badge variant="outline" className="h-7 gap-1.5 rounded-md px-2.5 py-0 text-destructive">
+                {review ? <><PullRequestReviewDetails review={review} /><Separator orientation="vertical" className="h-4" /></> : null}
                 <Sparkles className="size-3" aria-hidden="true" />
                 {t("pr.aiReviewError")}
               </Badge>

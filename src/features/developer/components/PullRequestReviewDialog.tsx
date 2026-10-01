@@ -206,7 +206,7 @@ export function PullRequestReviewDialog({
               <CircleAlert aria-hidden="true" className="size-4 translate-y-0.5" />
               <AlertTitle className="flex items-center gap-2">
                 {t("pr.aiReviewError")}
-                {review ? <PullRequestReviewDetails review={review} /> : null}
+                {review ? <><Separator asChild orientation="vertical" className="h-4"><span /></Separator><PullRequestReviewDetails review={review} /></> : null}
               </AlertTitle>
               <AlertDescription className="break-words">{review.error || t("pr.dialog.unknownReviewError")}</AlertDescription>
             </Alert>
@@ -217,10 +217,7 @@ export function PullRequestReviewDialog({
                 <div className="space-y-2">
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <h3 id="ai-summary-title" className="text-base font-semibold leading-tight">{t("pr.dialog.aiSummary")}</h3>
-                    <div className="flex items-center gap-2">
-                      {review ? <PullRequestReviewDetails review={review} /> : null}
-                      <AiVerdictBadge verdict={result.verdict} />
-                    </div>
+                    <AiVerdictBadge verdict={result.verdict} review={review} />
                   </div>
                   <ReviewMarkdown>{result.description}</ReviewMarkdown>
                 </div>

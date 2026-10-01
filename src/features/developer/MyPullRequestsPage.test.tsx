@@ -658,7 +658,7 @@ describe("MyPullRequestsPage", () => {
 
     expect(await screen.findByRole("button", { name: "Review results" })).toBeInTheDocument();
     expect(screen.getByLabelText("AI verdict: Approved")).toHaveClass("text-success");
-    expect(screen.getByText("AI verdict · Approved")).toBeInTheDocument();
+    expect(screen.getByLabelText("AI verdict: Approved")).toHaveTextContent("Approved");
     const reviewResultsButton = screen.getByRole("button", { name: "Review results" });
     expect(reviewResultsButton.querySelector("svg.lucide-sparkles")).toHaveClass("text-success");
     const completedCard = reviewResultsButton.closest(".rounded-lg");
@@ -702,7 +702,7 @@ describe("MyPullRequestsPage", () => {
     });
     await renderFlatPage();
     await screen.findByRole("button", { name: "Review results" });
-    expect(screen.getByText("AI verdict · Needs work")).toBeInTheDocument();
+    expect(screen.getByLabelText("AI verdict: Needs work")).toHaveTextContent("Needs work");
     expect(screen.getByRole("button", { name: "Show review details" })).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Review results" }));
@@ -715,7 +715,8 @@ describe("MyPullRequestsPage", () => {
     expect(dialog).toHaveTextContent("Needs work");
     expect(dialog).toHaveTextContent("AI summary");
     expect(dialog).not.toHaveTextContent("Review completed:");
-    fireEvent.click(within(dialog).getByRole("button", { name: "Show review details" }));
+    const verdictBadge = within(dialog).getByLabelText("AI verdict: Needs work");
+    fireEvent.click(within(verdictBadge).getByRole("button", { name: "Show review details" }));
     const reviewDetails = await screen.findByRole("dialog", { name: "Review details" });
     expect(reviewDetails).toHaveTextContent("Review completed:");
     expect(within(reviewDetails).getByText(/5m ago/)).toHaveAttribute("dateTime", new Date(markdownReview.finishedAt!).toISOString());
