@@ -202,7 +202,7 @@ export function PullRequestReviewDialog({
         <DialogBody className="max-h-[70vh] space-y-5 overflow-y-auto">
           {reviewFailed ? (
             <Alert variant="destructive">
-              <CircleAlert aria-hidden="true" />
+              <CircleAlert aria-hidden="true" className="size-4 translate-y-0.5" />
               <AlertTitle className="flex items-center gap-2">
                 {t("pr.aiReviewError")}
                 {review ? <PullRequestReviewDetails review={review} /> : null}
