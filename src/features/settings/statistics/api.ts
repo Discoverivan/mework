@@ -16,12 +16,14 @@ export interface AiUsageModelTotal {
   providerId: string;
   providerName: string;
   model: string;
+  requestCount: number;
   inputTokens: number;
   outputTokens: number;
   totalTokens: number;
 }
 
 export interface AiUsageTotal {
+  requestCount: number;
   inputTokens: number;
   outputTokens: number;
   totalTokens: number;

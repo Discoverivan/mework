@@ -13,14 +13,29 @@ const todayDate = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(
 const todayStats: AiUsageStatistics = {
   period: "today",
   daily: [{ date: todayDate, providerId: "codex-cli", providerName: "Codex CLI", model: "gpt-5.5", inputTokens: 1500, outputTokens: 300, totalTokens: 1800 }],
-  byModel: [{ providerId: "codex-cli", providerName: "Codex CLI", model: "gpt-5.5", inputTokens: 1500, outputTokens: 300, totalTokens: 1800 }],
-  total: { inputTokens: 1500, outputTokens: 300, totalTokens: 1800 },
+  byModel: [{ providerId: "codex-cli", providerName: "Codex CLI", model: "gpt-5.5", requestCount: 3, inputTokens: 1500, outputTokens: 300, totalTokens: 1800 }],
+  total: { requestCount: 3, inputTokens: 1500, outputTokens: 300, totalTokens: 1800 },
 };
 
 describe("StatisticsPage", () => {
   beforeEach(() => {
     getAiUsageStatisticsMock.mockReset();
     getAiUsageStatisticsMock.mockResolvedValue(todayStats);
+  });
+
+  it("shows request counts even when the provider reports zero tokens", async () => {
+    getAiUsageStatisticsMock.mockResolvedValue({
+      period: "today",
+      daily: [],
+      byModel: [{ providerId: "codex-cli", providerName: "Codex CLI", model: "example-model", requestCount: 1, inputTokens: 0, outputTokens: 0, totalTokens: 0 }],
+      total: { requestCount: 1, inputTokens: 0, outputTokens: 0, totalTokens: 0 },
+    });
+
+    render(<StatisticsPage />);
+
+    const table = await screen.findByRole("table");
+    expect(within(table).getByText("example-model")).toBeInTheDocument();
+    expect(within(table).getAllByText("1")).toHaveLength(2);
   });
 
   it("shows provider/model token totals and reloads when the period changes", async () => {
@@ -40,6 +55,8 @@ describe("StatisticsPage", () => {
     expect(within(table).getByText("Codex CLI")).toBeInTheDocument();
     expect(within(table).getByRole("columnheader", { name: "IN" })).toBeInTheDocument();
     expect(within(table).getByRole("columnheader", { name: "OUT" })).toBeInTheDocument();
+    expect(within(table).getByRole("columnheader", { name: "Requests" })).toBeInTheDocument();
+    expect(within(table).getAllByText("3")).toHaveLength(2);
     expect(within(table).getAllByText("1,500")).toHaveLength(2);
     expect(within(table).getAllByText("300")).toHaveLength(2);
     expect(within(table).getAllByText("1,800").length).toBeGreaterThan(0);
