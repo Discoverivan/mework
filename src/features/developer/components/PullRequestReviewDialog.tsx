@@ -167,7 +167,7 @@ export function PullRequestReviewDialog({
   }
 
   const openInBrowser = pullRequest?.url ? (
-    <Button asChild type="button" variant="outline" size="icon" actionTone="neutral" className="size-8 shrink-0">
+    <Button asChild type="button" variant="outline" size="icon" actionTone="neutral" className="size-9 shrink-0">
       <a href={pullRequest.url} target="_blank" rel="noreferrer" aria-label={t("pr.dialog.openWeb")} title={t("pr.dialog.openWeb")} onClick={() => onOpenPullRequest(pullRequest)}>
         <ExternalLink aria-hidden="true" />
       </a>
