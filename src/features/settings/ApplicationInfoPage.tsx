@@ -1,6 +1,7 @@
 import type { Update } from "@tauri-apps/plugin-updater";
+import { invoke } from "@tauri-apps/api/core";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import { ArrowUpCircle, Download, ExternalLink, NotebookText, RefreshCw } from "lucide-react";
+import { ArrowUpCircle, Download, ExternalLink, FolderOpen, NotebookText, RefreshCw } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { APP_EVENT, emitAppEvent } from "@/app/app-events";
 import { Button } from "@/components/ui/button";
@@ -140,6 +141,14 @@ export function ApplicationInfoPage({
     void handleCheckForUpdates();
   }, [handleCheckForUpdates, updateCheckRequest]);
 
+  async function handleOpenLogs() {
+    try {
+      await invoke("application_open_logs_directory");
+    } catch {
+      setUpdateInstallError(t("applicationInfo.logsOpenError"));
+    }
+  }
+
   async function handleInstallUpdate() {
     setInstallingUpdate(true);
     setUpdateInstallError(null);
@@ -269,6 +278,15 @@ export function ApplicationInfoPage({
             </Button>
           </div>
         ) : null}
+      </Card>
+      <Card className="flex flex-row items-center justify-between gap-4 p-4">
+        <div className="min-w-0">
+          <h2 className="text-sm font-semibold">{t("applicationInfo.troubleshooting")}</h2>
+          <p className="mt-1 text-sm text-muted-foreground">{t("applicationInfo.logsDescription")}</p>
+        </div>
+        <Button type="button" variant="outline" size="sm" className="shrink-0" onClick={() => void handleOpenLogs()}>
+          <FolderOpen data-icon="inline-start" aria-hidden="true" />{t("applicationInfo.openLogs")}
+        </Button>
       </Card>
       <ReleaseNotesDialog open={releaseNotesOpen} onOpenChange={setReleaseNotesOpen}
         releases={selectedReleaseNote ? [selectedReleaseNote] : []} mode="history"

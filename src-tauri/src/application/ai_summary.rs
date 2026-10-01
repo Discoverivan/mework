@@ -4,6 +4,7 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 use sqlx::SqlitePool;
 
+use crate::application::logging::HttpRequestBuilderExt;
 use crate::application::{ai, ai_usage_statistics, general};
 
 #[derive(Debug, Clone, serde::Serialize, Deserialize)]
@@ -77,31 +78,57 @@ fn generate_blocking(
                 .post(format!("{}/chat/completions", runtime.base_url))
                 .bearer_auth(&runtime.token)
                 .json(&payload)
-                .send()
+                .send_logged(
+                    "ai.openai_compatible",
+                    "sprint_summary",
+                    crate::application::logging::HttpBodyPolicy::Omit,
+                )
                 .await
                 .map_err(|_| "AI summary request could not be completed".to_owned())?;
             let status = response.status();
-            let headers = response.headers().clone();
             let body = response
                 .bytes()
                 .await
                 .map_err(|_| "AI summary response was invalid".to_owned())?;
-            ai::log_openai_chat_response("sprint_summary", status.as_u16(), &headers, &body);
+            ai::log_openai_chat_response("sprint_summary", status.as_u16(), &body);
             if !status.is_success() {
                 return Err(format!(
                     "AI summary request returned HTTP {}",
                     status.as_u16()
                 ));
             }
-            let value: Value = serde_json::from_slice(&body)
-                .map_err(|_| "AI summary response was invalid".to_owned())?;
+            let value: Value = serde_json::from_slice(&body).map_err(|_| {
+                crate::application::logging::log_parse_failure(
+                    "ai.openai_compatible",
+                    "sprint_summary",
+                    "provider_response_json",
+                    &body,
+                );
+                "AI summary response was invalid".to_owned()
+            })?;
             let text = value
                 .pointer("/choices/0/message/content")
                 .and_then(Value::as_str)
                 .map(str::to_owned)
                 .or_else(|| ai::openai_stream_message_content(&body))
-                .ok_or_else(|| "AI provider returned no summary".to_owned())?;
-            let text = validate_text(text)?;
+                .ok_or_else(|| {
+                    crate::application::logging::log_parse_failure(
+                        "ai.openai_compatible",
+                        "sprint_summary",
+                        "missing_response_content",
+                        &body,
+                    );
+                    "AI provider returned no summary".to_owned()
+                })?;
+            let text = validate_text(text).map_err(|error| {
+                crate::application::logging::log_business_failure(
+                    "ai.openai_compatible",
+                    "sprint_summary",
+                    "summary_validation",
+                    &error,
+                );
+                error
+            })?;
             let usage = ai_usage_statistics::parse_response_usage(&value);
             Ok((text, usage))
         });
@@ -182,9 +209,24 @@ fn text_schema() -> Value {
 }
 
 fn parse_text(bytes: &[u8]) -> Result<String, String> {
-    let value: AiSummaryResponse = serde_json::from_slice(bytes)
-        .map_err(|_| "AI provider returned an invalid summary".to_owned())?;
-    validate_text(value.text)
+    let value: AiSummaryResponse = serde_json::from_slice(bytes).map_err(|_| {
+        crate::application::logging::log_parse_failure(
+            "ai.cli",
+            "sprint_summary",
+            "summary_json",
+            bytes,
+        );
+        "AI provider returned an invalid summary".to_owned()
+    })?;
+    validate_text(value.text).map_err(|error| {
+        crate::application::logging::log_parse_failure(
+            "ai.cli",
+            "sprint_summary",
+            "summary_validation",
+            bytes,
+        );
+        error
+    })
 }
 
 fn validate_text(text: String) -> Result<String, String> {

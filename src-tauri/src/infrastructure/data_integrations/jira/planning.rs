@@ -286,10 +286,13 @@ impl JiraPlanningClient {
         validate_path_component(project_key_or_id)?;
         let endpoint = self.endpoint(&format!("rest/api/2/project/{project_key_or_id}"))?;
         let response = self.send(Method::GET, endpoint, None).await?;
-        response
-            .json()
-            .await
-            .map_err(|_| JiraError::InvalidResponse)
+        crate::application::logging::parse_json_response(
+            response,
+            "data_integrations.jira_planning",
+            "get_project",
+        )
+        .await
+        .map_err(|_| JiraError::InvalidResponse)
     }
 
     pub async fn available_issue_transitions(
@@ -302,14 +305,27 @@ impl JiraPlanningClient {
             "rest/api/2/issue/{issue_id_or_key}/transitions?expand=transitions.fields"
         ))?;
         let response = self.send(Method::GET, endpoint, None).await?;
-        let body: Value = response
-            .json()
-            .await
-            .map_err(|_| JiraError::InvalidResponse)?;
+        let body: Value = crate::application::logging::parse_json_response(
+            response,
+            "data_integrations.jira_planning",
+            "available_issue_transitions",
+        )
+        .await
+        .map_err(|_| JiraError::InvalidResponse)?;
+        let response_body = serde_json::to_vec(&body).unwrap_or_default();
         let transitions = body
             .get("transitions")
             .and_then(Value::as_array)
-            .ok_or(JiraError::InvalidResponse)?;
+            .ok_or_else(|| {
+                crate::application::logging::log_business_failure_with_body(
+                    "data_integrations.jira_planning",
+                    "available_issue_transitions",
+                    "transitions_missing",
+                    "successful response omitted the transitions array",
+                    Some(&response_body),
+                );
+                JiraError::InvalidResponse
+            })?;
         transitions
             .iter()
             .map(|transition| {
@@ -317,13 +333,31 @@ impl JiraPlanningClient {
                     .get("id")
                     .and_then(Value::as_str)
                     .filter(|value| !value.trim().is_empty())
-                    .ok_or(JiraError::InvalidResponse)?
+                    .ok_or_else(|| {
+                        crate::application::logging::log_business_failure_with_body(
+                            "data_integrations.jira_planning",
+                            "available_issue_transitions",
+                            "transition_id_missing",
+                            "successful response included a transition without an id",
+                            Some(&response_body),
+                        );
+                        JiraError::InvalidResponse
+                    })?
                     .to_owned();
                 let name = transition
                     .get("name")
                     .and_then(Value::as_str)
                     .filter(|value| !value.trim().is_empty())
-                    .ok_or(JiraError::InvalidResponse)?
+                    .ok_or_else(|| {
+                        crate::application::logging::log_business_failure_with_body(
+                            "data_integrations.jira_planning",
+                            "available_issue_transitions",
+                            "transition_name_missing",
+                            "successful response included a transition without a name",
+                            Some(&response_body),
+                        );
+                        JiraError::InvalidResponse
+                    })?
                     .to_owned();
                 let to_status = transition
                     .pointer("/to/name")
@@ -420,10 +454,13 @@ impl JiraPlanningClient {
                 let endpoint =
                     self.endpoint(&format!("rest/greenhopper/1.0/quickfilters/{board_id}"))?;
                 let response = self.send(Method::GET, endpoint, None).await?;
-                let body: Value = response
-                    .json()
-                    .await
-                    .map_err(|_| JiraError::InvalidResponse)?;
+                let body: Value = crate::application::logging::parse_json_response(
+                    response,
+                    "data_integrations.jira_planning",
+                    "list_board_quick_filters",
+                )
+                .await
+                .map_err(|_| JiraError::InvalidResponse)?;
                 let filters = body.get("quickFilters").ok_or(JiraError::InvalidResponse)?;
                 serde_json::from_value(filters.clone()).map_err(|_| JiraError::InvalidResponse)
             }
@@ -528,8 +565,12 @@ impl JiraPlanningClient {
                 .await?,
             )
             .await?;
-            let page: Vec<AssignableUser> = response
-                .json::<Vec<AssignableUserWire>>()
+            let page: Vec<AssignableUser> =
+                crate::application::logging::parse_json_response::<Vec<AssignableUserWire>>(
+                    response,
+                    "data_integrations.jira_planning",
+                    "list_assignable_users",
+                )
                 .await
                 .map_err(|_| JiraError::InvalidResponse)?
                 .into_iter()
@@ -581,37 +622,46 @@ impl JiraPlanningClient {
             .await?,
         )
         .await?;
-        response
-            .json::<Vec<AssignableUserWire>>()
-            .await
-            .map_err(|_| JiraError::InvalidResponse)
-            .map(|users| {
-                users
-                    .into_iter()
-                    .filter_map(AssignableUserWire::into_assignable_user)
-                    .collect()
-            })
+        crate::application::logging::parse_json_response::<Vec<AssignableUserWire>>(
+            response,
+            "data_integrations.jira_planning",
+            "search_assignable_users",
+        )
+        .await
+        .map_err(|_| JiraError::InvalidResponse)
+        .map(|users| {
+            users
+                .into_iter()
+                .filter_map(AssignableUserWire::into_assignable_user)
+                .collect()
+        })
     }
 
     pub async fn list_fields(&self) -> Result<Vec<JiraField>, JiraError> {
         let response = self
             .send(Method::GET, self.endpoint("rest/api/2/field")?, None)
             .await?;
-        response
-            .json()
-            .await
-            .map_err(|_| JiraError::InvalidResponse)
+        crate::application::logging::parse_json_response(
+            response,
+            "data_integrations.jira_planning",
+            "list_fields",
+        )
+        .await
+        .map_err(|_| JiraError::InvalidResponse)
     }
 
     pub async fn get_issue(&self, issue_id_or_key: &str) -> Result<PlanningIssue, JiraError> {
         self.ensure_cloud()?;
         validate_path_component(issue_id_or_key)?;
         let endpoint = self.endpoint(&format!("rest/api/3/issue/{issue_id_or_key}"))?;
-        self.send(Method::GET, endpoint, None)
-            .await?
-            .json()
-            .await
-            .map_err(|_| JiraError::InvalidResponse)
+        let response = self.send(Method::GET, endpoint, None).await?;
+        crate::application::logging::parse_json_response(
+            response,
+            "data_integrations.jira_planning",
+            "get_issue",
+        )
+        .await
+        .map_err(|_| JiraError::InvalidResponse)
     }
 
     pub async fn get_issue_with_changelog(
@@ -652,19 +702,23 @@ impl JiraPlanningClient {
             .join(",");
         let mut endpoint = endpoint;
         endpoint.query_pairs_mut().append_pair("fields", &fields);
-        let mut issue: Value = self
+        let issue_response = self
             .send(Method::GET, endpoint, None)
             .await
             .map_err(|source| JiraIssueLoadError {
                 stage: "issue",
                 source,
-            })?
-            .json()
-            .await
-            .map_err(|_| JiraIssueLoadError {
-                stage: "issue",
-                source: JiraError::InvalidResponse,
             })?;
+        let mut issue: Value = crate::application::logging::parse_json_response(
+            issue_response,
+            "data_integrations.jira_planning",
+            "get_issue_with_changelog",
+        )
+        .await
+        .map_err(|_| JiraIssueLoadError {
+            stage: "issue",
+            source: JiraError::InvalidResponse,
+        })?;
         let changelog_endpoint = self
             .endpoint(&format!(
                 "rest/api/{api_version}/issue/{issue_id_or_key}/changelog"
@@ -694,19 +748,23 @@ impl JiraPlanningClient {
                         .query_pairs_mut()
                         .append_pair("fields", &fields)
                         .append_pair("expand", "changelog");
-                    issue = self
+                    let expanded_response = self
                         .send(Method::GET, expanded_endpoint, None)
                         .await
                         .map_err(|source| JiraIssueLoadError {
-                            stage: "changelog",
-                            source,
-                        })?
-                        .json()
-                        .await
-                        .map_err(|_| JiraIssueLoadError {
-                            stage: "changelog",
-                            source: JiraError::InvalidResponse,
-                        })?;
+                        stage: "changelog",
+                        source,
+                    })?;
+                    issue = crate::application::logging::parse_json_response(
+                        expanded_response,
+                        "data_integrations.jira_planning",
+                        "get_issue_with_expanded_changelog",
+                    )
+                    .await
+                    .map_err(|_| JiraIssueLoadError {
+                        stage: "changelog",
+                        source: JiraError::InvalidResponse,
+                    })?;
                     let expanded_histories = issue
                         .pointer("/changelog/histories")
                         .and_then(Value::as_array)
@@ -724,7 +782,13 @@ impl JiraPlanningClient {
                     });
                 }
             };
-            let page: Value = response.json().await.map_err(|_| JiraIssueLoadError {
+            let page: Value = crate::application::logging::parse_json_response(
+                response,
+                "data_integrations.jira_planning",
+                "get_issue_changelog_page",
+            )
+            .await
+            .map_err(|_| JiraIssueLoadError {
                 stage: "changelog",
                 source: JiraError::InvalidResponse,
             })?;
@@ -790,12 +854,14 @@ impl JiraPlanningClient {
                 .append_pair("startAt", &start_at.to_string())
                 .append_pair("maxResults", &page_size.to_string())
                 .append_pair("fields", "summary");
-            let page: JqlSearchPage = self
-                .send(Method::GET, request_endpoint, None)
-                .await?
-                .json()
-                .await
-                .map_err(|_| JiraError::InvalidResponse)?;
+            let response = self.send(Method::GET, request_endpoint, None).await?;
+            let page: JqlSearchPage = crate::application::logging::parse_json_response(
+                response,
+                "data_integrations.jira_planning",
+                "search_issue_summaries",
+            )
+            .await
+            .map_err(|_| JiraError::InvalidResponse)?;
             let returned = page.issues.len() as u64;
             issues.extend(page.issues.into_iter().map(|issue| JqlIssueSummary {
                 key: issue.key,
@@ -843,11 +909,14 @@ impl JiraPlanningClient {
             .authenticate(request)
             .build()
             .map_err(|_| JiraError::Transport)?;
-        check_response(self.execute(request).await?)
-            .await?
-            .json()
-            .await
-            .map_err(|_| JiraError::InvalidResponse)
+        let response = check_response(self.execute(request).await?).await?;
+        crate::application::logging::parse_json_response(
+            response,
+            "data_integrations.jira_planning",
+            "get_create_metadata",
+        )
+        .await
+        .map_err(|_| JiraError::InvalidResponse)
     }
 
     async fn paginate<T, F>(
@@ -912,11 +981,18 @@ impl JiraPlanningClient {
                 .await
                 .map_err(|_| JiraError::InvalidResponse)?;
             let raw: Value = serde_json::from_str(&body).map_err(|error| {
+                crate::application::logging::log_parse_failure(
+                    "data_integrations.jira_planning",
+                    "paginate",
+                    "json",
+                    body.as_bytes(),
+                );
                 JiraError::InvalidResponseDetails(format!(
                     "response is not valid JSON (content-type: {content_type}; parser: {error})"
                 ))
             })?;
             let page: PlanningPage<T> = parse(raw).map_err(|error| {
+                crate::application::logging::log_parse_failure("data_integrations.jira_planning", "paginate", "response_shape", body.as_bytes());
                 JiraError::InvalidResponseDetails(format!(
                     "paginated response shape is incompatible (content-type: {content_type}; parser: {error})"
                 ))
@@ -960,7 +1036,8 @@ impl JiraPlanningClient {
             .authenticate(request)
             .build()
             .map_err(|_| JiraError::Transport)?;
-        check_response(self.execute(request).await?).await
+        let response = self.execute(request).await?;
+        check_response(response).await
     }
 
     fn authenticate(&self, request: RequestBuilder) -> RequestBuilder {

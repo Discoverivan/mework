@@ -38,7 +38,16 @@ impl JiraPlanningTransport for ReqwestPlanningTransport {
 
     fn execute(&self, request: Request) -> TransportFuture {
         let client = self.client.clone();
-        Box::pin(async move { client.execute(request).await })
+        Box::pin(async move {
+            crate::application::logging::execute_http_request(
+                &client,
+                request,
+                "data_integrations.jira_planning_write",
+                "request",
+                crate::application::logging::HttpBodyPolicy::Integration,
+            )
+            .await
+        })
     }
 }
 
@@ -318,10 +327,13 @@ impl JiraPlanningWriteClient {
         validate_path_component(issue_id_or_key)?;
         let endpoint = self.endpoint(&["rest", "agile", "1.0", "sprint", sprint_id, "issue"])?;
         let response = self.send(Method::GET, endpoint, None).await?;
-        let body: Value = response
-            .json()
-            .await
-            .map_err(|_| JiraPlanningWriteError::new(JiraWriteErrorKind::InvalidResponse))?;
+        let body: Value = crate::application::logging::parse_json_response(
+            response,
+            "data_integrations.jira_planning_write",
+            "issue_in_sprint",
+        )
+        .await
+        .map_err(|_| JiraPlanningWriteError::new(JiraWriteErrorKind::InvalidResponse))?;
         let issues = body
             .get("issues")
             .or_else(|| body.get("values"))
@@ -343,10 +355,13 @@ impl JiraPlanningWriteClient {
         validate_nonempty_text(summary)?;
         let endpoint = self.endpoint(&["rest", "api", "3", "issue", parent_issue_id_or_key])?;
         let response = self.send(Method::GET, endpoint, None).await?;
-        let body: Value = response
-            .json()
-            .await
-            .map_err(|_| JiraPlanningWriteError::new(JiraWriteErrorKind::InvalidResponse))?;
+        let body: Value = crate::application::logging::parse_json_response(
+            response,
+            "data_integrations.jira_planning_write",
+            "subtask_exists",
+        )
+        .await
+        .map_err(|_| JiraPlanningWriteError::new(JiraWriteErrorKind::InvalidResponse))?;
         Ok(body
             .pointer("/fields/subtasks")
             .and_then(Value::as_array)
@@ -390,10 +405,13 @@ impl JiraPlanningWriteClient {
         let body = subtask_create_body(&request, validation)?;
         let endpoint = self.endpoint(&["rest", "api", "3", "issue"])?;
         let response = self.send(Method::POST, endpoint, Some(body)).await?;
-        let created: CreateIssueResponse = response
-            .json()
-            .await
-            .map_err(|_| JiraPlanningWriteError::new(JiraWriteErrorKind::InvalidResponse))?;
+        let created: CreateIssueResponse = crate::application::logging::parse_json_response(
+            response,
+            "data_integrations.jira_planning_write",
+            "create_subtask",
+        )
+        .await
+        .map_err(|_| JiraPlanningWriteError::new(JiraWriteErrorKind::InvalidResponse))?;
         let issue = JiraIssueIdentity {
             id: created.id,
             key: created.key,
@@ -488,10 +506,12 @@ impl JiraPlanningWriteClient {
                 .get(reqwest::header::RETRY_AFTER)
                 .and_then(|value| value.to_str().ok())
                 .and_then(|value| value.parse::<u64>().ok());
-            Err(JiraPlanningWriteError::http(
-                response.status().as_u16(),
-                retry_after_seconds,
-            ))
+            let status = response.status().as_u16();
+            let _ = crate::infrastructure::data_integrations::error_body::read_safe_error_body(
+                response,
+            )
+            .await;
+            Err(JiraPlanningWriteError::http(status, retry_after_seconds))
         }
     }
 

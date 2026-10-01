@@ -3,6 +3,8 @@ use std::collections::HashMap;
 use reqwest::{header, Url};
 use serde::de::DeserializeOwned;
 
+use crate::application::logging::HttpRequestBuilderExt;
+
 use super::error::{GithubError, GithubErrorKind, GithubRateLimit};
 use super::models::{
     GithubCheckRun, GithubCheckRunsResponse, GithubComment, GithubCommit,
@@ -152,7 +154,11 @@ impl GithubClient {
         let scope = url.as_str().to_owned();
         let response = self
             .request(url, cache)
-            .send()
+            .send_logged(
+                "data_integrations.github",
+                "get_json",
+                crate::application::logging::HttpBodyPolicy::Integration,
+            )
             .await
             .map_err(|_| GithubError::Transport)?;
         let metadata = response_metadata(response.headers());
@@ -160,17 +166,25 @@ impl GithubClient {
             return Ok((None, true, metadata, None));
         }
         if !response.status().is_success() {
-            return Err(classify_http(response.status().as_u16(), &metadata));
+            let error = classify_http(response.status().as_u16(), &metadata);
+            let _ = crate::infrastructure::data_integrations::error_body::read_safe_error_body(
+                response,
+            )
+            .await;
+            return Err(error);
         }
         let next_page = response
             .headers()
             .get(header::LINK)
             .and_then(|value| value.to_str().ok())
             .and_then(next_page_from_link);
-        let value = response
-            .json::<T>()
-            .await
-            .map_err(|_| GithubError::InvalidResponse)?;
+        let value = crate::application::logging::parse_json_response::<T>(
+            response,
+            "data_integrations.github",
+            "get_json",
+        )
+        .await
+        .map_err(|_| GithubError::InvalidResponse)?;
         cache.validators.insert(
             scope,
             GithubValidators {

@@ -3,6 +3,8 @@ use std::{collections::HashSet, fs, path::Path, time::Duration};
 use reqwest::{Client, RequestBuilder, Url};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
+
+use crate::application::logging::HttpRequestBuilderExt;
 use sqlx::SqlitePool;
 
 use crate::application::{ai, ai_usage_statistics, general, planning};
@@ -411,15 +413,45 @@ async fn fetch_jira_source(
         &integration.account_key,
         &secret,
     )
-    .send()
+    .send_logged(
+        "data_integrations.jira",
+        "fetch_task_source",
+        crate::application::logging::HttpBodyPolicy::Integration,
+    )
     .await
     .ok()?;
     if !response.status().is_success() {
+        let _ =
+            crate::infrastructure::data_integrations::error_body::read_safe_error_body(response)
+                .await;
         return None;
     }
-    let issue: Value = response.json().await.ok()?;
-    let fields = issue.get("fields")?;
-    let title = fields.get("summary")?.as_str()?.to_owned();
+    let issue: Value = crate::application::logging::parse_json_response(
+        response,
+        "data_integrations.jira",
+        "fetch_task_source",
+    )
+    .await
+    .ok()?;
+    let Some(fields) = issue.get("fields") else {
+        crate::application::logging::log_business_failure(
+            "data_integrations.jira",
+            "fetch_task_source",
+            "fields_missing",
+            "successful issue response omitted fields",
+        );
+        return None;
+    };
+    let Some(title) = fields.get("summary").and_then(Value::as_str) else {
+        crate::application::logging::log_business_failure(
+            "data_integrations.jira",
+            "fetch_task_source",
+            "summary_missing",
+            "successful issue response omitted a summary",
+        );
+        return None;
+    };
+    let title = title.to_owned();
     let description = jira_value_text(fields.get("description").unwrap_or(&Value::Null));
     let text = format!("Summary: {title}\nDescription: {description}");
     Some((
@@ -683,16 +715,23 @@ pub async fn create_task(
         &secret,
     )
     .json(&json!({ "fields": fields }))
-    .send()
+    .send_logged(
+        "data_integrations.jira",
+        "create_task",
+        crate::application::logging::HttpBodyPolicy::Integration,
+    )
     .await
     .map_err(|_| "Jira task could not be created: transport error.".to_owned())?;
     if !response.status().is_success() {
         return Err(jira_http_error(response, "Jira task could not be created").await);
     }
-    let created: JiraCreateResponse = response
-        .json()
-        .await
-        .map_err(|_| "Jira create response was invalid".to_owned())?;
+    let created: JiraCreateResponse = crate::application::logging::parse_json_response(
+        response,
+        "data_integrations.jira",
+        "create_task",
+    )
+    .await
+    .map_err(|_| "Jira create response was invalid".to_owned())?;
     let warning = if let Some(sprint) = sprint.as_deref() {
         assign_issue_to_sprint(
             &client,
@@ -748,7 +787,8 @@ struct JiraFieldWire {
 
 async fn jira_http_error(response: reqwest::Response, operation: &str) -> String {
     let status = response.status().as_u16();
-    let body = response.json::<Value>().await.ok();
+    let body =
+        crate::infrastructure::data_integrations::error_body::read_safe_error_body(response).await;
     let mut details = Vec::new();
     if let Some(messages) = body
         .as_ref()
@@ -810,16 +850,21 @@ async fn assign_issue_to_sprint(
     )?;
     let response = jira_authenticate(client.post(endpoint), account_key, secret)
         .json(&json!({ "issues": [issue_key] }))
-        .send()
+        .send_logged(
+            "data_integrations.jira",
+            "assign_sprint",
+            crate::application::logging::HttpBodyPolicy::Integration,
+        )
         .await
         .map_err(|_| "Sprint assignment request failed.".to_owned())?;
     if response.status().is_success() {
         Ok(())
     } else {
-        Err(format!(
-            "Sprint assignment failed (HTTP {}).",
-            response.status().as_u16()
-        ))
+        let status = response.status().as_u16();
+        let _ =
+            crate::infrastructure::data_integrations::error_body::read_safe_error_body(response)
+                .await;
+        Err(format!("Sprint assignment failed (HTTP {status})."))
     }
 }
 
@@ -832,13 +877,26 @@ async fn jira_custom_field_id(
 ) -> Option<String> {
     let endpoint = jira_endpoint(base_url, "rest/api/2/field").ok()?;
     let response = jira_authenticate(client.get(endpoint), account_key, secret)
-        .send()
+        .send_logged(
+            "data_integrations.jira",
+            "list_fields",
+            crate::application::logging::HttpBodyPolicy::Integration,
+        )
         .await
         .ok()?;
     if !response.status().is_success() {
+        let _ =
+            crate::infrastructure::data_integrations::error_body::read_safe_error_body(response)
+                .await;
         return None;
     }
-    let fields: Vec<JiraFieldWire> = response.json().await.ok()?;
+    let fields: Vec<JiraFieldWire> = crate::application::logging::parse_json_response(
+        response,
+        "data_integrations.jira",
+        "list_fields",
+    )
+    .await
+    .ok()?;
     fields
         .into_iter()
         .find(|field| field.name.eq_ignore_ascii_case(field_name))
@@ -1010,14 +1068,7 @@ fn execute_draft_in_workspace_with_usage(
                 &task_prompt(prompt, output_language),
                 workdir,
             )?;
-        let mut draft: TaskDraftDto = serde_json::from_slice(&output)
-            .map_err(|_| "Claude Code CLI returned invalid task JSON".to_owned())?;
-        required_text(&draft.summary, "AI summary", 255)?;
-        draft.description = jira_wiki_description(&required_text(
-            &draft.description,
-            "AI description",
-            50_000,
-        )?);
+        let draft = parse_cli_task_draft(&output, "claude_code")?;
         return Ok((draft, usage));
     }
     if settings.provider == Some(ai::AiProviderId::HermesCli) {
@@ -1028,14 +1079,7 @@ fn execute_draft_in_workspace_with_usage(
                 &task_prompt(prompt, output_language),
                 workdir,
             )?;
-        let mut draft: TaskDraftDto = serde_json::from_slice(&output)
-            .map_err(|_| "Hermes CLI returned invalid task JSON".to_owned())?;
-        required_text(&draft.summary, "AI summary", 255)?;
-        draft.description = jira_wiki_description(&required_text(
-            &draft.description,
-            "AI description",
-            50_000,
-        )?);
+        let draft = parse_cli_task_draft(&output, "hermes")?;
         return Ok((draft, usage));
     }
     let (bytes, usage) = crate::application::ai_providers::cli::codex::run_structured_with_usage(
@@ -1065,16 +1109,42 @@ fn execute_draft_in_workspace_with_usage(
         }
         .to_owned()
     })?;
-    let mut draft: TaskDraftDto =
-        serde_json::from_slice(&bytes).map_err(|_| "AI task result was invalid".to_owned())?;
-    required_text(&draft.summary, "AI summary", 255)?;
-    draft.description = jira_wiki_description(&required_text(
-        &draft.description,
-        "AI description",
-        50_000,
-    )?);
+    let draft = parse_cli_task_draft(&bytes, "codex")?;
     required_text(&draft.description, "AI description", 50_000)?;
     Ok((draft, usage))
+}
+
+fn parse_cli_task_draft(output: &[u8], provider: &str) -> Result<TaskDraftDto, String> {
+    let mut draft: TaskDraftDto = serde_json::from_slice(output).map_err(|_| {
+        crate::application::logging::log_parse_failure(
+            "ai.cli",
+            "task_generation",
+            "task_draft_json",
+            output,
+        );
+        format!("{provider} CLI returned invalid task JSON")
+    })?;
+    if let Err(error) = required_text(&draft.summary, "AI summary", 255) {
+        crate::application::logging::log_parse_failure(
+            "ai.cli",
+            "task_generation",
+            "summary_validation",
+            output,
+        );
+        return Err(error);
+    }
+    draft.description = jira_wiki_description(
+        &required_text(&draft.description, "AI description", 50_000).map_err(|error| {
+            crate::application::logging::log_parse_failure(
+                "ai.cli",
+                "task_generation",
+                "description_validation",
+                output,
+            );
+            error
+        })?,
+    );
+    Ok(draft)
 }
 
 #[cfg(test)]
@@ -1128,19 +1198,19 @@ fn execute_openai_task_draft_with_usage(
             .post(format!("{}/chat/completions", runtime.base_url))
             .bearer_auth(&runtime.token)
             .json(&payload)
-            .send()
+            .send_logged(
+                "ai.openai_compatible",
+                "task_generation",
+                crate::application::logging::HttpBodyPolicy::Omit,
+            )
             .await
-            .map_err(|error| {
-                ai::log_openai_transport_error("task_generation", &error.to_string());
-                "OpenAI-compatible API task request could not be completed".to_owned()
-            })?;
+            .map_err(|_| "OpenAI-compatible API task request could not be completed".to_owned())?;
         let status = response.status();
-        let headers = response.headers().clone();
         let body = response.bytes().await.map_err(|error| {
             ai::log_openai_transport_error("task_generation_response_body", &error.to_string());
             "OpenAI-compatible API returned an invalid task response".to_owned()
         })?;
-        ai::log_openai_chat_response("task_generation", status.as_u16(), &headers, &body);
+        ai::log_openai_chat_response("task_generation", status.as_u16(), &body);
         if status == reqwest::StatusCode::UNAUTHORIZED || status == reqwest::StatusCode::FORBIDDEN {
             return Err(
                 "OpenAI-compatible API authorization failed during task generation".to_owned(),
@@ -1159,10 +1229,26 @@ fn execute_openai_task_draft_with_usage(
             ));
         }
         let response_value = serde_json::from_slice::<Value>(&body).ok();
+        if response_value.is_none() {
+            crate::application::logging::log_parse_failure(
+                "ai.openai_compatible",
+                "task_generation",
+                "provider_response_json",
+                &body,
+            );
+        }
         let content = response_value
             .as_ref()
             .and_then(openai_message_content)
             .or_else(|| ai::openai_stream_message_content(&body));
+        if content.is_none() {
+            crate::application::logging::log_parse_failure(
+                "ai.openai_compatible",
+                "task_generation",
+                "missing_response_content",
+                &body,
+            );
+        }
         let usage = response_value
             .as_ref()
             .and_then(ai_usage_statistics::parse_response_usage)
@@ -1174,15 +1260,44 @@ fn execute_openai_task_draft_with_usage(
 
     let (content, usage) = content;
 
-    let mut draft: TaskDraftDto = serde_json::from_str(&content)
-        .map_err(|_| "OpenAI-compatible API returned invalid task JSON".to_owned())?;
-    required_text(&draft.summary, "AI summary", 255)?;
-    draft.description = jira_wiki_description(&required_text(
-        &draft.description,
-        "AI description",
-        50_000,
-    )?);
-    required_text(&draft.description, "AI description", 50_000)?;
+    let mut draft: TaskDraftDto = serde_json::from_str(&content).map_err(|_| {
+        crate::application::logging::log_parse_failure(
+            "ai.openai_compatible",
+            "task_generation",
+            "task_draft_json",
+            content.as_bytes(),
+        );
+        "OpenAI-compatible API returned invalid task JSON".to_owned()
+    })?;
+    required_text(&draft.summary, "AI summary", 255).map_err(|error| {
+        crate::application::logging::log_business_failure(
+            "ai.openai_compatible",
+            "task_generation",
+            "summary_validation",
+            &error,
+        );
+        error
+    })?;
+    draft.description = jira_wiki_description(
+        &required_text(&draft.description, "AI description", 50_000).map_err(|error| {
+            crate::application::logging::log_business_failure(
+                "ai.openai_compatible",
+                "task_generation",
+                "description_validation",
+                &error,
+            );
+            error
+        })?,
+    );
+    required_text(&draft.description, "AI description", 50_000).map_err(|error| {
+        crate::application::logging::log_business_failure(
+            "ai.openai_compatible",
+            "task_generation",
+            "normalized_description_validation",
+            &error,
+        );
+        error
+    })?;
     Ok((draft, usage))
 }
 

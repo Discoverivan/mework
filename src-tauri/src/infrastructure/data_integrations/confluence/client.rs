@@ -3,6 +3,8 @@ use std::time::Duration;
 use reqwest::{Client, Url};
 use serde::{Deserialize, Serialize};
 
+use crate::application::logging::HttpRequestBuilderExt;
+
 const MAX_EXCERPT_CHARS: usize = 800;
 pub const MAX_PAGE_TEXT_CHARS: usize = 8_000;
 
@@ -185,7 +187,11 @@ impl ConfluenceClient {
                 ("expand", "content.space".to_owned()),
                 ("limit", limit.to_string()),
             ])
-            .send()
+            .send_logged(
+                "data_integrations.confluence",
+                "search",
+                crate::application::logging::HttpBodyPolicy::Integration,
+            )
             .await
             .map_err(|_| ConfluenceError::Transport)?;
         if !response.status().is_success() {
@@ -196,10 +202,13 @@ impl ConfluenceClient {
             .await;
             return Err(ConfluenceError::Http(status, body));
         }
-        let response = response
-            .json::<SearchResponse>()
-            .await
-            .map_err(|_| ConfluenceError::InvalidResponse)?;
+        let response = crate::application::logging::parse_json_response::<SearchResponse>(
+            response,
+            "data_integrations.confluence",
+            "search",
+        )
+        .await
+        .map_err(|_| ConfluenceError::InvalidResponse)?;
         Ok(response
             .results
             .into_iter()
@@ -227,7 +236,11 @@ impl ConfluenceClient {
             .http
             .get(endpoint)
             .bearer_auth(&self.token)
-            .send()
+            .send_logged(
+                "data_integrations.confluence",
+                "get_page",
+                crate::application::logging::HttpBodyPolicy::Integration,
+            )
             .await
             .map_err(|_| ConfluenceError::Transport)?;
         if !response.status().is_success() {
@@ -238,10 +251,13 @@ impl ConfluenceClient {
             .await;
             return Err(ConfluenceError::Http(status, body));
         }
-        let page = response
-            .json::<PageResponse>()
-            .await
-            .map_err(|_| ConfluenceError::InvalidResponse)?;
+        let page = crate::application::logging::parse_json_response::<PageResponse>(
+            response,
+            "data_integrations.confluence",
+            "get_page",
+        )
+        .await
+        .map_err(|_| ConfluenceError::InvalidResponse)?;
         Ok(normalize_page(&self.base_url, page))
     }
 
@@ -267,7 +283,11 @@ impl ConfluenceClient {
             .http
             .get(endpoint)
             .bearer_auth(&self.token)
-            .send()
+            .send_logged(
+                "data_integrations.confluence",
+                "get_page_by_title",
+                crate::application::logging::HttpBodyPolicy::Integration,
+            )
             .await
             .map_err(|_| ConfluenceError::Transport)?;
         if !response.status().is_success() {
@@ -278,15 +298,26 @@ impl ConfluenceClient {
             .await;
             return Err(ConfluenceError::Http(status, body));
         }
-        let mut results = response
-            .json::<PageSearchResponse>()
-            .await
-            .map_err(|_| ConfluenceError::InvalidResponse)?
-            .results;
+        let mut results = crate::application::logging::parse_json_response::<PageSearchResponse>(
+            response,
+            "data_integrations.confluence",
+            "get_page_by_title",
+        )
+        .await
+        .map_err(|_| ConfluenceError::InvalidResponse)?
+        .results;
         let page = results
             .drain(..)
             .find(|page| page.title == title)
-            .ok_or(ConfluenceError::InvalidResponse)?;
+            .ok_or_else(|| {
+                crate::application::logging::log_business_failure(
+                    "data_integrations.confluence",
+                    "get_page_by_title",
+                    "required_page_missing",
+                    "successful response contained no matching page",
+                );
+                ConfluenceError::InvalidResponse
+            })?;
         Ok(normalize_page(&self.base_url, page))
     }
 
@@ -307,7 +338,11 @@ impl ConfluenceClient {
             .http
             .get(endpoint)
             .bearer_auth(&self.token)
-            .send()
+            .send_logged(
+                "data_integrations.confluence",
+                "get_space",
+                crate::application::logging::HttpBodyPolicy::Integration,
+            )
             .await
             .map_err(|_| ConfluenceError::Transport)?;
         if !response.status().is_success() {
@@ -318,13 +353,22 @@ impl ConfluenceClient {
             .await;
             return Err(ConfluenceError::Http(status, body));
         }
-        let space = response
-            .json::<Space>()
-            .await
-            .map_err(|_| ConfluenceError::InvalidResponse)?;
+        let space = crate::application::logging::parse_json_response::<Space>(
+            response,
+            "data_integrations.confluence",
+            "get_space",
+        )
+        .await
+        .map_err(|_| ConfluenceError::InvalidResponse)?;
         let id = json_scalar_string(space.id);
         let name = space.name.filter(|value| !value.trim().is_empty());
         if id.is_none() || space.key.trim().is_empty() || name.is_none() {
+            crate::application::logging::log_business_failure(
+                "data_integrations.confluence",
+                "get_space",
+                "required_fields_missing",
+                "successful response omitted required space fields",
+            );
             return Err(ConfluenceError::InvalidResponse);
         }
         Ok(ConfluenceSpace {

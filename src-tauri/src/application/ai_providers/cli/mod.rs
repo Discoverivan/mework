@@ -7,7 +7,8 @@ use std::{
     ffi::OsStr,
     fs,
     path::{Path, PathBuf},
-    process::Command,
+    process::{Child, Command, Output},
+    time::Instant,
 };
 
 pub mod claude_code;
@@ -16,6 +17,91 @@ pub mod hermes_cli;
 
 #[cfg(target_os = "windows")]
 const CREATE_NO_WINDOW: u32 = 0x08000000;
+
+pub(crate) struct CliInvocation {
+    provider: &'static str,
+    operation: &'static str,
+    model: Option<String>,
+    started: Instant,
+}
+
+impl CliInvocation {
+    pub(crate) fn start(
+        provider: &'static str,
+        operation: &'static str,
+        model: Option<&str>,
+    ) -> Self {
+        crate::application::logging::info(
+            "ai.cli",
+            "process_started",
+            serde_json::json!({"provider": provider, "operation": operation, "model": model}),
+        );
+        Self {
+            provider,
+            operation,
+            model: model.map(str::to_owned),
+            started: Instant::now(),
+        }
+    }
+
+    pub(crate) fn failed(&self, exit_code: Option<i32>, stdout: &[u8], stderr: &[u8]) {
+        crate::application::logging::log_cli_failure_with_duration(
+            self.provider,
+            self.operation,
+            self.model.as_deref(),
+            exit_code,
+            Some(self.started.elapsed().as_millis()),
+            stdout,
+            stderr,
+        );
+    }
+
+    pub(crate) fn completed(&self, output_bytes: usize) {
+        crate::application::logging::info(
+            "ai.cli",
+            "process_completed",
+            serde_json::json!({
+                "provider": self.provider,
+                "operation": self.operation,
+                "model": self.model,
+                "duration_ms": self.started.elapsed().as_millis(),
+                "output_bytes": output_bytes,
+            }),
+        );
+    }
+}
+
+pub(crate) fn spawn_cli(
+    command: &mut Command,
+    provider: &'static str,
+    operation: &'static str,
+    model: Option<&str>,
+) -> std::io::Result<(Child, CliInvocation)> {
+    let invocation = CliInvocation::start(provider, operation, model);
+    match command.spawn() {
+        Ok(child) => Ok((child, invocation)),
+        Err(error) => {
+            invocation.failed(None, &[], &[]);
+            Err(error)
+        }
+    }
+}
+
+pub(crate) fn run_cli_output(
+    command: &mut Command,
+    provider: &'static str,
+    operation: &'static str,
+    model: Option<&str>,
+) -> std::io::Result<Output> {
+    let invocation = CliInvocation::start(provider, operation, model);
+    let output = command.output();
+    match &output {
+        Ok(output) if output.status.success() => invocation.completed(output.stdout.len()),
+        Ok(output) => invocation.failed(output.status.code(), &output.stdout, &output.stderr),
+        Err(_) => invocation.failed(None, &[], &[]),
+    }
+    output
+}
 
 pub(crate) fn local_cli_command(path: impl AsRef<OsStr>) -> Command {
     let command = Command::new(path);

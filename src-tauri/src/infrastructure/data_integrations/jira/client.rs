@@ -40,17 +40,18 @@ impl JiraClient {
         let mut issues = Vec::new();
 
         loop {
-            let response = self
-                .http
-                .get(endpoint.clone())
-                .query(&[
+            let response = crate::application::logging::send_http_request(
+                self.http.get(endpoint.clone()).query(&[
                     ("jql", jql.to_owned()),
                     ("startAt", start_at.to_string()),
                     ("maxResults", page_size.to_string()),
-                ])
-                .send()
-                .await
-                .map_err(|_| JiraError::Transport)?;
+                ]),
+                "data_integrations.jira",
+                "search_issues",
+                crate::application::logging::HttpBodyPolicy::Integration,
+            )
+            .await
+            .map_err(|_| JiraError::Transport)?;
 
             if !response.status().is_success() {
                 let status = response.status().as_u16();
@@ -71,10 +72,13 @@ impl JiraClient {
                 });
             }
 
-            let page: JiraSearchPage = response
-                .json()
-                .await
-                .map_err(|_| JiraError::InvalidResponse)?;
+            let page: JiraSearchPage = crate::application::logging::parse_json_response(
+                response,
+                "data_integrations.jira",
+                "search_issues",
+            )
+            .await
+            .map_err(|_| JiraError::InvalidResponse)?;
             page_count += 1;
             let returned = page.issues.len() as u64;
             issues.extend(page.issues);

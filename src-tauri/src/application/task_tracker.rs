@@ -8,6 +8,8 @@ use reqwest::{Client, RequestBuilder, Url};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sqlx::{sqlite::SqliteRow, Row, SqlitePool};
+
+use crate::application::logging::HttpRequestBuilderExt;
 use tauri::{AppHandle, Emitter, Runtime};
 use time::{format_description::well_known::Rfc3339, Duration, OffsetDateTime, Weekday};
 use uuid::Uuid;
@@ -919,19 +921,28 @@ async fn fetch_issues_with_limit(
             ("maxResults", &page_size.to_string()),
             ("fields", "summary,status,priority,assignee,updated,comment"),
         ])
-        .send()
+        .send_logged(
+            "data_integrations.jira",
+            "task_tracker_search",
+            crate::application::logging::HttpBodyPolicy::Integration,
+        )
         .await
         .map_err(|_| "Jira request failed".to_owned())?;
         if !response.status().is_success() {
-            return Err(format!(
-                "Jira request failed ({})",
-                response.status().as_u16()
-            ));
+            let status = response.status().as_u16();
+            let _ = crate::infrastructure::data_integrations::error_body::read_safe_error_body(
+                response,
+            )
+            .await;
+            return Err(format!("Jira request failed ({status})"));
         }
-        let page: JiraSearchPage = response
-            .json()
-            .await
-            .map_err(|_| "Jira returned an invalid issue response".to_owned())?;
+        let page: JiraSearchPage = crate::application::logging::parse_json_response(
+            response,
+            "data_integrations.jira",
+            "task_tracker_search",
+        )
+        .await
+        .map_err(|_| "Jira returned an invalid issue response".to_owned())?;
         let returned = page.issues.len() as u64;
         result.extend(
             page.issues

@@ -3,6 +3,8 @@ use std::{error::Error as StdError, future::Future, pin::Pin, time::Duration};
 use reqwest::{Client, Url};
 use serde_json::Value;
 
+use crate::application::logging::HttpRequestBuilderExt;
+
 pub use crate::domain::models::IntegrationHealthStatus as HealthStatus;
 use crate::domain::models::IntegrationKind;
 
@@ -156,7 +158,14 @@ impl ReqwestHealthChecker {
             request = request.bearer_auth(secret);
         }
 
-        match request.send().await {
+        match request
+            .send_logged(
+                "data_integrations.health",
+                "health_check",
+                crate::application::logging::HttpBodyPolicy::Integration,
+            )
+            .await
+        {
             Ok(response) if response.status().is_success() => {
                 let account_display_name = match kind {
                     IntegrationKind::Jira => response
@@ -219,10 +228,21 @@ async fn bitbucket_display_name(
         .get(endpoint)
         .bearer_auth(secret)
         .query(&[("filter", username), ("limit", "25")])
-        .send()
+        .send_logged(
+            "data_integrations.health",
+            "bitbucket_display_name",
+            crate::application::logging::HttpBodyPolicy::Integration,
+        )
         .await
         .ok()?;
     if !response.status().is_success() {
+        crate::application::logging::log_http_error_body(
+            response,
+            "data_integrations.health",
+            "bitbucket_display_name",
+            true,
+        )
+        .await;
         return None;
     }
     let body = response.json::<Value>().await.ok()?;
@@ -290,11 +310,18 @@ async fn unavailable_http(
     tls_mode: &str,
 ) -> HealthCheckResult {
     let status = response.status().as_u16();
-    let body = response
-        .text()
-        .await
-        .map(|body| redact_response_body(&body))
-        .unwrap_or_else(|_| "[unavailable: response body could not be read]".to_owned());
+    let raw_body = response.text().await.ok();
+    if let Some(body) = raw_body.as_deref() {
+        crate::application::logging::error(
+            "data_integrations.health",
+            "http_error_body",
+            serde_json::json!({"status": status, "url": crate::application::logging::safe_url(request_url), "body": crate::application::logging::safe_http_body_excerpt(body.as_bytes())}),
+        );
+    }
+    let body = raw_body
+        .as_deref()
+        .map(redact_response_body)
+        .unwrap_or_else(|| "[unavailable: response body could not be read]".to_owned());
     let endpoint = match kind {
         IntegrationKind::Jira => "GET /rest/api/2/myself",
         IntegrationKind::Bitbucket => "GET /rest/api/1.0/repos?limit=1",
