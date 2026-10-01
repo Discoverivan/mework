@@ -210,6 +210,7 @@ async fn update(pool: &SqlitePool, apply: impl FnOnce(&mut GeneralSettings)) -> 
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
 pub async fn save_general_preferences(
     pool: &SqlitePool,
     notifications_enabled: bool,
