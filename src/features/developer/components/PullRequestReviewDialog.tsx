@@ -2,7 +2,6 @@ import { useEffect, useState } from "react";
 import { CheckCircle2, CircleAlert, ExternalLink, Loader2, RefreshCw, Send } from "lucide-react";
 
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import {
@@ -19,6 +18,7 @@ import { useI18n } from "@/i18n/context";
 
 import {
   CreatorAvatar,
+  AiVerdictBadge,
   formatRelativeDate,
   reviewSeverityBadgeClasses,
   reviewSeveritySections,
@@ -164,19 +164,14 @@ export function PullRequestReviewDialog({
           ) : null}
           {result ? (
             <>
-              <section aria-labelledby="ai-summary-title" className="rounded-xl border bg-muted/20 p-4">
+              <section aria-labelledby="ai-summary-title" className="rounded-lg border bg-card p-4">
                 <div className="flex items-start justify-between gap-4">
                   <div className="min-w-0 space-y-2">
                     <h3 id="ai-summary-title" className="text-sm font-semibold">{t("pr.dialog.aiSummary")}</h3>
                     <p className="whitespace-pre-wrap break-words text-sm text-foreground">{result.description}</p>
                     <p className="whitespace-pre-wrap break-words text-sm text-foreground">{result.summary}</p>
                   </div>
-                  <Badge
-                    variant={result.verdict === "ok" ? "default" : "destructive"}
-                    className={result.verdict === "ok" ? "shrink-0 bg-emerald-600 hover:bg-emerald-600" : "shrink-0"}
-                  >
-                    {t(result.verdict === "ok" ? "pr.decision.approved" : "pr.decision.needsWork")}
-                  </Badge>
+                  <AiVerdictBadge verdict={result.verdict} />
                 </div>
               </section>
               <section aria-labelledby="ai-comments-title" className="space-y-3">
@@ -187,7 +182,7 @@ export function PullRequestReviewDialog({
                     return (
                       <details key={section.key} open={comments.length > 0} className="rounded-lg border">
                         <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-3 py-2 text-sm font-semibold">
-                          <span className={`rounded-full px-2 py-0.5 text-xs ${reviewSeverityBadgeClasses[section.key]}`}>{t(section.labelKey)} ({comments.length})</span>
+                          <span className={`rounded-full border px-2 py-0.5 text-xs ${reviewSeverityBadgeClasses[section.key]}`}>{t(section.labelKey)} ({comments.length})</span>
                         </summary>
                         <div className="border-t px-3 py-2">
                           {comments.length === 0 ? (
@@ -238,9 +233,8 @@ export function PullRequestReviewDialog({
           ) : null}
           <Button
             type="button"
-            variant="ghost"
+            variant="outline"
             size="sm"
-            className="text-xs text-muted-foreground hover:text-foreground"
             onClick={() => {
               if (pullRequest) {
                 onOpenChange(false);
@@ -260,7 +254,6 @@ export function PullRequestReviewDialog({
                 size="sm"
                 disabled={!pullRequest || !onSetDecision || pendingAction != null}
                 onClick={() => void setDecision("needs_work")}
-                className="border-amber-300 bg-amber-50 text-amber-800 hover:bg-amber-100 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-300 dark:hover:bg-amber-950/60"
               >
                 {pendingAction === "needs_work" ? <Loader2 aria-hidden="true" className="size-4 animate-spin" /> : <CircleAlert aria-hidden="true" className="size-4" />}
                 {pendingAction === "needs_work" ? t("pr.dialog.saving") : t("pr.dialog.needsWork")}
@@ -270,7 +263,6 @@ export function PullRequestReviewDialog({
                 size="sm"
                 disabled={!pullRequest || !onSetDecision || pendingAction != null}
                 onClick={() => void setDecision("approve")}
-                className="bg-emerald-600 text-white hover:bg-emerald-700 dark:bg-emerald-600 dark:hover:bg-emerald-700"
               >
                 {pendingAction === "approve" ? <Loader2 aria-hidden="true" className="size-4 animate-spin" /> : <CheckCircle2 aria-hidden="true" className="size-4" />}
                 {pendingAction === "approve" ? t("pr.dialog.saving") : t("pr.dialog.approve")}

@@ -9,7 +9,7 @@ const labelVariants = cva(
   {
     variants: {
       alignment: {
-        field: "pl-1",
+        field: "",
         inline: "",
       },
     },

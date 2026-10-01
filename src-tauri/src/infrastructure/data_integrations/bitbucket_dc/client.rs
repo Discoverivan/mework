@@ -550,6 +550,40 @@ impl BitbucketDcClient {
             .map_err(|_| BitbucketDcError::InvalidResponse)
     }
 
+    pub async fn unassign_pull_request_reviewer(
+        &self,
+        project_key: &str,
+        repository_slug: &str,
+        pull_request_id: u64,
+        user_slug: &str,
+    ) -> Result<(), BitbucketDcError> {
+        validate_path_segment(project_key)?;
+        validate_path_segment(repository_slug)?;
+        validate_path_segment(user_slug)?;
+        let url = self.url_with_segments(&[
+            "rest",
+            "api",
+            "1.0",
+            "projects",
+            project_key,
+            "repos",
+            repository_slug,
+            "pull-requests",
+            &pull_request_id.to_string(),
+            "participants",
+            user_slug,
+        ])?;
+        let response = self
+            .authenticated_request_with_method(Method::DELETE, url)
+            .send()
+            .await
+            .map_err(|_| BitbucketDcError::Transport)?;
+        if !response.status().is_success() {
+            return Err(Self::http_error(response).await);
+        }
+        Ok(())
+    }
+
     pub async fn list_commit_statuses_page(
         &self,
         commit_id: &str,

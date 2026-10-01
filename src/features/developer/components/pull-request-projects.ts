@@ -2,7 +2,7 @@ import type { MyPullRequest } from "@/shared/contracts/developer";
 
 export interface PullRequestProjectGroup {
   key: string;
-  projectKey: string;
+  label: string;
   pullRequests: MyPullRequest[];
 }
 
@@ -32,9 +32,21 @@ export function groupPullRequestsByProject(values: MyPullRequest[]): PullRequest
     }
     groups.set(key, {
       key,
-      projectKey: pullRequest.projectKey,
+      label: pullRequest.projectKey,
       pullRequests: [pullRequest],
     });
+  });
+  return [...groups.values()];
+}
+
+export function groupPullRequestsByPerson(values: MyPullRequest[]): PullRequestProjectGroup[] {
+  const groups = new Map<string, PullRequestProjectGroup>();
+  values.forEach((pullRequest) => {
+    const label = pullRequest.authorDisplayName.trim();
+    const key = `${pullRequest.integrationId}:${label}`;
+    const existing = groups.get(key);
+    if (existing) existing.pullRequests.push(pullRequest);
+    else groups.set(key, { key, label, pullRequests: [pullRequest] });
   });
   return [...groups.values()];
 }

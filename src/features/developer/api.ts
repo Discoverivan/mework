@@ -123,6 +123,7 @@ export const publishPullRequestComment = (
 export const setPullRequestDecision = (
   pullRequest: MyPullRequest,
   action: "approve" | "needs_work",
+  idempotencyKey = crypto.randomUUID(),
 ) =>
   invoke<{ integrationId: string; pullRequestId: string; myDecision: "approved" | "needs_work" }>(
     "pull_request_review_set_decision",
@@ -134,9 +135,22 @@ export const setPullRequestDecision = (
         pullRequestId: pullRequest.pullRequestId,
         latestCommit: pullRequest.latestCommit,
         action,
+        idempotencyKey,
       },
     },
   );
+
+export const removePullRequestReviewer = (pullRequest: MyPullRequest, idempotencyKey: string) =>
+  invoke<void>("pull_request_review_remove_reviewer", {
+    request: {
+      integrationId: pullRequest.integrationId,
+      projectKey: pullRequest.projectKey,
+      repositorySlug: pullRequest.repositorySlug,
+      pullRequestId: pullRequest.pullRequestId,
+      latestCommit: pullRequest.latestCommit,
+      idempotencyKey,
+    },
+  });
 
 export const searchBitbucketUsers = (query: string) =>
   invoke<BitbucketUser[]>("bitbucket_search_users", { query });

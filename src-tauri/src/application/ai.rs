@@ -42,6 +42,8 @@ struct OpenAiCompatibleProviderConfig {
     #[serde(default)]
     id: String,
     base_url: String,
+    #[serde(default)]
+    alias: String,
     credential_ref: String,
     #[serde(default)]
     allow_insecure_tls: bool,
@@ -59,6 +61,8 @@ pub struct OpenAiCompatibleRuntimeConfig {
 pub struct OpenAiCompatibleProviderSaveRequest {
     pub id: Option<String>,
     pub base_url: String,
+    #[serde(default)]
+    pub alias: String,
     pub token: String,
     #[serde(default)]
     pub allow_insecure_tls: bool,
@@ -259,6 +263,10 @@ pub async fn save_openai_compatible_provider(
     request: OpenAiCompatibleProviderSaveRequest,
 ) -> Result<AiSettingsPageDto, String> {
     let base_url = normalize_openai_base_url(&request.base_url)?;
+    let alias = request.alias.trim();
+    if alias.chars().count() > 80 || alias.chars().any(char::is_control) {
+        return Err("AI provider alias is invalid".to_owned());
+    }
     let mut configs = load_openai_configs(pool).await?;
     let id = request
         .id
@@ -293,6 +301,7 @@ pub async fn save_openai_compatible_provider(
     let config = OpenAiCompatibleProviderConfig {
         id: id.clone(),
         base_url,
+        alias: alias.to_owned(),
         credential_ref,
         allow_insecure_tls: request.allow_insecure_tls,
     };
@@ -775,6 +784,7 @@ async fn inspect_openai_compatible(config: OpenAiCompatibleProviderConfig) -> Ai
         Err(message) => {
             return openai_provider(
                 &config.id,
+                &config.alias,
                 AiProviderStatus::Unavailable,
                 false,
                 config.base_url,
@@ -789,6 +799,7 @@ async fn inspect_openai_compatible(config: OpenAiCompatibleProviderConfig) -> Ai
             Ok(token) => token,
             Err(_) => return openai_provider(
                 &config.id,
+                &config.alias,
                 AiProviderStatus::NotAuthenticated,
                 false,
                 base_url,
@@ -803,6 +814,7 @@ async fn inspect_openai_compatible(config: OpenAiCompatibleProviderConfig) -> Ai
     match load_openai_models(&base_url, &token, config.allow_insecure_tls).await {
         Ok(models) => openai_provider(
             &config.id,
+            &config.alias,
             AiProviderStatus::Connected,
             true,
             base_url,
@@ -812,6 +824,7 @@ async fn inspect_openai_compatible(config: OpenAiCompatibleProviderConfig) -> Ai
         ),
         Err(message) => openai_provider(
             &config.id,
+            &config.alias,
             AiProviderStatus::Unavailable,
             false,
             base_url,
@@ -824,6 +837,7 @@ async fn inspect_openai_compatible(config: OpenAiCompatibleProviderConfig) -> Ai
 
 fn openai_provider(
     instance_id: &str,
+    alias: &str,
     status: AiProviderStatus,
     available: bool,
     base_url: String,
@@ -834,7 +848,12 @@ fn openai_provider(
     AiProviderDto {
         id: AiProviderId::OpenAiCompatible,
         instance_id: Some(instance_id.to_owned()),
-        name: "OpenAI-compatible API".to_owned(),
+        name: if alias.is_empty() {
+            "OpenAI-compatible API"
+        } else {
+            alias
+        }
+        .to_owned(),
         status,
         available,
         models,
@@ -1679,6 +1698,7 @@ mod tests {
         let config = OpenAiCompatibleProviderConfig {
             id: "legacy".to_owned(),
             base_url: "https://api.example.invalid/v1".to_owned(),
+            alias: "Example API".to_owned(),
             credential_ref: "ai-openai-compatible".to_owned(),
             allow_insecure_tls: true,
         };
@@ -1687,6 +1707,21 @@ mod tests {
         assert!(value.get("staticModels").is_none());
         assert_eq!(value["allowInsecureTls"], true);
         assert_eq!(value["credentialRef"], "ai-openai-compatible");
+        assert_eq!(value["alias"], "Example API");
+        assert_eq!(
+            super::openai_provider(
+                "legacy",
+                "Example API",
+                AiProviderStatus::Connected,
+                true,
+                "https://api.example.invalid/v1".to_owned(),
+                vec!["example-model".to_owned()],
+                Some(false),
+                None
+            )
+            .name,
+            "Example API"
+        );
     }
 
     #[test]

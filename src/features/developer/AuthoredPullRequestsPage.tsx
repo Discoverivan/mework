@@ -14,8 +14,9 @@ import { PullRequestProjectSection } from "./components/PullRequestProjectSectio
 import { PullRequestReviewDialog } from "./components/PullRequestReviewDialog";
 import { usePullRequestReviewPolling } from "./review-polling";
 import { PullRequestStatus } from "./components/PullRequestStatus";
-import { usePullRequestDisplayPreferences } from "./display-options";
+import { usePullRequestDisplayPreferences, usePullRequestQuickFilter } from "./display-options";
 import {
+  groupPullRequestsByPerson,
   groupPullRequestsByProject,
   sortPullRequestsByUpdatedDate,
 } from "./components/pull-request-projects";
@@ -42,7 +43,6 @@ import {
 
 
 type AuthoredPullRequestEvent = MyPullRequestPage;
-type QuickFilter = "all" | "needs_action";
 
 function commandError(error: unknown): string {
   if (error instanceof Error) return error.message;
@@ -94,7 +94,7 @@ export function AuthoredPullRequestsPage() {
   const [reviewDialogKey, setReviewDialogKey] = useState<string>();
   const [displayOptionsOpen, setDisplayOptionsOpen] = useState(false);
   const [displayPreferences, updateDisplayPreferences] = usePullRequestDisplayPreferences("authored");
-  const [quickFilter, setQuickFilter] = useState<QuickFilter>("all");
+  const [quickFilter, setQuickFilter] = usePullRequestQuickFilter("authored");
 
   useEffect(() => {
     return subscribeAppEvent(APP_EVENT.aiSettingsChanged, setAiSettings);
@@ -279,7 +279,9 @@ export function AuthoredPullRequestsPage() {
     ),
     displayPreferences.sortOrder,
   );
-  const projectGroups = groupPullRequestsByProject(visiblePullRequests);
+  const groups = displayPreferences.grouping === "person"
+    ? groupPullRequestsByPerson(visiblePullRequests)
+    : groupPullRequestsByProject(visiblePullRequests);
 
   function renderPullRequest(pullRequest: MyPullRequest, showProjectKey: boolean) {
     const key = pullRequestKey(pullRequest);
@@ -321,7 +323,7 @@ export function AuthoredPullRequestsPage() {
       />
 
       <div className="flex flex-wrap items-center gap-2">
-        <Select value={quickFilter} onValueChange={(value) => setQuickFilter(value as QuickFilter)}>
+        <Select value={quickFilter} onValueChange={(value) => setQuickFilter(value as "all" | "needs_action")}>
           <SelectTrigger aria-label={t("pr.quickFilters.authored")} className="h-9 text-[13.5px]">
             <SelectValue />
           </SelectTrigger>
@@ -386,16 +388,17 @@ export function AuthoredPullRequestsPage() {
         <Card><CardContent className="pt-6"><p>{t("pr.emptyFiltered")}</p></CardContent></Card>
       ) : null}
 
-      <div className={`${displayPreferences.groupByProject ? "space-y-5" : "inbox-list"} pt-1`} aria-live="polite">
-        {displayPreferences.groupByProject
-          ? projectGroups.map((group) => (
+      <div className={`${displayPreferences.grouping !== "none" ? "space-y-5" : "inbox-list"} pt-1`} aria-live="polite">
+        {displayPreferences.grouping !== "none"
+          ? groups.map((group) => (
               <PullRequestProjectSection
                 key={group.key}
-                projectKey={group.projectKey}
+                label={group.label}
+                grouping={displayPreferences.grouping === "person" ? "person" : "project"}
                 pullRequestCount={group.pullRequests.length}
                 expandedByDefault={displayPreferences.expandProjectsByDefault}
               >
-                {group.pullRequests.map((pullRequest) => renderPullRequest(pullRequest, false))}
+                {group.pullRequests.map((pullRequest) => renderPullRequest(pullRequest, displayPreferences.grouping === "person"))}
               </PullRequestProjectSection>
             ))
           : visiblePullRequests.map((pullRequest) => renderPullRequest(pullRequest, true))}
@@ -415,16 +418,16 @@ export function AuthoredPullRequestsPage() {
 
       <PullRequestDisplayOptionsDialog
         open={displayOptionsOpen}
-        groupByProject={displayPreferences.groupByProject}
+        grouping={displayPreferences.grouping}
         expandProjectsByDefault={displayPreferences.expandProjectsByDefault}
         sortOrder={displayPreferences.sortOrder}
         autoReviewEnabled={reviewSettings?.authoredAutoReviewEnabled ?? false}
         autoReviewDisabled={loading || reviewSettings == null || autoReviewSaving}
         onOpenChange={setDisplayOptionsOpen}
-        onGroupByProjectChange={(enabled) => updateDisplayPreferences({ groupByProject: enabled })}
-        onExpandProjectsByDefaultChange={(enabled) => updateDisplayPreferences({ expandProjectsByDefault: enabled })}
-        onSortOrderChange={(order) => updateDisplayPreferences({ sortOrder: order })}
-        onAutoReviewChange={(enabled) => void toggleAuthoredAutoReview(enabled)}
+        onApply={({ grouping, expandProjectsByDefault, sortOrder, autoReviewEnabled }) => {
+          updateDisplayPreferences({ grouping, expandProjectsByDefault, sortOrder });
+          if (autoReviewEnabled !== (reviewSettings?.authoredAutoReviewEnabled ?? false)) void toggleAuthoredAutoReview(autoReviewEnabled);
+        }}
       />
     </section>
   );

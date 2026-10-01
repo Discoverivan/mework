@@ -140,7 +140,7 @@ export function AppShell({
         key={item.section}
         asChild
         variant="ghost"
-        className={cn("justify-start gap-2 px-3", active && "bg-accent text-accent-foreground")}
+        className={cn("h-9 justify-start gap-2 px-3", active && "bg-accent text-accent-foreground")}
       >
         <a
           href={item.href}

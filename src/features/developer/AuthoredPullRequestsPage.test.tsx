@@ -100,8 +100,13 @@ async function renderFlatPage() {
   render(<AuthoredPullRequestsPage />);
   fireEvent.click(await screen.findByRole("button", { name: "Options" }));
   const dialog = screen.getByRole("dialog", { name: "Options" });
-  fireEvent.click(within(dialog).getByRole("switch", { name: "Group by project" }));
-  fireEvent.click(within(dialog).getByRole("button", { name: "Done" }));
+  chooseDisplayOption(dialog, "Group by", "Don't group");
+  fireEvent.click(within(dialog).getByRole("button", { name: "Apply" }));
+}
+
+function chooseDisplayOption(dialog: HTMLElement, label: string, option: string) {
+  fireEvent.click(within(dialog).getByRole("combobox", { name: label }));
+  fireEvent.click(screen.getByRole("option", { name: option }));
 }
 
 describe("AuthoredPullRequestsPage", () => {
@@ -125,19 +130,19 @@ describe("AuthoredPullRequestsPage", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Options" }));
     const firstDialog = screen.getByRole("dialog", { name: "Options" });
-    fireEvent.change(within(firstDialog).getByRole("combobox", { name: "Sort order" }), { target: { value: "oldest" } });
-    fireEvent.click(within(firstDialog).getByRole("switch", { name: "Expand project groups by default" }));
-    fireEvent.click(within(firstDialog).getByRole("switch", { name: "Group by project" }));
-    fireEvent.click(within(firstDialog).getByRole("button", { name: "Done" }));
+    chooseDisplayOption(firstDialog, "Sort order", "Recently updated last");
+    fireEvent.click(within(firstDialog).getByRole("switch", { name: "Expand groups by default" }));
+    chooseDisplayOption(firstDialog, "Group by", "Don't group");
+    fireEvent.click(within(firstDialog).getByRole("button", { name: "Apply" }));
     firstRender.unmount();
 
     render(<AuthoredPullRequestsPage />);
     await screen.findByRole("heading", { name: "Owned pull request" });
     fireEvent.click(screen.getByRole("button", { name: "Options" }));
     const secondDialog = screen.getByRole("dialog", { name: "Options" });
-    expect(within(secondDialog).getByRole("combobox", { name: "Sort order" })).toHaveValue("oldest");
-    expect(within(secondDialog).getByRole("switch", { name: "Group by project" })).not.toBeChecked();
-    expect(within(secondDialog).getByRole("switch", { name: "Expand project groups by default" })).toBeChecked();
+    expect(within(secondDialog).getByRole("combobox", { name: "Sort order" })).toHaveTextContent("Recently updated last");
+    expect(within(secondDialog).getByRole("combobox", { name: "Group by" })).toHaveTextContent("Don't group");
+    expect(within(secondDialog).queryByRole("switch", { name: "Expand groups by default" })).not.toBeInTheDocument();
   });
 
   it("loads authored open PRs and shows review counters/action state", async () => {
@@ -199,33 +204,43 @@ describe("AuthoredPullRequestsPage", () => {
       total: 2,
     });
 
-    render(<AuthoredPullRequestsPage />);
+    const view = render(<AuthoredPullRequestsPage />);
 
     const demoGroup = await screen.findByRole("region", { name: "DEMO project" });
+    const quickFilter = screen.getByRole("combobox", { name: "Your pull request quick filters" });
+    expect(quickFilter).toHaveTextContent("Needs action");
+    expect(screen.queryByRole("region", { name: "TOOLS project" })).not.toBeInTheDocument();
+    fireEvent.click(quickFilter);
+    fireEvent.click(screen.getByRole("option", { name: "All" }));
     expect(within(demoGroup).getByText("sample-repository", { exact: false })).not.toHaveTextContent("DEMO/");
     expect(screen.getByRole("region", { name: "TOOLS project" })).toBeInTheDocument();
     expect(within(demoGroup).queryByRole("heading", { name: "Owned pull request" })).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Options" }));
     const displayOptions = screen.getByRole("dialog", { name: "Options" });
-    const groupByProject = within(displayOptions).getByRole("switch", { name: "Group by project" });
-    const expandProjects = within(displayOptions).getByRole("switch", { name: "Expand project groups by default" });
-    expect(groupByProject).toBeChecked();
+    const grouping = within(displayOptions).getByRole("combobox", { name: "Group by" });
+    const expandProjects = within(displayOptions).getByRole("switch", { name: "Expand groups by default" });
+    expect(grouping).toHaveTextContent("Project");
     fireEvent.click(expandProjects);
-    expect(within(screen.getByRole("region", { name: "DEMO project" })).getByRole("heading", { name: "Owned pull request" })).toBeInTheDocument();
-    fireEvent.click(groupByProject);
-    expect(expandProjects).toBeDisabled();
+    expect(within(screen.getByRole("region", { name: "DEMO project" })).queryByRole("heading", { name: "Owned pull request" })).not.toBeInTheDocument();
+    chooseDisplayOption(displayOptions, "Group by", "Don't group");
+    expect(within(displayOptions).queryByRole("switch", { name: "Expand groups by default" })).not.toBeInTheDocument();
 
+    expect(screen.getByRole("region", { name: "DEMO project" })).toBeInTheDocument();
+
+    fireEvent.click(within(displayOptions).getByRole("button", { name: "Apply" }));
     expect(screen.queryByRole("region", { name: "DEMO project" })).not.toBeInTheDocument();
     expect(screen.getByText("DEMO/sample-repository", { exact: false })).toBeInTheDocument();
-
-    fireEvent.click(within(displayOptions).getByRole("button", { name: "Done" }));
-    const quickFilter = screen.getByRole("combobox", { name: "Your pull request quick filters" });
     expect(quickFilter).toHaveTextContent("All");
     fireEvent.click(quickFilter);
     fireEvent.click(screen.getByRole("option", { name: "Needs action" }));
     expect(screen.getByRole("heading", { name: "Owned pull request" })).toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "Owned tools change" })).not.toBeInTheDocument();
+    fireEvent.click(quickFilter);
+    fireEvent.click(screen.getByRole("option", { name: "All" }));
+    view.unmount();
+    render(<AuthoredPullRequestsPage />);
+    expect(await screen.findByRole("combobox", { name: "Your pull request quick filters" })).toHaveTextContent("All");
   });
 
   it("marks an authored PR read before opening shared review results without reviewer actions", async () => {
@@ -283,12 +298,16 @@ describe("AuthoredPullRequestsPage", () => {
     const toggle = screen.getByRole("switch", { name: "AI auto-review" });
     expect(toggle).not.toBeChecked();
     fireEvent.click(toggle);
+    expect(saveReviewSettingsMock).not.toHaveBeenCalled();
+    expect(toggle).toBeChecked();
+    fireEvent.click(screen.getByRole("button", { name: "Apply" }));
 
     await waitFor(() => expect(saveReviewSettingsMock).toHaveBeenCalledWith({
       ...reviewSettings,
       authoredAutoReviewEnabled: true,
     }));
-    expect(toggle).toBeChecked();
+    fireEvent.click(screen.getByRole("button", { name: "Options" }));
+    expect(screen.getByRole("switch", { name: "AI auto-review" })).toBeChecked();
   });
 
   it("refreshes authored PRs from the toolbar", async () => {
