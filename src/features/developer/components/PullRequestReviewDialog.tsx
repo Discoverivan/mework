@@ -199,7 +199,6 @@ export function PullRequestReviewDialog({
                 </div>
               ) : null}
             </div>
-            {!result || reviewFailed ? openInBrowser : null}
           </div>
         </DialogHeader>
         <DialogBody className="max-h-[70vh] space-y-5 overflow-y-auto">
@@ -212,19 +211,16 @@ export function PullRequestReviewDialog({
           ) : null}
           {result && !reviewFailed ? (
             <>
-              <div className="flex items-center justify-between gap-3 text-xs text-muted-foreground">
-                <div className="min-w-0 flex-1 space-y-1">
-                  {finishedAt ? <p>{t("pr.dialog.completedAt")} <time dateTime={finishedAt.toISOString()}>{finishedAt.toLocaleString(locale)} · {formatRelativeDate(review?.finishedAt ?? undefined, t)}</time></p> : null}
-                  {execution ? (
-                    <dl aria-label={t("pr.dialog.aiConfiguration")} className="flex flex-wrap gap-x-4 gap-y-1">
-                      <div className="flex gap-1"><dt>{t("settings.ai.provider")}:</dt><dd className="break-words text-foreground">{execution.providerName}</dd></div>
-                      <div className="flex gap-1"><dt>{t("settings.ai.model")}:</dt><dd className="break-all font-mono text-foreground">{execution.model}</dd></div>
-                      {execution.reasoning != null ? <div className="flex gap-1"><dt>{t("settings.ai.reasoning")}:</dt><dd className="text-foreground">{execution.reasoning}</dd></div> : null}
-                      {execution.fastMode != null ? <div className="flex gap-1"><dt>{t("settings.ai.fastMode")}:</dt><dd className="text-foreground">{t(execution.fastMode ? "pr.dialog.enabled" : "pr.dialog.disabled")}</dd></div> : null}
-                    </dl>
-                  ) : <p>{t("pr.dialog.executionUnavailable")}</p>}
-                </div>
-                {openInBrowser}
+              <div className="space-y-1 text-xs text-muted-foreground">
+                {finishedAt ? <p>{t("pr.dialog.completedAt")} <time dateTime={finishedAt.toISOString()}>{finishedAt.toLocaleString(locale)} · {formatRelativeDate(review?.finishedAt ?? undefined, t)}</time></p> : null}
+                {execution ? (
+                  <dl aria-label={t("pr.dialog.aiConfiguration")} className="flex flex-wrap gap-x-4 gap-y-1">
+                    <div className="flex gap-1"><dt>{t("settings.ai.provider")}:</dt><dd className="break-words text-foreground">{execution.providerName}</dd></div>
+                    <div className="flex gap-1"><dt>{t("settings.ai.model")}:</dt><dd className="break-all font-mono text-foreground">{execution.model}</dd></div>
+                    {execution.reasoning != null ? <div className="flex gap-1"><dt>{t("settings.ai.reasoning")}:</dt><dd className="text-foreground">{execution.reasoning}</dd></div> : null}
+                    {execution.fastMode != null ? <div className="flex gap-1"><dt>{t("settings.ai.fastMode")}:</dt><dd className="text-foreground">{t(execution.fastMode ? "pr.dialog.enabled" : "pr.dialog.disabled")}</dd></div> : null}
+                  </dl>
+                ) : <p>{t("pr.dialog.executionUnavailable")}</p>}
               </div>
               <section aria-labelledby="ai-summary-title" className="space-y-2 rounded-lg border bg-card p-4">
                 <div className="space-y-1">
@@ -296,21 +292,24 @@ export function PullRequestReviewDialog({
           ) : null}
         </DialogBody>
         <DialogFooter className={cn("items-center gap-2", !reviewFailed && "justify-between sm:justify-between")}>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={() => {
-              if (pullRequest) {
-                onOpenChange(false);
-                onRerunReview(pullRequest);
-              }
-            }}
-            disabled={!pullRequest}
-          >
-            <RefreshCw aria-hidden="true" className="size-4" />
-            {t(reviewFailed ? "pr.dialog.retryReview" : "pr.dialog.rerun")}
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                if (pullRequest) {
+                  onOpenChange(false);
+                  onRerunReview(pullRequest);
+                }
+              }}
+              disabled={!pullRequest}
+            >
+              <RefreshCw aria-hidden="true" className="size-4" />
+              {t(reviewFailed ? "pr.dialog.retryReview" : "pr.dialog.rerun")}
+            </Button>
+            {openInBrowser}
+          </div>
           {reviewerActions && !reviewFailed ? (
             <div className="flex items-center gap-2">
               <Button
