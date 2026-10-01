@@ -1212,9 +1212,13 @@ pub async fn set_pull_request_decision(
             });
         }
         return Err(command_error(
-            "action_pending",
-            "This review decision is already running",
-            true,
+            if action_status == "failed" {
+                "action_failed_previously"
+            } else {
+                "action_result_unknown"
+            },
+            "The previous review decision was not confirmed. Refresh the pull request before trying again.",
+            false,
         ));
     }
     let context = bitbucket_action_context(pool, &request.integration_id).await?;
@@ -1256,14 +1260,27 @@ pub async fn set_pull_request_decision(
             &current_user_slug,
             status,
         )
-        .await
-        .map_err(|error| map_error_at(error, "update_pull_request_participant", "PUT", "/rest/api/1.0/projects/{project}/repos/{repo}/pull-requests/{id}/participants/{user}"));
+        .await;
     if let Err(error) = result {
-        let _ = sqlx::query("DELETE FROM pull_request_decision_actions WHERE idempotency_key = ?")
-            .bind(&request.idempotency_key)
-            .execute(pool)
-            .await;
-        return Err(error);
+        let action_status =
+            if error.is_retryable() || matches!(error, BitbucketDcError::InvalidResponse) {
+                "unknown"
+            } else {
+                "failed"
+            };
+        let _ = sqlx::query(
+            "UPDATE pull_request_decision_actions SET status = ? WHERE idempotency_key = ?",
+        )
+        .bind(action_status)
+        .bind(&request.idempotency_key)
+        .execute(pool)
+        .await;
+        return Err(map_error_at(
+            error,
+            "update_pull_request_participant",
+            "PUT",
+            "/rest/api/1.0/projects/{project}/repos/{repo}/pull-requests/{id}/participants/{user}",
+        ));
     }
     sqlx::query(
         "UPDATE pull_request_decision_actions SET status = 'succeeded' WHERE idempotency_key = ?",
@@ -1335,9 +1352,13 @@ pub async fn remove_pull_request_reviewer(
             return Ok(());
         }
         return Err(command_error(
-            "action_pending",
-            "This reviewer action is already running",
-            true,
+            if status == "failed" {
+                "action_failed_previously"
+            } else {
+                "action_result_unknown"
+            },
+            "The previous reviewer action was not confirmed. Refresh the pull request before trying again.",
+            false,
         ));
     }
     let context = bitbucket_action_context(pool, &request.integration_id).await?;
@@ -1376,11 +1397,7 @@ pub async fn remove_pull_request_reviewer(
             pull_request_id,
             &user_slug,
         )
-        .await
-        .map_err(|error| {
-            map_error_at(error, "remove_pull_request_reviewer", "DELETE",
-        "/rest/api/1.0/projects/{project}/repos/{repo}/pull-requests/{id}/participants/{user}")
-        });
+        .await;
     match result {
         Ok(()) => {
             sqlx::query("UPDATE pull_request_reviewer_actions SET status = 'succeeded' WHERE idempotency_key = ?")
@@ -1389,12 +1406,20 @@ pub async fn remove_pull_request_reviewer(
             Ok(())
         }
         Err(error) => {
-            let _ =
-                sqlx::query("DELETE FROM pull_request_reviewer_actions WHERE idempotency_key = ?")
-                    .bind(&request.idempotency_key)
-                    .execute(pool)
-                    .await;
-            Err(error)
+            let action_status = if error.is_retryable() {
+                "unknown"
+            } else {
+                "failed"
+            };
+            let _ = sqlx::query(
+                "UPDATE pull_request_reviewer_actions SET status = ? WHERE idempotency_key = ?",
+            )
+            .bind(action_status)
+            .bind(&request.idempotency_key)
+            .execute(pool)
+            .await;
+            Err(map_error_at(error, "remove_pull_request_reviewer", "DELETE",
+                "/rest/api/1.0/projects/{project}/repos/{repo}/pull-requests/{id}/participants/{user}"))
         }
     }
 }
