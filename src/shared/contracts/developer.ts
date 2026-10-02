@@ -118,8 +118,24 @@ export interface PullRequestReviewChangedEvent {
   review: PullRequestReviewState;
 }
 
-export interface PullRequestPublishedCommentsRequest extends PullRequestReviewStateRequest {
+export interface PullRequestCommentMatchesRequest extends PullRequestReviewStateRequest {
   comments: PullRequestReviewComment[];
+}
+
+export interface PullRequestPublishableComment extends PullRequestReviewComment {
+  parentCommentId?: number;
+}
+
+export interface PullRequestCommentMatch {
+  index: number;
+  commentId: number;
+  coverage: "full" | "partial";
+  addition: string;
+  parentCommentId?: number | null;
+}
+
+export interface PullRequestCommentMatches {
+  matches: PullRequestCommentMatch[];
 }
 
 export interface PullRequestReviewStateRequest {

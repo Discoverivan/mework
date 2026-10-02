@@ -884,6 +884,8 @@ pub struct PullRequestCommentRequest {
     pub file: String,
     pub line: Option<i64>,
     pub comment: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub parent_comment_id: Option<u64>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -924,16 +926,16 @@ pub struct PullRequestCommentStatus {
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct PullRequestPublishedCommentsRequest {
+pub struct PullRequestCommentMatchesRequest {
     #[serde(flatten)]
     pub pull_request: developer_review::PullRequestReviewStateRequest,
     pub comments: Vec<developer_review::PullRequestReviewComment>,
 }
 
-pub async fn published_pull_request_comments(
+pub async fn pull_request_comment_matches(
     pool: &SqlitePool,
-    request: PullRequestPublishedCommentsRequest,
-) -> Result<Vec<usize>, DeveloperCommandError> {
+    request: PullRequestCommentMatchesRequest,
+) -> Result<super::review_comment_matches::CommentMatches, DeveloperCommandError> {
     let pr = &request.pull_request;
     let id = validate_action_request(
         &pr.integration_id,
@@ -943,23 +945,43 @@ pub async fn published_pull_request_comments(
         pr.latest_commit.as_deref(),
     )?;
     if request.comments.is_empty() {
-        return Ok(Vec::new());
+        return Ok(super::review_comment_matches::CommentMatches {
+            matches: Vec::new(),
+        });
     }
     let context = bitbucket_action_context(pool, &pr.integration_id).await?;
-    let findings: Vec<_> = request
-        .comments
-        .iter()
-        .map(|comment| BitbucketInlineComment {
-            text: &comment.comment,
-            path: developer_review::review_comment_path(&comment.file),
-            line: comment.line.and_then(|line| i64::try_from(line).ok()),
-        })
-        .collect();
-    context
+    let comments = context
         .client
-        .published_pull_request_comment_indices(&pr.project_key, &pr.repository_slug, id, &findings)
+        .list_pull_request_comments(&pr.project_key, &pr.repository_slug, id, 100)
         .await
-        .map_err(map_error)
+        .map_err(map_error)?;
+    let diff = if comments.is_empty() {
+        String::new()
+    } else {
+        context
+            .client
+            .pull_request_diff(&pr.project_key, &pr.repository_slug, id)
+            .await
+            .map_err(map_error)?
+    };
+    let scope = serde_json::to_string(&(
+        &pr.integration_id,
+        "pull_request",
+        &pr.project_key,
+        &pr.repository_slug,
+        id,
+        &pr.latest_commit,
+    ))
+    .map_err(|_| command_error("invalid_input", "Invalid comparison scope", false))?;
+    super::review_comment_matches::compare(pool, &scope, &request.comments, &comments, &diff)
+        .await
+        .map_err(|_| {
+            command_error(
+                "comment_comparison_failed",
+                "Unable to compare existing PR comments",
+                true,
+            )
+        })
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
@@ -1149,24 +1171,144 @@ pub async fn publish_pull_request_comment(
             .expect("validated latest commit"),
     )
     .await?;
+    // Recheck the actual approved text against live discussions immediately before writing.
+    // A new discussion or an edited draft must not bypass the results dialog's earlier check.
+    let live_comments = context
+        .client
+        .list_pull_request_comments(
+            &request.project_key,
+            &request.repository_slug,
+            pull_request_id,
+            100,
+        )
+        .await
+        .map_err(map_error)?;
+    if let Some(parent) = request.parent_comment_id {
+        if !super::review_comment_matches::valid_reply_parent(
+            &live_comments,
+            parent,
+            developer_review::review_comment_path(&request.file),
+        ) {
+            return Err(command_error(
+                "reply_target_unavailable",
+                "Reply target is no longer available in this file",
+                false,
+            ));
+        }
+    }
+    if !live_comments.is_empty() {
+        let live_diff = context
+            .client
+            .pull_request_diff(
+                &request.project_key,
+                &request.repository_slug,
+                pull_request_id,
+            )
+            .await
+            .map_err(map_error)?;
+        let finding = developer_review::PullRequestReviewComment {
+            severity: developer_review::PullRequestReviewSeverity::Low,
+            file: request.file.clone(),
+            line: request.line.and_then(|line| u64::try_from(line).ok()),
+            comment: text.clone(),
+        };
+        let scope = serde_json::to_string(&(
+            &request.integration_id,
+            "pull_request",
+            &request.project_key,
+            &request.repository_slug,
+            pull_request_id,
+            &request.latest_commit,
+            "publication",
+        ))
+        .map_err(|_| command_error("invalid_input", "Invalid comparison scope", false))?;
+        let checked = super::review_comment_matches::compare(
+            pool,
+            &scope,
+            &[finding],
+            &live_comments,
+            &live_diff,
+        )
+        .await
+        .map_err(|_| {
+            command_error(
+                "comment_comparison_failed",
+                "Unable to compare existing PR comments before publication",
+                true,
+            )
+        })?;
+        if super::review_comment_matches::publication_conflicts(
+            &checked.matches,
+            request.parent_comment_id,
+        ) {
+            return Err(command_error("comment_discussion_changed", "An existing discussion covers this comment; review the refreshed results before publishing", true));
+        }
+    }
+    // AI comparison can take minutes. Reject a stale discussion snapshot rather than
+    // publishing a duplicate or sending a clarification to a thread that changed.
+    let current_comments = context
+        .client
+        .list_pull_request_comments(
+            &request.project_key,
+            &request.repository_slug,
+            pull_request_id,
+            100,
+        )
+        .await
+        .map_err(map_error)?;
+    if !super::review_comment_matches::file_discussions_unchanged(
+        &live_comments,
+        &current_comments,
+        developer_review::review_comment_path(&request.file),
+    ) {
+        return Err(command_error(
+            "comment_discussion_changed",
+            "The discussion changed; review the refreshed results before publishing",
+            true,
+        ));
+    }
+    validate_current_pull_request(
+        &context.client,
+        &request.project_key,
+        &request.repository_slug,
+        pull_request_id,
+        request
+            .latest_commit
+            .as_deref()
+            .expect("validated latest commit"),
+    )
+    .await?;
     // Persist a local action key before any write. Identical retries, including after restart,
     // must not post a second comment when the remote result is unknown.
     sqlx::query("INSERT INTO pull_request_comment_actions (idempotency_key, request_json, status) VALUES (?, ?, 'running')")
         .bind(uuid::Uuid::now_v7().to_string()).bind(&request_json).execute(pool).await
         .map_err(|_| command_error("idempotency_conflict", "This comment publication is already running", false))?;
-    let result = context
-        .client
-        .publish_pull_request_comment(
-            &request.project_key,
-            &request.repository_slug,
-            pull_request_id,
-            BitbucketInlineComment {
-                text: &text,
-                path: developer_review::review_comment_path(&request.file),
-                line: request.line,
-            },
-        )
-        .await;
+    let result = if let Some(parent) = request.parent_comment_id {
+        context
+            .client
+            .reply_pull_request_comment(
+                &request.project_key,
+                &request.repository_slug,
+                pull_request_id,
+                parent,
+                &text,
+            )
+            .await
+    } else {
+        context
+            .client
+            .publish_pull_request_comment(
+                &request.project_key,
+                &request.repository_slug,
+                pull_request_id,
+                BitbucketInlineComment {
+                    text: &text,
+                    path: developer_review::review_comment_path(&request.file),
+                    line: request.line,
+                },
+            )
+            .await
+    };
     let comment = match result {
         Ok(comment) => comment,
         Err(error) => {
@@ -2353,6 +2495,7 @@ mod tests {
             file: "dst://src/retry.ts".into(),
             line: Some(42),
             comment: "Check shutdown order.".into(),
+            parent_comment_id: None,
         };
         let request_json = serde_json::to_string(&request).unwrap();
         sqlx::query("INSERT INTO pull_request_comment_actions (idempotency_key, request_json, status) VALUES ('example-action', ?, 'running')")
