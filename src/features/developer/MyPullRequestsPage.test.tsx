@@ -25,6 +25,7 @@ import {
 } from "./api";
 import { clearPullRequestDisplayPreferencesForTests } from "./display-options";
 import { MyPullRequestsPage } from "./MyPullRequestsPage";
+import { APP_EVENT, subscribeAppEvent } from "@/app/app-events";
 
 vi.mock("../settings/api", () => ({
   getAiSettings: vi.fn(),
@@ -657,8 +658,12 @@ describe("MyPullRequestsPage", () => {
     const dialog = await screen.findByRole("dialog", { name: "AI review results" });
     expect(within(dialog).getByRole("button", { name: "Approve" })).toBeDisabled();
     expect(within(dialog).getByRole("button", { name: "Needs work" })).toBeDisabled();
+    const invalidateCounts = vi.fn();
+    const unsubscribeCounts = subscribeAppEvent(APP_EVENT.pullRequestActivityChanged, invalidateCounts);
     finishDecision();
     await waitFor(() => expect(within(dialog).getByRole("button", { name: "Needs work" })).not.toBeDisabled());
+    expect(invalidateCounts).toHaveBeenCalledOnce();
+    unsubscribeCounts();
     fireEvent.click(within(dialog).getByRole("button", { name: "Close" }));
     await waitFor(() => expect(within(card).getByRole("button", { name: "Review decision" }).querySelector("svg.lucide-circle-check")).toBeInTheDocument());
   });

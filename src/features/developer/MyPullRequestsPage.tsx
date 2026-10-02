@@ -583,6 +583,7 @@ export function MyPullRequestsPage() {
       setPullRequests((current) => sortPullRequests(current.map((item) =>
         pullRequestKey(item) === key ? { ...item, myDecision: status.myDecision } : item,
       )));
+      emitAppEvent(APP_EVENT.pullRequestActivityChanged);
     } catch (reason) {
       throw new Error(commandError(reason));
     } finally {
