@@ -1,9 +1,8 @@
-use super::{capture_cli_output, local_cli_command, usable_cli_path};
+use super::{capture_cli_output, local_cli_command};
 use crate::application::ai::{AiProviderDto, AiProviderId, AiProviderStatus};
 use crate::application::ai_usage_statistics::AiTokenUsageCounts;
 use serde_json::{json, Value};
 use std::{
-    env,
     path::{Path, PathBuf},
     process::Command,
     time::Duration,
@@ -200,21 +199,7 @@ fn parse_models(output: &[u8]) -> Vec<String> {
     models
 }
 pub fn resolve_binary() -> Option<PathBuf> {
-    if let Some(configured) = env::var_os("MEWORK_OPENCODE_BIN") {
-        return usable_cli_path(Path::new(&configured));
-    }
-    if let Some(path) = env::var_os("PATH") {
-        for entry in env::split_paths(&path) {
-            for name in executable_names() {
-                if let Some(path) = usable_cli_path(&entry.join(name)) {
-                    return Some(path);
-                }
-            }
-        }
-    }
-    diagnostic_install_paths()
-        .into_iter()
-        .find_map(|(_, path)| usable_cli_path(&path))
+    super::discovery::resolve_binary(AiProviderId::OpenCodeCli)
 }
 
 pub(crate) fn executable_names() -> &'static [&'static str] {
@@ -226,10 +211,7 @@ pub(crate) fn executable_names() -> &'static [&'static str] {
 }
 
 pub(crate) fn diagnostic_install_paths() -> Vec<(&'static str, PathBuf)> {
-    #[cfg(windows)]
     let home = dirs::home_dir();
-    #[cfg(not(windows))]
-    let home = env::var_os("HOME").map(PathBuf::from);
     let mut paths = Vec::new();
     if let Some(home) = home {
         paths.push((

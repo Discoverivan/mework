@@ -7,7 +7,7 @@ use std::{
 
 use serde_json::Value;
 
-use super::{capture_cli_output, local_cli_command, usable_cli_path};
+use super::{capture_cli_output, local_cli_command};
 use crate::application::ai::{AiProviderDto, AiProviderId, AiProviderStatus};
 use crate::application::ai_usage_statistics::AiTokenUsageCounts;
 
@@ -188,21 +188,7 @@ fn check_isolation(binary: &Path) -> Result<(), String> {
 }
 
 pub fn resolve_binary() -> Option<PathBuf> {
-    if let Some(configured) = env::var_os("MEWORK_PI_BIN") {
-        return usable_cli_path(Path::new(&configured));
-    }
-    if let Some(path) = env::var_os("PATH") {
-        for entry in env::split_paths(&path) {
-            for name in executable_names() {
-                if let Some(path) = usable_cli_path(&entry.join(name)) {
-                    return Some(path);
-                }
-            }
-        }
-    }
-    diagnostic_install_paths()
-        .into_iter()
-        .find_map(|(_, path)| usable_cli_path(&path))
+    super::discovery::resolve_binary(AiProviderId::PiCli)
 }
 
 pub(crate) fn executable_names() -> &'static [&'static str] {
@@ -214,32 +200,50 @@ pub(crate) fn executable_names() -> &'static [&'static str] {
 }
 
 pub(crate) fn diagnostic_install_paths() -> Vec<(&'static str, PathBuf)> {
-    #[cfg(windows)]
     let home = dirs::home_dir();
-    #[cfg(not(windows))]
-    let home = env::var_os("HOME").map(PathBuf::from);
+    let config = dirs::config_dir();
+    let local_data = dirs::data_local_dir();
+    install_paths(
+        home.as_deref(),
+        config.as_deref(),
+        local_data.as_deref(),
+        cfg!(windows),
+    )
+}
+
+fn install_paths(
+    home: Option<&Path>,
+    config: Option<&Path>,
+    local_data: Option<&Path>,
+    windows: bool,
+) -> Vec<(&'static str, PathBuf)> {
     let mut paths = Vec::new();
     if let Some(home) = home {
         paths.push((
             "system-home",
-            home.join(if cfg!(windows) {
+            home.join(if windows {
                 ".local/bin/pi.exe"
             } else {
                 ".local/bin/pi"
             }),
         ));
-        #[cfg(not(windows))]
-        paths.push(("npm-global", home.join(".npm-global/bin/pi")));
+        if !windows {
+            paths.push(("npm-global", home.join(".npm-global/bin/pi")));
+        }
     }
-    #[cfg(windows)]
-    if let Some(config) = dirs::config_dir() {
-        paths.push(("system-config", config.join("npm/pi.cmd")));
+    if windows {
+        if let Some(local_data) = local_data {
+            paths.push(("user-programs", local_data.join("Programs/Pi/pi.exe")));
+        }
+        if let Some(config) = config {
+            paths.push(("system-config", config.join("npm/pi.cmd")));
+        }
+    } else {
+        paths.extend([
+            ("homebrew", PathBuf::from("/opt/homebrew/bin/pi")),
+            ("usr-local", PathBuf::from("/usr/local/bin/pi")),
+        ]);
     }
-    #[cfg(not(windows))]
-    paths.extend([
-        ("homebrew", PathBuf::from("/opt/homebrew/bin/pi")),
-        ("usr-local", PathBuf::from("/usr/local/bin/pi")),
-    ]);
     paths
 }
 
@@ -353,19 +357,27 @@ fn parse_result(output: &[u8]) -> Result<(Vec<u8>, Option<AiTokenUsageCounts>), 
 
 #[cfg(test)]
 mod tests {
+    use super::super::usable_cli_path;
     use super::*;
 
     #[test]
     fn discovers_models_and_runs_an_isolated_structured_request() {
         let directory = tempfile::tempdir().unwrap();
-        let binary = directory
-            .path()
-            .join(if cfg!(windows) { "pi.cmd" } else { "pi" });
+        let local_data = directory.path().join("AppData/Local");
+        let config = directory.path().join("AppData/Roaming");
+        // The Windows fixture is a script, so use the npm user installation path.
+        let binary = if cfg!(windows) {
+            config.join("npm/pi.cmd")
+        } else {
+            directory.path().join(".local/bin/pi")
+        };
+        let install = binary.parent().unwrap();
+        std::fs::create_dir_all(&install).unwrap();
         let event = r#"{"type":"message_end","message":{"role":"assistant","stopReason":"stop","content":[{"type":"thinking","thinking":"Synthetic reasoning"},{"type":"text","text":"{\"summary\":\"Example task\"}"}],"usage":{"input":12,"output":8,"cacheRead":4,"cacheWrite":2,"totalTokens":26}}}"#;
         #[cfg(windows)]
         let script = format!("@echo off\nset args=%*\necho %args% | findstr /c:\"--version\" >nul && (echo example-version & exit /b 0)\necho %args% | findstr /c:\"--help\" >nul && (echo {} & exit /b 0)\necho %args% | findstr /c:\"--list-models\" >nul && (echo provider model context max-out thinking images & echo example sample-model 200K 8K yes no & exit /b 0)\nset /p input=\necho {event}\n", ISOLATION_FLAGS.join(" "));
         #[cfg(not(windows))]
-        let script = format!("#!/bin/sh\ncase \"$*\" in *--version*) echo example-version; exit 0;; *--help*) echo '{}'; exit 0;; *--list-models*) printf 'provider model context max-out thinking images\\nexample sample-model 200K 8K yes no\\n'; exit 0;; esac\ncat >/dev/null\nprintf '%s\\n' '{event}'\n", ISOLATION_FLAGS.join(" "));
+        let script = format!("#!/usr/bin/env node\ncase \"$*\" in *--version*) echo example-version; exit 0;; *--help*) echo '{}'; exit 0;; *--list-models*) printf 'provider model context max-out thinking images\\nexample sample-model 200K 8K yes no\\n'; exit 0;; esac\ncat >/dev/null\nprintf '%s\\n' '{event}'\n", ISOLATION_FLAGS.join(" "));
         #[cfg(windows)]
         let checks = ISOLATION_FLAGS
             .iter()
@@ -384,13 +396,27 @@ mod tests {
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
+            // A synthetic Node shim proves that the npm shebang can find the
+            // runtime beside Pi without relying on the test runner's PATH.
+            let node = install.join("node");
+            std::fs::write(&node, "#!/bin/sh\nexec /bin/sh \"$@\"\n").unwrap();
+            std::fs::set_permissions(&node, std::fs::Permissions::from_mode(0o755)).unwrap();
             std::fs::set_permissions(&binary, std::fs::Permissions::from_mode(0o755)).unwrap();
         }
-        let detected = inspect_at(&binary);
+        let resolved = install_paths(
+            Some(directory.path()),
+            Some(&config),
+            Some(&local_data),
+            cfg!(windows),
+        )
+        .into_iter()
+        .find_map(|(_, path)| usable_cli_path(&path))
+        .unwrap();
+        let detected = inspect_at(&resolved);
         assert_eq!(detected.status, AiProviderStatus::Connected);
         assert_eq!(detected.models, ["example/sample-model"]);
         let (output, usage) = run_at(
-            &binary,
+            &resolved,
             &detected.models[0],
             r#"{"type":"object"}"#,
             "Create an example task",

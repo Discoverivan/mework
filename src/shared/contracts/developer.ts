@@ -118,6 +118,10 @@ export interface PullRequestReviewChangedEvent {
   review: PullRequestReviewState;
 }
 
+export interface PullRequestPublishedCommentsRequest extends PullRequestReviewStateRequest {
+  comments: PullRequestReviewComment[];
+}
+
 export interface PullRequestReviewStateRequest {
   integrationId: string;
   projectKey: string;

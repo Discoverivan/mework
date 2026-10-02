@@ -12,6 +12,7 @@ use crate::application::logging::HttpRequestBuilderExt;
 const RELEASES_URL: &str = "https://api.github.com/repos/Discoverivan/mework/releases";
 const MAX_NOTE_BYTES: usize = 128 * 1024;
 const MAX_CATALOG_BYTES: usize = 8 * 1024 * 1024;
+const MAX_CONTENT_CACHE_BYTES: usize = 64 * 1024 * 1024;
 
 #[derive(Default)]
 pub struct ReleaseNotesRequestState(pub Mutex<()>);
@@ -42,6 +43,7 @@ pub struct ReleaseNote {
 #[serde(rename_all = "camelCase")]
 struct ReleaseNotesConfig {
     cache_ttl_seconds: u64,
+    prefetch_release_count: usize,
 }
 
 #[derive(Clone, Deserialize, Serialize)]
@@ -103,8 +105,21 @@ fn read_json<T: for<'de> Deserialize<'de>>(path: &Path, max_bytes: usize) -> Opt
 }
 
 fn write_json<T: Serialize>(path: &Path, value: &T) -> Result<(), String> {
+    use std::io::Write;
+
     let bytes = serde_json::to_vec(value).map_err(|_| "failed to encode release notes state")?;
-    std::fs::write(path, bytes).map_err(|_| "failed to save release notes state".to_owned())
+    let parent = path
+        .parent()
+        .ok_or("failed to locate release notes directory")?;
+    let mut temporary = tempfile::NamedTempFile::new_in(parent)
+        .map_err(|_| "failed to prepare release notes state")?;
+    temporary
+        .write_all(&bytes)
+        .map_err(|_| "failed to save release notes state")?;
+    temporary
+        .persist(path)
+        .map(|_| ())
+        .map_err(|_| "failed to save release notes state".to_owned())
 }
 
 fn current_install_state(path: &Path, current_version: &str) -> Result<InstallState, String> {
@@ -281,6 +296,71 @@ fn requested_language(value: &str) -> &'static str {
     }
 }
 
+fn fresh_cached_note(app_data: &Path, version: &str, language: &str) -> Option<ReleaseNote> {
+    read_json::<Vec<CachedContent>>(
+        &app_data.join("release-notes-content.json"),
+        MAX_CONTENT_CACHE_BYTES,
+    )?
+    .into_iter()
+    .find(|entry| {
+        entry.note.version == version
+            && entry.requested_language == requested_language(language)
+            && now_seconds().saturating_sub(entry.fetched_at_seconds) < config().cache_ttl_seconds
+    })
+    .map(|entry| entry.note)
+}
+
+async fn prefetch_recent(
+    app_data: &Path,
+    client: &Client,
+    current_version: &str,
+    request_state: &ReleaseNotesRequestState,
+    count: usize,
+) -> Result<(), String> {
+    if count == 0 {
+        return Ok(());
+    }
+    let selected = {
+        let _guard = request_state.0.lock().await;
+        releases_through(
+            catalog(app_data, client, Some(current_version)).await?,
+            current_version,
+        )?
+    };
+    for (version, release) in selected.into_iter().take(count) {
+        for language in ["en", "ru"] {
+            // Release the lock between notes so foreground requests can take their turn.
+            let _guard = request_state.0.lock().await;
+            let _ = note_for_release(app_data, client, &release, &version, language).await;
+        }
+    }
+    Ok(())
+}
+
+pub async fn run_background_prefetch<R: Runtime>(app: AppHandle<R>) {
+    let settings = config();
+    if settings.prefetch_release_count == 0 {
+        return;
+    }
+    let Ok(app_data) = app_data_dir(&app) else {
+        return;
+    };
+    let Ok(client) = http_client() else { return };
+    let current_version = app.package_info().version.to_string();
+    let request_state = app.state::<ReleaseNotesRequestState>();
+    loop {
+        let _ = prefetch_recent(
+            &app_data,
+            &client,
+            &current_version,
+            &request_state,
+            settings.prefetch_release_count,
+        )
+        .await;
+        tokio::time::sleep(Duration::from_secs(settings.cache_ttl_seconds.max(60))).await;
+    }
+}
+
 async fn note_for_release(
     app_data: &Path,
     client: &Client,
@@ -290,7 +370,8 @@ async fn note_for_release(
 ) -> Result<ReleaseNote, String> {
     let language = requested_language(language);
     let path = app_data.join("release-notes-content.json");
-    let mut cached = read_json::<Vec<CachedContent>>(&path, 2 * 1024 * 1024).unwrap_or_default();
+    let mut cached =
+        read_json::<Vec<CachedContent>>(&path, MAX_CONTENT_CACHE_BYTES).unwrap_or_default();
     let old = cached
         .iter()
         .find(|entry| {
@@ -343,6 +424,17 @@ async fn note_for_release(
                 fetched_at_seconds: now_seconds(),
                 note: note.clone(),
             });
+            let capacity = config()
+                .prefetch_release_count
+                .saturating_mul(2)
+                .saturating_add(4);
+            cached.drain(..cached.len().saturating_sub(capacity));
+            // Bound the aggregate file as well as the individual downloaded assets.
+            while serde_json::to_vec(&cached)
+                .is_ok_and(|bytes| bytes.len() > MAX_CONTENT_CACHE_BYTES)
+            {
+                cached.remove(0);
+            }
             let _ = write_json(&path, &cached);
             Ok(note)
         }
@@ -429,10 +521,26 @@ pub async fn list_versions<R: Runtime>(
     app: &AppHandle<R>,
     request_state: &ReleaseNotesRequestState,
 ) -> Result<Vec<String>, String> {
-    let _guard = request_state.0.lock().await;
     let app_data = app_data_dir(app)?;
-    let client = http_client()?;
     let installed_version = app.package_info().version.to_string();
+    if let Some(cached) = read_json::<CachedCatalog>(
+        &app_data.join("release-notes-catalog.json"),
+        MAX_CATALOG_BYTES,
+    ) {
+        if now_seconds().saturating_sub(cached.fetched_at_seconds) < config().cache_ttl_seconds
+            && cached
+                .releases
+                .iter()
+                .any(|release| release.tag_name == format!("mework-v{installed_version}"))
+        {
+            return Ok(releases_through(cached.releases, &installed_version)?
+                .into_iter()
+                .map(|(version, _)| version.to_string())
+                .collect());
+        }
+    }
+    let _guard = request_state.0.lock().await;
+    let client = http_client()?;
     let selected = releases_through(
         catalog(&app_data, &client, Some(&installed_version)).await?,
         &installed_version,
@@ -449,14 +557,18 @@ pub async fn load_version<R: Runtime>(
     version: &str,
     language: &str,
 ) -> Result<ReleaseNote, String> {
-    let _guard = request_state.0.lock().await;
     let requested = Version::parse(version).map_err(|_| "invalid release version")?;
     let app_data = app_data_dir(app)?;
+    let current_version = app.package_info().version.to_string();
+    if requested > Version::parse(&current_version).map_err(|_| "invalid installed version")? {
+        return Err("release is unavailable".to_owned());
+    }
+    if let Some(note) = fresh_cached_note(&app_data, &requested.to_string(), language) {
+        return Ok(note);
+    }
+    let _guard = request_state.0.lock().await;
     let client = http_client()?;
-    let selected = releases_through(
-        catalog(&app_data, &client, None).await?,
-        &app.package_info().version.to_string(),
-    )?;
+    let selected = releases_through(catalog(&app_data, &client, None).await?, &current_version)?;
     let (_, release) = selected
         .into_iter()
         .find(|(candidate, _)| *candidate == requested)
@@ -467,6 +579,67 @@ pub async fn load_version<R: Runtime>(
 #[cfg(test)]
 mod tests {
     use super::current_install_state;
+
+    #[tokio::test]
+    async fn prefetches_recent_notes_in_both_languages_and_reuses_the_disk_cache() {
+        let directory = tempfile::tempdir().unwrap();
+        let releases: Vec<_> = ["0.1.0", "0.3.0", "0.2.0"]
+            .into_iter()
+            .map(|version| super::GithubRelease {
+                tag_name: format!("mework-v{version}"),
+                body: Some(format!("## Fixed\n\n- Example fix for {version}.")),
+                assets: Vec::new(),
+            })
+            .collect();
+        super::write_json(
+            &directory.path().join("release-notes-catalog.json"),
+            &super::CachedCatalog {
+                fetched_at_seconds: super::now_seconds(),
+                releases: releases.clone(),
+            },
+        )
+        .unwrap();
+        super::prefetch_recent(
+            directory.path(),
+            &super::http_client().unwrap(),
+            "0.3.0",
+            &super::ReleaseNotesRequestState::default(),
+            2,
+        )
+        .await
+        .unwrap();
+
+        let cached: Vec<super::CachedContent> = super::read_json(
+            &directory.path().join("release-notes-content.json"),
+            super::MAX_CONTENT_CACHE_BYTES,
+        )
+        .unwrap();
+        assert_eq!(cached.len(), 4);
+        assert!(cached
+            .iter()
+            .all(|entry| ["0.3.0", "0.2.0"].contains(&entry.note.version.as_str())));
+        // Reopening uses only the persisted cache; no source body is needed anymore.
+        let release = super::GithubRelease {
+            body: None,
+            ..releases[1].clone()
+        };
+        let note = super::note_for_release(
+            directory.path(),
+            &super::http_client().unwrap(),
+            &release,
+            &semver::Version::parse("0.3.0").unwrap(),
+            "ru",
+        )
+        .await
+        .unwrap();
+        assert_eq!(note.markdown, "## Fixed\n\n- Example fix for 0.3.0.");
+        assert_eq!(
+            super::fresh_cached_note(directory.path(), "0.3.0", "en")
+                .unwrap()
+                .version,
+            "0.3.0"
+        );
+    }
 
     #[test]
     fn keeps_the_first_unread_version_across_multiple_updates() {

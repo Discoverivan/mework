@@ -11,6 +11,7 @@ import { getAiSettings } from "../settings/api";
 import {
   getPullRequestReviewSettings,
   getPullRequestReviewStates,
+  getPublishedPullRequestComments,
   listMyPullRequests,
   markAllPullRequestsRead,
   markPullRequestRead,
@@ -34,6 +35,7 @@ vi.mock("../settings/api", () => ({
 vi.mock("./api", () => ({
   getPullRequestReviewSettings: vi.fn(),
   getPullRequestReviewStates: vi.fn(),
+  getPublishedPullRequestComments: vi.fn(),
   listMyPullRequests: vi.fn(),
   markAllPullRequestsRead: vi.fn(),
   markPullRequestRead: vi.fn(),
@@ -50,6 +52,7 @@ vi.mock("./api", () => ({
 const getAiSettingsMock = vi.mocked(getAiSettings);
 const getSettingsMock = vi.mocked(getPullRequestReviewSettings);
 const getReviewStatesMock = vi.mocked(getPullRequestReviewStates);
+const getPublishedCommentsMock = vi.mocked(getPublishedPullRequestComments);
 const listMyPullRequestsMock = vi.mocked(listMyPullRequests);
 const refreshMyPullRequestsMock = vi.mocked(refreshMyPullRequests);
 const removeReviewerMock = vi.mocked(removePullRequestReviewer);
@@ -198,6 +201,7 @@ describe("MyPullRequestsPage", () => {
     getAiSettingsMock.mockResolvedValue(aiSettingsConnected);
     getSettingsMock.mockResolvedValue(emptySettings);
     getReviewStatesMock.mockResolvedValue({});
+    getPublishedCommentsMock.mockResolvedValue([]);
     markPullRequestReadMock.mockResolvedValue({ integrationId: "bitbucket-1", pullRequestId: "7", activity: "read" });
     markAllPullRequestsReadMock.mockResolvedValue({ markedCount: 2 });
     startReviewMock.mockResolvedValue(runningReview);
@@ -795,7 +799,7 @@ describe("MyPullRequestsPage", () => {
     expect(mediumSection?.querySelector("summary")).toHaveClass("bg-warning/10", "text-warning");
     expect(mediumSection?.querySelector("summary")?.nextElementSibling).toHaveClass("bg-background", "text-foreground");
     const publishButton = screen.getByRole("button", { name: "Publish comment for src/retry.ts" });
-    expect(publishButton).not.toBeDisabled();
+    await waitFor(() => expect(publishButton).not.toBeDisabled());
     expect(publishButton).toHaveClass("app-icon-button", "size-8");
     expect(publishButton.parentElement).toHaveClass("flex", "items-center", "justify-between");
     expect(publishButton).toHaveAttribute("data-action-tone", "neutral");
@@ -850,6 +854,23 @@ describe("MyPullRequestsPage", () => {
     fireEvent.click(within(reopenedDialog).getByRole("button", { name: "Re-run review" }));
     await waitFor(() => expect(startReviewMock).toHaveBeenCalledWith(expect.objectContaining({ pullRequestId: "7", activity: "read" })));
     expect(await screen.findByRole("button", { name: "AI review…" })).toBeDisabled();
+  });
+
+  it("restores published AI comments from the PR when opening persisted review results", async () => {
+    listMyPullRequestsMock.mockResolvedValueOnce({
+      ...firstPage,
+      values: [{ ...pullRequests[0], review: completedReview }, pullRequests[1]],
+    });
+    getPublishedCommentsMock.mockResolvedValue([1]);
+    await renderFlatPage();
+    fireEvent.click(await screen.findByRole("button", { name: "AI review results" }));
+    const published = await screen.findByRole("button", { name: "Publish comment for src/timeout.ts" });
+    await waitFor(() => expect(published).toHaveAttribute("title", "Published"));
+    expect(published).toBeDisabled();
+    expect(getPublishedCommentsMock).toHaveBeenCalledWith(expect.objectContaining({
+      integrationId: "bitbucket-1", projectKey: "DEMO", repositorySlug: "sample-repository",
+      pullRequestId: "7", comments: completedReview.result!.comments,
+    }));
   });
 
   it("updates the list decision when needs work is submitted", async () => {

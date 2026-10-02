@@ -355,7 +355,7 @@ async fn publishes_inline_pull_request_comment() {
                 "hunks": [{"segments": [{"type": "CONTEXT", "lines": [{"source": 39, "destination": 42}]}]}]
             }]
         })))
-        .expect(1).mount(&server).await;
+        .expect(2).mount(&server).await;
     Mock::given(method("POST"))
         .and(path(
             "/rest/api/1.0/projects/DEMO/repos/sample-repository/pull-requests/7/comments",
@@ -405,6 +405,37 @@ async fn publishes_inline_pull_request_comment() {
     let anchor = comment.anchor.unwrap();
     assert_eq!(anchor.diff_type.as_deref(), Some("EFFECTIVE"));
     assert_eq!(anchor.line, Some(39));
+
+    Mock::given(method("GET"))
+        .and(path(
+            "/rest/api/1.0/projects/DEMO/repos/sample-repository/pull-requests/7/comments",
+        ))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "values": [{
+                "id": 11, "version": 0, "text": "AI review: handle this edge case",
+                "anchor": {"path": "src/retry.ts", "line": 39, "lineType": "CONTEXT"}
+            }],
+            "size": 1, "limit": 100, "start": 0, "isLastPage": true
+        })))
+        .expect(1)
+        .mount(&server)
+        .await;
+    // A fresh client restores the status from the PR without local publication state.
+    let reopened = BitbucketDcClient::new(server.uri()).unwrap();
+    let published = reopened
+        .published_pull_request_comment_indices(
+            "DEMO",
+            "sample-repository",
+            7,
+            &[BitbucketInlineComment {
+                text: "AI review: handle this edge case",
+                path: "src/retry.ts",
+                line: Some(42),
+            }],
+        )
+        .await
+        .unwrap();
+    assert_eq!(published, vec![0]);
 }
 
 #[tokio::test]

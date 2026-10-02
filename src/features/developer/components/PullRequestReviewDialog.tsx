@@ -16,7 +16,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import type { MyPullRequest, PullRequestReviewComment, PullRequestReviewSeverity, PullRequestReviewState } from "@/shared/contracts/developer";
+import type { MyPullRequest, PullRequestPublishedCommentsRequest, PullRequestReviewComment, PullRequestReviewSeverity, PullRequestReviewState } from "@/shared/contracts/developer";
 import { useI18n } from "@/i18n/context";
 import { cn } from "@/lib/utils";
 
@@ -28,6 +28,7 @@ import {
 import { formatRelativeDate } from "./pull-request-formatting";
 import { PullRequestReviewDetails } from "./PullRequestReviewDetails";
 import { reviewCommentPath } from "./review-comment-path";
+import { getPublishedPullRequestComments } from "../api";
 
 export interface PullRequestReviewDialogProps {
   open: boolean;
@@ -45,6 +46,10 @@ type EditableComment = {
   comment: PullRequestReviewComment;
   index: number;
 };
+
+function commentKey(comment: PullRequestReviewComment, index: number): string {
+  return JSON.stringify([comment.file, comment.line, comment.comment, index]);
+}
 
 const severitySectionStyles: Record<PullRequestReviewSeverity, { border: string; header: string }> = {
   blocker: { border: "border-destructive/60", header: "bg-destructive/20 text-destructive" },
@@ -110,14 +115,45 @@ export function PullRequestReviewDialog({
   const result = review?.result;
   const reviewFailed = review?.status === "failed";
   const [pendingAction, setPendingAction] = useState<string>();
-  const [publishedComments, setPublishedComments] = useState<Set<string>>(() => new Set());
+  const [publicationStatus, setPublicationStatus] = useState<{ scope: string; published: Set<string>; checked: boolean }>();
   const [editingComment, setEditingComment] = useState<EditableComment>();
   const [commentDraft, setCommentDraft] = useState("");
   const [actionError, setActionError] = useState<string>();
 
-  function commentKey(comment: PullRequestReviewComment, index: number): string {
-    return `${comment.file}:${comment.line ?? "na"}:${index}`;
-  }
+  const publicationRequest = pullRequest && reviewerActions && result?.comments.length
+    ? JSON.stringify({
+      integrationId: pullRequest.integrationId,
+      projectKey: pullRequest.projectKey,
+      repositorySlug: pullRequest.repositorySlug,
+      pullRequestId: pullRequest.pullRequestId,
+      latestCommit: pullRequest.latestCommit,
+      comments: result.comments,
+    } satisfies PullRequestPublishedCommentsRequest)
+    : "";
+  const publicationScope = `${review?.runId ?? ""}:${publicationRequest}`;
+  const checkingPublication = Boolean(publicationRequest)
+    && (publicationStatus?.scope !== publicationScope || !publicationStatus.checked);
+  const publishedComments = publicationStatus?.scope === publicationScope ? publicationStatus.published : new Set<string>();
+
+  useEffect(() => {
+    if (!open || !publicationRequest) return;
+    let active = true;
+    const request: PullRequestPublishedCommentsRequest = JSON.parse(publicationRequest);
+    setPublicationStatus({ scope: publicationScope, published: new Set(), checked: false });
+    void getPublishedPullRequestComments(request).then((indices) => {
+      if (!active) return;
+      setPublicationStatus({
+        scope: publicationScope,
+        published: new Set(indices.flatMap((index) => request.comments[index] ? [commentKey(request.comments[index], index)] : [])),
+        checked: true,
+      });
+    }).catch(() => {
+      if (!active) return;
+      setPublicationStatus({ scope: publicationScope, published: new Set(), checked: true });
+      setActionError(t("pr.dialog.publicationCheckError"));
+    });
+    return () => { active = false; };
+  }, [open, publicationRequest, publicationScope, t]);
 
   useEffect(() => {
     if (!open) {
@@ -145,7 +181,10 @@ export function PullRequestReviewDialog({
     setActionError(undefined);
     try {
       await onPublishComment(pullRequest, nextComment);
-      setPublishedComments((current) => new Set(current).add(key));
+      setPublicationStatus((current) => current?.scope === publicationScope ? {
+        ...current,
+        published: new Set(current.published).add(key),
+      } : current);
       setEditingComment(undefined);
       setCommentDraft("");
     } catch (error) {
@@ -241,7 +280,8 @@ export function PullRequestReviewDialog({
                         </summary>
                         <div className={cn("border-t bg-background px-3 py-2 text-foreground", severitySectionStyles[section.key].border)}>
                           <ul className="space-y-2">
-                            {comments.map((comment, index) => {
+                            {comments.map((comment) => {
+                              const index = result.comments.indexOf(comment);
                               const diffUrl = commentDiffUrl(pullRequest?.url, comment);
                               const location = `${reviewCommentPath(comment.file)}${comment.line != null ? `:${comment.line}` : ""}`;
                               const published = publishedComments.has(commentKey(comment, index));
@@ -264,7 +304,7 @@ export function PullRequestReviewDialog({
                                             size="icon"
                                             actionTone="neutral"
                                             className="size-8 shrink-0"
-                                            disabled={!onPublishComment || pendingAction != null || published}
+                                            disabled={!onPublishComment || pendingAction != null || checkingPublication || published}
                                             aria-label={t("pr.dialog.publishFor", { file: reviewCommentPath(comment.file) })}
                                             title={publishLabel}
                                           >
@@ -272,11 +312,11 @@ export function PullRequestReviewDialog({
                                           </Button>
                                         </DropdownMenuTrigger>
                                         <DropdownMenuContent align="end" onCloseAutoFocus={(event) => { if (editingComment) event.preventDefault(); }}>
-                                          <DropdownMenuItem disabled={pendingAction != null || published} onSelect={() => void publishComment(comment, index, comment.comment)}>
+                                          <DropdownMenuItem disabled={pendingAction != null || checkingPublication || published} onSelect={() => void publishComment(comment, index, comment.comment)}>
                                             <Send aria-hidden="true" />
                                             {t("pr.dialog.sendAsIs")}
                                           </DropdownMenuItem>
-                                          <DropdownMenuItem disabled={pendingAction != null || published} onSelect={() => openCommentEditor(comment, index)}>
+                                          <DropdownMenuItem disabled={pendingAction != null || checkingPublication || published} onSelect={() => openCommentEditor(comment, index)}>
                                             <Pencil aria-hidden="true" />
                                             {t("pr.dialog.editAndSend")}
                                           </DropdownMenuItem>

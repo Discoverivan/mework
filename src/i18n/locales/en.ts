@@ -1061,6 +1061,7 @@ export const en = {
   "pr.dialog.noComments": "The AI review has no comments.",
   "pr.dialog.publishFor": "Publish comment for {file}",
   "pr.dialog.published": "Published",
+  "pr.dialog.publicationCheckError": "Unable to check published comments in the pull request.",
   "pr.dialog.publishing": "Publishing…",
   "pr.dialog.publish": "Publish",
   "pr.dialog.sendAsIs": "Send as is",
