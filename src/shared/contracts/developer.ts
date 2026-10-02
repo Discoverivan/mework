@@ -159,6 +159,11 @@ export interface PullRequestUnreadCounts {
   authored: number;
 }
 
+export interface PullRequestUnreadCountsRequest {
+  reviewerPendingOnly: boolean;
+  authoredNeedsActionOnly: boolean;
+}
+
 export interface MyPullRequestPage {
   values: MyPullRequest[];
   total?: number;

@@ -1,4 +1,6 @@
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
+
+import { APP_EVENT, emitAppEvent, subscribeAppEvent } from "@/app/app-events";
 
 import type { PullRequestSortOrder } from "./components/pull-request-projects";
 
@@ -100,6 +102,9 @@ function readQuickFilter(scope: PullRequestDisplayScope): PullRequestQuickFilter
 
 export function usePullRequestQuickFilter(scope: PullRequestDisplayScope) {
   const [filter, setFilter] = useState<PullRequestQuickFilter>(() => readQuickFilter(scope));
+  useEffect(() => subscribeAppEvent(APP_EVENT.pullRequestQuickFilterChanged, (change) => {
+    if (change.scope === scope) setFilter(change.filter);
+  }), [scope]);
   const updateFilter = useCallback((value: PullRequestQuickFilter) => {
     setFilter(value);
     try {
@@ -107,6 +112,7 @@ export function usePullRequestQuickFilter(scope: PullRequestDisplayScope) {
     } catch {
       // Local storage is an optional persistence layer.
     }
+    emitAppEvent(APP_EVENT.pullRequestQuickFilterChanged, { scope, filter: value });
   }, [scope]);
   return [filter, updateFilter] as const;
 }

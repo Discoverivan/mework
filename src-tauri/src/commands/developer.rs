@@ -34,19 +34,33 @@ pub struct PullRequestUnreadCountsDto {
     pub authored: u64,
 }
 
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PullRequestUnreadCountsRequest {
+    pub reviewer_pending_only: bool,
+    pub authored_needs_action_only: bool,
+}
+
 #[tauri::command]
 pub async fn bitbucket_pull_request_unread_counts(
     state: State<'_, SqlitePool>,
+    request: PullRequestUnreadCountsRequest,
 ) -> Result<PullRequestUnreadCountsDto, DeveloperCommandError> {
     let reviewer_page =
         developer::get_cached_my_pull_requests_page(&state, default_page_size()).await?;
-    let authored =
-        authored_pull_requests::get_cached_authored_pull_request_unread_count(&state).await?;
+    let authored = authored_pull_requests::get_cached_authored_pull_request_unread_count(
+        &state,
+        request.authored_needs_action_only,
+    )
+    .await?;
     Ok(PullRequestUnreadCountsDto {
         reviewer: reviewer_page
             .values
             .iter()
             .filter(|pull_request| pull_request.activity != PullRequestActivity::Read)
+            .filter(|pull_request| {
+                !request.reviewer_pending_only || pull_request.my_decision == "not_reviewed"
+            })
             .count() as u64,
         authored,
     })
