@@ -48,6 +48,8 @@ type EditableComment = {
   parentCommentId?: number;
 };
 
+type CommentStatus = "checking" | "checkFailed" | "ready" | "duplicate" | "partial" | "publishing" | "published";
+
 function commentKey(comment: PullRequestReviewComment, index: number): string {
   return JSON.stringify([comment.file, comment.line, comment.comment, index]);
 }
@@ -154,19 +156,18 @@ export function PullRequestReviewDialog({
     if (!open || !publicationRequest) return;
     let active = true;
     const request: PullRequestCommentMatchesRequest = JSON.parse(publicationRequest);
-    setPublicationStatus({ scope: publicationScope, published: new Set(), checked: false, matches: [] });
+    setPublicationStatus((current) => ({ scope: publicationScope, published: current?.scope === publicationScope ? current.published : new Set(), checked: false, matches: [] }));
     void getPullRequestCommentMatches(request).then(({ matches }) => {
       if (!active) return;
-      setPublicationStatus({
+      setPublicationStatus((current) => ({
         scope: publicationScope,
-        published: new Set(),
+        published: current?.scope === publicationScope ? current.published : new Set(),
         matches,
         checked: true,
-      });
+      }));
     }).catch(() => {
       if (!active) return;
-      setPublicationStatus({ scope: publicationScope, published: new Set(), checked: false, matches: [], failed: true });
-      setActionError(t("pr.dialog.publicationCheckError"));
+      setPublicationStatus((current) => ({ scope: publicationScope, published: current?.scope === publicationScope ? current.published : new Set(), checked: false, matches: [], failed: true }));
     });
     return () => { active = false; };
   }, [open, publicationRequest, publicationScope, t, checkAttempt]);
@@ -293,8 +294,6 @@ export function PullRequestReviewDialog({
               </section>
               <section aria-labelledby="ai-comments-title" className="space-y-3">
                 <h3 id="ai-comments-title" className="text-sm font-semibold">{t("pr.dialog.aiComments")}</h3>
-                {checkingPublication && !publicationStatus?.failed ? <p role="status" className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 aria-hidden="true" className="size-4 animate-spin" />{t("pr.dialog.checkingSimilar")}</p> : null}
-                {publicationStatus?.scope === publicationScope && publicationStatus.failed ? <Button type="button" variant="outline" size="sm" onClick={() => { setActionError(undefined); setCheckAttempt((attempt) => attempt + 1); }}>{t("pr.dialog.retryComparison")}</Button> : null}
                 <div className="space-y-2">
                   {result.comments.length === 0 ? <p className="text-sm text-muted-foreground">{t("pr.dialog.noComments")}</p> : null}
                   {reviewSeveritySections.map((section) => {
@@ -314,17 +313,30 @@ export function PullRequestReviewDialog({
                               const published = publishedComments.has(commentKey(comment, index));
                               const matched = commentMatches.find((match) => match.index === index);
                               const matchedUrl = matched ? existingCommentUrl(pullRequest?.url, matched.commentId) : undefined;
+                              const status: CommentStatus = pendingAction === commentKey(comment, index) ? "publishing"
+                                : published ? "published"
+                                : publicationStatus?.scope === publicationScope && publicationStatus.failed ? "checkFailed"
+                                : checkingPublication ? "checking"
+                                : matched?.coverage === "full" ? "duplicate"
+                                : matched?.coverage === "partial" ? "partial" : "ready";
                               const publishLabel = published ? t("pr.dialog.published") : pendingAction === commentKey(comment, index) ? t("pr.dialog.publishing") : t("pr.dialog.publish");
                               const locationClass = "min-w-0 rounded-md border bg-muted/50 px-2 py-1 font-mono text-sm font-medium text-primary";
                               return (
                                 <li key={`${comment.file}:${comment.line ?? "na"}:${index}`} className="space-y-2 rounded-md border bg-background p-3">
-                                  <div className="flex items-center justify-between gap-2">
+                                  <div className="flex flex-wrap items-center justify-between gap-2">
                                     {diffUrl ? (
                                       <a href={diffUrl} target="_blank" rel="noopener noreferrer" className={cn(locationClass, "hover:bg-accent hover:[&_span]:underline focus-visible:[&_span]:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring")} title={t("pr.dialog.openCommentLocation", { location })} onClick={() => { if (pullRequest) onOpenPullRequest(pullRequest); }}>
                                         <CommentLocation comment={comment} />
                                       </a>
                                     ) : <p className={locationClass}><CommentLocation comment={comment} /></p>}
-                                    {matched?.coverage === "full" && matchedUrl ? (
+                                    <div className="ml-auto flex shrink-0 flex-wrap items-center gap-2">
+                                    {status !== "ready" ? <span role="status" aria-label={t("pr.dialog.statusFor", { file: reviewCommentPath(comment.file) })} className={cn("flex items-center gap-1.5 text-xs", status === "checkFailed" ? "text-destructive" : "text-muted-foreground")} title={status === "checkFailed" ? t("pr.dialog.publicationCheckError") : undefined}>
+                                      {status === "checking" || status === "publishing" ? <Loader2 aria-hidden="true" className="size-4 animate-spin" /> : status === "checkFailed" ? <CircleAlert aria-hidden="true" className="size-4" /> : status === "published" ? <CheckCircle2 aria-hidden="true" className="size-4" /> : null}
+                                      {t(`pr.dialog.commentStatus.${status}`)}
+                                    </span> : null}
+                                    {status === "checkFailed" ? <Button type="button" variant="outline" size="icon" className="size-8" aria-label={t("pr.dialog.retryComparisonFor", { file: reviewCommentPath(comment.file) })} title={t("pr.dialog.retryComparison")} onClick={() => setCheckAttempt((attempt) => attempt + 1)}><RefreshCw aria-hidden="true" /></Button>
+                                    : status === "checking" ? null
+                                    : matched?.coverage === "full" && matchedUrl ? (
                                       <Button asChild variant="outline" size="sm">
                                         <a href={matchedUrl} target="_blank" rel="noopener noreferrer" aria-label={t("pr.dialog.existingCommentFor", { file: reviewCommentPath(comment.file) })}>
                                           <ExternalLink aria-hidden="true" />{t("pr.dialog.existingComment")}
@@ -332,7 +344,7 @@ export function PullRequestReviewDialog({
                                       </Button>
                                     ) : reviewerActions && matched?.coverage === "partial" ? (
                                       <Button type="button" variant="outline" size="sm" disabled={!onPublishComment || pendingAction != null || checkingPublication || published} onClick={() => openCommentEditor(comment, index)}>
-                                        <Pencil aria-hidden="true" />{t(published ? "pr.dialog.published" : "pr.dialog.publishAddition")}
+                                        {status === "publishing" ? <Loader2 aria-hidden="true" className="animate-spin" /> : published ? <CheckCircle2 aria-hidden="true" /> : <Pencil aria-hidden="true" />}{t(published ? "pr.dialog.published" : "pr.dialog.publishAddition")}
                                       </Button>
                                     ) : reviewerActions && matched?.coverage !== "full" ? (
                                       <DropdownMenu>
@@ -362,6 +374,7 @@ export function PullRequestReviewDialog({
                                         </DropdownMenuContent>
                                       </DropdownMenu>
                                     ) : null}
+                                    </div>
                                   </div>
                                   <ReviewMarkdown>{comment.comment}</ReviewMarkdown>
                                   {matched ? <div className="space-y-2 text-sm text-muted-foreground">

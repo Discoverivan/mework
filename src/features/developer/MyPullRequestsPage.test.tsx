@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type {
   MyPullRequest,
   MyPullRequestPage,
+  PullRequestCommentMatch,
   PullRequestReviewSettings,
   PullRequestReviewState,
 } from "@/shared/contracts/developer";
@@ -801,7 +802,7 @@ describe("MyPullRequestsPage", () => {
     const publishButton = screen.getByRole("button", { name: "Publish comment for src/retry.ts" });
     await waitFor(() => expect(publishButton).not.toBeDisabled());
     expect(publishButton).toHaveClass("app-icon-button", "size-8");
-    expect(publishButton.parentElement).toHaveClass("flex", "items-center", "justify-between");
+    expect(publishButton.parentElement).toHaveClass("flex", "items-center", "gap-2");
     expect(publishButton).toHaveAttribute("data-action-tone", "neutral");
     expect(publishButton).toHaveAttribute("title", "Publish");
     expect(publishButton).not.toHaveTextContent("Publish");
@@ -861,13 +862,24 @@ describe("MyPullRequestsPage", () => {
       ...firstPage,
       values: [{ ...pullRequests[0], review: completedReview }, pullRequests[1]],
     });
-    getCommentMatchesMock.mockResolvedValue({ matches: [
+    let finishComparison!: (value: { matches: PullRequestCommentMatch[] }) => void;
+    getCommentMatchesMock.mockImplementation(() => new Promise((resolve) => { finishComparison = resolve; }));
+    let finishPublication!: (value: { commentId: number }) => void;
+    publishCommentMock.mockImplementation(() => new Promise((resolve) => { finishPublication = resolve; }));
+    await renderFlatPage();
+    fireEvent.click(await screen.findByRole("button", { name: "AI review results" }));
+    for (const comment of completedReview.result!.comments) {
+      expect(screen.getByRole("status", { name: `Comment status for ${comment.file}` })).toHaveTextContent("Checking…");
+      expect(screen.queryByRole("button", { name: `Publish comment for ${comment.file}` })).not.toBeInTheDocument();
+    }
+    finishComparison({ matches: [
       { index: 1, commentId: 11, coverage: "full", addition: "" },
       { index: 0, commentId: 12, parentCommentId: 11, coverage: "partial", addition: "Wait for pending requests before shutdown." },
     ] });
-    await renderFlatPage();
-    fireEvent.click(await screen.findByRole("button", { name: "AI review results" }));
     const existing = await screen.findByRole("link", { name: "Existing comment for src/timeout.ts" });
+    expect(screen.getByRole("status", { name: "Comment status for src/timeout.ts" })).toHaveTextContent("Already discussed");
+    expect(screen.getByRole("status", { name: "Comment status for src/retry.ts" })).toHaveTextContent("Partially covered");
+    expect(screen.getByRole("button", { name: "Publish comment for src/logging.ts" })).toBeEnabled();
     expect(existing).toHaveAttribute("href", `${pullRequests[0].url}/overview?commentId=11`);
     expect(screen.queryByRole("button", { name: "Publish comment for src/timeout.ts" })).not.toBeInTheDocument();
     expect(screen.getByText("Duplicate: an existing discussion already fully covers this finding.")).toBeInTheDocument();
@@ -880,6 +892,9 @@ describe("MyPullRequestsPage", () => {
     await waitFor(() => expect(publishCommentMock).toHaveBeenCalledWith(expect.objectContaining({ pullRequestId: "7" }), {
       ...completedReview.result!.comments[0], comment: "Wait for pending requests before shutdown.", parentCommentId: 11,
     }));
+    expect(screen.getByText("Publishing…", { selector: "span" })).toHaveAttribute("aria-label", "Comment status for src/retry.ts");
+    finishPublication({ commentId: 13 });
+    await waitFor(() => expect(screen.getByRole("status", { name: "Comment status for src/retry.ts" })).toHaveTextContent("Published"));
     expect(getCommentMatchesMock).toHaveBeenCalledWith(expect.objectContaining({
       integrationId: "bitbucket-1", projectKey: "DEMO", repositorySlug: "sample-repository",
       pullRequestId: "7", comments: completedReview.result!.comments,
