@@ -38,9 +38,8 @@ import {
 } from "@/components/ui/select";
 import type { DailyIssueTransition, DailySubtask, DailyWorkspace } from "@/shared/contracts/developer";
 import type { ManagedProject, TeamMember } from "@/shared/contracts/planning";
-import { listManagedProjects } from "../planning/api";
-import { closePresenterView, generateSprintSummary, loadDailyIssueTransitions, loadDailyWorkspace, loadJiraAvatarData, openPresenterView, publishPresenterState, refreshDailyWorkspace, subscribePresenterState, transitionDailyIssue } from "./api";
-import { readDailyWorkspaceCache, readManagedProjectsCache, writeDailyWorkspaceCache, writeManagedProjectsCache } from "./cache";
+import { closePresenterView, generateSprintSummary, loadDailyIssueTransitions, loadJiraAvatarData, openPresenterView, publishPresenterState, refreshDailyWorkspace, subscribePresenterState, transitionDailyIssue } from "./api";
+import { readDailyWorkspaceCache, readManagedProjectsCache, refreshDailyWorkspaceCache, refreshManagedProjectsCache, writeDailyWorkspaceCache } from "./cache";
 import { dailyStatusTone } from "./status";
 
 function commandError(error: unknown): string {
@@ -275,7 +274,10 @@ export function DailyPage() {
   const { t, language, locale } = useI18n();
   const [projects, setProjects] = useState<ManagedProject[]>(() => readManagedProjectsCache() ?? []);
   const [selectedProjectId, setSelectedProjectId] = useState<string | undefined>(() => readManagedProjectsCache()?.[0]?.id);
-  const [workspace, setWorkspace] = useState<DailyWorkspace>();
+  const [workspace, setWorkspace] = useState<DailyWorkspace | undefined>(() => {
+    const projectId = readManagedProjectsCache()?.[0]?.id;
+    return projectId ? readDailyWorkspaceCache(projectId) : undefined;
+  });
   const [selectedMemberId, setSelectedMemberId] = useState<string>();
   const [sprintPickerOpen, setSprintPickerOpen] = useState(false);
   const [sprintQuery, setSprintQuery] = useState("");
@@ -303,10 +305,9 @@ export function DailyPage() {
   useEffect(() => {
     let active = true;
     setLoadingProjects(readManagedProjectsCache() == null);
-    listManagedProjects()
+    refreshManagedProjectsCache()
       .then((loaded) => {
         if (!active) return;
-        writeManagedProjectsCache(loaded);
         setProjects(loaded);
         setSelectedProjectId((current) =>
           current && loaded.some((project) => project.id === current) ? current : loaded[0]?.id,
@@ -333,9 +334,8 @@ export function DailyPage() {
     setRefreshingStatuses(cachedWorkspace != null);
     setError(undefined);
     try {
-      const loaded = await loadDailyWorkspace(projectId, sprintId);
+      const loaded = await refreshDailyWorkspaceCache(projectId, sprintId);
       if (workspaceRequestRevision.current !== revision) return;
-      writeDailyWorkspaceCache(loaded);
       setWorkspace(loaded);
     } catch (reason) {
       if (workspaceRequestRevision.current === revision) setError(commandError(reason));

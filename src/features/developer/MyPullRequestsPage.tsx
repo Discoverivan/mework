@@ -192,8 +192,8 @@ export function MyPullRequestsPage() {
   const [removeReviewerTarget, setRemoveReviewerTarget] = useState<MyPullRequest>();
   const [removingReviewer, setRemovingReviewer] = useState(false);
   const [removeReviewerError, setRemoveReviewerError] = useState<string>();
-  const [pendingDecisionKey, setPendingDecisionKey] = useState<string>();
-  const decisionPendingRef = useRef(false);
+  const [pendingDecisionKeys, setPendingDecisionKeys] = useState<Set<string>>(() => new Set());
+  const pendingDecisionKeysRef = useRef(new Set<string>());
 
   const applyPage = useCallback((page: MyPullRequestPage) => {
     setPullRequests((current) => {
@@ -574,12 +574,12 @@ export function MyPullRequestsPage() {
   }
 
   async function updateReviewDecision(pullRequest: MyPullRequest, action: "approve" | "needs_work") {
-    if (decisionPendingRef.current) throw new Error(t("pr.dialog.decisionPending"));
-    decisionPendingRef.current = true;
-    setPendingDecisionKey(pullRequestKey(pullRequest));
+    const key = pullRequestKey(pullRequest);
+    if (pendingDecisionKeysRef.current.has(key)) throw new Error(t("pr.dialog.decisionPending"));
+    pendingDecisionKeysRef.current.add(key);
+    setPendingDecisionKeys(new Set(pendingDecisionKeysRef.current));
     try {
       const status = await setPullRequestDecision(pullRequest, action);
-      const key = pullRequestKey(pullRequest);
       setPullRequests((current) => sortPullRequests(current.map((item) =>
         pullRequestKey(item) === key ? { ...item, myDecision: status.myDecision } : item,
       )));
@@ -587,8 +587,8 @@ export function MyPullRequestsPage() {
     } catch (reason) {
       throw new Error(commandError(reason));
     } finally {
-      decisionPendingRef.current = false;
-      setPendingDecisionKey(undefined);
+      pendingDecisionKeysRef.current.delete(key);
+      setPendingDecisionKeys(new Set(pendingDecisionKeysRef.current));
     }
   }
 
@@ -612,8 +612,8 @@ export function MyPullRequestsPage() {
         onBlacklistProject={(item) => void blacklistPullRequest(item, "project")}
         onBlacklistRepository={(item) => void blacklistPullRequest(item, "repository")}
         onRemoveReviewer={(item) => { setRemoveReviewerError(undefined); setRemoveReviewerTarget(item); }}
-        onReviewDecision={pendingDecisionKey ? undefined : (item, action) => { void applyReviewDecision(item, action); }}
-        decisionPending={pendingDecisionKey === itemKey}
+        onReviewDecision={(item, action) => { void applyReviewDecision(item, action); }}
+        decisionPending={pendingDecisionKeys.has(itemKey)}
         onOpenResults={(item) => {
           if (item.activity !== "read") void markRead(item);
           setReviewDialogKey(pullRequestKey(item));
@@ -745,7 +745,7 @@ export function MyPullRequestsPage() {
         onOpenPullRequest={(item) => void markRead(item)}
         onRerunReview={(item) => void startReview(item)}
         onPublishComment={publishReviewComment}
-        onSetDecision={pendingDecisionKey ? undefined : updateReviewDecision}
+        onSetDecision={reviewDialogKey && pendingDecisionKeys.has(reviewDialogKey) ? undefined : updateReviewDecision}
       />
 
       <AlertDialog open={Boolean(removeReviewerTarget)} onOpenChange={(open) => { if (!open && !removingReviewer) setRemoveReviewerTarget(undefined); }}>

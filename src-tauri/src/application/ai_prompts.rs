@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use sqlx::SqlitePool;
 
 use crate::infrastructure::db::repositories;
@@ -61,9 +62,14 @@ impl PromptAction {
 pub struct PromptSettings {
     pub action: PromptAction,
     pub instructions: String,
+    pub instructions_hash: String,
     pub default_instructions: String,
     pub protected_rules: String,
     pub customized: bool,
+}
+
+pub fn instructions_hash(instructions: &str) -> String {
+    format!("{:x}", Sha256::digest(instructions.as_bytes()))
 }
 
 pub async fn load(pool: &SqlitePool, action: PromptAction) -> Result<String, String> {
@@ -85,6 +91,7 @@ async fn dto(pool: &SqlitePool, action: PromptAction) -> Result<PromptSettings, 
     Ok(PromptSettings {
         customized: instructions != action.default_instructions(),
         action,
+        instructions_hash: instructions_hash(&instructions),
         instructions,
         default_instructions: action.default_instructions().to_owned(),
         protected_rules: action.protected_rules().to_owned(),

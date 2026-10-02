@@ -1122,7 +1122,7 @@ pub async fn publish_pull_request_comment(
             pull_request_id,
             BitbucketInlineComment {
                 text: &text,
-                path: request.file.trim(),
+                path: developer_review::review_comment_path(&request.file),
                 line: request.line,
             },
         )
@@ -2310,7 +2310,7 @@ mod tests {
             repository_slug: "sample-repository".into(),
             pull_request_id: "7".into(),
             latest_commit: Some("example-commit".into()),
-            file: "src/retry.ts".into(),
+            file: "dst://src/retry.ts".into(),
             line: Some(42),
             comment: "Check shutdown order.".into(),
         };

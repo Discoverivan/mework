@@ -1,12 +1,11 @@
 import { useEffect, useState } from "react";
-import { APP_EVENT, subscribeAppEvent } from "@/app/app-events";
-import { getPromptSettings } from "@/features/settings/prompts/api";
 import ReactMarkdown from "react-markdown";
-import { CheckCircle2, CircleAlert, ExternalLink, Loader2, RefreshCw, Send } from "lucide-react";
+import { CheckCircle2, CircleAlert, ExternalLink, Loader2, Pencil, RefreshCw, Send } from "lucide-react";
 
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Separator } from "@/components/ui/separator";
 import {
   Dialog,
@@ -28,6 +27,7 @@ import {
 } from "./PullRequestListItem";
 import { formatRelativeDate } from "./pull-request-formatting";
 import { PullRequestReviewDetails } from "./PullRequestReviewDetails";
+import { reviewCommentPath } from "./review-comment-path";
 
 export interface PullRequestReviewDialogProps {
   open: boolean;
@@ -54,7 +54,8 @@ const severitySectionStyles: Record<PullRequestReviewSeverity, { border: string;
 };
 
 function commentDiffUrl(pullRequestUrl: string | undefined, comment: PullRequestReviewComment): string | undefined {
-  if (!pullRequestUrl || !comment.file.trim()) return undefined;
+  const file = reviewCommentPath(comment.file);
+  if (!pullRequestUrl || !file) return undefined;
   try {
     const url = new URL(pullRequestUrl);
     if (!["http:", "https:"].includes(url.protocol) || url.username || url.password) return undefined;
@@ -64,7 +65,7 @@ function commentDiffUrl(pullRequestUrl: string | undefined, comment: PullRequest
     // Bitbucket Server/DC: ?t= selects the new (TO) side, ?f= the old (FROM) side.
     // AI findings use new-file line numbers; publication resolves the actual line type from the PR diff.
     const line = comment.line != null && Number.isSafeInteger(comment.line) && comment.line > 0 ? `?t=${comment.line}` : "";
-    url.hash = `${comment.file.split("/").map(encodeURIComponent).join("/")}${line}`;
+    url.hash = `${file.split("/").map(encodeURIComponent).join("/")}${line}`;
     return url.href;
   } catch {
     return undefined;
@@ -89,7 +90,7 @@ function ReviewMarkdown({ children }: { children: string }) {
 }
 
 function CommentLocation({ comment }: { comment: PullRequestReviewComment }) {
-  const segments = comment.file.split("/");
+  const segments = reviewCommentPath(comment.file).split("/");
   const filename = segments.pop();
   return <>{segments.map((segment, index) => <span key={index}>{segment}/<wbr /></span>)}<span className="inline-block max-w-full break-all">{filename}{comment.line != null ? `:${comment.line}` : ""}</span></>;
 }
@@ -108,21 +109,6 @@ export function PullRequestReviewDialog({
   const { t } = useI18n();
   const result = review?.result;
   const reviewFailed = review?.status === "failed";
-  const [currentInstructions, setCurrentInstructions] = useState<string>();
-  useEffect(() => {
-    if (!open) return;
-    let active = true;
-    void getPromptSettings().then((values) => {
-      if (active) setCurrentInstructions(values.find((value) => value.action === "pullRequestReview")?.instructions);
-    }).catch(() => {});
-    const unsubscribe = subscribeAppEvent(APP_EVENT.aiPromptSettingsChanged, (value) => {
-      if (value.action === "pullRequestReview") setCurrentInstructions(value.instructions);
-    });
-    return () => { active = false; unsubscribe(); };
-  }, [open]);
-  const usedInstructions = review?.execution?.promptInstructions;
-  const instructionsChanged = review?.status !== "running" && (currentInstructions !== undefined && usedInstructions != null
-    ? currentInstructions !== usedInstructions : review?.instructionsChanged);
   const [pendingAction, setPendingAction] = useState<string>();
   const [publishedComments, setPublishedComments] = useState<Set<string>>(() => new Set());
   const [editingComment, setEditingComment] = useState<EditableComment>();
@@ -219,7 +205,6 @@ export function PullRequestReviewDialog({
           </div>
         </DialogHeader>
         <DialogBody className="max-h-[70vh] space-y-5 overflow-y-auto">
-          {instructionsChanged ? <Alert><AlertDescription>{t("settings.prompts.reviewChanged")}</AlertDescription></Alert> : null}
           {reviewFailed ? (
             <Alert variant="destructive">
               <CircleAlert aria-hidden="true" className="size-4 translate-y-0.5" />
@@ -258,7 +243,7 @@ export function PullRequestReviewDialog({
                           <ul className="space-y-2">
                             {comments.map((comment, index) => {
                               const diffUrl = commentDiffUrl(pullRequest?.url, comment);
-                              const location = `${comment.file}${comment.line != null ? `:${comment.line}` : ""}`;
+                              const location = `${reviewCommentPath(comment.file)}${comment.line != null ? `:${comment.line}` : ""}`;
                               const published = publishedComments.has(commentKey(comment, index));
                               const publishLabel = published ? t("pr.dialog.published") : pendingAction === commentKey(comment, index) ? t("pr.dialog.publishing") : t("pr.dialog.publish");
                               const locationClass = "min-w-0 rounded-md border bg-muted/50 px-2 py-1 font-mono text-sm font-medium text-primary";
@@ -271,19 +256,32 @@ export function PullRequestReviewDialog({
                                       </a>
                                     ) : <p className={locationClass}><CommentLocation comment={comment} /></p>}
                                     {reviewerActions ? (
-                                      <Button
-                                        type="button"
-                                        variant="outline"
-                                        size="icon"
-                                        actionTone="neutral"
-                                        className="size-8 shrink-0"
-                                        disabled={!onPublishComment || pendingAction != null || publishedComments.has(commentKey(comment, index))}
-                                        onClick={() => openCommentEditor(comment, index)}
-                                        aria-label={t("pr.dialog.publishFor", { file: comment.file })}
-                                        title={publishLabel}
-                                      >
-                                        {pendingAction === commentKey(comment, index) ? <Loader2 aria-hidden="true" className="animate-spin" /> : published ? <CheckCircle2 aria-hidden="true" /> : <Send aria-hidden="true" />}
-                                      </Button>
+                                      <DropdownMenu>
+                                        <DropdownMenuTrigger asChild>
+                                          <Button
+                                            type="button"
+                                            variant="outline"
+                                            size="icon"
+                                            actionTone="neutral"
+                                            className="size-8 shrink-0"
+                                            disabled={!onPublishComment || pendingAction != null || published}
+                                            aria-label={t("pr.dialog.publishFor", { file: reviewCommentPath(comment.file) })}
+                                            title={publishLabel}
+                                          >
+                                            {pendingAction === commentKey(comment, index) ? <Loader2 aria-hidden="true" className="animate-spin" /> : published ? <CheckCircle2 aria-hidden="true" /> : <Send aria-hidden="true" />}
+                                          </Button>
+                                        </DropdownMenuTrigger>
+                                        <DropdownMenuContent align="end" onCloseAutoFocus={(event) => { if (editingComment) event.preventDefault(); }}>
+                                          <DropdownMenuItem disabled={pendingAction != null || published} onSelect={() => void publishComment(comment, index, comment.comment)}>
+                                            <Send aria-hidden="true" />
+                                            {t("pr.dialog.sendAsIs")}
+                                          </DropdownMenuItem>
+                                          <DropdownMenuItem disabled={pendingAction != null || published} onSelect={() => openCommentEditor(comment, index)}>
+                                            <Pencil aria-hidden="true" />
+                                            {t("pr.dialog.editAndSend")}
+                                          </DropdownMenuItem>
+                                        </DropdownMenuContent>
+                                      </DropdownMenu>
                                     ) : null}
                                   </div>
                                   <ReviewMarkdown>{comment.comment}</ReviewMarkdown>
@@ -372,7 +370,7 @@ export function PullRequestReviewDialog({
           </DialogHeader>
           <DialogBody className="space-y-3">
             <div className="rounded-md border bg-muted/20 px-3 py-2 text-xs text-muted-foreground">
-              {editingComment?.comment.file}{editingComment?.comment.line != null ? `:${editingComment.comment.line}` : ""}
+              {editingComment ? <CommentLocation comment={editingComment.comment} /> : null}
             </div>
             <div className="grid gap-2">
               <Label htmlFor="review-comment-editor">{t("pr.dialog.comment")}</Label>

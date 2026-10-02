@@ -100,6 +100,10 @@ pub fn run() {
                 })
                 .map_err(std::io::Error::other)?;
             }
+            tauri::async_runtime::block_on(
+                crate::application::developer_review::initialize_review_state(&pool),
+            )
+            .map_err(std::io::Error::other)?;
             tauri::async_runtime::block_on(crate::application::token_burner::recover_interrupted(&pool))
                 .map_err(std::io::Error::other)?;
             if !mock_mode_enabled

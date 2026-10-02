@@ -1,4 +1,7 @@
 import { Info } from "lucide-react";
+import { useEffect, useState } from "react";
+import { APP_EVENT, subscribeAppEvent } from "@/app/app-events";
+import { getPromptSettings } from "@/features/settings/prompts/api";
 
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { useI18n } from "@/i18n/context";
@@ -11,8 +14,23 @@ export function PullRequestReviewDetails({ review, inBadge = false }: { review: 
   const { t } = useI18n();
   const finishedAt = review.finishedAt != null ? new Date(review.finishedAt) : undefined;
   const execution = review.execution;
+  const [open, setOpen] = useState(false);
+  const [currentInstructionsHash, setCurrentInstructionsHash] = useState<string>();
+  useEffect(() => {
+    if (!open) return;
+    let active = true;
+    void getPromptSettings().then((values) => {
+      if (active) setCurrentInstructionsHash(values.find((value) => value.action === "pullRequestReview")?.instructionsHash);
+    }).catch(() => {});
+    const unsubscribe = subscribeAppEvent(APP_EVENT.aiPromptSettingsChanged, (value) => {
+      if (value.action === "pullRequestReview") setCurrentInstructionsHash(value.instructionsHash);
+    });
+    return () => { active = false; unsubscribe(); };
+  }, [open]);
+  const instructionsChanged = review.status !== "running" && (currentInstructionsHash !== undefined && execution?.instructionsHash != null
+    ? currentInstructionsHash !== execution.instructionsHash : review.instructionsChanged);
   return (
-    <Popover>
+    <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
         <button type="button" className={cn("inline-flex h-5 shrink-0 items-center justify-center rounded-full text-foreground/70 transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring", inBadge ? "w-3.5" : "w-5")} aria-label={t("pr.dialog.showReviewDetails")} title={t("pr.dialog.showReviewDetails")}>
           <Info className="size-3.5" aria-hidden="true" />
@@ -27,14 +45,11 @@ export function PullRequestReviewDetails({ review, inBadge = false }: { review: 
               <div className="min-w-0 [overflow-wrap:anywhere]"><dt className="inline whitespace-nowrap">{t("settings.ai.provider")}:</dt>{" "}<dd className="inline text-foreground">{execution.providerName}</dd></div>
               <div className="min-w-0 [overflow-wrap:anywhere]"><dt className="inline whitespace-nowrap">{t("settings.ai.model")}:</dt>{" "}<dd className="inline text-foreground">{execution.model}</dd></div>
               {execution.reasoning != null ? <div className="min-w-0 [overflow-wrap:anywhere]"><dt className="inline whitespace-nowrap">{t("settings.ai.reasoning")}:</dt>{" "}<dd className="inline text-foreground">{execution.reasoning}</dd></div> : null}
-              {execution.fastMode != null ? <div className="min-w-0 [overflow-wrap:anywhere]"><dt className="inline whitespace-nowrap">{t("settings.ai.fastMode")}:</dt>{" "}<dd className="inline text-foreground">{t(execution.fastMode ? "pr.dialog.enabled" : "pr.dialog.disabled")}</dd></div> : null}
+              {execution.mode != null ? <div className="min-w-0 [overflow-wrap:anywhere]"><dt className="inline whitespace-nowrap">{t("settings.ai.mode")}:</dt>{" "}<dd className="inline text-foreground">{t(execution.mode === "fast" ? "settings.ai.modeFast" : "settings.ai.modeNormal")}</dd></div> : null}
             </dl>
           ) : <p>{t("pr.dialog.executionUnavailable")}</p>}
+          {instructionsChanged ? <p className="text-warning">{t("settings.prompts.reviewChanged")}</p> : null}
         </div>
-        {execution?.promptInstructions ? <details className="flex flex-col gap-2 text-xs">
-          <summary className="cursor-pointer">{t("settings.prompts.used")}</summary>
-          <p className="mt-2 max-h-48 overflow-y-auto whitespace-pre-wrap text-muted-foreground">{execution.promptInstructions}</p>
-        </details> : null}
       </PopoverContent>
     </Popover>
   );
