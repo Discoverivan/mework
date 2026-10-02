@@ -15,6 +15,7 @@ use std::{
 
 pub mod claude_code;
 pub mod codex;
+mod discovery;
 pub mod hermes_cli;
 pub mod opencode;
 pub mod pi;
@@ -195,9 +196,27 @@ pub(crate) fn capture_cli_output(
 }
 
 pub(crate) fn local_cli_command(path: impl AsRef<OsStr>) -> Command {
-    let command = Command::new(path);
-    #[cfg(target_os = "windows")]
-    let mut command = command;
+    let binary = Path::new(path.as_ref());
+    let mut command = Command::new(binary);
+    // npm shebangs need Node; GUI launches may not inherit the shell PATH.
+    // Prefer the runtime beside the selected CLI, then the inherited PATH.
+    let mut paths = binary
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+        .map(Path::to_path_buf)
+        .into_iter()
+        .collect::<Vec<_>>();
+    if let Some(path) = env::var_os("PATH") {
+        paths.extend(env::split_paths(&path));
+    }
+    #[cfg(not(windows))]
+    paths.extend([
+        PathBuf::from("/opt/homebrew/bin"),
+        PathBuf::from("/usr/local/bin"),
+    ]);
+    if let Ok(path) = env::join_paths(paths) {
+        command.env("PATH", path);
+    }
     #[cfg(target_os = "windows")]
     command.creation_flags(CREATE_NO_WINDOW);
     command
@@ -262,115 +281,12 @@ pub struct AiCliCandidateDiagnostic {
 }
 
 pub fn ai_cli_candidate_diagnostics() -> Vec<AiCliCandidateDiagnostic> {
-    let mut candidates: Vec<(AiProviderId, String, PathBuf)> = Vec::new();
-    for (provider, override_key) in [
-        (AiProviderId::CodexCli, "MEWORK_CODEX_BIN"),
-        (AiProviderId::ClaudeCodeCli, "MEWORK_CLAUDE_BIN"),
-        (AiProviderId::HermesCli, "MEWORK_HERMES_BIN"),
-        (AiProviderId::PiCli, "MEWORK_PI_BIN"),
-        (AiProviderId::OpenCodeCli, "MEWORK_OPENCODE_BIN"),
-    ] {
-        if let Some(path) = env::var_os(override_key) {
-            candidates.push((provider, override_key.to_owned(), PathBuf::from(path)));
-        }
-    }
-    if let Some(path) = env::var_os("PATH") {
-        for (index, entry) in env::split_paths(&path).enumerate() {
-            for (provider, names) in [
-                (
-                    AiProviderId::CodexCli,
-                    codex::executable_names(cfg!(windows)),
-                ),
-                (AiProviderId::ClaudeCodeCli, claude_code::executable_names()),
-                (AiProviderId::HermesCli, hermes_cli::executable_names()),
-                (AiProviderId::PiCli, pi::executable_names()),
-                (AiProviderId::OpenCodeCli, opencode::executable_names()),
-            ] {
-                for name in names {
-                    candidates.push((provider, format!("PATH[{index}]/{name}"), entry.join(name)));
-                }
-            }
-        }
-    }
-    #[cfg(windows)]
-    {
-        if let Some(root) = env::var_os("LOCALAPPDATA") {
-            candidates.push((
-                AiProviderId::CodexCli,
-                "LOCALAPPDATA".to_owned(),
-                PathBuf::from(root).join("Programs/OpenAI/Codex/bin/codex.exe"),
-            ));
-        }
-        if let Some(root) = env::var_os("USERPROFILE") {
-            candidates.push((
-                AiProviderId::CodexCli,
-                "USERPROFILE".to_owned(),
-                PathBuf::from(root).join("AppData/Local/Programs/OpenAI/Codex/bin/codex.exe"),
-            ));
-        } else if let Some(root) = env::var_os("HOME") {
-            candidates.push((
-                AiProviderId::CodexCli,
-                "HOME-fallback".to_owned(),
-                PathBuf::from(root).join("AppData/Local/Programs/OpenAI/Codex/bin/codex.exe"),
-            ));
-        }
-        if let Some(root) = dirs::data_local_dir() {
-            candidates.push((
-                AiProviderId::CodexCli,
-                "system-local-data".to_owned(),
-                root.join("Programs/OpenAI/Codex/bin/codex.exe"),
-            ));
-        }
-        if let Some(path) = env::current_exe()
-            .ok()
-            .as_deref()
-            .and_then(codex::path_beside_installed_app)
-        {
-            candidates.push((AiProviderId::CodexCli, "beside-app".to_owned(), path));
-        }
-        if let Some(root) = dirs::home_dir() {
-            candidates.push((
-                AiProviderId::CodexCli,
-                "system-home".to_owned(),
-                root.join("AppData/Local/Programs/OpenAI/Codex/bin/codex.exe"),
-            ));
-        }
-    }
-    #[cfg(not(windows))]
-    for (source, path) in [
-        ("homebrew", PathBuf::from("/opt/homebrew/bin/codex")),
-        ("usr-local", PathBuf::from("/usr/local/bin/codex")),
-    ] {
-        candidates.push((AiProviderId::CodexCli, source.to_owned(), path));
-    }
-    #[cfg(not(windows))]
-    if let Some(root) = env::var_os("HOME") {
-        let root = PathBuf::from(root);
-        candidates.push((
-            AiProviderId::CodexCli,
-            "HOME-local".to_owned(),
-            root.join(".local/bin/codex"),
-        ));
-        candidates.push((
-            AiProviderId::CodexCli,
-            "HOME-npm-global".to_owned(),
-            root.join(".npm-global/bin/codex"),
-        ));
-    }
-    for (source, path) in claude_code::diagnostic_install_paths() {
-        candidates.push((AiProviderId::ClaudeCodeCli, source.to_owned(), path));
-    }
-    for (source, path) in hermes_cli::diagnostic_install_paths() {
-        candidates.push((AiProviderId::HermesCli, source.to_owned(), path));
-    }
-    for (source, path) in opencode::diagnostic_install_paths() {
-        candidates.push((AiProviderId::OpenCodeCli, source.to_owned(), path));
-    }
-    for (source, path) in pi::diagnostic_install_paths() {
-        candidates.push((AiProviderId::PiCli, source.to_owned(), path));
-    }
+    let candidates = discovery::PROVIDERS.into_iter().flat_map(|provider| {
+        discovery::candidates(provider)
+            .into_iter()
+            .map(move |(source, path)| (provider, source, path))
+    });
     candidates
-        .into_iter()
         .map(|(provider, source, path)| {
             let metadata = fs::metadata(&path);
             let opened = fs::File::open(&path);

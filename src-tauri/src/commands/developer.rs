@@ -208,6 +208,14 @@ pub async fn pull_request_review_publish_comment(
 }
 
 #[tauri::command]
+pub async fn pull_request_review_published_comments(
+    state: State<'_, SqlitePool>,
+    request: developer::PullRequestPublishedCommentsRequest,
+) -> Result<Vec<usize>, DeveloperCommandError> {
+    developer::published_pull_request_comments(&state, request).await
+}
+
+#[tauri::command]
 pub async fn pull_request_review_set_decision(
     state: State<'_, SqlitePool>,
     request: PullRequestDecisionRequest,

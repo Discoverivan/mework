@@ -1,8 +1,9 @@
-use super::{local_cli_command, run_cli_output, spawn_cli, usable_cli_path};
+use super::{local_cli_command, run_cli_output, spawn_cli};
 use crate::application::ai::{AiProviderDto, AiProviderId, AiProviderStatus, AiSettings};
 use crate::application::ai_usage_statistics::{self, AiTokenUsageCounts};
+#[cfg(windows)]
+use std::env;
 use std::{
-    env,
     io::{BufRead, BufReader, Read, Write},
     path::{Path, PathBuf},
     process::{ChildStdin, Command, Stdio},
@@ -385,37 +386,7 @@ pub fn parse_codex_model_list_response(value: &serde_json::Value) -> Option<Vec<
 }
 
 pub fn resolve_codex_binary() -> Option<PathBuf> {
-    if let Some(configured) = env::var_os("MEWORK_CODEX_BIN") {
-        let path = PathBuf::from(configured);
-        if let Some(path) = usable_cli_path(&path) {
-            return Some(path);
-        }
-    }
-    let windows = cfg!(target_os = "windows");
-    if let Some(path) = env::var_os("PATH") {
-        for entry in env::split_paths(&path) {
-            for executable in executable_names(windows) {
-                let candidate = entry.join(executable);
-                if let Some(path) = usable_cli_path(&candidate) {
-                    return Some(path);
-                }
-            }
-        }
-    }
-    let candidates = install_paths(
-        env::var_os("HOME").map(PathBuf::from),
-        env::var_os("LOCALAPPDATA").map(PathBuf::from),
-        env::var_os("USERPROFILE").map(PathBuf::from),
-        windows,
-    );
-    #[cfg(windows)]
-    let candidates = candidates
-        .into_iter()
-        .chain(windows_install_paths())
-        .collect::<Vec<_>>();
-    candidates
-        .into_iter()
-        .find_map(|path| usable_cli_path(&path))
+    super::discovery::resolve_binary(AiProviderId::CodexCli)
 }
 
 #[cfg(windows)]

@@ -1063,6 +1063,7 @@ export const ru: Record<TranslationKey, string> = {
   "pr.dialog.noComments": "В AI-ревью нет комментариев.",
   "pr.dialog.publishFor": "Опубликовать комментарий для {file}",
   "pr.dialog.published": "Опубликовано",
+  "pr.dialog.publicationCheckError": "Не удалось проверить опубликованные комментарии в PR.",
   "pr.dialog.publishing": "Публикация…",
   "pr.dialog.publish": "Опубликовать",
   "pr.dialog.sendAsIs": "Отправить как есть",

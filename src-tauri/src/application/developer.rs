@@ -922,6 +922,46 @@ pub struct PullRequestCommentStatus {
     pub comment_id: u64,
 }
 
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PullRequestPublishedCommentsRequest {
+    #[serde(flatten)]
+    pub pull_request: developer_review::PullRequestReviewStateRequest,
+    pub comments: Vec<developer_review::PullRequestReviewComment>,
+}
+
+pub async fn published_pull_request_comments(
+    pool: &SqlitePool,
+    request: PullRequestPublishedCommentsRequest,
+) -> Result<Vec<usize>, DeveloperCommandError> {
+    let pr = &request.pull_request;
+    let id = validate_action_request(
+        &pr.integration_id,
+        &pr.project_key,
+        &pr.repository_slug,
+        &pr.pull_request_id,
+        pr.latest_commit.as_deref(),
+    )?;
+    if request.comments.is_empty() {
+        return Ok(Vec::new());
+    }
+    let context = bitbucket_action_context(pool, &pr.integration_id).await?;
+    let findings: Vec<_> = request
+        .comments
+        .iter()
+        .map(|comment| BitbucketInlineComment {
+            text: &comment.comment,
+            path: developer_review::review_comment_path(&comment.file),
+            line: comment.line.and_then(|line| i64::try_from(line).ok()),
+        })
+        .collect();
+    context
+        .client
+        .published_pull_request_comment_indices(&pr.project_key, &pr.repository_slug, id, &findings)
+        .await
+        .map_err(map_error)
+}
+
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct PullRequestDecisionStatus {

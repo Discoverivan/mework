@@ -160,6 +160,8 @@ pub struct BitbucketCommentAnchor {
     pub line: Option<i64>,
     #[serde(rename = "lineType")]
     pub line_type: Option<String>,
+    #[serde(rename = "fileType")]
+    pub file_type: Option<String>,
     #[serde(rename = "srcPath")]
     pub src_path: Option<String>,
 }

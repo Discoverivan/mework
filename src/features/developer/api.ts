@@ -6,6 +6,7 @@ import type {
   MyPullRequest,
   MyPullRequestPage,
   PullRequestReviewComment,
+  PullRequestPublishedCommentsRequest,
   PullRequestReviewSettings,
   PullRequestUnreadCounts,
   PullRequestUnreadCountsRequest,
@@ -168,3 +169,9 @@ export const savePullRequestReviewSettings = (settings: PullRequestReviewSetting
     emitAppEvent(APP_EVENT.pullRequestActivityChanged);
     return saved;
   });
+
+export const getPublishedPullRequestComments = (
+  request: PullRequestPublishedCommentsRequest,
+) => invoke<number[]>("pull_request_review_published_comments", {
+  request,
+});
