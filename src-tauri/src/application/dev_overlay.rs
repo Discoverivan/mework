@@ -1057,16 +1057,28 @@ impl Default for Scenario {
                 mock_pull_request(51, true, PullRequestActivity::Updated),
                 mock_pull_request(52, true, PullRequestActivity::Read),
             ],
-            pull_request_comments: (41..=46).map(|id| {
-                let comments = super::mock_reviews::findings(id).into_iter().filter_map(|fixture| {
-                    fixture.existing.map(|text| MockBitbucketComment {
-                        id: 0, version: 0, text, parent_comment_id: None,
-                        created_date: OffsetDateTime::now_utc().unix_timestamp() * 1_000,
-                        anchor: Some(json!({"path": fixture.finding.file, "line": 1, "lineType": "ADDED", "fileType": "TO"})),
-                    })
-                }).enumerate().map(|(index, mut comment)| { comment.id = index as u64 + 1; comment }).collect();
-                (id.to_string(), comments)
-            }).collect(),
+            pull_request_comments: (41..=46)
+                .map(|id| {
+                    let comments = super::mock_reviews::findings(id)
+                        .into_iter()
+                        .filter_map(|fixture| {
+                            fixture.existing.map(|text| (fixture.finding.file, text))
+                        })
+                        .enumerate()
+                        .map(|(index, (file, text))| MockBitbucketComment {
+                            id: index as u64 + 1,
+                            version: 0,
+                            text,
+                            parent_comment_id: None,
+                            created_date: OffsetDateTime::now_utc().unix_timestamp() * 1_000,
+                            anchor: Some(json!({
+                                "path": file, "line": 1, "lineType": "ADDED", "fileType": "TO"
+                            })),
+                        })
+                        .collect();
+                    (id.to_string(), comments)
+                })
+                .collect(),
             daily_issue_statuses: HashMap::from([(
                 "MOCK-201".to_owned(),
                 "In Progress".to_owned(),

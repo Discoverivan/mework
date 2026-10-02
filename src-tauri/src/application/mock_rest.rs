@@ -302,16 +302,21 @@ fn bitbucket_response(
     }
     if method == "GET" && path.starts_with(pr_prefix) {
         if path.ends_with("/diff") {
-            return json_response(
-                200,
-                json!({"diffs": std::iter::once("example.txt".to_owned()).chain(
-                    path.strip_prefix(pr_prefix).and_then(|value| value.strip_suffix("/diff")).and_then(|id| id.parse::<u64>().ok())
-                        .map(super::mock_reviews::findings).unwrap_or_default().into_iter().map(|fixture| fixture.finding.file)
-                ).map(|file| json!({
+            let findings = path
+                .strip_prefix(pr_prefix)
+                .and_then(|value| value.strip_suffix("/diff"))
+                .and_then(|id| id.parse::<u64>().ok())
+                .map(super::mock_reviews::findings)
+                .unwrap_or_default();
+            let files = std::iter::once("example.txt".to_owned())
+                .chain(findings.into_iter().map(|fixture| fixture.finding.file));
+            let diffs: Vec<_> = files
+                .map(|file| json!({
                     "source": {"toString": file}, "destination": {"toString": file},
                     "hunks": [{"segments": [{"type": "ADDED", "lines": [{"source": 1, "destination": 1}]}]}]
-                })).collect::<Vec<_>>()}),
-            );
+                }))
+                .collect();
+            return json_response(200, json!({"diffs": diffs}));
         }
         let suffix = path.rsplit('/').next().unwrap_or_default();
         if let Some(id) = suffix.strip_suffix(".diff") {
