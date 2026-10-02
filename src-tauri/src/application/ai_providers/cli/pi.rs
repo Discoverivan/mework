@@ -372,7 +372,7 @@ mod tests {
             directory.path().join(".local/bin/pi")
         };
         let install = binary.parent().unwrap();
-        std::fs::create_dir_all(&install).unwrap();
+        std::fs::create_dir_all(install).unwrap();
         let event = r#"{"type":"message_end","message":{"role":"assistant","stopReason":"stop","content":[{"type":"thinking","thinking":"Synthetic reasoning"},{"type":"text","text":"{\"summary\":\"Example task\"}"}],"usage":{"input":12,"output":8,"cacheRead":4,"cacheWrite":2,"totalTokens":26}}}"#;
         #[cfg(windows)]
         let script = format!("@echo off\nset args=%*\necho %args% | findstr /c:\"--version\" >nul && (echo example-version & exit /b 0)\necho %args% | findstr /c:\"--help\" >nul && (echo {} & exit /b 0)\necho %args% | findstr /c:\"--list-models\" >nul && (echo provider model context max-out thinking images & echo example sample-model 200K 8K yes no & exit /b 0)\nset /p input=\necho {event}\n", ISOLATION_FLAGS.join(" "));

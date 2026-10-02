@@ -116,13 +116,9 @@ fn fnm_roots() -> Vec<PathBuf> {
     if let Some(home) = dirs::home_dir() {
         roots.extend([home.join(".fnm"), home.join(".local/share/fnm")]);
     }
-    roots.sort();
-    roots.dedup();
-    // An explicitly configured fnm root takes precedence over conventional roots.
-    if let Some(root) = env::var_os("FNM_DIR").map(PathBuf::from) {
-        roots.retain(|path| path != &root);
-        roots.insert(0, root);
-    }
+    // Preserve the explicit root's priority while removing conventional duplicates.
+    let mut seen = std::collections::HashSet::new();
+    roots.retain(|root| seen.insert(root.clone()));
     roots
 }
 

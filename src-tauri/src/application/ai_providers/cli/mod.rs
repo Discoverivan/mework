@@ -287,7 +287,6 @@ pub fn ai_cli_candidate_diagnostics() -> Vec<AiCliCandidateDiagnostic> {
             .map(move |(source, path)| (provider, source, path))
     });
     candidates
-        .into_iter()
         .map(|(provider, source, path)| {
             let metadata = fs::metadata(&path);
             let opened = fs::File::open(&path);

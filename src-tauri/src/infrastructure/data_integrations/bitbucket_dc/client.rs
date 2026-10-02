@@ -500,13 +500,38 @@ impl BitbucketDcClient {
         if comments.is_empty() {
             return Ok(Vec::new());
         }
-        let diff = self
-            .pull_request_comment_diff(project_key, repository_slug, pull_request_id)
-            .await?;
+        fn needs_context_diff(
+            comments: &[BitbucketComment],
+            findings: &[BitbucketInlineComment<'_>],
+        ) -> bool {
+            comments.iter().any(|comment| {
+                (comment.deleted != Some(true)
+                    && comment.anchor.as_ref().is_some_and(|anchor| {
+                        anchor.line_type.as_deref() == Some("CONTEXT")
+                            && anchor.file_type.as_deref() != Some("TO")
+                            && findings.iter().any(|finding| {
+                                finding.line.is_some()
+                                    && anchor.path.as_deref() == Some(finding.path)
+                                    && comment.text.trim() == finding.text.trim()
+                            })
+                    }))
+                    || needs_context_diff(&comment.comments, findings)
+            })
+        }
+        // Added-line and file comments already use the finding's coordinates.
+        // Only fetch the full diff when a matching old-side context anchor needs it.
+        let diff = if needs_context_diff(&comments, findings) {
+            Some(
+                self.pull_request_comment_diff(project_key, repository_slug, pull_request_id)
+                    .await?,
+            )
+        } else {
+            None
+        };
         fn contains(
             comments: &[BitbucketComment],
             finding: BitbucketInlineComment<'_>,
-            diff: &BitbucketDiffResponse,
+            diff: Option<&BitbucketDiffResponse>,
         ) -> bool {
             comments.iter().any(|comment| {
                 let matches = comment.deleted != Some(true)
@@ -521,7 +546,9 @@ impl BitbucketDcClient {
                         // Publication anchors CONTEXT lines on the old side of the diff.
                         let line = if anchor.line_type.as_deref() == Some("CONTEXT")
                             && anchor.file_type.as_deref() != Some("TO")
+                            && anchor.line.is_some()
                         {
+                            let Some(diff) = diff else { return false };
                             diff.diffs
                                 .iter()
                                 .filter(|file| {
@@ -547,7 +574,9 @@ impl BitbucketDcClient {
         Ok(findings
             .iter()
             .enumerate()
-            .filter_map(|(index, finding)| contains(&comments, *finding, &diff).then_some(index))
+            .filter_map(|(index, finding)| {
+                contains(&comments, *finding, diff.as_ref()).then_some(index)
+            })
             .collect())
     }
 
