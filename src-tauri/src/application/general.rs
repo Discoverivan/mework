@@ -219,13 +219,7 @@ pub async fn save_general_preferences(
     task_tracker_notifications_enabled: bool,
     ai_response_language: AiResponseLanguage,
     extra_functions_enabled: bool,
-    ai_review_attempts: u8,
 ) -> Result<(), String> {
-    if !(1..=MAX_AI_REVIEW_ATTEMPTS).contains(&ai_review_attempts) {
-        return Err(format!(
-            "AI review attempts must be between 1 and {MAX_AI_REVIEW_ATTEMPTS}"
-        ));
-    }
     update(pool, |settings| {
         settings.notifications_enabled = notifications_enabled;
         settings.review_notifications_enabled = review_notifications_enabled;
@@ -233,9 +227,17 @@ pub async fn save_general_preferences(
         settings.task_tracker_notifications_enabled = task_tracker_notifications_enabled;
         settings.ai_response_language = ai_response_language;
         settings.extra_functions_enabled = extra_functions_enabled;
-        settings.ai_review_attempts = ai_review_attempts;
     })
     .await
+}
+
+pub async fn save_ai_review_attempts(pool: &SqlitePool, attempts: u8) -> Result<(), String> {
+    if !(1..=MAX_AI_REVIEW_ATTEMPTS).contains(&attempts) {
+        return Err(format!(
+            "AI review attempts must be between 1 and {MAX_AI_REVIEW_ATTEMPTS}"
+        ));
+    }
+    update(pool, |settings| settings.ai_review_attempts = attempts).await
 }
 
 pub async fn save_appearance_preferences(
@@ -350,9 +352,9 @@ pub fn open_notification_settings() -> Result<(), String> {
 mod tests {
     use super::{
         initialize_if_missing, initialize_if_missing_with_extra_functions, load,
-        save_appearance_preferences, save_button_style, save_general_preferences,
-        AiResponseLanguage, AppLanguage, ButtonStyle, GeneralSettings, NotificationTestKind,
-        ThemePreference, DEFAULT_AI_REVIEW_ATTEMPTS,
+        save_ai_review_attempts, save_appearance_preferences, save_button_style,
+        save_general_preferences, AiResponseLanguage, AppLanguage, ButtonStyle, GeneralSettings,
+        NotificationTestKind, ThemePreference, DEFAULT_AI_REVIEW_ATTEMPTS,
     };
     use sqlx::sqlite::SqlitePoolOptions;
 
@@ -452,6 +454,7 @@ mod tests {
             .await
             .unwrap();
         save_button_style(&pool, ButtonStyle::Filled).await.unwrap();
+        save_ai_review_attempts(&pool, 4).await.unwrap();
         save_general_preferences(
             &pool,
             false,
@@ -460,7 +463,6 @@ mod tests {
             false,
             AiResponseLanguage::Russian,
             true,
-            DEFAULT_AI_REVIEW_ATTEMPTS,
         )
         .await
         .unwrap();
@@ -475,5 +477,6 @@ mod tests {
         assert!(settings.authored_notifications_enabled);
         assert!(!settings.task_tracker_notifications_enabled);
         assert!(settings.extra_functions_enabled);
+        assert_eq!(settings.ai_review_attempts, 4);
     }
 }

@@ -68,7 +68,9 @@ pub struct OpenAiCompatibleProviderSaveRequest {
 pub enum AiProviderId {
     CodexCli,
     ClaudeCodeCli,
+    OpenCodeCli,
     HermesCli,
+    PiCli,
     #[serde(rename = "openai-compatible")]
     OpenAiCompatible,
 }
@@ -190,7 +192,9 @@ pub async fn initialize_mock_cli_providers(pool: &SqlitePool) -> Result<(), Stri
     let cli_providers = [
         AiProviderId::CodexCli,
         AiProviderId::ClaudeCodeCli,
+        AiProviderId::OpenCodeCli,
         AiProviderId::HermesCli,
+        AiProviderId::PiCli,
     ];
     let providers_json = serde_json::to_string(&cli_providers)
         .map_err(|_| "failed to initialize mock AI providers".to_owned())?;
@@ -216,7 +220,9 @@ fn default_mock_ai_settings(providers: &[AiProviderDto]) -> AiSettings {
     let selected = [
         AiProviderId::CodexCli,
         AiProviderId::ClaudeCodeCli,
+        AiProviderId::OpenCodeCli,
         AiProviderId::HermesCli,
+        AiProviderId::PiCli,
     ]
     .into_iter()
     .find_map(|id| {
@@ -359,7 +365,7 @@ pub async fn dto(pool: &SqlitePool) -> Result<AiSettingsPageDto, String> {
                     .is_some_and(|profile| profile.provider == id)
             })
     };
-    let (codex, claude, hermes) = tokio::join!(
+    let (codex, claude, opencode, hermes, pi) = tokio::join!(
         async {
             if show_cli(AiProviderId::CodexCli) {
                 Some(tokio::task::spawn_blocking(cli::codex::inspect_codex_cli).await)
@@ -375,8 +381,22 @@ pub async fn dto(pool: &SqlitePool) -> Result<AiSettingsPageDto, String> {
             }
         },
         async {
+            if show_cli(AiProviderId::OpenCodeCli) {
+                Some(tokio::task::spawn_blocking(cli::opencode::inspect).await)
+            } else {
+                None
+            }
+        },
+        async {
             if show_cli(AiProviderId::HermesCli) {
                 Some(tokio::task::spawn_blocking(cli::hermes_cli::inspect).await)
+            } else {
+                None
+            }
+        },
+        async {
+            if show_cli(AiProviderId::PiCli) {
+                Some(tokio::task::spawn_blocking(cli::pi::inspect).await)
             } else {
                 None
             }
@@ -388,8 +408,14 @@ pub async fn dto(pool: &SqlitePool) -> Result<AiSettingsPageDto, String> {
     if let Some(result) = claude {
         providers.push(result.map_err(|_| "failed to inspect Claude Code CLI".to_owned())?);
     }
+    if let Some(result) = opencode {
+        providers.push(result.map_err(|_| "failed to inspect OpenCode CLI".to_owned())?);
+    }
     if let Some(result) = hermes {
         providers.push(result.map_err(|_| "failed to inspect Hermes CLI".to_owned())?);
+    }
+    if let Some(result) = pi {
+        providers.push(result.map_err(|_| "failed to inspect Pi CLI".to_owned())?);
     }
     for config in configs {
         providers.push(inspect_openai_compatible(config).await);
@@ -445,9 +471,15 @@ pub async fn inspect_cli_candidate(provider: AiProviderId) -> Result<AiProviderD
         AiProviderId::ClaudeCodeCli => tokio::task::spawn_blocking(cli::claude_code::inspect)
             .await
             .map_err(|_| "failed to inspect Claude Code CLI".to_owned()),
+        AiProviderId::OpenCodeCli => tokio::task::spawn_blocking(cli::opencode::inspect)
+            .await
+            .map_err(|_| "failed to inspect OpenCode CLI".to_owned()),
         AiProviderId::HermesCli => tokio::task::spawn_blocking(cli::hermes_cli::inspect)
             .await
             .map_err(|_| "failed to inspect Hermes CLI".to_owned()),
+        AiProviderId::PiCli => tokio::task::spawn_blocking(cli::pi::inspect)
+            .await
+            .map_err(|_| "failed to inspect Pi CLI".to_owned()),
         AiProviderId::OpenAiCompatible => Err("Select a CLI provider".to_owned()),
     }
 }
@@ -624,6 +656,12 @@ fn validate_selected_settings(
         return Err("Selected AI provider is unavailable".to_owned());
     };
     if !provider_status.available || provider_status.status != AiProviderStatus::Connected {
+        if provider == AiProviderId::OpenCodeCli {
+            return Err("OpenCode CLI is unavailable. Install stable OpenCode 1.18+, configure a provider with opencode auth login, and refresh AI Settings".to_owned());
+        }
+        if provider == AiProviderId::PiCli {
+            return Err("Pi CLI is unavailable. Install a current Pi CLI, sign in with /login, and refresh AI Settings".to_owned());
+        }
         return Err(provider_status
             .message
             .clone()
@@ -763,7 +801,9 @@ pub async fn provider_display_name(
     match provider {
         AiProviderId::CodexCli => Ok("Codex CLI".to_owned()),
         AiProviderId::ClaudeCodeCli => Ok("Claude Code CLI".to_owned()),
+        AiProviderId::OpenCodeCli => Ok("OpenCode CLI".to_owned()),
         AiProviderId::HermesCli => Ok("Hermes CLI".to_owned()),
+        AiProviderId::PiCli => Ok("Pi CLI".to_owned()),
         AiProviderId::OpenAiCompatible => {
             let config = load_openai_configs(pool)
                 .await?

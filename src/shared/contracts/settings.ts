@@ -1,4 +1,14 @@
-export type AiProviderId = "codex-cli" | "claude-code-cli" | "hermes-cli" | "openai-compatible";
+export type AiProviderId = "codex-cli" | "claude-code-cli" | "open-code-cli" | "hermes-cli" | "pi-cli" | "openai-compatible";
+
+export type PromptAction = "pullRequestReview" | "taskCreation" | "sprintSummary";
+
+export interface PromptSettings {
+  action: PromptAction;
+  instructions: string;
+  defaultInstructions: string;
+  protectedRules: string;
+  customized: boolean;
+}
 export type AiCliProviderId = Exclude<AiProviderId, "openai-compatible">;
 export type AiProviderStatus = "loading" | "connected" | "not_configured" | "not_found" | "not_authenticated" | "unavailable";
 export type AiReasoning = "minimal" | "low" | "medium" | "high" | "xhigh";

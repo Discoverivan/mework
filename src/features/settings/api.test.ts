@@ -81,6 +81,23 @@ describe("settings integration API smoke test", () => {
     expect(invokeMock).toHaveBeenCalledTimes(2);
   });
 
+  it("reuses session settings across reads and updates them after saving", async () => {
+    vi.useFakeTimers();
+    const initial = { settings: { provider: null, model: "", reasoning: "medium" as const, fastMode: false }, providers: [] };
+    const saved = { ...initial, settings: { ...initial.settings, model: "example-model" } };
+    invokeMock.mockReset();
+    invokeMock.mockResolvedValueOnce(initial).mockResolvedValueOnce(saved);
+    try {
+      await refreshAiSettings();
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(await getAiSettings()).toEqual(initial);
+      expect(invokeMock).toHaveBeenCalledTimes(1);
+      await saveAiSettings(saved.settings);
+      expect(await getAiSettings()).toEqual(saved);
+      expect(invokeMock).toHaveBeenCalledTimes(2);
+    } finally { vi.useRealTimers(); }
+  });
+
   it("keeps a saved AI setting after an older read finishes", async () => {
     const oldSettings = { settings: { provider: null, model: "", reasoning: "medium" as const, fastMode: false }, providers: [] };
     const savedSettings = { settings: { ...oldSettings.settings, model: "example-model" }, providers: [] };

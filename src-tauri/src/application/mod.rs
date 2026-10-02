@@ -1,4 +1,5 @@
 pub mod ai;
+pub mod ai_prompts;
 pub mod ai_providers;
 pub mod ai_summary;
 pub mod ai_usage_statistics;

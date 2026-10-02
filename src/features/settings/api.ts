@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { matchesSelectedAiProvider } from "@/shared/contracts/settings";
-import { APP_EVENT, emitAppEvent } from "@/app/app-events";
+import { APP_EVENT, emitAppEvent, subscribeAppEvent } from "@/app/app-events";
 import type {
   AiSettings,
   AiProvider,
@@ -15,11 +15,11 @@ import type {
   IntegrationSetEnabledInput,
 } from "../../shared/contracts/settings";
 
-const AI_SETTINGS_CACHE_TTL_MS = 5_000;
 const AI_CLI_RECOVERY_DELAY_MS = 5_000;
 
 let aiSettingsRequest: Promise<AiSettingsPageData> | null = null;
-let aiSettingsCache: { value: AiSettingsPageData; expiresAt: number } | null = null;
+let aiSettingsCache: AiSettingsPageData | null = null;
+let aiSettingsSnapshot: AiSettingsPageData | null = null;
 let aiSettingsRequestRevision = 0;
 let aiCliRecoveryTimer: ReturnType<typeof setTimeout> | null = null;
 let integrationHealthRequest: Promise<IntegrationRedacted[]> | null = null;
@@ -37,13 +37,14 @@ function scheduleAiCliRecovery(missingProvider: NonNullable<AiSettings["provider
 }
 
 function cacheStableAiSettings(value: AiSettingsPageData): AiSettingsPageData {
+  aiSettingsSnapshot = value;
   const selectedProvider = value.providers.find((provider) => matchesSelectedAiProvider(value.settings, provider));
   const cliMissing = selectedProvider?.status === "not_found";
   const transient = value.providers.some((provider) =>
     provider.status === "loading" || provider.status === "unavailable"
   );
   if (!transient && !cliMissing) {
-    aiSettingsCache = { value, expiresAt: Date.now() + AI_SETTINGS_CACHE_TTL_MS };
+    aiSettingsCache = value;
   } else {
     aiSettingsCache = null;
   }
@@ -62,9 +63,20 @@ function cacheMutatedAiSettings(value: AiSettingsPageData): AiSettingsPageData {
   return cacheStableAiSettings(value);
 }
 
+// The API owns the session cache; event consumers never repeat provider inspection.
+const unsubscribeAiSettings = subscribeAppEvent(APP_EVENT.aiSettingsChanged, cacheMutatedAiSettings);
+import.meta.hot?.dispose(() => {
+  unsubscribeAiSettings();
+  if (aiCliRecoveryTimer !== null) clearTimeout(aiCliRecoveryTimer);
+});
+
+export function getCachedAiSettings(): AiSettingsPageData | null {
+  return aiSettingsSnapshot;
+}
+
 export function getAiSettings(): Promise<AiSettingsPageData> {
-  if (aiSettingsCache && aiSettingsCache.expiresAt > Date.now()) {
-    return Promise.resolve(aiSettingsCache.value);
+  if (aiSettingsCache) {
+    return Promise.resolve(aiSettingsCache);
   }
   if (aiSettingsRequest) return aiSettingsRequest;
 

@@ -1,5 +1,25 @@
+use crate::application::ai_prompts::{self, PromptAction, PromptSettings};
 use sqlx::SqlitePool;
-use tauri::State;
+use tauri::{AppHandle, Emitter, State};
+
+#[tauri::command]
+pub async fn ai_prompt_settings(
+    state: State<'_, SqlitePool>,
+) -> Result<Vec<PromptSettings>, String> {
+    ai_prompts::list(&state).await
+}
+
+#[tauri::command]
+pub async fn ai_prompt_settings_save(
+    app: AppHandle,
+    state: State<'_, SqlitePool>,
+    action: PromptAction,
+    instructions: Option<String>,
+) -> Result<PromptSettings, String> {
+    let saved = ai_prompts::save(&state, action, instructions).await?;
+    let _ = app.emit("ai_prompt_settings_changed", &saved);
+    Ok(saved)
+}
 
 use crate::application::ai::{
     self, AiSettings, AiSettingsPageDto, OpenAiCompatibleProviderSaveRequest,

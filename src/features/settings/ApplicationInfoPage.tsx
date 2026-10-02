@@ -254,11 +254,12 @@ export function ApplicationInfoPage({
             <Button type="button" variant="ghost" size="sm" className="h-8 px-2 text-xs text-muted-foreground" onClick={() => void openUrl(GITHUB_URL)}>
               <ExternalLink data-icon="inline-start" aria-hidden="true" />{t("applicationInfo.viewOnGitHub")}
             </Button>
-            <Button type="button" variant="ghost" size="icon" className="size-8 text-muted-foreground"
+            <Button type="button" variant="ghost" size="sm" className="h-8 px-2 text-xs text-muted-foreground"
               onClick={() => void handleCheckForUpdates()} disabled={isUpdateChecking || installingUpdate}
               aria-label={isUpdateChecking ? t("general.checking") : t("general.checkUpdates")}
               title={isUpdateChecking ? t("general.checking") : t("general.checkUpdates")}>
-              <RefreshCw className={isUpdateChecking ? "animate-spin" : undefined} aria-hidden="true" />
+              <RefreshCw data-icon="inline-start" className={isUpdateChecking ? "animate-spin" : undefined} aria-hidden="true" />
+              {isUpdateChecking ? t("general.checking") : t("general.checkUpdates")}
             </Button>
           </div>
         </div>

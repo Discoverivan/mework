@@ -608,6 +608,8 @@ async fn worker_loop<R: Runtime>(
             AiProviderId::CodexCli => "codex-cli",
             AiProviderId::ClaudeCodeCli => "claude-code-cli",
             AiProviderId::HermesCli => "hermes-cli",
+            AiProviderId::PiCli => "pi-cli",
+            AiProviderId::OpenCodeCli => "open-code-cli",
             AiProviderId::OpenAiCompatible => "openai-compatible",
         })
         .unwrap_or("unknown");

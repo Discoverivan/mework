@@ -5,7 +5,10 @@ import {
   AlertDescription,
   AlertTitle,
 } from "@/components/ui/alert";
+import { StatusToast } from "@/components/shared/StatusToast";
 import { PageHeader } from "@/components/shared/PageHeader";
+import { ReviewAttemptsSetting } from "./ReviewAttemptsSetting";
+import { ActionSettingsSection } from "./prompts/ActionSettingsSection";
 import { Card, CardContent, CardDescription, CardHeader } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -44,6 +47,7 @@ import {
   addAiCliProvider,
   inspectAiCliProvider,
   getAiSettings,
+  getCachedAiSettings,
   listIntegrations,
   refreshAiSettings,
   refreshIntegrationHealth,
@@ -217,6 +221,27 @@ function aiProviderReady(provider: AiProvider | undefined, model: string): boole
     && provider.models.includes(model);
 }
 
+function AiModeSelect({ id, fastMode, onChange, disabled }: {
+  id: string;
+  fastMode: boolean;
+  onChange: (fastMode: boolean) => void;
+  disabled: boolean;
+}) {
+  const { t } = useI18n();
+  return <div className="grid min-w-0 max-w-full gap-2.5">
+    <Label className="translate-x-1" id={`${id}-label`}>{t("settings.ai.mode")}</Label>
+    <Select value={fastMode ? "fast" : "normal"} onValueChange={(mode) => onChange(mode === "fast")} disabled={disabled}>
+      <SelectTrigger id={id} aria-labelledby={`${id}-label`} className="h-9"><SelectValue /></SelectTrigger>
+      <SelectContent>
+        <SelectGroup>
+          <SelectItem value="normal">{t("settings.ai.modeNormal")}</SelectItem>
+          <SelectItem value="fast">{t("settings.ai.modeFast")}</SelectItem>
+        </SelectGroup>
+      </SelectContent>
+    </Select>
+  </div>;
+}
+
 function AiOverrideEditor({
   idPrefix,
   profile,
@@ -225,7 +250,6 @@ function AiOverrideEditor({
   providerLabel,
   modelLabel,
   reasoningLabel,
-  fastModeLabel,
   noModelsLabel,
   unavailableLabel,
   onChange,
@@ -238,7 +262,6 @@ function AiOverrideEditor({
   providerLabel: string;
   modelLabel: string;
   reasoningLabel: string;
-  fastModeLabel: string;
   noModelsLabel: string;
   unavailableLabel: string;
   onChange: (profile: AiSettingsProfile | null) => void;
@@ -251,7 +274,7 @@ function AiOverrideEditor({
   return (
     <div className="flex flex-wrap items-end gap-4">
       <div className="grid min-w-0 max-w-full gap-2.5">
-        <Label htmlFor={`${idPrefix}-provider`}>{providerLabel}</Label>
+        <Label className="translate-x-1" id={`${idPrefix}-provider-label`}>{providerLabel}</Label>
         <Select value={selectorValue} onValueChange={(value) => {
           if (value === "__inherit__") { onChange(null); return; }
           const candidate = providers.find((item) => (item.instanceId ?? item.id) === value);
@@ -265,7 +288,7 @@ function AiOverrideEditor({
           };
           onChange(next);
         }} disabled={disabled}>
-          <SelectTrigger id={`${idPrefix}-provider`} aria-label={providerLabel} className="h-9"><SelectValue /></SelectTrigger>
+          <SelectTrigger id={`${idPrefix}-provider`} aria-labelledby={`${idPrefix}-provider-label`} className="h-9"><SelectValue /></SelectTrigger>
           <SelectContent>
             <SelectItem value="__inherit__">{inheritedLabel}</SelectItem>
             {providers.map((candidate) => (
@@ -278,24 +301,21 @@ function AiOverrideEditor({
       </div>
       {profile && selected ? <>
         <div className="grid min-w-0 max-w-full gap-2.5">
-          <Label htmlFor={`${idPrefix}-model`}>{modelLabel}</Label>
+          <Label className="translate-x-1" id={`${idPrefix}-model-label`}>{modelLabel}</Label>
           <Select value={profile.model} onValueChange={(model) => onChange({ ...profile, model })} disabled={disabled || selected.models.length === 0}>
-            <SelectTrigger id={`${idPrefix}-model`} aria-label={modelLabel} className="h-9"><SelectValue placeholder={noModelsLabel} /></SelectTrigger>
+            <SelectTrigger id={`${idPrefix}-model`} aria-labelledby={`${idPrefix}-model-label`} className="h-9"><SelectValue placeholder={noModelsLabel} /></SelectTrigger>
             <SelectContent>{selected.models.map((model) => <SelectItem key={model} value={model}>{model}</SelectItem>)}</SelectContent>
           </Select>
         </div>
         {profile.provider === "codex-cli" ? <>
           <div className="grid min-w-0 max-w-full gap-2.5">
-            <Label htmlFor={`${idPrefix}-reasoning`}>{reasoningLabel}</Label>
+            <Label className="translate-x-1" id={`${idPrefix}-reasoning-label`}>{reasoningLabel}</Label>
             <Select value={profile.reasoning} onValueChange={(reasoning) => onChange({ ...profile, reasoning: reasoning as AiReasoning })} disabled={disabled}>
-              <SelectTrigger id={`${idPrefix}-reasoning`} aria-label={reasoningLabel} className="h-9"><SelectValue /></SelectTrigger>
+              <SelectTrigger id={`${idPrefix}-reasoning`} aria-labelledby={`${idPrefix}-reasoning-label`} className="h-9"><SelectValue /></SelectTrigger>
               <SelectContent>{AI_REASONING_OPTIONS.map((reasoning) => <SelectItem key={reasoning} value={reasoning}>{reasoning}</SelectItem>)}</SelectContent>
             </Select>
           </div>
-          <div className="flex h-9 items-center gap-2">
-            <input id={`${idPrefix}-fast-mode`} type="checkbox" checked={profile.fastMode} onChange={(event) => onChange({ ...profile, fastMode: event.target.checked })} disabled={disabled} className="size-4 accent-primary" />
-            <Label htmlFor={`${idPrefix}-fast-mode`} alignment="inline" className="font-medium">{fastModeLabel}</Label>
-          </div>
+          <AiModeSelect id={`${idPrefix}-mode`} fastMode={profile.fastMode} onChange={(fastMode) => onChange({ ...profile, fastMode })} disabled={disabled} />
         </> : null}
       </> : null}
     </div>
@@ -307,17 +327,25 @@ export type SettingsSection = "general" | "ai" | "integrations" | "projects";
 type AiSettingsScope = "default" | "taskCreation" | "pullRequestReview" | "tokenBurner" | "sprintSummary";
 type AiActivity = Exclude<AiSettingsScope, "default">;
 
-const AI_ACTIVITIES: { key: AiActivity; labelKey: TranslationKey; idPrefix: string }[] = [
-  { key: "taskCreation", labelKey: "settings.ai.taskCreation", idPrefix: "ai-task" },
-  { key: "pullRequestReview", labelKey: "settings.ai.pullRequestReview", idPrefix: "ai-review" },
-  { key: "tokenBurner", labelKey: "settings.ai.tokenBurner", idPrefix: "ai-token-burner" },
-  { key: "sprintSummary", labelKey: "settings.ai.sprintSummary", idPrefix: "ai-sprint-summary" },
-];
+const AI_ACTION_PREFIXES: Record<AiActivity, string> = {
+  taskCreation: "ai-task",
+  pullRequestReview: "ai-review",
+  tokenBurner: "ai-token-burner",
+  sprintSummary: "ai-sprint-summary",
+};
+
+function aiProviderMessage(provider: AiProvider | undefined, t: ReturnType<typeof useI18n>["t"]): string | undefined {
+  const keys = ["settings.pi.notFound", "settings.pi.unavailable", "settings.pi.updateRequired", "settings.pi.configure", "settings.opencode.notFound", "settings.opencode.unavailable", "settings.opencode.unsupported", "settings.opencode.configure"] as const;
+  const key = keys.find((key) => key === provider?.message);
+  return key ? t(key) : provider?.message;
+}
 
 const CLI_PROVIDER_OPTIONS: { id: AiCliProviderId; name: string }[] = [
   { id: "codex-cli", name: "Codex CLI" },
   { id: "claude-code-cli", name: "Claude Code CLI" },
+  { id: "open-code-cli", name: "OpenCode CLI" },
   { id: "hermes-cli", name: "Hermes CLI" },
+  { id: "pi-cli", name: "Pi CLI" },
 ];
 
 interface SettingsPageProps {
@@ -334,13 +362,28 @@ type CliInspection =
 export function SettingsPage({ section = "integrations", focusActivity, mockMode = false }: SettingsPageProps) {
   const { t } = useI18n();
   const [integrations, setIntegrations] = useState<IntegrationRedacted[]>([]);
-  const [aiData, setAiData] = useState<AiSettingsPageData>(INITIAL_AI_DATA);
-  const [aiDraft, setAiDraft] = useState<AiSettings>(DEFAULT_AI_SETTINGS);
+  const [aiData, setAiData] = useState<AiSettingsPageData>(() => getCachedAiSettings() ?? INITIAL_AI_DATA);
+  const [aiDraft, setAiDraft] = useState<AiSettings>(() => getCachedAiSettings()?.settings ?? DEFAULT_AI_SETTINGS);
   const [aiSaving, setAiSaving] = useState(false);
   const [aiError, setAiError] = useState<string | null>(null);
-  const [aiSaved, setAiSaved] = useState(false);
+  const [aiSaveNotice, setAiSaveNotice] = useState<{ key: TranslationKey; revision: number } | null>(null);
+  const [instructionsSaving, setInstructionsSaving] = useState(false);
+  const [instructionsLoading, setInstructionsLoading] = useState(false);
+  const [reviewAttemptsLoading, setReviewAttemptsLoading] = useState(false);
+  const [reviewAttemptsSaving, setReviewAttemptsSaving] = useState(false);
+  const handleReviewAttemptsSaving = useCallback((saving: boolean) => {
+    setReviewAttemptsSaving(saving);
+    if (saving) setAiSaveNotice(null);
+  }, []);
+  const handleInstructionsSaving = useCallback((saving: boolean) => {
+    setInstructionsSaving(saving);
+    if (saving) setAiSaveNotice(null);
+  }, []);
+  const aiSaveNoticeRevision = useRef(0);
+  const showAiSaveNotice = useCallback((key: TranslationKey) => {
+    setAiSaveNotice({ key, revision: ++aiSaveNoticeRevision.current });
+  }, []);
   const [aiStatusScope, setAiStatusScope] = useState<AiSettingsScope>("default");
-  const [visibleAiActivities, setVisibleAiActivities] = useState<AiActivity[]>(focusActivity === "token-burner" ? ["tokenBurner"] : []);
   const aiSaveRevisionRef = useRef(0);
   const [openAiDialogOpen, setOpenAiDialogOpen] = useState(false);
   const [addAiMenuOpen, setAddAiMenuOpen] = useState(false);
@@ -367,7 +410,7 @@ export function SettingsPage({ section = "integrations", focusActivity, mockMode
     bitbucket: emptyForm(),
     confluence: emptyForm(),
   });
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(() => section !== "ai" || !getCachedAiSettings());
   const [retry, setRetry] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [action, setAction] = useState<"save" | "delete" | null>(null);
@@ -385,19 +428,22 @@ export function SettingsPage({ section = "integrations", focusActivity, mockMode
     setLoading(true);
     setError(null);
     if (section === "ai") {
-      setAiData(INITIAL_AI_DATA);
-      setAiDraft(DEFAULT_AI_SETTINGS);
+      const cached = getCachedAiSettings();
+      if (cached) {
+        setAiData(cached);
+        setAiDraft(cached.settings);
+        setLoading(false);
+      }
       setAiError(null);
       void getAiSettings()
         .then((loadedAiData) => {
           if (!active) return;
           setAiData(loadedAiData);
           setAiDraft(loadedAiData.settings);
-          setVisibleAiActivities(AI_ACTIVITIES.filter(({ key }) => Boolean(loadedAiData.settings[key]) || (key === "tokenBurner" && focusActivity === "token-burner")).map(({ key }) => key));
         })
         .catch(() => {
           if (!active) return;
-          setAiData(UNAVAILABLE_AI_DATA);
+          if (!getCachedAiSettings()) setAiData(UNAVAILABLE_AI_DATA);
           setAiError(t("settings.error.loadCodex"));
         })
         .finally(() => {
@@ -464,11 +510,9 @@ export function SettingsPage({ section = "integrations", focusActivity, mockMode
   const deletingIntegrationProvider = PROVIDERS.find((candidate) => candidate.kind === deletingIntegrationKind);
   const availableIntegrationProviders = PROVIDERS.filter((candidate) =>
     !integrations.some((integration) => integration.kind === candidate.kind));
-  const availableAiActivities = AI_ACTIVITIES.filter(({ key }) => !visibleAiActivities.includes(key));
-  const shownAiActivities = AI_ACTIVITIES.filter(({ key }) => visibleAiActivities.includes(key));
   const selectedAiProvider = aiData.providers.find((provider) => provider.id === aiDraft.provider
     && (provider.id !== "openai-compatible" || (provider.instanceId ?? "legacy") === (aiDraft.providerInstanceId ?? "legacy")));
-  const cliProviders = aiData.providers.filter((provider) => provider.id !== "openai-compatible");
+  const cliProviders = aiData.providers.filter((provider) => provider.id !== "openai-compatible").sort((a, b) => CLI_PROVIDER_OPTIONS.findIndex((option) => option.id === a.id) - CLI_PROVIDER_OPTIONS.findIndex((option) => option.id === b.id));
   const apiProviders = aiData.providers.filter((provider) => provider.id === "openai-compatible");
   const visibleAiProviders = selectedAiGroup === "cli" ? cliProviders : apiProviders;
   const allCliAdded = CLI_PROVIDER_OPTIONS.every(({ id }) => cliProviders.some((provider) => provider.id === id));
@@ -482,15 +526,17 @@ export function SettingsPage({ section = "integrations", focusActivity, mockMode
         && inspection.provider.models.length > 0;
       const reason = inspection?.state === "error" ? inspection.message
         : inspection?.state === "ready" && !ready
-          ? inspection.provider.status === "not_found"
+          ? (inspection.provider.id === "pi-cli" || inspection.provider.id === "open-code-cli")
+            ? aiProviderMessage(inspection.provider, t)
+            : inspection.provider.status === "not_found"
             ? t("settings.aiProviders.cliNotFound", { provider: option.name })
             : inspection.provider.status === "connected" && inspection.provider.models.length === 0
               ? t("settings.ai.noModels", { provider: option.name })
-              : inspection.provider.message ?? t(AI_STATUS_LABEL_KEYS[inspection.provider.status])
+              : aiProviderMessage(inspection.provider, t) ?? t(AI_STATUS_LABEL_KEYS[inspection.provider.status])
           : inspection?.state === "checking" ? t("settings.aiProviders.checkingCli") : null;
       return { ...option, ready, reason, checking: inspection?.state === "checking" || !inspection };
     })
-    .sort((a, b) => (a.ready ? 0 : a.checking ? 1 : 2) - (b.ready ? 0 : b.checking ? 1 : 2));
+    ;
   const aiLoading = aiData?.providers.some((provider) => provider.status === "loading") === true;
   const aiReady = aiProviderReady(selectedAiProvider, aiDraft.model);
   const provider = selectedKind
@@ -603,18 +649,18 @@ export function SettingsPage({ section = "integrations", focusActivity, mockMode
 
     const timer = window.setTimeout(() => {
       setAiSaving(true);
+      setAiSaveNotice(null);
       setAiError(null);
       void saveAiSettings(aiDraft).then((saved) => {
         if (aiSaveRevisionRef.current !== revision) return;
         setAiData(saved);
         setAiDraft(saved.settings);
         emitAppEvent(APP_EVENT.aiSettingsChanged, saved);
-        setAiSaved(true);
+        showAiSaveNotice("settings.ai.saved");
         setAiSaving(false);
       }).catch((saveError) => {
         if (aiSaveRevisionRef.current !== revision) return;
-        if (aiStatusScope !== "default" && !visibleAiActivities.includes(aiStatusScope) && aiData.settings[aiStatusScope]) {
-          setVisibleAiActivities((current) => [...current, aiStatusScope]);
+        if (aiStatusScope !== "default" && !aiDraft[aiStatusScope] && aiData.settings[aiStatusScope]) {
           setAiDraft((current) => ({ ...current, [aiStatusScope]: aiData.settings[aiStatusScope] }));
         }
         setAiError(t("settings.error.saveAi", { error: errorMessage(saveError, t("common.unknownError")) }));
@@ -623,7 +669,32 @@ export function SettingsPage({ section = "integrations", focusActivity, mockMode
     }, 250);
 
     return () => window.clearTimeout(timer);
-  }, [aiData.settings, aiDraft, aiReady, aiDeleting, aiStatusScope, visibleAiActivities, t]);
+  }, [aiData.settings, aiDraft, aiReady, aiDeleting, aiStatusScope, t, showAiSaveNotice]);
+
+  function renderActionModelSettings(action: AiActivity) {
+    return <div className="space-y-2">
+      <AiOverrideEditor
+        idPrefix={AI_ACTION_PREFIXES[action]}
+        profile={aiDraft[action]}
+        providers={aiData.providers}
+        inheritedLabel={t("settings.ai.inheritDefault")}
+        providerLabel={t("settings.ai.provider")}
+        modelLabel={t("settings.ai.model")}
+        reasoningLabel={t("settings.ai.reasoning")}
+        noModelsLabel={t("settings.ai.noModels", { provider: t("settings.ai.selectedProvider") })}
+        unavailableLabel={t("settings.ai.unavailableSuffix")}
+        onChange={(profile) => updateAiProfile(action, profile)}
+        disabled={aiLoading || aiSaving}
+      />
+      {renderAiStatus(action)}
+    </div>;
+  }
+
+  useEffect(() => {
+    if (section === "ai" && focusActivity === "token-burner" && !loading) {
+      document.getElementById("ai-token-burner-action")?.scrollIntoView?.({ block: "center" });
+    }
+  }, [section, focusActivity, loading]);
 
   function openOpenAiCompatibleDialog(provider?: AiProvider) {
     setEditingOpenAiId(provider?.instanceId ?? undefined);
@@ -680,7 +751,6 @@ export function SettingsPage({ section = "integrations", focusActivity, mockMode
   function updateAiSetting<K extends keyof AiSettings>(field: K, value: AiSettings[K]) {
     setAiDraft((current) => ({ ...current, [field]: value }));
     setAiStatusScope(field === "taskCreation" || field === "pullRequestReview" || field === "tokenBurner" || field === "sprintSummary" ? field : "default");
-    setAiSaved(false);
     setAiError(null);
   }
 
@@ -702,7 +772,6 @@ export function SettingsPage({ section = "integrations", focusActivity, mockMode
       else delete next.providerInstanceId;
       return next;
     });
-    setAiSaved(false);
     setAiStatusScope("default");
     setAiError(null);
   }
@@ -718,17 +787,15 @@ export function SettingsPage({ section = "integrations", focusActivity, mockMode
     const showReadiness = scope === "default"
       ? Boolean(aiDraft.provider && !aiReady)
       : Boolean(profile && !aiProviderReady(statusProvider, profile.model));
-    if (!aiError && !aiSaving && !aiSaved && !showReadiness) return null;
+    if (!aiError && (aiSaving || !showReadiness)) return null;
     return (
       <div className="text-sm" aria-live="polite">
         {aiError ? <span className="text-destructive">{aiError}</span> : null}
-        {!aiError && aiSaving ? <span className="text-muted-foreground">{t("settings.common.saving")}</span> : null}
-        {!aiError && !aiSaving && aiSaved ? <span className="text-success">{t("settings.ai.saved")}</span> : null}
-        {!aiError && !aiSaved && showReadiness ? (
+        {!aiError && !aiSaving && showReadiness ? (
           <span className="text-warning">
             {statusProvider?.status === "connected"
               ? t("settings.ai.noModelSelected")
-              : statusProvider?.message ?? t("settings.ai.notConnected")}
+              : aiProviderMessage(statusProvider, t) ?? t("settings.ai.notConnected")}
           </span>
         ) : null}
       </div>
@@ -771,7 +838,6 @@ export function SettingsPage({ section = "integrations", focusActivity, mockMode
       const saved = await deleteAiProvider(deletingAiProvider.id, deletingAiProvider.instanceId);
       setAiData(saved);
       setAiDraft(saved.settings);
-      setAiSaved(false);
       emitAppEvent(APP_EVENT.aiSettingsChanged, saved);
       setDeletingAiProvider(null);
     } catch (deleteError) {
@@ -983,9 +1049,9 @@ export function SettingsPage({ section = "integrations", focusActivity, mockMode
         />
       ) : null}
 
-      {section !== "general" && loading ? (
+      {section !== "general" && section !== "ai" && loading ? (
         <Alert role="status" aria-live="polite">
-          <AlertDescription>{t(section === "ai" ? "settings.ai.loading" : "settings.loading")}</AlertDescription>
+          <AlertDescription>{t("settings.loading")}</AlertDescription>
         </Alert>
       ) : null}
       {section !== "general" && error && selectedKind === null ? (
@@ -1074,13 +1140,13 @@ export function SettingsPage({ section = "integrations", focusActivity, mockMode
                             <div className="min-w-0 flex-1">
                               <p className="truncate text-[13.5px]">{candidate.name}</p>
                               {candidate.baseUrl || candidate.version || candidate.message ? (
-                                <p className="truncate text-xs text-muted-foreground" title={candidate.baseUrl ?? candidate.message ?? candidate.version}>
-                                  {candidate.baseUrl ?? candidate.message ?? candidate.version}
+                                <p className="truncate text-xs text-muted-foreground" title={candidate.baseUrl ?? aiProviderMessage(candidate, t) ?? candidate.version}>
+                                  {candidate.baseUrl ?? aiProviderMessage(candidate, t) ?? candidate.version}
                                 </p>
                               ) : null}
                             </div>
                             <div className="ml-auto flex shrink-0 items-center gap-1.5">
-                              <span className="mr-1 flex items-center gap-1.5 text-[13px] text-muted-foreground [&_svg]:size-[18px]" title={candidate.message}>
+                              <span className="mr-1 flex items-center gap-1.5 text-[13px] text-muted-foreground [&_svg]:size-[18px]" title={aiProviderMessage(candidate, t)}>
                                 {aiStatusIcon(candidate.status)}
                                 {t(AI_STATUS_LABEL_KEYS[candidate.status])}
                               </span>
@@ -1109,141 +1175,80 @@ export function SettingsPage({ section = "integrations", focusActivity, mockMode
             </div>
           </section>
 
-          <section className="space-y-4" aria-labelledby="ai-defaults-title">
-            <div>
-              <h2 id="ai-defaults-title" className="text-lg font-semibold leading-tight">{t("settings.ai.defaults")}</h2>
-              <p className="mt-1 text-sm text-muted-foreground">{t("settings.ai.defaultsDescription")}</p>
-            </div>
-            <Card>
-              <CardHeader className="space-y-4 px-4 pb-4 pt-3.5">
-                <div className="flex flex-wrap items-end gap-4">
-                  <div className="grid min-w-0 max-w-full gap-2.5">
-                    <Label htmlFor="ai-provider">{t("settings.ai.provider")}</Label>
-                    <Select value={selectedAiProvider?.instanceId ?? aiDraft.provider ?? "__none__"} onValueChange={updateAiProvider} disabled={aiData === null || aiLoading || aiSaving}>
-                      <SelectTrigger id="ai-provider" aria-label={t("settings.ai.provider")} className="h-9">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="__none__">{t("settings.ai.notSelected")}</SelectItem>
-                        {cliProviders.length > 0 ? (
-                          <SelectGroup>
-                            <SelectLabel className="cursor-default py-1 pl-2 pr-2 text-xs font-medium text-muted-foreground">{t("settings.aiProviders.cliGroup")}</SelectLabel>
-                            {cliProviders.map((candidate) => (
-                              <SelectItem key={candidate.instanceId ?? candidate.id} value={candidate.instanceId ?? candidate.id} disabled={!candidate.available}>
-                                {candidate.name}{candidate.available ? "" : ` (${t("settings.ai.unavailableSuffix")})`}
-                              </SelectItem>
-                            ))}
-                          </SelectGroup>
-                        ) : null}
-                        {cliProviders.length > 0 && apiProviders.length > 0 ? <SelectSeparator data-testid="ai-provider-group-separator" /> : null}
-                        {apiProviders.length > 0 ? (
-                          <SelectGroup>
-                            <SelectLabel className="cursor-default py-1 pl-2 pr-2 text-xs font-medium text-muted-foreground">{t("settings.aiProviders.apiGroup")}</SelectLabel>
-                            {apiProviders.map((candidate) => (
-                              <SelectItem key={candidate.instanceId ?? candidate.id} value={candidate.instanceId ?? candidate.id} disabled={!candidate.available}>
-                                {candidate.name}{candidate.name === "OpenAI-compatible API" && candidate.baseUrl ? ` · ${candidate.baseUrl}` : ""}{candidate.available ? "" : ` (${t("settings.ai.unavailableSuffix")})`}
-                              </SelectItem>
-                            ))}
-                          </SelectGroup>
-                        ) : null}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div className="grid min-w-0 max-w-full gap-2.5">
-                    <Label htmlFor="ai-model">{t("settings.ai.model")}</Label>
-                    <Select value={aiDraft.model} onValueChange={(value) => updateAiSetting("model", value)} disabled={!aiDraft.provider || !selectedAiProvider || aiSaving || (selectedAiProvider.models.length === 0)}>
-                      <SelectTrigger id="ai-model" aria-label={t("settings.ai.model")} className="h-9">
-                        <SelectValue placeholder={t("settings.ai.noModels", { provider: selectedAiProvider?.name ?? t("settings.ai.selectedProvider") })} />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {(selectedAiProvider?.models ?? []).map((model) => <SelectItem key={model} value={model}>{model}</SelectItem>)}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  {aiDraft.provider === "codex-cli" ? <div className="grid min-w-0 max-w-full gap-2.5">
-                    <Label htmlFor="ai-reasoning">{t("settings.ai.reasoning")}</Label>
-                    <Select value={aiDraft.reasoning} onValueChange={updateAiReasoning} disabled={!aiDraft.provider || aiSaving}>
-                      <SelectTrigger id="ai-reasoning" aria-label={t("settings.ai.reasoning")} className="h-9"><SelectValue /></SelectTrigger>
-                      <SelectContent>
-                        {AI_REASONING_OPTIONS.map((reasoning) => <SelectItem key={reasoning} value={reasoning}>{reasoning}</SelectItem>)}
-                      </SelectContent>
-                    </Select>
-                  </div> : null}
-                  {aiDraft.provider === "codex-cli" ? <div className="flex h-9 items-center gap-2">
-                    <input
-                      id="ai-fast-mode"
-                      type="checkbox"
-                      checked={aiDraft.fastMode}
-                      onChange={(event) => updateAiSetting("fastMode", event.target.checked)}
-                      disabled={!aiDraft.provider || aiSaving}
-                      className="size-4 accent-primary"
-                    />
-                    <Label htmlFor="ai-fast-mode" alignment="inline" className="font-medium">{t("settings.ai.fastMode")}</Label>
-                  </div> : null}
+          <ActionSettingsSection
+            onSaved={() => showAiSaveNotice("settings.prompts.saved")}
+            onSavingChange={handleInstructionsSaving}
+            onLoadingChange={setInstructionsLoading}
+            defaults={<section className="flex flex-col gap-4" aria-labelledby="ai-defaults-title">
+              <h3 id="ai-defaults-title" className="text-base font-medium">{t("settings.ai.defaults")}</h3>
+              <div className="flex flex-wrap items-end gap-4">
+                <div className="grid min-w-0 max-w-full gap-2.5">
+                  <Label className="translate-x-1" id="ai-provider-label">{t("settings.ai.provider")}</Label>
+                  <Select value={selectedAiProvider?.instanceId ?? aiDraft.provider ?? "__none__"} onValueChange={updateAiProvider} disabled={aiData === null || aiLoading || aiSaving}>
+                    <SelectTrigger id="ai-provider" aria-labelledby="ai-provider-label" className="h-9">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="__none__">{t("settings.ai.notSelected")}</SelectItem>
+                      {cliProviders.length > 0 ? (
+                        <SelectGroup>
+                          <SelectLabel className="cursor-default py-1 pl-2 pr-2 text-xs font-medium text-muted-foreground">{t("settings.aiProviders.cliGroup")}</SelectLabel>
+                          {cliProviders.map((candidate) => (
+                            <SelectItem key={candidate.instanceId ?? candidate.id} value={candidate.instanceId ?? candidate.id} disabled={!candidate.available}>
+                              {candidate.name}{candidate.available ? "" : ` (${t("settings.ai.unavailableSuffix")})`}
+                            </SelectItem>
+                          ))}
+                        </SelectGroup>
+                      ) : null}
+                      {cliProviders.length > 0 && apiProviders.length > 0 ? <SelectSeparator data-testid="ai-provider-group-separator" /> : null}
+                      {apiProviders.length > 0 ? (
+                        <SelectGroup>
+                          <SelectLabel className="cursor-default py-1 pl-2 pr-2 text-xs font-medium text-muted-foreground">{t("settings.aiProviders.apiGroup")}</SelectLabel>
+                          {apiProviders.map((candidate) => (
+                            <SelectItem key={candidate.instanceId ?? candidate.id} value={candidate.instanceId ?? candidate.id} disabled={!candidate.available}>
+                              {candidate.name}{candidate.name === "OpenAI-compatible API" && candidate.baseUrl ? ` · ${candidate.baseUrl}` : ""}{candidate.available ? "" : ` (${t("settings.ai.unavailableSuffix")})`}
+                            </SelectItem>
+                          ))}
+                        </SelectGroup>
+                      ) : null}
+                    </SelectContent>
+                  </Select>
                 </div>
-                {renderAiStatus("default")}
-              </CardHeader>
-            </Card>
-          </section>
-
-          <section className="space-y-4" aria-labelledby="ai-activities-title">
-            <div className="flex items-center gap-3">
-              <div className="min-w-0 flex-1">
-                <h2 id="ai-activities-title" className="text-lg font-semibold leading-tight">{t("settings.ai.overridesTitle")}</h2>
-                <p className="mt-1 text-sm text-muted-foreground">{t("settings.ai.overridesDescription")}</p>
+                <div className="grid min-w-0 max-w-full gap-2.5">
+                  <Label className="translate-x-1" id="ai-model-label">{t("settings.ai.model")}</Label>
+                  <Select value={aiDraft.model} onValueChange={(value) => updateAiSetting("model", value)} disabled={!aiDraft.provider || !selectedAiProvider || aiSaving || (selectedAiProvider.models.length === 0)}>
+                    <SelectTrigger id="ai-model" aria-labelledby="ai-model-label" className="h-9">
+                      <SelectValue placeholder={t("settings.ai.noModels", { provider: selectedAiProvider?.name ?? t("settings.ai.selectedProvider") })} />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {(selectedAiProvider?.models ?? []).map((model) => <SelectItem key={model} value={model}>{model}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                </div>
+                {aiDraft.provider === "codex-cli" ? <div className="grid min-w-0 max-w-full gap-2.5">
+                  <Label className="translate-x-1" id="ai-reasoning-label">{t("settings.ai.reasoning")}</Label>
+                  <Select value={aiDraft.reasoning} onValueChange={updateAiReasoning} disabled={!aiDraft.provider || aiSaving}>
+                    <SelectTrigger id="ai-reasoning" aria-labelledby="ai-reasoning-label" className="h-9"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      {AI_REASONING_OPTIONS.map((reasoning) => <SelectItem key={reasoning} value={reasoning}>{reasoning}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                </div> : null}
+                {aiDraft.provider === "codex-cli" ? <AiModeSelect id="ai-mode" fastMode={aiDraft.fastMode} onChange={(fastMode) => updateAiSetting("fastMode", fastMode)} disabled={!aiDraft.provider || aiSaving} /> : null}
               </div>
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button type="button" variant="ghost" size="icon" actionTone="add" className="size-9 text-muted-foreground hover:bg-transparent" aria-label={t("settings.ai.addActivity")} title={t("settings.ai.addActivity")} disabled={loading || availableAiActivities.length === 0}>
-                    <Plus className="size-4" aria-hidden="true" />
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end">
-                  {availableAiActivities.map(({ key, labelKey }) => (
-                    <DropdownMenuItem key={key} className={ADD_MENU_ITEM_CLASS} onSelect={() => setVisibleAiActivities((current) => [...current, key])}>
-                      {t(labelKey)}
-                    </DropdownMenuItem>
-                  ))}
-                </DropdownMenuContent>
-              </DropdownMenu>
-            </div>
-            <Card>
-              <CardContent className="px-4 py-3">
-                {shownAiActivities.length === 0 ? (
-                  <p className="text-sm text-muted-foreground">{t("settings.ai.noActivities")}</p>
-                ) : shownAiActivities.map((activity, index) => {
-                  const { key } = activity;
-                  return <Fragment key={key}>
-                    {index > 0 ? <Separator className="my-4" /> : null}
-                    <section className="space-y-4" aria-label={t(activity.labelKey)}>
-                      <div className="flex items-center justify-between gap-3">
-                        <h3 className="text-base font-semibold leading-tight">{t(activity.labelKey)}</h3>
-                        <Button type="button" variant="ghost" size="icon" actionTone="delete" className="size-7 text-muted-foreground hover:bg-transparent hover:text-destructive [&_svg]:!size-4" aria-label={t("settings.ai.removeActivity", { activity: t(activity.labelKey) })} title={t("settings.ai.removeActivity", { activity: t(activity.labelKey) })} disabled={aiSaving} onClick={() => { setVisibleAiActivities((current) => current.filter((item) => item !== key)); updateAiProfile(key, null); }}>
-                          <Trash2 aria-hidden="true" />
-                        </Button>
-                      </div>
-                      <AiOverrideEditor
-                        idPrefix={activity.idPrefix}
-                        profile={aiDraft[key]}
-                        providers={aiData.providers}
-                        inheritedLabel={t("settings.ai.inheritDefault")}
-                        providerLabel={t("settings.ai.provider")}
-                        modelLabel={t("settings.ai.model")}
-                        reasoningLabel={t("settings.ai.reasoning")}
-                        fastModeLabel={t("settings.ai.fastMode")}
-                        noModelsLabel={t("settings.ai.noModels", { provider: t("settings.ai.selectedProvider") })}
-                        unavailableLabel={t("settings.ai.unavailableSuffix")}
-                        onChange={(profile) => updateAiProfile(key, profile)}
-                        disabled={aiLoading || aiSaving}
-                      />
-                      {renderAiStatus(key)}
-                    </section>
-                  </Fragment>;
-                })}
-                {aiStatusScope !== "default" && !visibleAiActivities.includes(aiStatusScope) ? renderAiStatus(aiStatusScope) : null}
-              </CardContent>
-            </Card>
-          </section>
+              {renderAiStatus("default")}
+            </section>}
+            renderModelSettings={renderActionModelSettings}
+            renderActionOptions={(action) => action === "pullRequestReview" ? <ReviewAttemptsSetting
+              onSaved={() => showAiSaveNotice("settings.ai.saved")}
+              onSavingChange={handleReviewAttemptsSaving}
+              onLoadingChange={setReviewAttemptsLoading}
+            /> : null}
+            extraAction={<section id="ai-token-burner-action" className="flex flex-col gap-4" aria-label={t("settings.ai.tokenBurner")}>
+              <h3 className="text-base font-medium">{t("settings.ai.tokenBurner")}</h3>
+              {renderActionModelSettings("tokenBurner")}
+            </section>}
+          />
 
         <Dialog open={deletingAiProvider !== null} onOpenChange={(open) => { if (!open && !aiDeleting) setDeletingAiProvider(null); }}>
           <DialogContent>
@@ -1647,6 +1652,11 @@ export function SettingsPage({ section = "integrations", focusActivity, mockMode
           </>
         )
       ) : null}
+      {section === "ai" && (loading || instructionsLoading || reviewAttemptsLoading)
+        ? <StatusToast key="loading" message={t("settings.ai.loading")} variant="loading" />
+        : section === "ai" && (aiSaving || instructionsSaving || reviewAttemptsSaving)
+        ? <StatusToast key="saving" message={t("settings.common.saving")} variant="loading" />
+        : section === "ai" && aiSaveNotice ? <StatusToast key={aiSaveNotice.revision} message={t(aiSaveNotice.key)} onDismiss={() => setAiSaveNotice(null)} /> : null}
     </main>
   );
 }

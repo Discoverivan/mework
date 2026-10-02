@@ -38,7 +38,6 @@ pub async fn general_settings_save(
     task_tracker_notifications_enabled: bool,
     ai_response_language: AiResponseLanguage,
     extra_functions_enabled: bool,
-    ai_review_attempts: u8,
 ) -> Result<GeneralSettingsDto, String> {
     general::save_general_preferences(
         &state,
@@ -48,10 +47,18 @@ pub async fn general_settings_save(
         task_tracker_notifications_enabled,
         ai_response_language,
         extra_functions_enabled,
-        ai_review_attempts,
     )
     .await?;
     general::dto(&state, &app).await
+}
+
+#[tauri::command]
+pub async fn ai_review_attempts_save(
+    state: State<'_, SqlitePool>,
+    attempts: u8,
+) -> Result<u8, String> {
+    general::save_ai_review_attempts(&state, attempts).await?;
+    Ok(attempts)
 }
 
 #[tauri::command]

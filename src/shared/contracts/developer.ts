@@ -92,6 +92,7 @@ export interface PullRequestReviewResult {
 }
 
 export interface PullRequestReviewExecution {
+  promptInstructions?: string | null;
   provider: AiProviderId;
   providerName: string;
   providerInstanceId: string | null;
@@ -101,6 +102,7 @@ export interface PullRequestReviewExecution {
 }
 
 export interface PullRequestReviewState {
+  instructionsChanged?: boolean;
   runId: string;
   status: PullRequestReviewStatus;
   reviewedCommit: string | null;
