@@ -375,13 +375,14 @@ pub async fn get_cached_authored_pull_requests_page(
 
 pub async fn get_cached_authored_pull_request_unread_count(
     pool: &SqlitePool,
+    needs_action_only: bool,
 ) -> Result<u64, DeveloperCommandError> {
     let _state_guard = developer::pull_request_state_lock().lock().await;
     let cache = load_cache(pool).await?;
     let activity_state = load_activity_state(pool).await?;
     let mut values = cache.values;
     apply_activity_state(&activity_state, &mut values);
-    Ok(unread_pull_request_count(&values))
+    Ok(unread_pull_request_count(&values, needs_action_only))
 }
 
 pub async fn mark_authored_pull_request_read(
@@ -627,10 +628,15 @@ fn apply_activity_state(state: &ActivityState, values: &mut [MyPullRequestDto]) 
     }
 }
 
-fn unread_pull_request_count(values: &[MyPullRequestDto]) -> u64 {
+fn unread_pull_request_count(values: &[MyPullRequestDto], needs_action_only: bool) -> u64 {
     values
         .iter()
         .filter(|pull_request| pull_request.activity != PullRequestActivity::Read)
+        .filter(|pull_request| {
+            !needs_action_only
+                || pull_request.needs_action
+                || pull_request.review_summary.needs_work > 0
+        })
         .count() as u64
 }
 
@@ -1163,7 +1169,7 @@ mod tests {
                 author_avatar_url: None,
                 latest_commit: Some(format!("commit-{index}")),
                 review_summary: PullRequestReviewSummaryDto::default(),
-                needs_action: false,
+                needs_action: index >= 120,
                 activity: PullRequestActivity::Updated,
                 review: None,
             })
@@ -1199,10 +1205,16 @@ mod tests {
         save_activity_state(&pool, &state).await.unwrap();
 
         assert_eq!(
-            get_cached_authored_pull_request_unread_count(&pool)
+            get_cached_authored_pull_request_unread_count(&pool, false)
                 .await
                 .unwrap(),
             124
+        );
+        assert_eq!(
+            get_cached_authored_pull_request_unread_count(&pool, true)
+                .await
+                .unwrap(),
+            5
         );
     }
 

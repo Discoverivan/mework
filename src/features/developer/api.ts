@@ -7,12 +7,13 @@ import type {
   PullRequestReviewComment,
   PullRequestReviewSettings,
   PullRequestUnreadCounts,
+  PullRequestUnreadCountsRequest,
   PullRequestReviewState,
   PullRequestReviewStateRequest,
 } from "@/shared/contracts/developer";
 
-export const getPullRequestUnreadCounts = () =>
-  invoke<PullRequestUnreadCounts>("bitbucket_pull_request_unread_counts");
+export const getPullRequestUnreadCounts = (request: PullRequestUnreadCountsRequest) =>
+  invoke<PullRequestUnreadCounts>("bitbucket_pull_request_unread_counts", { request });
 
 export const listMyPullRequests = (start = 0, limit = 100) =>
   invoke<MyPullRequestPage>("bitbucket_my_pull_requests", {

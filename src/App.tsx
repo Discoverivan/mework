@@ -14,6 +14,7 @@ import { PresenterView } from "./features/daily/PresenterView";
 import { DevOverlay } from "./features/dev/DevOverlay";
 import { devOverlayEnabled } from "./features/dev/api";
 import { getPullRequestUnreadCounts, refreshAuthoredPullRequests, refreshMyPullRequests } from "./features/developer/api";
+import { usePullRequestQuickFilter } from "./features/developer/display-options";
 import { listTaskTrackerMonitors } from "@/shared/contracts/task-tracker";
 import type { TaskTrackerMonitor } from "@/shared/contracts/task-tracker";
 import { EMPTY_UPDATE_AVAILABILITY, type UpdateAvailabilitySnapshot } from "@/shared/contracts/updates";
@@ -66,6 +67,8 @@ function AppContent() {
   const [modelTestingPreferenceLoaded, setModelTestingPreferenceLoaded] = useState(false);
   const [unreadPullRequestCount, setUnreadPullRequestCount] = useState(0);
   const [unreadAuthoredPullRequestCount, setUnreadAuthoredPullRequestCount] = useState(0);
+  const [reviewerQuickFilter] = usePullRequestQuickFilter("reviewer");
+  const [authoredQuickFilter] = usePullRequestQuickFilter("authored");
   const [taskTrackerMonitors, setTaskTrackerMonitors] = useState<TaskTrackerMonitor[]>([]);
   const [taskTrackerReadCheckpoints, setTaskTrackerReadCheckpoints] = useState<TaskTrackerReadCheckpoints>(
     () => loadTaskTrackerReadCheckpoints(),
@@ -264,7 +267,10 @@ function AppContent() {
     const refreshCachedCount = async () => {
       const revision = ++refreshRevision;
       try {
-        const counts = await getPullRequestUnreadCounts();
+        const counts = await getPullRequestUnreadCounts({
+          reviewerPendingOnly: reviewerQuickFilter === "pending",
+          authoredNeedsActionOnly: authoredQuickFilter === "needs_action",
+        });
         if (!active || revision !== refreshRevision) return;
         setUnreadPullRequestCount(counts.reviewer);
         setUnreadAuthoredPullRequestCount(counts.authored);
@@ -286,7 +292,7 @@ function AppContent() {
       unsubscribeReviewer();
       unsubscribeAuthored();
     };
-  }, []);
+  }, [reviewerQuickFilter, authoredQuickFilter]);
 
   useEffect(() => {
     let active = true;
