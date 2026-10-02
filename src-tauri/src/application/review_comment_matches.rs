@@ -90,6 +90,68 @@ struct CachedComparison {
     matches: Vec<CommentMatch>,
 }
 
+#[cfg(feature = "dev-mock-rest")]
+fn mock_comparison(
+    scope: &str,
+    findings: &[PullRequestReviewComment],
+    existing: &[ExistingComment],
+) -> Option<CommentMatches> {
+    let scope: serde_json::Value = serde_json::from_str(scope).ok()?;
+    if scope[0] != super::dev_overlay::MOCK_INTEGRATION_ID
+        || scope[1] != "pull_request"
+        || scope[2] != "MOCK"
+        || scope[3] != "sample-repository"
+    {
+        return None;
+    }
+    let fixtures = super::mock_reviews::findings(scope[4].as_u64()?);
+    let matches = findings
+        .iter()
+        .enumerate()
+        .filter_map(|(index, finding)| {
+            let exact = existing.iter().find(|comment| {
+                comment.file == finding.file && comment.text.trim() == finding.comment.trim()
+            });
+            let fixture = fixtures.iter().find(|fixture| {
+                fixture.finding.file == finding.file
+                    && (fixture.finding.comment == finding.comment
+                        || (!fixture.addition.is_empty() && fixture.addition == finding.comment))
+            });
+            let comment = exact.or_else(|| {
+                fixture.and_then(|fixture| {
+                    existing.iter().find(|comment| {
+                        comment.file == finding.file
+                            && fixture.existing.as_deref() == Some(comment.text.as_str())
+                    })
+                })
+            })?;
+            let addition = if exact.is_some()
+                || fixture.is_some_and(|fixture| {
+                    !fixture.addition.is_empty()
+                        && existing.iter().any(|reply| {
+                            reply.thread_id == comment.thread_id && reply.text == fixture.addition
+                        })
+                }) {
+                String::new()
+            } else {
+                fixture?.addition.clone()
+            };
+            Some(CommentMatch {
+                index,
+                comment_id: comment.id,
+                coverage: if addition.is_empty() {
+                    Coverage::Full
+                } else {
+                    Coverage::Partial
+                },
+                addition,
+                parent_comment_id: Some(comment.thread_id),
+            })
+        })
+        .collect();
+    Some(CommentMatches { matches })
+}
+
 fn validate_matches(
     matches: &[CommentMatch],
     findings: &[PullRequestReviewComment],
@@ -142,6 +204,13 @@ pub async fn compare(
         return Ok(CommentMatches {
             matches: Vec::new(),
         });
+    }
+    #[cfg(feature = "dev-mock-rest")]
+    if super::dev_overlay::current_mock_mode_requested() {
+        if let Some(comparison) = mock_comparison(scope, findings, &existing) {
+            validate_matches(&comparison.matches, findings, &existing)?;
+            return Ok(comparison);
+        }
     }
     let settings =
         super::ai::settings_for_activity(pool, super::ai::AiActivity::PullRequestReview).await?;
@@ -252,6 +321,148 @@ pub fn publication_conflicts(matches: &[CommentMatch], parent_comment_id: Option
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(feature = "dev-mock-rest")]
+    #[tokio::test]
+    async fn mock_gallery_loads_completed_reviews_and_matches_live_discussions() {
+        use super::super::{dev_overlay, mock_rest::MockIntegrationServer};
+        use crate::infrastructure::data_integrations::bitbucket_dc::client::BitbucketDcClient;
+        let mode = dev_overlay::MockIntegrationState::new(true);
+        let server = MockIntegrationServer::start(mode.clone()).await.unwrap();
+        let workspace = tempfile::tempdir().unwrap();
+        let pool =
+            crate::infrastructure::db::open_database(&workspace.path().join("mework-mock.sqlite"))
+                .await
+                .unwrap();
+        dev_overlay::seed_mock_settings(&pool, Some(server.urls()))
+            .await
+            .unwrap();
+        let mut requests = mode.reviewer_page().unwrap().values;
+        let client = BitbucketDcClient::new(&server.urls().bitbucket).unwrap();
+        let remote = client.list_my_pull_requests_page(0, 20).await.unwrap();
+        for request in &mut requests {
+            let wire = remote
+                .values
+                .iter()
+                .find(|wire| wire.id.to_string() == request.pull_request_id)
+                .unwrap();
+            request.latest_commit = wire.from_ref.latest_commit.clone();
+        }
+        developer_review::attach_review_states(&pool, &mut requests)
+            .await
+            .unwrap();
+        assert_eq!(requests.len(), 6);
+        assert!(requests
+            .iter()
+            .take(5)
+            .all(|request| request.review.as_ref().is_some_and(
+                |review| review.status == developer_review::PullRequestReviewStatus::Completed
+            )));
+        let failed_review = requests[5].review.as_ref().unwrap();
+        assert_eq!(
+            failed_review.status,
+            developer_review::PullRequestReviewStatus::Failed
+        );
+        assert!(failed_review.result.is_none());
+        assert_eq!(
+            failed_review.error.as_deref(),
+            Some("AI provider returned an invalid review comment")
+        );
+        assert_eq!(requests[0].my_decision, "approved");
+        assert!(requests[0]
+            .review
+            .as_ref()
+            .unwrap()
+            .result
+            .as_ref()
+            .unwrap()
+            .comments
+            .is_empty());
+        let findings = &requests[4]
+            .review
+            .as_ref()
+            .unwrap()
+            .result
+            .as_ref()
+            .unwrap()
+            .comments;
+        let severities: std::collections::HashSet<_> =
+            findings.iter().map(|finding| finding.severity).collect();
+        assert_eq!(severities.len(), 4);
+        let comments = client
+            .list_pull_request_comments("MOCK", "sample-repository", 45, 100)
+            .await
+            .unwrap();
+        let scope =
+            r#"["mock-bitbucket","pull_request","MOCK","sample-repository",45,"mock-commit-45"]"#;
+        let existing = existing_comments(&comments);
+        let comparison = mock_comparison(scope, findings, &existing).unwrap();
+        validate_matches(&comparison.matches, findings, &existing).unwrap();
+        assert_eq!(
+            comparison
+                .matches
+                .iter()
+                .filter(|matched| matched.coverage == Coverage::Full)
+                .count(),
+            2
+        );
+        assert_eq!(
+            comparison
+                .matches
+                .iter()
+                .filter(|matched| matched.coverage == Coverage::Partial)
+                .count(),
+            2
+        );
+        let partial = comparison
+            .matches
+            .iter()
+            .find(|matched| matched.coverage == Coverage::Partial)
+            .unwrap();
+        let mut reply = findings[partial.index].clone();
+        reply.comment = partial.addition.clone();
+        let rechecked = mock_comparison(scope, &[reply], &existing).unwrap();
+        assert!(!publication_conflicts(
+            &rechecked.matches,
+            partial.parent_comment_id
+        ));
+        assert!(valid_reply_parent(
+            &comments,
+            partial.parent_comment_id.unwrap(),
+            &findings[partial.index].file
+        ));
+        client
+            .reply_pull_request_comment(
+                "MOCK",
+                "sample-repository",
+                45,
+                partial.parent_comment_id.unwrap(),
+                &partial.addition,
+            )
+            .await
+            .unwrap();
+        let updated = client
+            .list_pull_request_comments("MOCK", "sample-repository", 45, 100)
+            .await
+            .unwrap();
+        assert!(updated
+            .iter()
+            .any(|comment| comment.id == partial.parent_comment_id.unwrap()
+                && comment
+                    .comments
+                    .iter()
+                    .any(|reply| reply.text == partial.addition)));
+        let comparison = mock_comparison(scope, findings, &existing_comments(&updated)).unwrap();
+        assert_eq!(
+            comparison
+                .matches
+                .iter()
+                .find(|matched| matched.index == partial.index)
+                .unwrap()
+                .coverage,
+            Coverage::Full
+        );
+    }
+
     #[test]
     fn validates_file_scoped_matches_and_reply_parent() {
         let comments: Vec<BitbucketComment> = serde_json::from_value(serde_json::json!([
