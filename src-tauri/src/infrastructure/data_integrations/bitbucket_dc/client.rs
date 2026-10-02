@@ -753,6 +753,53 @@ impl BitbucketDcClient {
         .map_err(|_| BitbucketDcError::InvalidResponse)
     }
 
+    pub async fn reply_pull_request_comment(
+        &self,
+        project_key: &str,
+        repository_slug: &str,
+        pull_request_id: u64,
+        parent_id: u64,
+        text: &str,
+    ) -> Result<BitbucketComment, BitbucketDcError> {
+        validate_path_segment(project_key)?;
+        validate_path_segment(repository_slug)?;
+        if parent_id == 0 || text.trim().is_empty() {
+            return Err(BitbucketDcError::InvalidRequest);
+        }
+        let url = self.url_with_segments(&[
+            "rest",
+            "api",
+            "1.0",
+            "projects",
+            project_key,
+            "repos",
+            repository_slug,
+            "pull-requests",
+            &pull_request_id.to_string(),
+            "comments",
+        ])?;
+        let response = self
+            .authenticated_request_with_method(Method::POST, url)
+            .json(&serde_json::json!({ "text": text, "parent": { "id": parent_id } }))
+            .send_logged(
+                "data_integrations.bitbucket_dc",
+                "reply_pull_request_comment",
+                crate::application::logging::HttpBodyPolicy::Integration,
+            )
+            .await
+            .map_err(|_| BitbucketDcError::Transport)?;
+        if !response.status().is_success() {
+            return Err(Self::http_error(response).await);
+        }
+        crate::application::logging::parse_json_response::<BitbucketComment>(
+            response,
+            "data_integrations.bitbucket_dc",
+            "reply_pull_request_comment",
+        )
+        .await
+        .map_err(|_| BitbucketDcError::InvalidResponse)
+    }
+
     pub async fn set_pull_request_participant_status(
         &self,
         project_key: &str,

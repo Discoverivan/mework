@@ -208,11 +208,11 @@ pub async fn pull_request_review_publish_comment(
 }
 
 #[tauri::command]
-pub async fn pull_request_review_published_comments(
+pub async fn pull_request_review_comment_matches(
     state: State<'_, SqlitePool>,
-    request: developer::PullRequestPublishedCommentsRequest,
-) -> Result<Vec<usize>, DeveloperCommandError> {
-    developer::published_pull_request_comments(&state, request).await
+    request: developer::PullRequestCommentMatchesRequest,
+) -> Result<crate::application::review_comment_matches::CommentMatches, DeveloperCommandError> {
+    developer::pull_request_comment_matches(&state, request).await
 }
 
 #[tauri::command]

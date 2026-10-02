@@ -6,6 +6,28 @@ use super::error::BitbucketDcError;
 use super::models::BitbucketPullRequestAuthor;
 
 #[tokio::test]
+async fn publishes_clarification_as_reply_to_existing_comment() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/rest/api/1.0/projects/DEMO/repos/sample-repository/pull-requests/7/comments"))
+        .and(body_json(serde_json::json!({ "text": "Wait for pending requests before shutdown.", "parent": { "id": 11 } })))
+        .respond_with(ResponseTemplate::new(201).set_body_json(serde_json::json!({ "id": 12, "version": 0, "text": "Wait for pending requests before shutdown." })))
+        .expect(1).mount(&server).await;
+    let client = BitbucketDcClient::new(server.uri()).unwrap();
+    let reply = client
+        .reply_pull_request_comment(
+            "DEMO",
+            "sample-repository",
+            7,
+            11,
+            "Wait for pending requests before shutdown.",
+        )
+        .await
+        .unwrap();
+    assert_eq!(reply.id, 12);
+}
+
+#[tokio::test]
 async fn error_response_retains_only_safe_provider_messages() {
     let server = MockServer::start().await;
     Mock::given(method("GET"))

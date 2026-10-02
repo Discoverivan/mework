@@ -25,7 +25,7 @@ import type {
   BitbucketUser,
   MyPullRequest,
   MyPullRequestPage,
-  PullRequestReviewComment,
+  PullRequestPublishableComment,
   PullRequestReviewSettings,
   PullRequestReviewState,
 } from "@/shared/contracts/developer";
@@ -565,10 +565,15 @@ export function MyPullRequestsPage() {
     }
   }
 
-  async function publishReviewComment(pullRequest: MyPullRequest, comment: PullRequestReviewComment) {
+  async function publishReviewComment(pullRequest: MyPullRequest, comment: PullRequestPublishableComment) {
     try {
       await publishPullRequestComment(pullRequest, comment);
     } catch (reason) {
+      if (typeof reason === "object" && reason !== null && "code" in reason) {
+        if (reason.code === "comment_comparison_failed") throw new Error(t("pr.dialog.publicationCheckError"));
+        if (reason.code === "comment_discussion_changed") throw new Error(t("pr.dialog.discussionChanged"));
+        if (reason.code === "reply_target_unavailable") throw new Error(t("pr.dialog.replyTargetUnavailable"));
+      }
       throw new Error(commandError(reason));
     }
   }

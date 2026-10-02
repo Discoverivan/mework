@@ -11,7 +11,7 @@ import { getAiSettings } from "../settings/api";
 import {
   getPullRequestReviewSettings,
   getPullRequestReviewStates,
-  getPublishedPullRequestComments,
+  getPullRequestCommentMatches,
   listMyPullRequests,
   markAllPullRequestsRead,
   markPullRequestRead,
@@ -35,7 +35,7 @@ vi.mock("../settings/api", () => ({
 vi.mock("./api", () => ({
   getPullRequestReviewSettings: vi.fn(),
   getPullRequestReviewStates: vi.fn(),
-  getPublishedPullRequestComments: vi.fn(),
+  getPullRequestCommentMatches: vi.fn(),
   listMyPullRequests: vi.fn(),
   markAllPullRequestsRead: vi.fn(),
   markPullRequestRead: vi.fn(),
@@ -52,7 +52,7 @@ vi.mock("./api", () => ({
 const getAiSettingsMock = vi.mocked(getAiSettings);
 const getSettingsMock = vi.mocked(getPullRequestReviewSettings);
 const getReviewStatesMock = vi.mocked(getPullRequestReviewStates);
-const getPublishedCommentsMock = vi.mocked(getPublishedPullRequestComments);
+const getCommentMatchesMock = vi.mocked(getPullRequestCommentMatches);
 const listMyPullRequestsMock = vi.mocked(listMyPullRequests);
 const refreshMyPullRequestsMock = vi.mocked(refreshMyPullRequests);
 const removeReviewerMock = vi.mocked(removePullRequestReviewer);
@@ -201,7 +201,7 @@ describe("MyPullRequestsPage", () => {
     getAiSettingsMock.mockResolvedValue(aiSettingsConnected);
     getSettingsMock.mockResolvedValue(emptySettings);
     getReviewStatesMock.mockResolvedValue({});
-    getPublishedCommentsMock.mockResolvedValue([]);
+    getCommentMatchesMock.mockResolvedValue({ matches: [] });
     markPullRequestReadMock.mockResolvedValue({ integrationId: "bitbucket-1", pullRequestId: "7", activity: "read" });
     markAllPullRequestsReadMock.mockResolvedValue({ markedCount: 2 });
     startReviewMock.mockResolvedValue(runningReview);
@@ -856,18 +856,31 @@ describe("MyPullRequestsPage", () => {
     expect(await screen.findByRole("button", { name: "AI review…" })).toBeDisabled();
   });
 
-  it("restores published AI comments from the PR when opening persisted review results", async () => {
+  it("links a covered finding and publishes a missing clarification as a reply", async () => {
     listMyPullRequestsMock.mockResolvedValueOnce({
       ...firstPage,
       values: [{ ...pullRequests[0], review: completedReview }, pullRequests[1]],
     });
-    getPublishedCommentsMock.mockResolvedValue([1]);
+    getCommentMatchesMock.mockResolvedValue({ matches: [
+      { index: 1, commentId: 11, coverage: "full", addition: "" },
+      { index: 0, commentId: 12, parentCommentId: 11, coverage: "partial", addition: "Wait for pending requests before shutdown." },
+    ] });
     await renderFlatPage();
     fireEvent.click(await screen.findByRole("button", { name: "AI review results" }));
-    const published = await screen.findByRole("button", { name: "Publish comment for src/timeout.ts" });
-    await waitFor(() => expect(published).toHaveAttribute("title", "Published"));
-    expect(published).toBeDisabled();
-    expect(getPublishedCommentsMock).toHaveBeenCalledWith(expect.objectContaining({
+    const existing = await screen.findByRole("link", { name: "Existing comment for src/timeout.ts" });
+    expect(existing).toHaveAttribute("href", `${pullRequests[0].url}/overview?commentId=11`);
+    expect(screen.queryByRole("button", { name: "Publish comment for src/timeout.ts" })).not.toBeInTheDocument();
+    expect(screen.getByText("Duplicate: an existing discussion already fully covers this finding.")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Existing comment for src/retry.ts" })).toHaveAttribute("href", `${pullRequests[0].url}/overview?commentId=12`);
+    fireEvent.click(screen.getByRole("button", { name: "Publish clarification" }));
+    const editor = await screen.findByRole("dialog", { name: "Publish clarification" });
+    expect(within(editor).getByLabelText("Review comment")).toHaveValue("Wait for pending requests before shutdown.");
+    expect(publishCommentMock).not.toHaveBeenCalled();
+    fireEvent.click(within(editor).getByRole("button", { name: "Send" }));
+    await waitFor(() => expect(publishCommentMock).toHaveBeenCalledWith(expect.objectContaining({ pullRequestId: "7" }), {
+      ...completedReview.result!.comments[0], comment: "Wait for pending requests before shutdown.", parentCommentId: 11,
+    }));
+    expect(getCommentMatchesMock).toHaveBeenCalledWith(expect.objectContaining({
       integrationId: "bitbucket-1", projectKey: "DEMO", repositorySlug: "sample-repository",
       pullRequestId: "7", comments: completedReview.result!.comments,
     }));
