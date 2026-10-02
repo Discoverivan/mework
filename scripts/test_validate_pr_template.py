@@ -20,13 +20,7 @@ SPEC.loader.exec_module(VALIDATOR)
 
 class ValidatePrTemplateTests(unittest.TestCase):
     def test_accepts_application_pr_with_english_release_notes(self) -> None:
-        body = """## Summary
-Add sprint summaries.
-
-## Checks
-- Tests passed.
-
-## Release notes
+        body = """## Release notes
 <!-- release-notes:en -->
 ### Added
 - Generate AI summaries for sprint tasks.
@@ -66,8 +60,6 @@ Update contributor documentation.
 
     def test_rejects_pr_without_required_template_sections(self) -> None:
         errors = VALIDATOR.validate_pr("Free-form PR description.", ["docs/example.md"])
-        self.assertTrue(any("## Summary" in error for error in errors))
-        self.assertTrue(any("## Checks" in error for error in errors))
         self.assertTrue(any("## Release notes" in error for error in errors))
 
     def test_rejects_application_pr_without_nonempty_categorized_notes(self) -> None:

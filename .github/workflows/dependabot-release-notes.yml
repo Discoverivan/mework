@@ -1,0 +1,33 @@
+name: Dependabot release notes
+
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+
+permissions:
+  contents: read
+  pull-requests: write
+  actions: write
+
+concurrency:
+  group: dependabot-notes-${{ github.event.workflow_run.head_branch }}
+  cancel-in-progress: false
+
+jobs:
+  release-notes:
+    if: github.event.workflow_run.event == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      # workflow_run uses the default branch. Never check out the PR head here:
+      # this job can edit PR descriptions and re-run CI with its write token.
+      - name: Checkout trusted workflow revision
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - name: Add missing Dependabot release notes and re-run failed CI
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 scripts/dependabot-release-notes.py

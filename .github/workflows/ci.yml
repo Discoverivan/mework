@@ -23,7 +23,9 @@ jobs:
         uses: actions/checkout@v7
 
       - name: Test pull request template validator
-        run: python3 scripts/test_validate_pr_template.py
+        run: |
+          python3 scripts/test_validate_pr_template.py
+          python3 scripts/test_dependabot_release_notes.py
 
       - name: Validate pull request template and release notes
         if: github.event_name == 'pull_request'

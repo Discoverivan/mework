@@ -1,10 +1,10 @@
 ## Summary
 
-<!-- What does this PR change, and why? -->
+<!-- Optional: what does this PR change, and why? -->
 
 ## Checks
 
-<!-- List the focused tests, lint, build, or other checks you ran. -->
+<!-- Optional: list the focused tests, lint, build, or other checks you ran. -->
 
 ## Release notes
 
