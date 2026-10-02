@@ -151,6 +151,16 @@ export function PullRequestReviewDialog({
     && (publicationStatus?.scope !== publicationScope || !publicationStatus.checked);
   const publishedComments = publicationStatus?.scope === publicationScope ? publicationStatus.published : new Set<string>();
   const commentMatches = publicationStatus?.scope === publicationScope ? publicationStatus.matches : [];
+  const comparisonFailed = publicationStatus?.scope === publicationScope && publicationStatus.failed;
+  const editingMatch = editingComment ? commentMatches.find((match) => match.index === editingComment.index) : undefined;
+  const editingParent = editingMatch?.coverage === "partial" ? editingMatch.parentCommentId ?? editingMatch.commentId : undefined;
+  const editingDestinationChanged = Boolean(editingComment && !checkingPublication && editingComment.parentCommentId !== editingParent);
+  const editingDuplicate = editingMatch?.coverage === "full";
+
+  function retryComparison() {
+    setActionError(undefined);
+    setCheckAttempt((attempt) => attempt + 1);
+  }
 
   useEffect(() => {
     if (!open || !publicationRequest) return;
@@ -315,7 +325,7 @@ export function PullRequestReviewDialog({
                               const matchedUrl = matched ? existingCommentUrl(pullRequest?.url, matched.commentId) : undefined;
                               const status: CommentStatus = pendingAction === commentKey(comment, index) ? "publishing"
                                 : published ? "published"
-                                : publicationStatus?.scope === publicationScope && publicationStatus.failed ? "checkFailed"
+                                : comparisonFailed ? "checkFailed"
                                 : checkingPublication ? "checking"
                                 : matched?.coverage === "full" ? "duplicate"
                                 : matched?.coverage === "partial" ? "partial" : "ready";
@@ -334,7 +344,7 @@ export function PullRequestReviewDialog({
                                       {status === "checking" || status === "publishing" ? <Loader2 aria-hidden="true" className="size-4 animate-spin" /> : status === "checkFailed" ? <CircleAlert aria-hidden="true" className="size-4" /> : status === "published" ? <CheckCircle2 aria-hidden="true" className="size-4" /> : null}
                                       {t(`pr.dialog.commentStatus.${status}`)}
                                     </span> : null}
-                                    {status === "checkFailed" ? <Button type="button" variant="outline" size="icon" className="size-8" aria-label={t("pr.dialog.retryComparisonFor", { file: reviewCommentPath(comment.file) })} title={t("pr.dialog.retryComparison")} onClick={() => setCheckAttempt((attempt) => attempt + 1)}><RefreshCw aria-hidden="true" /></Button>
+                                    {status === "checkFailed" ? <Button type="button" variant="outline" size="icon" className="size-8" aria-label={t("pr.dialog.retryComparisonFor", { file: reviewCommentPath(comment.file) })} title={t("pr.dialog.retryComparison")} onClick={retryComparison}><RefreshCw aria-hidden="true" /></Button>
                                     : status === "checking" ? null
                                     : matched?.coverage === "full" && matchedUrl ? (
                                       <Button asChild variant="outline" size="sm">
@@ -480,6 +490,17 @@ export function PullRequestReviewDialog({
                 autoFocus
               />
             </div>
+            {comparisonFailed ? <Alert variant="destructive">
+              <CircleAlert aria-hidden="true" />
+              <AlertDescription className="space-y-2">
+                <p>{t("pr.dialog.publicationCheckError")}</p>
+                <Button type="button" variant="outline" size="sm" onClick={retryComparison}><RefreshCw aria-hidden="true" />{t("pr.dialog.retryComparison")}</Button>
+              </AlertDescription>
+            </Alert> : checkingPublication ? <p role="status" className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 aria-hidden="true" className="size-4 animate-spin" />{t("pr.dialog.commentStatus.checking")}</p>
+              : editingDuplicate || editingDestinationChanged ? <Alert>
+                <CircleAlert aria-hidden="true" />
+                <AlertDescription>{t(editingDuplicate ? "pr.dialog.duplicateCovered" : "pr.dialog.editorDestinationChanged")}</AlertDescription>
+              </Alert> : null}
             {actionError ? <p role="alert" className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">{actionError}</p> : null}
           </DialogBody>
           <DialogFooter>
@@ -502,7 +523,7 @@ export function PullRequestReviewDialog({
               onClick={() => {
                 if (editingComment) void publishComment(editingComment.comment, editingComment.index, commentDraft, editingComment.parentCommentId);
               }}
-              disabled={!editingComment || !onPublishComment || !commentDraft.trim() || pendingAction != null || checkingPublication}
+              disabled={!editingComment || !onPublishComment || !commentDraft.trim() || pendingAction != null || checkingPublication || editingDuplicate || editingDestinationChanged}
             >
               {pendingAction != null ? <Loader2 aria-hidden="true" className="size-4 animate-spin" /> : <Send aria-hidden="true" className="size-4" />}
               {pendingAction != null ? t("pr.dialog.sending") : t("pr.dialog.send")}

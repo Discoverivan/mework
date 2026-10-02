@@ -1077,6 +1077,7 @@ export const en = {
   "pr.dialog.publishAddition": "Publish clarification",
   "pr.dialog.additionDescription": "Review the missing clarification before publishing it as a reply to the existing comment.",
   "pr.dialog.discussionChanged": "An existing discussion covers this comment. Review the refreshed results before publishing.",
+  "pr.dialog.editorDestinationChanged": "The matching discussion changed. Cancel this editor and reopen the comment action to review and confirm the updated destination.",
   "pr.dialog.replyTargetUnavailable": "The existing comment is no longer available in this file. Review the refreshed results.",
   "pr.dialog.publicationCheckError": "Unable to compare existing comments in the pull request. Retry the check before publishing.",
   "pr.dialog.publishing": "Publishing…",

@@ -866,6 +866,7 @@ describe("MyPullRequestsPage", () => {
     getCommentMatchesMock.mockImplementation(() => new Promise((resolve) => { finishComparison = resolve; }));
     let finishPublication!: (value: { commentId: number }) => void;
     publishCommentMock.mockImplementation(() => new Promise((resolve) => { finishPublication = resolve; }));
+    publishCommentMock.mockRejectedValueOnce(new Error("Discussion changed"));
     await renderFlatPage();
     fireEvent.click(await screen.findByRole("button", { name: "AI review results" }));
     for (const comment of completedReview.result!.comments) {
@@ -888,9 +889,24 @@ describe("MyPullRequestsPage", () => {
     const editor = await screen.findByRole("dialog", { name: "Publish clarification" });
     expect(within(editor).getByLabelText("Review comment")).toHaveValue("Wait for pending requests before shutdown.");
     expect(publishCommentMock).not.toHaveBeenCalled();
+    getCommentMatchesMock.mockResolvedValue({ matches: [
+      { index: 1, commentId: 11, coverage: "full", addition: "" },
+      { index: 0, commentId: 22, parentCommentId: 21, coverage: "partial", addition: "Wait for pending requests before shutdown." },
+    ] });
     fireEvent.click(within(editor).getByRole("button", { name: "Send" }));
     await waitFor(() => expect(publishCommentMock).toHaveBeenCalledWith(expect.objectContaining({ pullRequestId: "7" }), {
       ...completedReview.result!.comments[0], comment: "Wait for pending requests before shutdown.", parentCommentId: 11,
+    }));
+    await waitFor(() => expect(within(editor).getByRole("button", { name: "Send" })).toBeDisabled());
+    expect(within(editor).getByText("The matching discussion changed. Cancel this editor and reopen the comment action to review and confirm the updated destination.")).toBeInTheDocument();
+    expect(within(editor).getByLabelText("Review comment")).toHaveValue("Wait for pending requests before shutdown.");
+    expect(publishCommentMock).toHaveBeenCalledTimes(1);
+    fireEvent.click(within(editor).getByRole("button", { name: "Cancel" }));
+    fireEvent.click(screen.getByRole("button", { name: "Publish clarification" }));
+    const updatedEditor = await screen.findByRole("dialog", { name: "Publish clarification" });
+    fireEvent.click(within(updatedEditor).getByRole("button", { name: "Send" }));
+    await waitFor(() => expect(publishCommentMock).toHaveBeenLastCalledWith(expect.objectContaining({ pullRequestId: "7" }), {
+      ...completedReview.result!.comments[0], comment: "Wait for pending requests before shutdown.", parentCommentId: 21,
     }));
     expect(screen.getByText("Publishing…", { selector: "span" })).toHaveAttribute("aria-label", "Comment status for src/retry.ts");
     finishPublication({ commentId: 13 });
