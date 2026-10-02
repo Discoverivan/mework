@@ -191,6 +191,21 @@ def changed_files(repository: str, number: int) -> list[str]:
     return [line for line in result.stdout.splitlines() if line]
 
 
+def github_api(endpoint: str, method: str = "GET", data: dict | None = None) -> object:
+    command = ["gh", "api", "--method", method, endpoint]
+    if data is not None:
+        command.extend(["--input", "-"])
+    result = subprocess.run(
+        command,
+        input=json.dumps(data) if data is not None else None,
+        check=True,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+    )
+    return json.loads(result.stdout) if result.stdout.strip() else None
+
+
 def main() -> int:
     event = json.loads(Path(os.environ["GITHUB_EVENT_PATH"]).read_text(encoding="utf-8"))
     pull_request = event.get("pull_request")
@@ -198,10 +213,11 @@ def main() -> int:
         print("This validator must run for a pull_request event.", file=sys.stderr)
         return 2
 
-    errors = validate_pr(
-        pull_request.get("body") or "",
-        changed_files(os.environ["GITHUB_REPOSITORY"], pull_request["number"]),
-    )
+    repository = os.environ["GITHUB_REPOSITORY"]
+    number = pull_request["number"]
+    # Re-runs retain the original event payload, including its stale PR body.
+    current_pr = github_api(f"repos/{repository}/pulls/{number}")
+    errors = validate_pr(current_pr.get("body") or "", changed_files(repository, number))
     if errors:
         print("Pull request does not meet the template requirements:", file=sys.stderr)
         for error in errors:
