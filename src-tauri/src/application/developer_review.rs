@@ -495,6 +495,13 @@ pub async fn start_review_with_diff<R: Runtime>(
         usage: None,
     };
     tauri::async_runtime::spawn(async move {
+        let comparison_pr = PullRequestReviewStateRequest {
+            integration_id: request.integration_id.clone(),
+            project_key: request.project_key.clone(),
+            repository_slug: request.repository_slug.clone(),
+            pull_request_id: request.pull_request_id.clone(),
+            latest_commit: request.latest_commit.clone(),
+        };
         let execution = tauri::async_runtime::spawn_blocking(move || {
             retry_review(ai_review_attempts, || {
                 execute_review_with_usage(
@@ -518,7 +525,7 @@ pub async fn start_review_with_diff<R: Runtime>(
             usage: usage_counts,
             ..usage
         };
-        finish_review(
+        let completed_result = finish_review(
             &worker_pool,
             &worker_app,
             &worker_key,
@@ -527,6 +534,30 @@ pub async fn start_review_with_diff<R: Runtime>(
             usage,
         )
         .await;
+        if let Some(result) = completed_result.filter(|result| !result.comments.is_empty()) {
+            // Publish the completed review first, then prepare comparisons in this background
+            // worker. Opening the dialog uses the same comparison owner and durable cache.
+            crate::application::logging::info(
+                "developer_review",
+                "background_comment_comparison_started",
+                serde_json::json!({ "runId": finish_run_id, "commentCount": result.comments.len() }),
+            );
+            if let Err(error) = super::developer::pull_request_comment_matches(
+                &worker_pool,
+                super::developer::PullRequestCommentMatchesRequest {
+                    pull_request: comparison_pr,
+                    comments: result.comments,
+                },
+            )
+            .await
+            {
+                crate::application::logging::error(
+                    "developer_review",
+                    "background_comment_comparison_failed",
+                    serde_json::json!({ "runId": finish_run_id, "code": error.code }),
+                );
+            }
+        }
     });
 
     Ok(run)
@@ -588,7 +619,7 @@ async fn finish_review<R: Runtime>(
     run_id: &str,
     outcome: Result<PullRequestReviewResult, String>,
     usage: ReviewUsageContext,
-) {
+) -> Option<PullRequestReviewResult> {
     let ReviewUsageContext {
         provider_id,
         model,
@@ -602,17 +633,17 @@ async fn finish_review<R: Runtime>(
         Ok(value) => value,
         Err(_) => {
             deactivate_review_run(run_id);
-            return;
+            return None;
         }
     };
     let payload = {
         let Some(run) = state.reviews.get_mut(key) else {
             deactivate_review_run(run_id);
-            return;
+            return None;
         };
         if run.run_id != run_id {
             deactivate_review_run(run_id);
-            return;
+            return None;
         };
         run.finished_at = Some(now_millis());
         match outcome {
@@ -629,13 +660,15 @@ async fn finish_review<R: Runtime>(
         }
         run.clone()
     };
-    if save_state(pool, &state).await.is_ok() {
+    let saved = save_state(pool, &state).await.is_ok();
+    if saved {
         let _ = app.emit(
             "pull_request_review_changed",
             serde_json::json!({ "key": key, "review": payload }),
         );
     }
     deactivate_review_run(run_id);
+    saved.then_some(payload.result).flatten()
 }
 
 fn retry_review<T>(
