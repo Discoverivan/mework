@@ -87,7 +87,7 @@ def release_notes(body: str) -> tuple[dict[str, str], list[str]]:
             errors.append(f"Use only one release-notes block for {language}.")
         blocks[language] = text
 
-    marker_lines = re.findall(r"(?m)^<!-- /?release-notes:[^>]+-->[ \t]*$", notes_section)
+    marker_lines = re.findall(r"(?m)^<!-- /?release-notes:[^>]+-->[ \t]*\r?$", notes_section)
     if len(marker_lines) != sum(2 for _ in NOTE_BLOCK.finditer(notes_section)):
         errors.append("Every release-notes language marker must have a matching block.")
     if "en" not in blocks:
