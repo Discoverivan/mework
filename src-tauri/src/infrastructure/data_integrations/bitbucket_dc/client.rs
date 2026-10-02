@@ -9,7 +9,8 @@ const MAX_PULL_REQUEST_DIFF_BYTES: usize = 2_000_000;
 
 use super::models::{
     BitbucketBuildStatus, BitbucketComment, BitbucketDashboardPullRequest, BitbucketDiffResponse,
-    BitbucketPage, BitbucketParticipant, BitbucketPullRequest, BitbucketRepository, BitbucketUser,
+    BitbucketPage, BitbucketParticipant, BitbucketPullRequest, BitbucketPullRequestActivity,
+    BitbucketRepository, BitbucketUser,
 };
 
 enum Authentication {
@@ -448,22 +449,56 @@ impl BitbucketDcClient {
         validate_path_segment(project_key)?;
         validate_path_segment(repository_slug)?;
         validate_limit(limit)?;
-        self.fetch_page(
-            &[
-                "rest",
-                "api",
-                "1.0",
-                "projects",
-                project_key,
-                "repos",
-                repository_slug,
-                "pull-requests",
-                &pull_request_id.to_string(),
-                "comments",
-            ],
-            &[("limit", limit.to_string()), ("start", start.to_string())],
-        )
-        .await
+        // GET /comments is file-scoped and requires path. The activity feed
+        // provides all PR comments and keeps inline anchors on the activity.
+        let page: BitbucketPage<BitbucketPullRequestActivity> = self
+            .fetch_page(
+                &[
+                    "rest",
+                    "api",
+                    "1.0",
+                    "projects",
+                    project_key,
+                    "repos",
+                    repository_slug,
+                    "pull-requests",
+                    &pull_request_id.to_string(),
+                    "activities",
+                ],
+                &[("limit", limit.to_string()), ("start", start.to_string())],
+            )
+            .await?;
+        fn inherit_anchor(
+            comment: &mut BitbucketComment,
+            anchor: Option<&super::models::BitbucketCommentAnchor>,
+        ) {
+            if comment.anchor.is_none() {
+                comment.anchor = anchor.cloned();
+            }
+            for reply in &mut comment.comments {
+                inherit_anchor(reply, comment.anchor.as_ref());
+            }
+        }
+        Ok(BitbucketPage {
+            values: page
+                .values
+                .into_iter()
+                .filter_map(|activity| {
+                    let mut comment = activity.comment?;
+                    if activity.comment_action.as_deref() == Some("DELETED") {
+                        comment.deleted = Some(true);
+                    }
+                    inherit_anchor(&mut comment, activity.comment_anchor.as_ref());
+                    Some(comment)
+                })
+                .collect(),
+            is_last_page: page.is_last_page,
+            next_page_start: page.next_page_start,
+            size: page.size,
+            total: page.total,
+            limit: page.limit,
+            start: page.start,
+        })
     }
 
     pub async fn list_pull_request_comments(
@@ -474,16 +509,23 @@ impl BitbucketDcClient {
         limit: u64,
     ) -> Result<Vec<BitbucketComment>, BitbucketDcError> {
         validate_limit(limit)?;
-        self.collect_pages(|start| {
-            self.list_pull_request_comments_page(
-                project_key,
-                repository_slug,
-                pull_request_id,
-                start,
-                limit,
-            )
-        })
-        .await
+        let comments = self
+            .collect_pages(|start| {
+                self.list_pull_request_comments_page(
+                    project_key,
+                    repository_slug,
+                    pull_request_id,
+                    start,
+                    limit,
+                )
+            })
+            .await?;
+        // Activities are newest first; retain the current version of each thread.
+        let mut seen = std::collections::HashSet::new();
+        Ok(comments
+            .into_iter()
+            .filter(|comment| seen.insert(comment.id))
+            .collect())
     }
 
     /// Rebuild publication status from the PR instead of a local publication history.
