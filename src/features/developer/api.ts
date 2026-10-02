@@ -1,18 +1,22 @@
 import { invoke } from "@tauri-apps/api/core";
+import { APP_EVENT, emitAppEvent } from "@/app/app-events";
 import type {
   BitbucketRepository,
   BitbucketUser,
   MyPullRequest,
   MyPullRequestPage,
-  PullRequestReviewComment,
+  PullRequestPublishableComment,
+  PullRequestCommentMatches,
+  PullRequestCommentMatchesRequest,
   PullRequestReviewSettings,
   PullRequestUnreadCounts,
+  PullRequestUnreadCountsRequest,
   PullRequestReviewState,
   PullRequestReviewStateRequest,
 } from "@/shared/contracts/developer";
 
-export const getPullRequestUnreadCounts = () =>
-  invoke<PullRequestUnreadCounts>("bitbucket_pull_request_unread_counts");
+export const getPullRequestUnreadCounts = (request: PullRequestUnreadCountsRequest) =>
+  invoke<PullRequestUnreadCounts>("bitbucket_pull_request_unread_counts", { request });
 
 export const listMyPullRequests = (start = 0, limit = 100) =>
   invoke<MyPullRequestPage>("bitbucket_my_pull_requests", {
@@ -105,7 +109,7 @@ export const markAllPullRequestsRead = () =>
 
 export const publishPullRequestComment = (
   pullRequest: MyPullRequest,
-  comment: PullRequestReviewComment,
+  comment: PullRequestPublishableComment,
 ) =>
   invoke<{ commentId: number }>("pull_request_review_publish_comment", {
     request: {
@@ -117,6 +121,7 @@ export const publishPullRequestComment = (
       file: comment.file,
       line: comment.line,
       comment: comment.comment,
+      parentCommentId: comment.parentCommentId,
     },
   });
 
@@ -162,4 +167,13 @@ export const getPullRequestReviewSettings = () =>
   invoke<PullRequestReviewSettings>("pull_request_review_settings");
 
 export const savePullRequestReviewSettings = (settings: PullRequestReviewSettings) =>
-  invoke<PullRequestReviewSettings>("save_pull_request_review_settings", { settings });
+  invoke<PullRequestReviewSettings>("save_pull_request_review_settings", { settings }).then((saved) => {
+    emitAppEvent(APP_EVENT.pullRequestActivityChanged);
+    return saved;
+  });
+
+export const getPullRequestCommentMatches = (
+  request: PullRequestCommentMatchesRequest,
+) => invoke<PullRequestCommentMatches>("pull_request_review_comment_matches", {
+  request,
+});

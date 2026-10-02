@@ -14,12 +14,14 @@ import { PresenterView } from "./features/daily/PresenterView";
 import { DevOverlay } from "./features/dev/DevOverlay";
 import { devOverlayEnabled } from "./features/dev/api";
 import { getPullRequestUnreadCounts, refreshAuthoredPullRequests, refreshMyPullRequests } from "./features/developer/api";
+import { usePullRequestQuickFilter } from "./features/developer/display-options";
 import { listTaskTrackerMonitors } from "@/shared/contracts/task-tracker";
 import type { TaskTrackerMonitor } from "@/shared/contracts/task-tracker";
 import { EMPTY_UPDATE_AVAILABILITY, type UpdateAvailabilitySnapshot } from "@/shared/contracts/updates";
 import { countUnreadTaskTrackerIssues, loadTaskTrackerReadCheckpoints, type TaskTrackerReadCheckpoints } from "./features/product/task-tracker-read-state";
 import { getAiSettings, refreshAllIntegrationsHealth } from "./features/settings/api";
 import { getPromptSettings } from "./features/settings/prompts/api";
+import { prefetchDailyWorkspaces } from "./features/daily/cache";
 import { generalSettings } from "./features/settings/general/api";
 import { I18nProvider } from "@/i18n/I18nProvider";
 import { useI18n } from "@/i18n/context";
@@ -66,6 +68,8 @@ function AppContent() {
   const [modelTestingPreferenceLoaded, setModelTestingPreferenceLoaded] = useState(false);
   const [unreadPullRequestCount, setUnreadPullRequestCount] = useState(0);
   const [unreadAuthoredPullRequestCount, setUnreadAuthoredPullRequestCount] = useState(0);
+  const [reviewerQuickFilter] = usePullRequestQuickFilter("reviewer");
+  const [authoredQuickFilter] = usePullRequestQuickFilter("authored");
   const [taskTrackerMonitors, setTaskTrackerMonitors] = useState<TaskTrackerMonitor[]>([]);
   const [taskTrackerReadCheckpoints, setTaskTrackerReadCheckpoints] = useState<TaskTrackerReadCheckpoints>(
     () => loadTaskTrackerReadCheckpoints(),
@@ -232,6 +236,17 @@ function AppContent() {
         // The route gate will show the dependency error after the splash settles.
       }
 
+      if (active) {
+        const jiraIntegrationIds = integrations.filter((integration) =>
+          integration.kind === "jira" && integration.enabled && integration.healthStatus === "working",
+        ).map((integration) => integration.id);
+        if (jiraIntegrationIds.length > 0) {
+          void prefetchDailyWorkspaces(jiraIntegrationIds).catch(() => {
+            // Sprint tasks retries background failures when the page is opened.
+          });
+        }
+      }
+
       if (active && integrations.some((integration) =>
         integration.kind === "bitbucket"
           && integration.enabled
@@ -264,7 +279,10 @@ function AppContent() {
     const refreshCachedCount = async () => {
       const revision = ++refreshRevision;
       try {
-        const counts = await getPullRequestUnreadCounts();
+        const counts = await getPullRequestUnreadCounts({
+          reviewerPendingOnly: reviewerQuickFilter === "pending",
+          authoredNeedsActionOnly: authoredQuickFilter === "needs_action",
+        });
         if (!active || revision !== refreshRevision) return;
         setUnreadPullRequestCount(counts.reviewer);
         setUnreadAuthoredPullRequestCount(counts.authored);
@@ -286,7 +304,7 @@ function AppContent() {
       unsubscribeReviewer();
       unsubscribeAuthored();
     };
-  }, []);
+  }, [reviewerQuickFilter, authoredQuickFilter]);
 
   useEffect(() => {
     let active = true;

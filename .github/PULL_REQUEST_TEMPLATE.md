@@ -1,19 +1,28 @@
-## Summary
+#### Why this change
 
-<!-- What does this PR change, and why? -->
+<!-- По-русски опишите проблему и ожидаемый результат изменения. -->
 
-## Checks
+#### How it works
 
-<!-- List the focused tests, lint, build, or other checks you ran. -->
+<!-- Перечислите конкретные изменения в 4–7 пунктах. Укажите выполненные проверки. -->
+
+#### Risks and migration
+
+<!-- Укажите несовместимые изменения, требования к миграции и порядку выкладки,
+     а также известные риски. Если миграция не требуется, напишите это явно. -->
 
 ## Release notes
 
 <!--
-Application changes require at least one non-empty English note in an Added,
-Changed, Fixed, or Removed category. For documentation-, security-, or
-workflow-only changes, leave the English block empty. Do not remove the heading
-or language markers.
+Для изменений приложения заполните одинаковые по смыслу заметки на английском
+и русском. Используйте только непустые категории ### Added / Changed / Fixed /
+Removed и ### Добавлено / Изменено / Исправлено / Удалено соответственно.
+Для изменений только документации или CI оставьте блоки пустыми.
+Не удаляйте заголовок раздела и языковые маркеры.
 -->
 
 <!-- release-notes:en -->
 <!-- /release-notes:en -->
+
+<!-- release-notes:ru -->
+<!-- /release-notes:ru -->

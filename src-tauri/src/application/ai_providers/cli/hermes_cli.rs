@@ -1,5 +1,4 @@
 use std::{
-    env,
     io::Write,
     path::{Path, PathBuf},
     process::Stdio,
@@ -7,7 +6,7 @@ use std::{
 
 use serde_json::Value;
 
-use super::{local_cli_command, run_cli_output, spawn_cli, usable_cli_path};
+use super::{local_cli_command, run_cli_output, spawn_cli};
 use crate::application::ai::{AiProviderDto, AiProviderId, AiProviderStatus};
 use crate::application::ai_usage_statistics::AiTokenUsageCounts;
 
@@ -130,24 +129,7 @@ fn valid_model(model: &str) -> bool {
 }
 
 pub fn resolve_binary() -> Option<PathBuf> {
-    if let Some(configured) = env::var_os("MEWORK_HERMES_BIN") {
-        if let Some(path) = usable_cli_path(Path::new(&configured)) {
-            return Some(path);
-        }
-    }
-    if let Some(path) = env::var_os("PATH") {
-        for entry in env::split_paths(&path) {
-            for name in executable_names() {
-                if let Some(path) = usable_cli_path(&entry.join(name)) {
-                    return Some(path);
-                }
-            }
-        }
-    }
-    diagnostic_install_paths()
-        .into_iter()
-        .map(|(_, path)| path)
-        .find_map(|path| usable_cli_path(&path))
+    super::discovery::resolve_binary(AiProviderId::HermesCli)
 }
 
 pub(crate) fn executable_names() -> &'static [&'static str] {
@@ -160,10 +142,7 @@ pub(crate) fn executable_names() -> &'static [&'static str] {
 
 pub(crate) fn diagnostic_install_paths() -> Vec<(&'static str, PathBuf)> {
     let mut paths = Vec::new();
-    #[cfg(windows)]
     let home = dirs::home_dir();
-    #[cfg(not(windows))]
-    let home = env::var_os("HOME").map(PathBuf::from);
     if let Some(home) = home {
         paths.push((
             "system-home",

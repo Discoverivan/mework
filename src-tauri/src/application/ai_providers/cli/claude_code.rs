@@ -1,5 +1,4 @@
 use std::{
-    env,
     io::Write,
     path::{Path, PathBuf},
     process::Stdio,
@@ -7,7 +6,7 @@ use std::{
 
 use serde_json::Value;
 
-use super::{local_cli_command, run_cli_output, spawn_cli, usable_cli_path};
+use super::{local_cli_command, run_cli_output, spawn_cli};
 use crate::application::ai::{AiProviderDto, AiProviderId, AiProviderStatus};
 use crate::application::ai_usage_statistics::{parse_response_usage, AiTokenUsageCounts};
 
@@ -105,26 +104,7 @@ fn provider(
 }
 
 pub fn resolve_binary() -> Option<PathBuf> {
-    if let Some(configured) = env::var_os("MEWORK_CLAUDE_BIN") {
-        let path = PathBuf::from(configured);
-        if let Some(path) = usable_cli_path(&path) {
-            return Some(path);
-        }
-    }
-    if let Some(path) = env::var_os("PATH") {
-        for entry in env::split_paths(&path) {
-            for name in executable_names() {
-                let candidate = entry.join(name);
-                if let Some(path) = usable_cli_path(&candidate) {
-                    return Some(path);
-                }
-            }
-        }
-    }
-    diagnostic_install_paths()
-        .into_iter()
-        .map(|(_, path)| path)
-        .find_map(|path| usable_cli_path(&path))
+    super::discovery::resolve_binary(AiProviderId::ClaudeCodeCli)
 }
 
 pub(crate) fn executable_names() -> &'static [&'static str] {
@@ -136,9 +116,7 @@ pub(crate) fn executable_names() -> &'static [&'static str] {
 }
 
 pub(crate) fn diagnostic_install_paths() -> Vec<(&'static str, PathBuf)> {
-    let home = env::var_os("HOME")
-        .or_else(|| env::var_os("USERPROFILE"))
-        .map(PathBuf::from);
+    let home = dirs::home_dir();
     let mut candidates = Vec::new();
     if let Some(home) = home.as_ref() {
         candidates.push((

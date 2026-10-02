@@ -63,18 +63,18 @@ export function UpdateBanner({ enabled, updateVersion }: UpdateBannerProps) {
   return (
     <div className="fixed inset-x-4 bottom-4 z-50 mx-auto max-w-2xl">
       <Alert role="status" className="border-primary/40 bg-background shadow-lg">
-        <AlertTitle>{t("update.available", { version: updateVersion })}</AlertTitle>
-        <AlertDescription className="flex flex-wrap items-center justify-between gap-3">
-          <span>{error ?? t("update.ready")}</span>
-          <span className="flex shrink-0 gap-2">
+        <div className="flex flex-col items-start gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <AlertTitle className="mb-0 min-w-0 flex-1 text-sm leading-snug">{t("update.available", { version: updateVersion })}</AlertTitle>
+          <div className="flex shrink-0 gap-2">
             <Button type="button" variant="ghost" size="sm" onClick={dismissUpdate} disabled={installing}>
               {t("update.later")}
             </Button>
             <Button type="button" size="sm" onClick={() => void installUpdate()} disabled={installing}>
               {installing ? t("update.updating") : t("update.now")}
             </Button>
-          </span>
-        </AlertDescription>
+          </div>
+        </div>
+        {error ? <AlertDescription role="alert" className="mt-2 text-destructive">{error}</AlertDescription> : null}
       </Alert>
     </div>
   );

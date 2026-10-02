@@ -5,7 +5,7 @@ import type { DailyPresenterState, DailyWorkspace } from "@/shared/contracts/dev
 import type { ManagedProject } from "@/shared/contracts/planning";
 import { listManagedProjects } from "../planning/api";
 import { generateSprintSummary, loadDailyIssueTransitions, loadDailyWorkspace, openPresenterView, publishPresenterState, refreshDailyWorkspace, subscribePresenterState, transitionDailyIssue } from "./api";
-import { clearDailyWorkspaceCacheForTests } from "./cache";
+import { clearDailyWorkspaceCacheForTests, prefetchDailyWorkspaces, readDailyWorkspaceCache, refreshDailyWorkspaceCache } from "./cache";
 import { DailyPage } from "./DailyPage";
 
 const { openUrlMock, writeTextMock } = vi.hoisted(() => ({
@@ -154,14 +154,14 @@ describe("DailyPage smoke test", () => {
     expect(await screen.findByText("DEMO-2")).toBeInTheDocument();
   });
 
-  it("renders cached sprint tasks while refreshing them after remount", async () => {
+  it("renders background-preloaded sprint tasks and shares their pending refresh", async () => {
+    let resolveWorkspace!: (value: DailyWorkspace) => void;
     loadDailyWorkspaceMock
       .mockResolvedValueOnce(workspace)
-      .mockReturnValueOnce(new Promise<DailyWorkspace>(() => undefined));
+      .mockReturnValueOnce(new Promise<DailyWorkspace>((resolve) => { resolveWorkspace = resolve; }));
 
-    const firstRender = render(<DailyPage />);
-    expect(await screen.findByText("DEMO-2")).toBeInTheDocument();
-    firstRender.unmount();
+    await prefetchDailyWorkspaces([project.integrationId]);
+    const refreshing = refreshDailyWorkspaceCache(project.id);
 
     render(<DailyPage />);
 
@@ -169,6 +169,23 @@ describe("DailyPage smoke test", () => {
     await waitFor(() => expect(loadDailyWorkspaceMock).toHaveBeenCalledTimes(2));
     expect(screen.queryByRole("status", { name: "Loading sprint tasks…" })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Refreshing…" })).toBeDisabled();
+    await act(async () => {
+      resolveWorkspace(workspace);
+      await refreshing;
+    });
+
+    // A background active-sprint response must preserve a newer explicit selection.
+    const selectedWorkspace = { ...workspace, selectedSprintId: "sprint-2" };
+    loadDailyWorkspaceMock
+      .mockReturnValueOnce(new Promise<DailyWorkspace>((resolve) => { resolveWorkspace = resolve; }))
+      .mockResolvedValueOnce(selectedWorkspace);
+    const prefetching = prefetchDailyWorkspaces([project.integrationId]);
+    await waitFor(() => expect(loadDailyWorkspaceMock).toHaveBeenCalledTimes(3));
+    await refreshDailyWorkspaceCache(project.id, selectedWorkspace.selectedSprintId);
+    resolveWorkspace(workspace);
+    await prefetching;
+    expect(readDailyWorkspaceCache(project.id)).toEqual(selectedWorkspace);
+    expect(readDailyWorkspaceCache(project.id, workspace.selectedSprintId)).toEqual(workspace);
   });
 
   it("loads the active sprint by default and can select another sprint", async () => {
