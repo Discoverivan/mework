@@ -119,6 +119,7 @@ pub struct MockBitbucketComment {
     pub text: String,
     pub created_date: i64,
     pub anchor: Option<Value>,
+    pub parent_comment_id: Option<u64>,
 }
 
 impl DevMockMode {
@@ -856,6 +857,7 @@ impl MockIntegrationState {
         id: &str,
         text: &str,
         anchor: Option<Value>,
+        parent_comment_id: Option<u64>,
     ) -> Result<MockBitbucketComment, String> {
         self.require_enabled()?;
         if text.trim().is_empty() {
@@ -874,6 +876,16 @@ impl MockIntegrationState {
             .pull_request_comments
             .entry(id.to_owned())
             .or_default();
+        let anchor = if let Some(parent_id) = parent_comment_id {
+            comments
+                .iter()
+                .find(|comment| comment.id == parent_id)
+                .ok_or("Mock reply target was not found")?
+                .anchor
+                .clone()
+        } else {
+            anchor
+        };
         let comment = MockBitbucketComment {
             id: comments.len() as u64 + 1,
             version: 0,
@@ -882,6 +894,7 @@ impl MockIntegrationState {
                 .unix_timestamp()
                 .saturating_mul(1_000),
             anchor,
+            parent_comment_id,
         };
         comments.push(comment.clone());
         let comments_count = comments.len() as u64;
@@ -1036,12 +1049,24 @@ impl Default for Scenario {
                 mock_pull_request(41, false, PullRequestActivity::New),
                 mock_pull_request(42, false, PullRequestActivity::Updated),
                 mock_pull_request(43, false, PullRequestActivity::Read),
+                mock_pull_request(44, false, PullRequestActivity::New),
+                mock_pull_request(45, false, PullRequestActivity::New),
+                mock_pull_request(46, false, PullRequestActivity::New),
             ],
             authored_pull_requests: vec![
                 mock_pull_request(51, true, PullRequestActivity::Updated),
                 mock_pull_request(52, true, PullRequestActivity::Read),
             ],
-            pull_request_comments: HashMap::new(),
+            pull_request_comments: (41..=46).map(|id| {
+                let comments = super::mock_reviews::findings(id).into_iter().filter_map(|fixture| {
+                    fixture.existing.map(|text| MockBitbucketComment {
+                        id: 0, version: 0, text, parent_comment_id: None,
+                        created_date: OffsetDateTime::now_utc().unix_timestamp() * 1_000,
+                        anchor: Some(json!({"path": fixture.finding.file, "line": 1, "lineType": "ADDED", "fileType": "TO"})),
+                    })
+                }).enumerate().map(|(index, mut comment)| { comment.id = index as u64 + 1; comment }).collect();
+                (id.to_string(), comments)
+            }).collect(),
             daily_issue_statuses: HashMap::from([(
                 "MOCK-201".to_owned(),
                 "In Progress".to_owned(),
@@ -1180,7 +1205,9 @@ fn mock_pull_request(id: u64, authored: bool, activity: PullRequestActivity) -> 
     MyPullRequestDto {
         integration_id: MOCK_INTEGRATION_ID.to_owned(),
         pull_request_id: id.to_string(),
-        title: if authored {
+        title: if let Some(title) = super::mock_reviews::title(id).filter(|_| !authored) {
+            format!("MOCK DATA — {title}")
+        } else if authored {
             format!("MOCK DATA — Example authored change {id}")
         } else {
             format!("MOCK DATA — Example review request {id}")
@@ -1196,13 +1223,17 @@ fn mock_pull_request(id: u64, authored: bool, activity: PullRequestActivity) -> 
         url: Some(format!(
             "https://bitbucket.example.invalid/projects/MOCK/repos/sample-repository/pull-requests/{id}/overview"
         )),
-        my_decision: if authored { "approved" } else { "not_reviewed" }.to_owned(),
+        my_decision: if authored || id == 41 { "approved" } else { "not_reviewed" }.to_owned(),
         author_avatar_url: None,
         latest_commit: Some(format!("mock-commit-{id}")),
-        review_summary: PullRequestReviewSummaryDto::default(),
-        needs_action: !authored,
+        review_summary: PullRequestReviewSummaryDto {
+            approved: u64::from(authored || id == 41),
+            comments: super::mock_reviews::findings(id).iter().filter(|fixture| fixture.existing.is_some()).count() as u64,
+            ..PullRequestReviewSummaryDto::default()
+        },
+        needs_action: !authored && id != 41,
         activity,
-        review: None,
+        review: super::mock_reviews::review(id, now),
     }
 }
 
@@ -1446,6 +1477,7 @@ pub async fn seed_mock_settings(
     )
     .await
     .map_err(|_| "failed to seed mock scenario settings".to_owned())?;
+    super::developer_review::seed_mock_reviews(pool, &mode.reviewer_page()?.values).await?;
     seed_mock_task_tracker(pool).await
 }
 
@@ -1697,7 +1729,7 @@ mod tests {
             )
             .unwrap();
         assert!(marked);
-        assert_eq!(mode.unread_counts().unwrap().0, 2);
+        assert_eq!(mode.unread_counts().unwrap().0, 5);
     }
 
     #[test]

@@ -228,22 +228,17 @@ fn bitbucket_response(
             Err(error) => return json_response(404, json!({"error":error})),
         };
         let values = comments
-            .into_iter()
-            .map(|comment| json!({
-                "id":comment.id,
-                "action":"COMMENTED",
-                "commentAction":"ADDED",
-                "commentAnchor":comment.anchor,
-                "comment":{
-                "id":comment.id,
-                "version":comment.version,
-                "text":comment.text,
-                "createdDate":comment.created_date,
-                "author":{"name":"example-engineer","displayName":"Example Engineer","active":true},
-                "comments":[],
-                "permitted":true
-                }
-            }))
+            .iter()
+            .filter(|comment| comment.parent_comment_id.is_none())
+            .map(|comment| {
+                json!({
+                    "id":comment.id,
+                    "action":"COMMENTED",
+                    "commentAction":"ADDED",
+                    "commentAnchor":comment.anchor,
+                    "comment":bitbucket_comment_wire(comment, &comments)
+                })
+            })
             .collect();
         return json_response(200, page(values));
     }
@@ -259,7 +254,12 @@ fn bitbucket_response(
         let Some(text) = body.get("text").and_then(Value::as_str) else {
             return json_response(400, json!({"error":"Comment text is required"}));
         };
-        let comment = match mode.add_pull_request_comment(id, text, body.get("anchor").cloned()) {
+        let comment = match mode.add_pull_request_comment(
+            id,
+            text,
+            body.get("anchor").cloned(),
+            body["parent"]["id"].as_u64(),
+        ) {
             Ok(comment) => comment,
             Err(error) => return json_response(404, json!({"error":error})),
         };
@@ -304,11 +304,13 @@ fn bitbucket_response(
         if path.ends_with("/diff") {
             return json_response(
                 200,
-                json!({"diffs": [{
-                    "source": {"toString": "example.txt"},
-                    "destination": {"toString": "example.txt"},
+                json!({"diffs": std::iter::once("example.txt".to_owned()).chain(
+                    path.strip_prefix(pr_prefix).and_then(|value| value.strip_suffix("/diff")).and_then(|id| id.parse::<u64>().ok())
+                        .map(super::mock_reviews::findings).unwrap_or_default().into_iter().map(|fixture| fixture.finding.file)
+                ).map(|file| json!({
+                    "source": {"toString": file}, "destination": {"toString": file},
                     "hunks": [{"segments": [{"type": "ADDED", "lines": [{"source": 1, "destination": 1}]}]}]
-                }]}),
+                })).collect::<Vec<_>>()}),
             );
         }
         let suffix = path.rsplit('/').next().unwrap_or_default();
@@ -338,20 +340,40 @@ fn bitbucket_response(
     json_response(404, json!({"error": "Unknown Bitbucket mock route"}))
 }
 
+fn bitbucket_comment_wire(
+    comment: &super::dev_overlay::MockBitbucketComment,
+    all: &[super::dev_overlay::MockBitbucketComment],
+) -> Value {
+    json!({
+        "id": comment.id, "version": comment.version, "text": comment.text,
+        "createdDate": comment.created_date, "anchor": comment.anchor,
+        "author": {"name":"example-engineer", "displayName":"Example Engineer", "active":true},
+        "comments": all.iter().filter(|reply| reply.parent_comment_id == Some(comment.id))
+            .map(|reply| bitbucket_comment_wire(reply, all)).collect::<Vec<_>>(),
+        "permitted": true
+    })
+}
+
 fn bitbucket_dashboard_pr(
     item: crate::application::developer::MyPullRequestDto,
     origin: &str,
 ) -> Value {
+    let mut from_ref = bitbucket_ref(
+        &item.source_branch,
+        &item.project_key,
+        &item.repository_slug,
+    );
+    from_ref["latestCommit"] = json!(item.latest_commit);
     json!({
         "id": item.pull_request_id.parse::<u64>().unwrap_or(1), "version": 1,
         "title": item.title, "state": "OPEN", "open": true, "closed": false,
         "draft": false, "createdDate": 1760000000000_i64,
         "updatedDate": item.updated_date.unwrap_or(1760000000000_i64),
-        "fromRef": bitbucket_ref(&item.source_branch, &item.project_key, &item.repository_slug),
+        "fromRef": from_ref,
         "toRef": bitbucket_ref(&item.target_branch, &item.project_key, &item.repository_slug),
         "author": {"user": {"name":"example-engineer", "displayName":item.author_display_name, "active":true}, "role":"AUTHOR", "approved":false, "status":"UNAPPROVED"},
         "reviewers": [bitbucket_reviewer(&item.my_decision)],
-        "links": {"self":[{"href":format!("{origin}/bitbucket/projects/{}/{}/pull-requests/{}", item.project_key, item.repository_slug, item.pull_request_id)}]}
+        "links": {"self":[{"href":format!("{origin}/bitbucket/projects/{}/repos/{}/pull-requests/{}", item.project_key, item.repository_slug, item.pull_request_id)}]}
     })
 }
 
@@ -1090,7 +1112,7 @@ mod tests {
             .list_my_pull_requests_page(0, 20)
             .await
             .expect("Bitbucket REST response");
-        assert_eq!(pull_requests.values.len(), 3);
+        assert_eq!(pull_requests.values.len(), 6);
         let diff = bitbucket
             .pull_request_diff("MOCK", "sample-repository", 41)
             .await

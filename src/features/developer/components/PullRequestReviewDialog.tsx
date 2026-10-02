@@ -333,17 +333,21 @@ export function PullRequestReviewDialog({
                               const locationClass = "min-w-0 rounded-md border bg-muted/50 px-2 py-1 font-mono text-sm font-medium text-primary";
                               return (
                                 <li key={`${comment.file}:${comment.line ?? "na"}:${index}`} className="space-y-2 rounded-md border bg-background p-3">
-                                  <div className="flex flex-wrap items-center justify-between gap-2">
+                                  <div className="flex min-w-0">
                                     {diffUrl ? (
                                       <a href={diffUrl} target="_blank" rel="noopener noreferrer" className={cn(locationClass, "hover:bg-accent hover:[&_span]:underline focus-visible:[&_span]:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring")} title={t("pr.dialog.openCommentLocation", { location })} onClick={() => { if (pullRequest) onOpenPullRequest(pullRequest); }}>
                                         <CommentLocation comment={comment} />
                                       </a>
                                     ) : <p className={locationClass}><CommentLocation comment={comment} /></p>}
-                                    <div className="ml-auto flex shrink-0 flex-wrap items-center gap-2">
-                                    {status !== "ready" ? <span role="status" aria-label={t("pr.dialog.statusFor", { file: reviewCommentPath(comment.file) })} className={cn("flex items-center gap-1.5 text-xs", status === "checkFailed" ? "text-destructive" : "text-muted-foreground")} title={status === "checkFailed" ? t("pr.dialog.publicationCheckError") : undefined}>
+                                  </div>
+                                  <ReviewMarkdown>{comment.comment}</ReviewMarkdown>
+                                  {matched?.coverage === "partial" ? <p className="text-sm text-muted-foreground">{t("pr.dialog.partiallyCovered")}</p> : null}
+                                  <div className="flex flex-wrap items-center justify-end gap-2">
+                                    {status !== "ready" ? <span role="status" aria-label={t("pr.dialog.statusFor", { file: reviewCommentPath(comment.file) })} className={cn("flex items-center gap-1.5 text-xs", status === "checkFailed" ? "text-destructive" : "text-muted-foreground")} title={status === "checkFailed" ? t("pr.dialog.publicationCheckError") : status === "duplicate" ? t("pr.dialog.duplicateCovered") : status === "partial" ? t("pr.dialog.partiallyCovered") : undefined}>
                                       {status === "checking" || status === "publishing" ? <Loader2 aria-hidden="true" className="size-4 animate-spin" /> : status === "checkFailed" ? <CircleAlert aria-hidden="true" className="size-4" /> : status === "published" ? <CheckCircle2 aria-hidden="true" className="size-4" /> : null}
                                       {t(`pr.dialog.commentStatus.${status}`)}
                                     </span> : null}
+                                    {matched?.coverage === "partial" && matchedUrl ? <Button asChild variant="outline" size="sm"><a href={matchedUrl} target="_blank" rel="noopener noreferrer" aria-label={t("pr.dialog.existingCommentFor", { file: reviewCommentPath(comment.file) })}><ExternalLink aria-hidden="true" />{t("pr.dialog.existingComment")}</a></Button> : null}
                                     {status === "checkFailed" ? <Button type="button" variant="outline" size="icon" className="size-8" aria-label={t("pr.dialog.retryComparisonFor", { file: reviewCommentPath(comment.file) })} title={t("pr.dialog.retryComparison")} onClick={retryComparison}><RefreshCw aria-hidden="true" /></Button>
                                     : status === "checking" ? null
                                     : matched?.coverage === "full" && matchedUrl ? (
@@ -353,8 +357,9 @@ export function PullRequestReviewDialog({
                                         </a>
                                       </Button>
                                     ) : reviewerActions && matched?.coverage === "partial" ? (
-                                      <Button type="button" variant="outline" size="sm" disabled={!onPublishComment || pendingAction != null || checkingPublication || published} onClick={() => openCommentEditor(comment, index)}>
-                                        {status === "publishing" ? <Loader2 aria-hidden="true" className="animate-spin" /> : published ? <CheckCircle2 aria-hidden="true" /> : <Pencil aria-hidden="true" />}{t(published ? "pr.dialog.published" : "pr.dialog.publishAddition")}
+                                      <Button type="button" variant="outline" size="sm" actionTone="neutral" className="shrink-0" aria-label={t("pr.dialog.publishFor", { file: reviewCommentPath(comment.file) })} title={published ? t("pr.dialog.published") : status === "publishing" ? t("pr.dialog.publishing") : t("pr.dialog.publishAddition")} disabled={!onPublishComment || pendingAction != null || checkingPublication || published} onClick={() => openCommentEditor(comment, index)}>
+                                        {status === "publishing" ? <Loader2 aria-hidden="true" className="animate-spin" /> : published ? <CheckCircle2 aria-hidden="true" /> : <Send aria-hidden="true" />}
+                                        {published ? t("pr.dialog.published") : status === "publishing" ? t("pr.dialog.publishing") : t("pr.dialog.publishAddition")}
                                       </Button>
                                     ) : reviewerActions && matched?.coverage !== "full" ? (
                                       <DropdownMenu>
@@ -362,14 +367,15 @@ export function PullRequestReviewDialog({
                                           <Button
                                             type="button"
                                             variant="outline"
-                                            size="icon"
+                                            size="sm"
                                             actionTone="neutral"
-                                            className="size-8 shrink-0"
+                                            className="shrink-0"
                                             disabled={!onPublishComment || pendingAction != null || checkingPublication || published}
                                             aria-label={t("pr.dialog.publishFor", { file: reviewCommentPath(comment.file) })}
                                             title={publishLabel}
                                           >
                                             {pendingAction === commentKey(comment, index) ? <Loader2 aria-hidden="true" className="animate-spin" /> : published ? <CheckCircle2 aria-hidden="true" /> : <Send aria-hidden="true" />}
+                                            {publishLabel}
                                           </Button>
                                         </DropdownMenuTrigger>
                                         <DropdownMenuContent align="end" onCloseAutoFocus={(event) => { if (editingComment) event.preventDefault(); }}>
@@ -384,13 +390,7 @@ export function PullRequestReviewDialog({
                                         </DropdownMenuContent>
                                       </DropdownMenu>
                                     ) : null}
-                                    </div>
                                   </div>
-                                  <ReviewMarkdown>{comment.comment}</ReviewMarkdown>
-                                  {matched ? <div className="space-y-2 text-sm text-muted-foreground">
-                                    <p>{t(matched.coverage === "full" ? "pr.dialog.duplicateCovered" : "pr.dialog.partiallyCovered")}</p>
-                                    {matched.coverage === "partial" && matchedUrl ? <Button asChild variant="outline" size="sm"><a href={matchedUrl} target="_blank" rel="noopener noreferrer" aria-label={t("pr.dialog.existingCommentFor", { file: reviewCommentPath(comment.file) })}><ExternalLink aria-hidden="true" />{t("pr.dialog.existingComment")}</a></Button> : null}
-                                  </div> : null}
                                 </li>
                               );
                             })}

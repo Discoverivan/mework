@@ -1072,7 +1072,7 @@ export const en = {
   "pr.dialog.retryComparison": "Retry comment comparison",
   "pr.dialog.existingComment": "Existing comment",
   "pr.dialog.existingCommentFor": "Existing comment for {file}",
-  "pr.dialog.duplicateCovered": "Duplicate: an existing discussion already fully covers this finding.",
+  "pr.dialog.duplicateCovered": "An existing discussion already fully covers this finding.",
   "pr.dialog.partiallyCovered": "An existing discussion partially covers this finding. You can publish the missing clarification as a reply.",
   "pr.dialog.publishAddition": "Publish clarification",
   "pr.dialog.additionDescription": "Review the missing clarification before publishing it as a reply to the existing comment.",
