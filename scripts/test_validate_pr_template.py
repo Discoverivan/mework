@@ -20,7 +20,16 @@ SPEC.loader.exec_module(VALIDATOR)
 
 class ValidatePrTemplateTests(unittest.TestCase):
     def test_accepts_application_pr_with_english_release_notes(self) -> None:
-        body = """## Release notes
+        body = """#### Why this change
+Add sprint summaries.
+
+#### How it works
+- Tests passed.
+
+#### Risks and migration
+No migration is required.
+
+## Release notes
 <!-- release-notes:en -->
 ### Added
 - Generate AI summaries for sprint tasks.
@@ -31,11 +40,14 @@ class ValidatePrTemplateTests(unittest.TestCase):
         self.assertEqual(VALIDATOR.validate_pr(body, ["src/features/daily/DailyPage.tsx"]), [])
 
     def test_does_not_require_a_russian_template_block(self) -> None:
-        body = """## Summary
+        body = """#### Why this change
 Update contributor documentation.
 
-## Checks
+#### How it works
 - Spelling reviewed.
+
+#### Risks and migration
+No migration is required.
 
 ## Release notes
 <!-- release-notes:en -->
@@ -44,11 +56,14 @@ Update contributor documentation.
         self.assertEqual(VALIDATOR.validate_pr(body, ["docs/example.md"]), [])
 
     def test_allows_empty_notes_for_documentation_only_changes(self) -> None:
-        body = """## Summary
+        body = """#### Why this change
 Update contributor documentation.
 
-## Checks
+#### How it works
 - Spelling reviewed.
+
+#### Risks and migration
+No migration is required.
 
 ## Release notes
 <!-- release-notes:en -->
@@ -60,14 +75,20 @@ Update contributor documentation.
 
     def test_rejects_pr_without_required_template_sections(self) -> None:
         errors = VALIDATOR.validate_pr("Free-form PR description.", ["docs/example.md"])
+        self.assertTrue(any("#### Why this change" in error for error in errors))
+        self.assertTrue(any("#### How it works" in error for error in errors))
+        self.assertTrue(any("#### Risks and migration" in error for error in errors))
         self.assertTrue(any("## Release notes" in error for error in errors))
 
     def test_rejects_application_pr_without_nonempty_categorized_notes(self) -> None:
-        body = """## Summary
+        body = """#### Why this change
 Improve the application.
 
-## Checks
+#### How it works
 - Tests passed.
+
+#### Risks and migration
+No migration is required.
 
 ## Release notes
 <!-- release-notes:en -->
@@ -81,11 +102,14 @@ Improve the application.
     @patch.object(VALIDATOR.urllib.request, "urlopen")
     def test_accepts_github_markdown_attachment(self, urlopen: object) -> None:
         urlopen.return_value = io.BytesIO(b"## Added\n\n- Generate a sprint summary.\n")
-        body = """## Summary
+        body = """#### Why this change
 Add sprint summaries.
 
-## Checks
+#### How it works
 - Tests passed.
+
+#### Risks and migration
+No migration is required.
 
 ## Release notes
 <!-- release-notes:en -->
@@ -98,11 +122,14 @@ Add sprint summaries.
         urlopen.assert_called_once()
 
     def test_accepts_additional_languages_with_localized_categories(self) -> None:
-        body = """## Summary
+        body = """#### Why this change
 Add sprint summaries.
 
-## Checks
+#### How it works
 - Tests passed.
+
+#### Risks and migration
+No migration is required.
 
 ## Release notes
 <!-- release-notes:en -->

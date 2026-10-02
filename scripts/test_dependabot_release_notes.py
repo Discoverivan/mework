@@ -38,6 +38,10 @@ class DependabotReleaseNotesTests(unittest.TestCase):
 
     def test_adds_valid_notes_and_reruns_ci_using_the_current_body(self) -> None:
         calls = []
+        self.pull["body"] += (
+            "\n#### Why this change\n\nKeep example dependencies current.\n"
+            "\n#### How it works\n\n<!-- Describe the update. -->\n"
+        )
 
         def api(endpoint: str, method: str = "GET", data: dict | None = None) -> object:
             calls.append((endpoint, method, data))
@@ -54,6 +58,7 @@ class DependabotReleaseNotesTests(unittest.TestCase):
         ):
             NOTES.process_run(self.run, self.repository)
             self.assertTrue(self.pull["body"].startswith("Update example dependencies."))
+            self.assertIn("Keep example dependencies current.", self.pull["body"])
             self.assertEqual(NOTES.VALIDATOR.validate_pr(self.pull["body"], ["package-lock.json"]), [])
             self.assertIn((f"repos/{self.repository}/actions/runs/42/rerun-failed-jobs", "POST", None), calls)
             # Repeat completion is a no-op, preserving notes and avoiding a loop.

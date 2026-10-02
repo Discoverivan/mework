@@ -21,6 +21,7 @@ import { EMPTY_UPDATE_AVAILABILITY, type UpdateAvailabilitySnapshot } from "@/sh
 import { countUnreadTaskTrackerIssues, loadTaskTrackerReadCheckpoints, type TaskTrackerReadCheckpoints } from "./features/product/task-tracker-read-state";
 import { getAiSettings, refreshAllIntegrationsHealth } from "./features/settings/api";
 import { getPromptSettings } from "./features/settings/prompts/api";
+import { prefetchDailyWorkspaces } from "./features/daily/cache";
 import { generalSettings } from "./features/settings/general/api";
 import { I18nProvider } from "@/i18n/I18nProvider";
 import { useI18n } from "@/i18n/context";
@@ -233,6 +234,17 @@ function AppContent() {
         emitAppEvent(APP_EVENT.integrationsHealthRefreshed, integrations);
       } catch {
         // The route gate will show the dependency error after the splash settles.
+      }
+
+      if (active) {
+        const jiraIntegrationIds = integrations.filter((integration) =>
+          integration.kind === "jira" && integration.enabled && integration.healthStatus === "working",
+        ).map((integration) => integration.id);
+        if (jiraIntegrationIds.length > 0) {
+          void prefetchDailyWorkspaces(jiraIntegrationIds).catch(() => {
+            // Sprint tasks retries background failures when the page is opened.
+          });
+        }
       }
 
       if (active && integrations.some((integration) =>

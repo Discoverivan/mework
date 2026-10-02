@@ -218,10 +218,10 @@ fn bitbucket_response(
         return json_response(200, page(values));
     }
     let pr_prefix = "/bitbucket/rest/api/1.0/projects/MOCK/repos/sample-repository/pull-requests/";
-    if method == "GET" && path.ends_with("/comments") && path.starts_with(pr_prefix) {
+    if method == "GET" && path.ends_with("/activities") && path.starts_with(pr_prefix) {
         let id = path
             .strip_prefix(pr_prefix)
-            .and_then(|value| value.strip_suffix("/comments"))
+            .and_then(|value| value.strip_suffix("/activities"))
             .unwrap_or_default();
         let comments = match mode.pull_request_comments(id) {
             Ok(comments) => comments,
@@ -231,13 +231,18 @@ fn bitbucket_response(
             .into_iter()
             .map(|comment| json!({
                 "id":comment.id,
+                "action":"COMMENTED",
+                "commentAction":"ADDED",
+                "commentAnchor":comment.anchor,
+                "comment":{
+                "id":comment.id,
                 "version":comment.version,
                 "text":comment.text,
                 "createdDate":comment.created_date,
                 "author":{"name":"example-engineer","displayName":"Example Engineer","active":true},
-                "anchor":comment.anchor,
                 "comments":[],
                 "permitted":true
+                }
             }))
             .collect();
         return json_response(200, page(values));

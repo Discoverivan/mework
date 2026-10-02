@@ -38,12 +38,12 @@ FILE_LINK = re.compile(rf"^\[release-notes\.({LANGUAGE})\.md\]\(([^\s)]+)\)$")
 MAX_NOTE_BYTES = 128 * 1024
 
 
-def section(body: str, title: str) -> str | None:
-    heading = re.search(rf"(?m)^## {re.escape(title)}[ \t]*\r?$", body)
+def section(body: str, title: str, level: int = 2) -> str | None:
+    heading = re.search(rf"(?m)^{'#' * level} {re.escape(title)}[ \t]*\r?$", body)
     if heading is None:
         return None
     remainder = body[heading.end():]
-    next_heading = re.search(r"(?m)^##? [^\r\n]+", remainder)
+    next_heading = re.search(rf"(?m)^#{{1,{level}}} [^\r\n]+", remainder)
     return remainder[:next_heading.start()] if next_heading else remainder
 
 
@@ -76,6 +76,7 @@ def download_attachment(url: str) -> str:
 
 
 def release_notes(body: str) -> tuple[dict[str, str], list[str]]:
+    body = body.replace("\r\n", "\n")
     notes_section = section(body, "Release notes")
     if notes_section is None:
         return {}, ["Add a ## Release notes section."]
@@ -87,7 +88,7 @@ def release_notes(body: str) -> tuple[dict[str, str], list[str]]:
             errors.append(f"Use only one release-notes block for {language}.")
         blocks[language] = text
 
-    marker_lines = re.findall(r"(?m)^<!-- /?release-notes:[^>]+-->[ \t]*\r?$", notes_section)
+    marker_lines = re.findall(r"(?m)^<!-- /?release-notes:[^>]+-->[ \t]*$", notes_section)
     if len(marker_lines) != sum(2 for _ in NOTE_BLOCK.finditer(notes_section)):
         errors.append("Every release-notes language marker must have a matching block.")
     if "en" not in blocks:
@@ -155,6 +156,13 @@ def is_application_change(filenames: list[str]) -> bool:
 
 def validate_pr(body: str, filenames: list[str]) -> list[str]:
     errors: list[str] = []
+    for title in ("Why this change", "How it works", "Risks and migration"):
+        content = section(body, title, level=4)
+        if content is None:
+            errors.append(f"Add the #### {title} section from the pull request template.")
+        elif not meaningful(content):
+            errors.append(f"Fill in the #### {title} section.")
+
     raw_notes, note_errors = release_notes(body)
     errors.extend(note_errors)
     notes: dict[str, str] = {}

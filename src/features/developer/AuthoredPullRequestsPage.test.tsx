@@ -21,6 +21,7 @@ vi.mock("../settings/api", () => ({ getAiSettings: vi.fn() }));
 vi.mock("./api", () => ({
   getPullRequestReviewSettings: vi.fn(),
   getPullRequestReviewStates: vi.fn(),
+  getPullRequestCommentMatches: vi.fn().mockResolvedValue({ matches: [] }),
   listAuthoredPullRequests: vi.fn(),
   markAllAuthoredPullRequestsRead: vi.fn(),
   markAuthoredPullRequestRead: vi.fn(),

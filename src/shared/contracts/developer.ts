@@ -92,13 +92,13 @@ export interface PullRequestReviewResult {
 }
 
 export interface PullRequestReviewExecution {
-  promptInstructions?: string | null;
+  instructionsHash?: string | null;
   provider: AiProviderId;
   providerName: string;
   providerInstanceId: string | null;
   model: string;
   reasoning: AiReasoning | null;
-  fastMode: boolean | null;
+  mode: "normal" | "fast" | null;
 }
 
 export interface PullRequestReviewState {
@@ -116,6 +116,26 @@ export interface PullRequestReviewState {
 export interface PullRequestReviewChangedEvent {
   key: string;
   review: PullRequestReviewState;
+}
+
+export interface PullRequestCommentMatchesRequest extends PullRequestReviewStateRequest {
+  comments: PullRequestReviewComment[];
+}
+
+export interface PullRequestPublishableComment extends PullRequestReviewComment {
+  parentCommentId?: number;
+}
+
+export interface PullRequestCommentMatch {
+  index: number;
+  commentId: number;
+  coverage: "full" | "partial";
+  addition: string;
+  parentCommentId?: number | null;
+}
+
+export interface PullRequestCommentMatches {
+  matches: PullRequestCommentMatch[];
 }
 
 export interface PullRequestReviewStateRequest {

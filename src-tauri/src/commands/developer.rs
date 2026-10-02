@@ -208,6 +208,14 @@ pub async fn pull_request_review_publish_comment(
 }
 
 #[tauri::command]
+pub async fn pull_request_review_comment_matches(
+    state: State<'_, SqlitePool>,
+    request: developer::PullRequestCommentMatchesRequest,
+) -> Result<crate::application::review_comment_matches::CommentMatches, DeveloperCommandError> {
+    developer::pull_request_comment_matches(&state, request).await
+}
+
+#[tauri::command]
 pub async fn pull_request_review_set_decision(
     state: State<'_, SqlitePool>,
     request: PullRequestDecisionRequest,

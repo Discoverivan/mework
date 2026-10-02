@@ -5,6 +5,7 @@ export type PromptAction = "pullRequestReview" | "taskCreation" | "sprintSummary
 export interface PromptSettings {
   action: PromptAction;
   instructions: string;
+  instructionsHash: string;
   defaultInstructions: string;
   protectedRules: string;
   customized: boolean;

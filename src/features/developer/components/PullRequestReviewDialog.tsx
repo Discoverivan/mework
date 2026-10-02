@@ -1,12 +1,11 @@
 import { useEffect, useState } from "react";
-import { APP_EVENT, subscribeAppEvent } from "@/app/app-events";
-import { getPromptSettings } from "@/features/settings/prompts/api";
 import ReactMarkdown from "react-markdown";
-import { CheckCircle2, CircleAlert, ExternalLink, Loader2, RefreshCw, Send } from "lucide-react";
+import { CheckCircle2, CircleAlert, ExternalLink, Loader2, Pencil, RefreshCw, Send } from "lucide-react";
 
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Separator } from "@/components/ui/separator";
 import {
   Dialog,
@@ -17,7 +16,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import type { MyPullRequest, PullRequestReviewComment, PullRequestReviewSeverity, PullRequestReviewState } from "@/shared/contracts/developer";
+import type { MyPullRequest, PullRequestCommentMatch, PullRequestPublishableComment, PullRequestCommentMatchesRequest, PullRequestReviewComment, PullRequestReviewSeverity, PullRequestReviewState } from "@/shared/contracts/developer";
 import { useI18n } from "@/i18n/context";
 import { cn } from "@/lib/utils";
 
@@ -28,6 +27,8 @@ import {
 } from "./PullRequestListItem";
 import { formatRelativeDate } from "./pull-request-formatting";
 import { PullRequestReviewDetails } from "./PullRequestReviewDetails";
+import { reviewCommentPath } from "./review-comment-path";
+import { getPullRequestCommentMatches } from "../api";
 
 export interface PullRequestReviewDialogProps {
   open: boolean;
@@ -37,14 +38,21 @@ export interface PullRequestReviewDialogProps {
   onOpenChange: (open: boolean) => void;
   onOpenPullRequest: (pullRequest: MyPullRequest) => void;
   onRerunReview: (pullRequest: MyPullRequest) => void;
-  onPublishComment?: (pullRequest: MyPullRequest, comment: PullRequestReviewComment) => Promise<void>;
+  onPublishComment?: (pullRequest: MyPullRequest, comment: PullRequestPublishableComment) => Promise<void>;
   onSetDecision?: (pullRequest: MyPullRequest, action: "approve" | "needs_work") => Promise<void>;
 }
 
 type EditableComment = {
   comment: PullRequestReviewComment;
   index: number;
+  parentCommentId?: number;
 };
+
+type CommentStatus = "checking" | "checkFailed" | "ready" | "duplicate" | "partial" | "publishing" | "published";
+
+function commentKey(comment: PullRequestReviewComment, index: number): string {
+  return JSON.stringify([comment.file, comment.line, comment.comment, index]);
+}
 
 const severitySectionStyles: Record<PullRequestReviewSeverity, { border: string; header: string }> = {
   blocker: { border: "border-destructive/60", header: "bg-destructive/20 text-destructive" },
@@ -54,7 +62,8 @@ const severitySectionStyles: Record<PullRequestReviewSeverity, { border: string;
 };
 
 function commentDiffUrl(pullRequestUrl: string | undefined, comment: PullRequestReviewComment): string | undefined {
-  if (!pullRequestUrl || !comment.file.trim()) return undefined;
+  const file = reviewCommentPath(comment.file);
+  if (!pullRequestUrl || !file) return undefined;
   try {
     const url = new URL(pullRequestUrl);
     if (!["http:", "https:"].includes(url.protocol) || url.username || url.password) return undefined;
@@ -64,7 +73,7 @@ function commentDiffUrl(pullRequestUrl: string | undefined, comment: PullRequest
     // Bitbucket Server/DC: ?t= selects the new (TO) side, ?f= the old (FROM) side.
     // AI findings use new-file line numbers; publication resolves the actual line type from the PR diff.
     const line = comment.line != null && Number.isSafeInteger(comment.line) && comment.line > 0 ? `?t=${comment.line}` : "";
-    url.hash = `${comment.file.split("/").map(encodeURIComponent).join("/")}${line}`;
+    url.hash = `${file.split("/").map(encodeURIComponent).join("/")}${line}`;
     return url.href;
   } catch {
     return undefined;
@@ -89,9 +98,21 @@ function ReviewMarkdown({ children }: { children: string }) {
 }
 
 function CommentLocation({ comment }: { comment: PullRequestReviewComment }) {
-  const segments = comment.file.split("/");
+  const segments = reviewCommentPath(comment.file).split("/");
   const filename = segments.pop();
   return <>{segments.map((segment, index) => <span key={index}>{segment}/<wbr /></span>)}<span className="inline-block max-w-full break-all">{filename}{comment.line != null ? `:${comment.line}` : ""}</span></>;
+}
+
+function existingCommentUrl(pullRequestUrl: string | undefined, commentId: number): string | undefined {
+  if (!pullRequestUrl || !Number.isSafeInteger(commentId) || commentId <= 0) return undefined;
+  try {
+    const url = new URL(pullRequestUrl);
+    if (!["http:", "https:"].includes(url.protocol) || url.username || url.password || !/\/pull-requests\/\d+(?:\/.*)?$/.test(url.pathname)) return undefined;
+    url.pathname = url.pathname.replace(/(\/pull-requests\/\d+)(?:\/.*)?$/, "$1/overview");
+    url.search = new URLSearchParams({ commentId: String(commentId) }).toString();
+    url.hash = "";
+    return url.href;
+  } catch { return undefined; }
 }
 
 export function PullRequestReviewDialog({
@@ -108,30 +129,58 @@ export function PullRequestReviewDialog({
   const { t } = useI18n();
   const result = review?.result;
   const reviewFailed = review?.status === "failed";
-  const [currentInstructions, setCurrentInstructions] = useState<string>();
-  useEffect(() => {
-    if (!open) return;
-    let active = true;
-    void getPromptSettings().then((values) => {
-      if (active) setCurrentInstructions(values.find((value) => value.action === "pullRequestReview")?.instructions);
-    }).catch(() => {});
-    const unsubscribe = subscribeAppEvent(APP_EVENT.aiPromptSettingsChanged, (value) => {
-      if (value.action === "pullRequestReview") setCurrentInstructions(value.instructions);
-    });
-    return () => { active = false; unsubscribe(); };
-  }, [open]);
-  const usedInstructions = review?.execution?.promptInstructions;
-  const instructionsChanged = review?.status !== "running" && (currentInstructions !== undefined && usedInstructions != null
-    ? currentInstructions !== usedInstructions : review?.instructionsChanged);
   const [pendingAction, setPendingAction] = useState<string>();
-  const [publishedComments, setPublishedComments] = useState<Set<string>>(() => new Set());
+  const [publicationStatus, setPublicationStatus] = useState<{ scope: string; published: Set<string>; checked: boolean; matches: PullRequestCommentMatch[]; failed?: boolean }>();
+  const [checkAttempt, setCheckAttempt] = useState(0);
   const [editingComment, setEditingComment] = useState<EditableComment>();
   const [commentDraft, setCommentDraft] = useState("");
   const [actionError, setActionError] = useState<string>();
 
-  function commentKey(comment: PullRequestReviewComment, index: number): string {
-    return `${comment.file}:${comment.line ?? "na"}:${index}`;
+  const publicationRequest = pullRequest && result?.comments.length
+    ? JSON.stringify({
+      integrationId: pullRequest.integrationId,
+      projectKey: pullRequest.projectKey,
+      repositorySlug: pullRequest.repositorySlug,
+      pullRequestId: pullRequest.pullRequestId,
+      latestCommit: pullRequest.latestCommit,
+      comments: result.comments,
+    } satisfies PullRequestCommentMatchesRequest)
+    : "";
+  const publicationScope = `${review?.runId ?? ""}:${publicationRequest}`;
+  const checkingPublication = Boolean(publicationRequest)
+    && (publicationStatus?.scope !== publicationScope || !publicationStatus.checked);
+  const publishedComments = publicationStatus?.scope === publicationScope ? publicationStatus.published : new Set<string>();
+  const commentMatches = publicationStatus?.scope === publicationScope ? publicationStatus.matches : [];
+  const comparisonFailed = publicationStatus?.scope === publicationScope && publicationStatus.failed;
+  const editingMatch = editingComment ? commentMatches.find((match) => match.index === editingComment.index) : undefined;
+  const editingParent = editingMatch?.coverage === "partial" ? editingMatch.parentCommentId ?? editingMatch.commentId : undefined;
+  const editingDestinationChanged = Boolean(editingComment && !checkingPublication && editingComment.parentCommentId !== editingParent);
+  const editingDuplicate = editingMatch?.coverage === "full";
+
+  function retryComparison() {
+    setActionError(undefined);
+    setCheckAttempt((attempt) => attempt + 1);
   }
+
+  useEffect(() => {
+    if (!open || !publicationRequest) return;
+    let active = true;
+    const request: PullRequestCommentMatchesRequest = JSON.parse(publicationRequest);
+    setPublicationStatus((current) => ({ scope: publicationScope, published: current?.scope === publicationScope ? current.published : new Set(), checked: false, matches: [] }));
+    void getPullRequestCommentMatches(request).then(({ matches }) => {
+      if (!active) return;
+      setPublicationStatus((current) => ({
+        scope: publicationScope,
+        published: current?.scope === publicationScope ? current.published : new Set(),
+        matches,
+        checked: true,
+      }));
+    }).catch(() => {
+      if (!active) return;
+      setPublicationStatus((current) => ({ scope: publicationScope, published: current?.scope === publicationScope ? current.published : new Set(), checked: false, matches: [], failed: true }));
+    });
+    return () => { active = false; };
+  }, [open, publicationRequest, publicationScope, t, checkAttempt]);
 
   useEffect(() => {
     if (!open) {
@@ -142,15 +191,23 @@ export function PullRequestReviewDialog({
   }, [open]);
 
   function openCommentEditor(comment: PullRequestReviewComment, index: number) {
-    setEditingComment({ comment, index });
-    setCommentDraft(comment.comment);
+    const match = commentMatches.find((match) => match.index === index && match.coverage === "partial");
+    setEditingComment({ comment, index, parentCommentId: match ? match.parentCommentId ?? match.commentId : undefined });
+    setCommentDraft(match?.addition ?? comment.comment);
     setActionError(undefined);
   }
 
-  async function publishComment(comment: PullRequestReviewComment, index: number, editedText: string) {
+  async function publishComment(comment: PullRequestReviewComment, index: number, editedText: string, parentCommentId?: number) {
     if (!pullRequest || !onPublishComment) return;
     const key = commentKey(comment, index);
-    const nextComment = { ...comment, comment: editedText.trim() };
+    const match = commentMatches.find((match) => match.index === index);
+    if (checkingPublication || match?.coverage === "full") return;
+    const currentParent = match?.coverage === "partial" ? match.parentCommentId ?? match.commentId : undefined;
+    if (parentCommentId !== currentParent) {
+      setActionError(t("pr.dialog.discussionChanged"));
+      return;
+    }
+    const nextComment: PullRequestPublishableComment = { ...comment, comment: editedText.trim(), ...(parentCommentId != null ? { parentCommentId } : {}) };
     if (!nextComment.comment) {
       setActionError(t("pr.dialog.commentRequired"));
       return;
@@ -159,11 +216,15 @@ export function PullRequestReviewDialog({
     setActionError(undefined);
     try {
       await onPublishComment(pullRequest, nextComment);
-      setPublishedComments((current) => new Set(current).add(key));
+      setPublicationStatus((current) => current?.scope === publicationScope ? {
+        ...current,
+        published: new Set(current.published).add(key),
+      } : current);
       setEditingComment(undefined);
       setCommentDraft("");
     } catch (error) {
       setActionError(error instanceof Error ? error.message : typeof error === "string" ? error : t("pr.dialog.publishError"));
+      setCheckAttempt((attempt) => attempt + 1);
     } finally {
       setPendingAction(undefined);
     }
@@ -219,7 +280,6 @@ export function PullRequestReviewDialog({
           </div>
         </DialogHeader>
         <DialogBody className="max-h-[70vh] space-y-5 overflow-y-auto">
-          {instructionsChanged ? <Alert><AlertDescription>{t("settings.prompts.reviewChanged")}</AlertDescription></Alert> : null}
           {reviewFailed ? (
             <Alert variant="destructive">
               <CircleAlert aria-hidden="true" className="size-4 translate-y-0.5" />
@@ -256,37 +316,81 @@ export function PullRequestReviewDialog({
                         </summary>
                         <div className={cn("border-t bg-background px-3 py-2 text-foreground", severitySectionStyles[section.key].border)}>
                           <ul className="space-y-2">
-                            {comments.map((comment, index) => {
+                            {comments.map((comment) => {
+                              const index = result.comments.indexOf(comment);
                               const diffUrl = commentDiffUrl(pullRequest?.url, comment);
-                              const location = `${comment.file}${comment.line != null ? `:${comment.line}` : ""}`;
+                              const location = `${reviewCommentPath(comment.file)}${comment.line != null ? `:${comment.line}` : ""}`;
                               const published = publishedComments.has(commentKey(comment, index));
+                              const matched = commentMatches.find((match) => match.index === index);
+                              const matchedUrl = matched ? existingCommentUrl(pullRequest?.url, matched.commentId) : undefined;
+                              const status: CommentStatus = pendingAction === commentKey(comment, index) ? "publishing"
+                                : published ? "published"
+                                : comparisonFailed ? "checkFailed"
+                                : checkingPublication ? "checking"
+                                : matched?.coverage === "full" ? "duplicate"
+                                : matched?.coverage === "partial" ? "partial" : "ready";
                               const publishLabel = published ? t("pr.dialog.published") : pendingAction === commentKey(comment, index) ? t("pr.dialog.publishing") : t("pr.dialog.publish");
                               const locationClass = "min-w-0 rounded-md border bg-muted/50 px-2 py-1 font-mono text-sm font-medium text-primary";
                               return (
                                 <li key={`${comment.file}:${comment.line ?? "na"}:${index}`} className="space-y-2 rounded-md border bg-background p-3">
-                                  <div className="flex items-center justify-between gap-2">
+                                  <div className="flex flex-wrap items-center justify-between gap-2">
                                     {diffUrl ? (
                                       <a href={diffUrl} target="_blank" rel="noopener noreferrer" className={cn(locationClass, "hover:bg-accent hover:[&_span]:underline focus-visible:[&_span]:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring")} title={t("pr.dialog.openCommentLocation", { location })} onClick={() => { if (pullRequest) onOpenPullRequest(pullRequest); }}>
                                         <CommentLocation comment={comment} />
                                       </a>
                                     ) : <p className={locationClass}><CommentLocation comment={comment} /></p>}
-                                    {reviewerActions ? (
-                                      <Button
-                                        type="button"
-                                        variant="outline"
-                                        size="icon"
-                                        actionTone="neutral"
-                                        className="size-8 shrink-0"
-                                        disabled={!onPublishComment || pendingAction != null || publishedComments.has(commentKey(comment, index))}
-                                        onClick={() => openCommentEditor(comment, index)}
-                                        aria-label={t("pr.dialog.publishFor", { file: comment.file })}
-                                        title={publishLabel}
-                                      >
-                                        {pendingAction === commentKey(comment, index) ? <Loader2 aria-hidden="true" className="animate-spin" /> : published ? <CheckCircle2 aria-hidden="true" /> : <Send aria-hidden="true" />}
+                                    <div className="ml-auto flex shrink-0 flex-wrap items-center gap-2">
+                                    {status !== "ready" ? <span role="status" aria-label={t("pr.dialog.statusFor", { file: reviewCommentPath(comment.file) })} className={cn("flex items-center gap-1.5 text-xs", status === "checkFailed" ? "text-destructive" : "text-muted-foreground")} title={status === "checkFailed" ? t("pr.dialog.publicationCheckError") : undefined}>
+                                      {status === "checking" || status === "publishing" ? <Loader2 aria-hidden="true" className="size-4 animate-spin" /> : status === "checkFailed" ? <CircleAlert aria-hidden="true" className="size-4" /> : status === "published" ? <CheckCircle2 aria-hidden="true" className="size-4" /> : null}
+                                      {t(`pr.dialog.commentStatus.${status}`)}
+                                    </span> : null}
+                                    {status === "checkFailed" ? <Button type="button" variant="outline" size="icon" className="size-8" aria-label={t("pr.dialog.retryComparisonFor", { file: reviewCommentPath(comment.file) })} title={t("pr.dialog.retryComparison")} onClick={retryComparison}><RefreshCw aria-hidden="true" /></Button>
+                                    : status === "checking" ? null
+                                    : matched?.coverage === "full" && matchedUrl ? (
+                                      <Button asChild variant="outline" size="sm">
+                                        <a href={matchedUrl} target="_blank" rel="noopener noreferrer" aria-label={t("pr.dialog.existingCommentFor", { file: reviewCommentPath(comment.file) })}>
+                                          <ExternalLink aria-hidden="true" />{t("pr.dialog.existingComment")}
+                                        </a>
                                       </Button>
+                                    ) : reviewerActions && matched?.coverage === "partial" ? (
+                                      <Button type="button" variant="outline" size="sm" disabled={!onPublishComment || pendingAction != null || checkingPublication || published} onClick={() => openCommentEditor(comment, index)}>
+                                        {status === "publishing" ? <Loader2 aria-hidden="true" className="animate-spin" /> : published ? <CheckCircle2 aria-hidden="true" /> : <Pencil aria-hidden="true" />}{t(published ? "pr.dialog.published" : "pr.dialog.publishAddition")}
+                                      </Button>
+                                    ) : reviewerActions && matched?.coverage !== "full" ? (
+                                      <DropdownMenu>
+                                        <DropdownMenuTrigger asChild>
+                                          <Button
+                                            type="button"
+                                            variant="outline"
+                                            size="icon"
+                                            actionTone="neutral"
+                                            className="size-8 shrink-0"
+                                            disabled={!onPublishComment || pendingAction != null || checkingPublication || published}
+                                            aria-label={t("pr.dialog.publishFor", { file: reviewCommentPath(comment.file) })}
+                                            title={publishLabel}
+                                          >
+                                            {pendingAction === commentKey(comment, index) ? <Loader2 aria-hidden="true" className="animate-spin" /> : published ? <CheckCircle2 aria-hidden="true" /> : <Send aria-hidden="true" />}
+                                          </Button>
+                                        </DropdownMenuTrigger>
+                                        <DropdownMenuContent align="end" onCloseAutoFocus={(event) => { if (editingComment) event.preventDefault(); }}>
+                                          <DropdownMenuItem disabled={pendingAction != null || checkingPublication || published} onSelect={() => void publishComment(comment, index, comment.comment)}>
+                                            <Send aria-hidden="true" />
+                                            {t("pr.dialog.sendAsIs")}
+                                          </DropdownMenuItem>
+                                          <DropdownMenuItem disabled={pendingAction != null || checkingPublication || published} onSelect={() => openCommentEditor(comment, index)}>
+                                            <Pencil aria-hidden="true" />
+                                            {t("pr.dialog.editAndSend")}
+                                          </DropdownMenuItem>
+                                        </DropdownMenuContent>
+                                      </DropdownMenu>
                                     ) : null}
+                                    </div>
                                   </div>
                                   <ReviewMarkdown>{comment.comment}</ReviewMarkdown>
+                                  {matched ? <div className="space-y-2 text-sm text-muted-foreground">
+                                    <p>{t(matched.coverage === "full" ? "pr.dialog.duplicateCovered" : "pr.dialog.partiallyCovered")}</p>
+                                    {matched.coverage === "partial" && matchedUrl ? <Button asChild variant="outline" size="sm"><a href={matchedUrl} target="_blank" rel="noopener noreferrer" aria-label={t("pr.dialog.existingCommentFor", { file: reviewCommentPath(comment.file) })}><ExternalLink aria-hidden="true" />{t("pr.dialog.existingComment")}</a></Button> : null}
+                                  </div> : null}
                                 </li>
                               );
                             })}
@@ -365,14 +469,14 @@ export function PullRequestReviewDialog({
       >
         <DialogContent className="max-w-xl">
           <DialogHeader>
-            <DialogTitle>{t("pr.dialog.editComment")}</DialogTitle>
+            <DialogTitle>{t(editingComment?.parentCommentId ? "pr.dialog.publishAddition" : "pr.dialog.editComment")}</DialogTitle>
             <DialogDescription>
-              {t("pr.dialog.editCommentDescription")}
+              {t(editingComment?.parentCommentId ? "pr.dialog.additionDescription" : "pr.dialog.editCommentDescription")}
             </DialogDescription>
           </DialogHeader>
           <DialogBody className="space-y-3">
             <div className="rounded-md border bg-muted/20 px-3 py-2 text-xs text-muted-foreground">
-              {editingComment?.comment.file}{editingComment?.comment.line != null ? `:${editingComment.comment.line}` : ""}
+              {editingComment ? <CommentLocation comment={editingComment.comment} /> : null}
             </div>
             <div className="grid gap-2">
               <Label htmlFor="review-comment-editor">{t("pr.dialog.comment")}</Label>
@@ -386,6 +490,17 @@ export function PullRequestReviewDialog({
                 autoFocus
               />
             </div>
+            {comparisonFailed ? <Alert variant="destructive">
+              <CircleAlert aria-hidden="true" />
+              <AlertDescription className="space-y-2">
+                <p>{t("pr.dialog.publicationCheckError")}</p>
+                <Button type="button" variant="outline" size="sm" onClick={retryComparison}><RefreshCw aria-hidden="true" />{t("pr.dialog.retryComparison")}</Button>
+              </AlertDescription>
+            </Alert> : checkingPublication ? <p role="status" className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 aria-hidden="true" className="size-4 animate-spin" />{t("pr.dialog.commentStatus.checking")}</p>
+              : editingDuplicate || editingDestinationChanged ? <Alert>
+                <CircleAlert aria-hidden="true" />
+                <AlertDescription>{t(editingDuplicate ? "pr.dialog.duplicateCovered" : "pr.dialog.editorDestinationChanged")}</AlertDescription>
+              </Alert> : null}
             {actionError ? <p role="alert" className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">{actionError}</p> : null}
           </DialogBody>
           <DialogFooter>
@@ -406,9 +521,9 @@ export function PullRequestReviewDialog({
             <Button
               type="button"
               onClick={() => {
-                if (editingComment) void publishComment(editingComment.comment, editingComment.index, commentDraft);
+                if (editingComment) void publishComment(editingComment.comment, editingComment.index, commentDraft, editingComment.parentCommentId);
               }}
-              disabled={!editingComment || !onPublishComment || !commentDraft.trim() || pendingAction != null}
+              disabled={!editingComment || !onPublishComment || !commentDraft.trim() || pendingAction != null || checkingPublication || editingDuplicate || editingDestinationChanged}
             >
               {pendingAction != null ? <Loader2 aria-hidden="true" className="size-4 animate-spin" /> : <Send aria-hidden="true" className="size-4" />}
               {pendingAction != null ? t("pr.dialog.sending") : t("pr.dialog.send")}

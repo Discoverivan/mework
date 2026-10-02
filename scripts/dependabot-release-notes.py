@@ -19,6 +19,23 @@ SPEC.loader.exec_module(VALIDATOR)
 
 
 def fill_notes(body: str, filenames: list[str]) -> str:
+    # Keep master's required PR structure without replacing authored content.
+    for title, fallback in (
+        ("Why this change", "Update dependencies through Dependabot."),
+        ("How it works", "Dependabot updates dependency versions; CI verifies the changes."),
+        ("Risks and migration", "Review the dependency changelog and CI results before merging."),
+    ):
+        heading = re.search(rf"(?m)^#### {re.escape(title)}[ \t]*\r?$", body)
+        if heading is None:
+            notes_heading = re.search(r"(?m)^## Release notes[ \t]*\r?$", body)
+            offset = notes_heading.start() if notes_heading else len(body)
+            body = body[:offset].rstrip() + f"\n\n#### {title}\n\n{fallback}\n\n" + body[offset:]
+        else:
+            contents = VALIDATOR.section(body, title, level=4)
+            if not VALIDATOR.meaningful(contents):
+                end = heading.end() + len(contents)
+                body = body[:end] + f"\n{fallback}\n\n" + body[end:]
+
     # Use the contributor policy's generic note, including for dev dependency
     # updates: these must not claim new user-facing features or fixes.
     note = "### Fixed\n- Performance improvements and bug fixes.\n" if (
