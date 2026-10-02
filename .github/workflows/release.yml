@@ -298,7 +298,7 @@ jobs:
           args: ${{ matrix.args }}
 
       - name: Upload bundles for serial release publication
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: mework-release-bundles-${{ matrix.artifact }}
           path: |
@@ -341,7 +341,7 @@ jobs:
           fetch-depth: 0
 
       - name: Download platform bundles
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           pattern: mework-release-bundles-*
           path: ${{ runner.temp }}/release-bundles
