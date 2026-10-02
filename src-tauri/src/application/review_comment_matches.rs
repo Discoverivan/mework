@@ -31,7 +31,7 @@ pub struct CommentMatches {
     pub matches: Vec<CommentMatch>,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, PartialEq, Eq)]
 struct ExistingComment {
     id: u64,
     thread_id: u64,
@@ -229,6 +229,26 @@ pub fn valid_reply_parent(comments: &[BitbucketComment], id: u64, path: &str) ->
         .any(|comment| comment.id == id && comment.file == path)
 }
 
+pub fn file_discussions_unchanged(
+    before: &[BitbucketComment],
+    after: &[BitbucketComment],
+    path: &str,
+) -> bool {
+    let in_file = |comments: &[BitbucketComment]| {
+        existing_comments(comments)
+            .into_iter()
+            .filter(|comment| comment.file == path)
+            .collect::<Vec<_>>()
+    };
+    in_file(before) == in_file(after)
+}
+
+pub fn publication_conflicts(matches: &[CommentMatch], parent_comment_id: Option<u64>) -> bool {
+    matches.iter().any(|matched| {
+        matched.coverage == Coverage::Full || parent_comment_id != matched.parent_comment_id
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -254,7 +274,16 @@ mod tests {
         }];
         assert!(validate_matches(&matches, &findings, &existing_comments(&comments)).is_ok());
         assert!(valid_reply_parent(&comments, 12, "src/retry.ts"));
+        assert!(!publication_conflicts(&matches, Some(11)));
+        assert!(file_discussions_unchanged(
+            &comments,
+            &comments,
+            "src/retry.ts"
+        ));
         // Security: model output must not redirect publication to another file or an invented ID.
+        assert!(publication_conflicts(&matches, Some(12)));
+        assert!(publication_conflicts(&matches, None));
+        assert!(!file_discussions_unchanged(&comments, &[], "src/retry.ts"));
         assert!(!valid_reply_parent(&comments, 12, "src/other.ts"));
         let invalid = vec![CommentMatch {
             comment_id: 99,

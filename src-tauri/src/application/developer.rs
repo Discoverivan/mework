@@ -1237,25 +1237,47 @@ pub async fn publish_pull_request_comment(
                 true,
             )
         })?;
-        if checked.matches.iter().any(|matched| {
-            matched.coverage == super::review_comment_matches::Coverage::Full
-                || request.parent_comment_id.is_none()
-        }) {
+        if super::review_comment_matches::publication_conflicts(
+            &checked.matches,
+            request.parent_comment_id,
+        ) {
             return Err(command_error("comment_discussion_changed", "An existing discussion covers this comment; review the refreshed results before publishing", true));
         }
-        // Comparison can take time; never write against a commit that changed while it ran.
-        validate_current_pull_request(
-            &context.client,
+    }
+    // AI comparison can take minutes. Reject a stale discussion snapshot rather than
+    // publishing a duplicate or sending a clarification to a thread that changed.
+    let current_comments = context
+        .client
+        .list_pull_request_comments(
             &request.project_key,
             &request.repository_slug,
             pull_request_id,
-            request
-                .latest_commit
-                .as_deref()
-                .expect("validated latest commit"),
+            100,
         )
-        .await?;
+        .await
+        .map_err(map_error)?;
+    if !super::review_comment_matches::file_discussions_unchanged(
+        &live_comments,
+        &current_comments,
+        developer_review::review_comment_path(&request.file),
+    ) {
+        return Err(command_error(
+            "comment_discussion_changed",
+            "The discussion changed; review the refreshed results before publishing",
+            true,
+        ));
     }
+    validate_current_pull_request(
+        &context.client,
+        &request.project_key,
+        &request.repository_slug,
+        pull_request_id,
+        request
+            .latest_commit
+            .as_deref()
+            .expect("validated latest commit"),
+    )
+    .await?;
     // Persist a local action key before any write. Identical retries, including after restart,
     // must not post a second comment when the remote result is unknown.
     sqlx::query("INSERT INTO pull_request_comment_actions (idempotency_key, request_json, status) VALUES (?, ?, 'running')")
