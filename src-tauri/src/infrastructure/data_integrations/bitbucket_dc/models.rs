@@ -135,6 +135,15 @@ pub struct BitbucketParticipant {
 }
 
 #[derive(Debug, Clone, Deserialize)]
+pub struct BitbucketPullRequestActivity {
+    pub comment: Option<BitbucketComment>,
+    #[serde(rename = "commentAnchor")]
+    pub comment_anchor: Option<BitbucketCommentAnchor>,
+    #[serde(rename = "commentAction")]
+    pub comment_action: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
 pub struct BitbucketComment {
     pub id: u64,
     pub version: u64,
