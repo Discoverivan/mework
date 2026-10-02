@@ -135,6 +135,15 @@ pub struct BitbucketParticipant {
 }
 
 #[derive(Debug, Clone, Deserialize)]
+pub struct BitbucketPullRequestActivity {
+    pub comment: Option<BitbucketComment>,
+    #[serde(rename = "commentAnchor")]
+    pub comment_anchor: Option<BitbucketCommentAnchor>,
+    #[serde(rename = "commentAction")]
+    pub comment_action: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
 pub struct BitbucketComment {
     pub id: u64,
     pub version: u64,
@@ -160,6 +169,8 @@ pub struct BitbucketCommentAnchor {
     pub line: Option<i64>,
     #[serde(rename = "lineType")]
     pub line_type: Option<String>,
+    #[serde(rename = "fileType")]
+    pub file_type: Option<String>,
     #[serde(rename = "srcPath")]
     pub src_path: Option<String>,
 }

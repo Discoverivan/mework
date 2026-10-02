@@ -27,6 +27,7 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
+dirs = "7"
 tempfile = "3.27.0"
 tauri = { version = "2", features = ["tray-icon", "devtools"] }
 tauri-plugin-opener = "2"
@@ -34,6 +35,7 @@ tauri-plugin-process = "2"
 tauri-plugin-updater = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+sha2 = "0.10"
 semver = "1"
 sqlx = { version = "0.9.0", default-features = false, features = ["runtime-tokio", "sqlite", "migrate", "macros"] }
 tokio = { version = "1.53.1", features = ["macros", "rt-multi-thread", "sync", "signal"] }
@@ -50,9 +52,6 @@ block2 = "0.6"
 objc2 = "0.6"
 objc2-foundation = "0.3"
 objc2-user-notifications = { version = "0.3", features = ["UNError", "UNNotificationSettings", "UNNotificationContent", "UNNotificationRequest", "UNNotificationSound", "UNNotificationTrigger", "block2"] }
-
-[target.'cfg(windows)'.dependencies]
-dirs = "7"
 
 [target.'cfg(any(target_os = "macos", windows, target_os = "linux"))'.dependencies]
 tauri-plugin-single-instance = "2"

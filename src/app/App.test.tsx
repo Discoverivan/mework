@@ -5,6 +5,15 @@ import type { MyPullRequestPage } from "../shared/contracts/developer";
 import type { TaskTrackerMonitor } from "../shared/contracts/task-tracker";
 import { APP_EVENT, emitAppEvent } from "./app-events";
 import App from "../App";
+import { clearPullRequestDisplayPreferencesForTests, usePullRequestQuickFilter } from "../features/developer/display-options";
+
+vi.mock("@tauri-apps/api/core", { spy: true });
+
+const { prefetchDailyWorkspacesMock } = vi.hoisted(() => ({ prefetchDailyWorkspacesMock: vi.fn() }));
+vi.mock("../features/daily/cache", async (importOriginal) => ({
+  ...await importOriginal<typeof import("../features/daily/cache")>(),
+  prefetchDailyWorkspaces: prefetchDailyWorkspacesMock,
+}));
 
 vi.mock("../features/daily/PresenterView", () => ({
   PresenterView: () => <h1>Daily presenter screen</h1>,
@@ -184,6 +193,8 @@ function pullRequestPage(activity: "new" | "updated" | "read"): MyPullRequestPag
 
 describe("mework application shell", () => {
   beforeEach(() => {
+    prefetchDailyWorkspacesMock.mockReset();
+    prefetchDailyWorkspacesMock.mockResolvedValue(undefined);
     window.location.hash = "";
     window.localStorage.removeItem("mework.task-tracker.read-checkpoints.v1");
     vi.stubGlobal("matchMedia", () => ({ matches: true }));
@@ -205,6 +216,7 @@ describe("mework application shell", () => {
     addDevMockPullRequestMock.mockReset();
     resetDevMockScenarioMock.mockReset();
     getPullRequestUnreadCountsMock.mockReset();
+    clearPullRequestDisplayPreferencesForTests();
     getPullRequestUnreadCountsMock.mockResolvedValue({ reviewer: 0, authored: 0 });
     refreshAuthoredPullRequestsMock.mockClear();
     refreshAuthoredPullRequestsMock.mockResolvedValue({ values: [], total: 0, hasMore: false });
@@ -558,9 +570,23 @@ describe("mework application shell", () => {
     expect(await screen.findByRole("link", { name: "Task tracker, 5 unread" })).toBeInTheDocument();
     await waitFor(() => expect(setAppBadgeCountMock).toHaveBeenLastCalledWith(10));
 
-    getPullRequestUnreadCountsMock.mockResolvedValue({ reviewer: 4, authored: 3 });
-    act(() => emitAppEvent(APP_EVENT.pullRequestActivityChanged));
-    await waitFor(() => expect(setAppBadgeCountMock).toHaveBeenLastCalledWith(12));
+    const { savePullRequestReviewSettings } = await vi.importActual<typeof import("../features/developer/api")>("../features/developer/api");
+    const core = await import("@tauri-apps/api/core");
+    const savedFilters = {
+      repositoryBlacklist: ["DEMO/sample-repository"], creatorBlacklist: [],
+      repositoryWhitelist: [], creatorWhitelist: [],
+      autoReviewEnabled: false, authoredAutoReviewEnabled: false,
+    };
+    const invoke = vi.mocked(core.invoke).mockResolvedValue(savedFilters);
+    getPullRequestUnreadCountsMock.mockResolvedValue({ reviewer: 1, authored: 3 });
+    try {
+      await act(async () => { await savePullRequestReviewSettings(savedFilters); });
+      expect(invoke).toHaveBeenCalledWith("save_pull_request_review_settings", { settings: savedFilters });
+      expect(await screen.findByRole("link", { name: "PRs to review, 1 unread" })).toBeInTheDocument();
+      await waitFor(() => expect(setAppBadgeCountMock).toHaveBeenLastCalledWith(9));
+    } finally {
+      invoke.mockRestore();
+    }
 
     act(() => {
       emitAppEvent(APP_EVENT.taskTrackerReadStateChanged, {
@@ -568,7 +594,37 @@ describe("mework application shell", () => {
         checkpoint: "badge-checkpoint",
       });
     });
-    await waitFor(() => expect(setAppBadgeCountMock).toHaveBeenLastCalledWith(7));
+    await waitFor(() => expect(setAppBadgeCountMock).toHaveBeenLastCalledWith(4));
+  });
+
+  it("keeps sidebar and app badge counts in sync with saved and changed PR quick filters", async () => {
+    window.localStorage.setItem("mework.pull-request-quick-filter.v1.reviewer", "all");
+    getPullRequestUnreadCountsMock.mockImplementation(async (request) => ({
+      reviewer: request.reviewerPendingOnly ? 1 : 4,
+      authored: request.authoredNeedsActionOnly ? 2 : 5,
+    }));
+
+    function QuickFilterControls() {
+      const [, setReviewerFilter] = usePullRequestQuickFilter("reviewer");
+      const [, setAuthoredFilter] = usePullRequestQuickFilter("authored");
+      return <>
+        <button onClick={() => setReviewerFilter("pending")}>Select pending reviews</button>
+        <button onClick={() => setAuthoredFilter("all")}>Select all authored PRs</button>
+      </>;
+    }
+
+    render(<><App /><QuickFilterControls /></>);
+    expect(await screen.findByRole("link", { name: "PRs to review, 4 unread" })).toBeInTheDocument();
+    expect(await screen.findByRole("link", { name: "Your PRs, 2 unread" })).toBeInTheDocument();
+    await waitFor(() => expect(setAppBadgeCountMock).toHaveBeenLastCalledWith(6));
+
+    fireEvent.click(screen.getByRole("button", { name: "Select pending reviews" }));
+    expect(await screen.findByRole("link", { name: "PRs to review, 1 unread" })).toBeInTheDocument();
+    await waitFor(() => expect(setAppBadgeCountMock).toHaveBeenLastCalledWith(3));
+
+    fireEvent.click(screen.getByRole("button", { name: "Select all authored PRs" }));
+    expect(await screen.findByRole("link", { name: "Your PRs, 5 unread" })).toBeInTheDocument();
+    await waitFor(() => expect(setAppBadgeCountMock).toHaveBeenLastCalledWith(6));
   });
 
   it("does not let an older PR cache read overwrite the count after a newer activity event", async () => {
@@ -594,14 +650,20 @@ describe("mework application shell", () => {
     expect(reviewerLink).toHaveAccessibleName("PRs to review");
   });
 
-  it("warms AI settings without delaying application startup", async () => {
+  it("warms AI settings and sprint tasks without delaying application startup", async () => {
     window.location.hash = "#settings/general";
     getAiSettingsMock.mockImplementationOnce(() => new Promise(() => {}));
+    prefetchDailyWorkspacesMock.mockImplementationOnce(() => new Promise(() => {}));
+    refreshAllIntegrationsHealthMock.mockResolvedValueOnce([{
+      id: "jira-1", kind: "jira", baseUrl: "https://jira.example.invalid",
+      enabled: true, healthStatus: "working", capabilities: [],
+    }]);
     render(<App />);
 
     await screen.findByRole("main", { name: "mework" });
     expect(refreshAllIntegrationsHealthMock).toHaveBeenCalledOnce();
     expect(getAiSettingsMock).toHaveBeenCalledOnce();
+    expect(prefetchDailyWorkspacesMock).toHaveBeenCalledWith(["jira-1"]);
     expect(screen.queryByRole("status", { name: "Loading mework" })).not.toBeInTheDocument();
   });
 });

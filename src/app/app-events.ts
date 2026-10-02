@@ -5,6 +5,7 @@ import type { TaskTrackerMonitor } from "@/shared/contracts/task-tracker";
 import type { TokenBurnerSnapshot } from "@/shared/contracts/token-burner";
 import type { UpdateAvailabilitySnapshot } from "@/shared/contracts/updates";
 import type { TaskTrackerReadStateChanged } from "@/features/product/task-tracker-read-state";
+import type { PullRequestDisplayScope, PullRequestQuickFilter } from "@/features/developer/display-options";
 
 export const APP_EVENT = {
   integrationsChanged: "integrations:changed",
@@ -12,6 +13,7 @@ export const APP_EVENT = {
   aiSettingsChanged: "ai-settings:changed",
   aiPromptSettingsChanged: "ai-prompts:changed",
   pullRequestActivityChanged: "pull-requests:activity-changed",
+  pullRequestQuickFilterChanged: "pull-requests:quick-filter-changed",
   pullRequestReviewChanged: "pull-requests:review-changed",
   reviewerPullRequestsUpdated: "pull-requests:reviewer-updated",
   authoredPullRequestsUpdated: "pull-requests:authored-updated",
@@ -28,6 +30,7 @@ interface AppEventMap {
   [APP_EVENT.aiSettingsChanged]: AiSettingsPageData;
   [APP_EVENT.aiPromptSettingsChanged]: PromptSettings;
   [APP_EVENT.pullRequestActivityChanged]: undefined;
+  [APP_EVENT.pullRequestQuickFilterChanged]: { scope: PullRequestDisplayScope; filter: PullRequestQuickFilter };
   [APP_EVENT.pullRequestReviewChanged]: PullRequestReviewChangedEvent;
   [APP_EVENT.reviewerPullRequestsUpdated]: MyPullRequestPage;
   [APP_EVENT.authoredPullRequestsUpdated]: MyPullRequestPage;

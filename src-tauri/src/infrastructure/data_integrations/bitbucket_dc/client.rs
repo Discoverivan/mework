@@ -9,7 +9,8 @@ const MAX_PULL_REQUEST_DIFF_BYTES: usize = 2_000_000;
 
 use super::models::{
     BitbucketBuildStatus, BitbucketComment, BitbucketDashboardPullRequest, BitbucketDiffResponse,
-    BitbucketPage, BitbucketParticipant, BitbucketPullRequest, BitbucketRepository, BitbucketUser,
+    BitbucketPage, BitbucketParticipant, BitbucketPullRequest, BitbucketPullRequestActivity,
+    BitbucketRepository, BitbucketUser,
 };
 
 enum Authentication {
@@ -448,22 +449,56 @@ impl BitbucketDcClient {
         validate_path_segment(project_key)?;
         validate_path_segment(repository_slug)?;
         validate_limit(limit)?;
-        self.fetch_page(
-            &[
-                "rest",
-                "api",
-                "1.0",
-                "projects",
-                project_key,
-                "repos",
-                repository_slug,
-                "pull-requests",
-                &pull_request_id.to_string(),
-                "comments",
-            ],
-            &[("limit", limit.to_string()), ("start", start.to_string())],
-        )
-        .await
+        // GET /comments is file-scoped and requires path. The activity feed
+        // provides all PR comments and keeps inline anchors on the activity.
+        let page: BitbucketPage<BitbucketPullRequestActivity> = self
+            .fetch_page(
+                &[
+                    "rest",
+                    "api",
+                    "1.0",
+                    "projects",
+                    project_key,
+                    "repos",
+                    repository_slug,
+                    "pull-requests",
+                    &pull_request_id.to_string(),
+                    "activities",
+                ],
+                &[("limit", limit.to_string()), ("start", start.to_string())],
+            )
+            .await?;
+        fn inherit_anchor(
+            comment: &mut BitbucketComment,
+            anchor: Option<&super::models::BitbucketCommentAnchor>,
+        ) {
+            if comment.anchor.is_none() {
+                comment.anchor = anchor.cloned();
+            }
+            for reply in &mut comment.comments {
+                inherit_anchor(reply, comment.anchor.as_ref());
+            }
+        }
+        Ok(BitbucketPage {
+            values: page
+                .values
+                .into_iter()
+                .filter_map(|activity| {
+                    let mut comment = activity.comment?;
+                    if activity.comment_action.as_deref() == Some("DELETED") {
+                        comment.deleted = Some(true);
+                    }
+                    inherit_anchor(&mut comment, activity.comment_anchor.as_ref());
+                    Some(comment)
+                })
+                .collect(),
+            is_last_page: page.is_last_page,
+            next_page_start: page.next_page_start,
+            size: page.size,
+            total: page.total,
+            limit: page.limit,
+            start: page.start,
+        })
     }
 
     pub async fn list_pull_request_comments(
@@ -474,16 +509,151 @@ impl BitbucketDcClient {
         limit: u64,
     ) -> Result<Vec<BitbucketComment>, BitbucketDcError> {
         validate_limit(limit)?;
-        self.collect_pages(|start| {
-            self.list_pull_request_comments_page(
-                project_key,
-                repository_slug,
-                pull_request_id,
-                start,
-                limit,
+        let comments = self
+            .collect_pages(|start| {
+                self.list_pull_request_comments_page(
+                    project_key,
+                    repository_slug,
+                    pull_request_id,
+                    start,
+                    limit,
+                )
+            })
+            .await?;
+        // Activities are newest first; retain the current version of each thread.
+        let mut seen = std::collections::HashSet::new();
+        Ok(comments
+            .into_iter()
+            .filter(|comment| seen.insert(comment.id))
+            .collect())
+    }
+
+    /// Rebuild publication status from the PR instead of a local publication history.
+    pub async fn published_pull_request_comment_indices(
+        &self,
+        project_key: &str,
+        repository_slug: &str,
+        pull_request_id: u64,
+        findings: &[BitbucketInlineComment<'_>],
+    ) -> Result<Vec<usize>, BitbucketDcError> {
+        let comments = self
+            .list_pull_request_comments(project_key, repository_slug, pull_request_id, 100)
+            .await?;
+        if comments.is_empty() {
+            return Ok(Vec::new());
+        }
+        fn needs_context_diff(
+            comments: &[BitbucketComment],
+            findings: &[BitbucketInlineComment<'_>],
+        ) -> bool {
+            comments.iter().any(|comment| {
+                (comment.deleted != Some(true)
+                    && comment.anchor.as_ref().is_some_and(|anchor| {
+                        anchor.line_type.as_deref() == Some("CONTEXT")
+                            && anchor.file_type.as_deref() != Some("TO")
+                            && findings.iter().any(|finding| {
+                                finding.line.is_some()
+                                    && anchor.path.as_deref() == Some(finding.path)
+                                    && comment.text.trim() == finding.text.trim()
+                            })
+                    }))
+                    || needs_context_diff(&comment.comments, findings)
+            })
+        }
+        // Added-line and file comments already use the finding's coordinates.
+        // Only fetch the full diff when a matching old-side context anchor needs it.
+        let diff = if needs_context_diff(&comments, findings) {
+            Some(
+                self.pull_request_comment_diff(project_key, repository_slug, pull_request_id)
+                    .await?,
             )
-        })
-        .await
+        } else {
+            None
+        };
+        fn contains(
+            comments: &[BitbucketComment],
+            finding: BitbucketInlineComment<'_>,
+            diff: Option<&BitbucketDiffResponse>,
+        ) -> bool {
+            comments.iter().any(|comment| {
+                let matches = comment.deleted != Some(true)
+                    && comment.text.trim() == finding.text.trim()
+                    && comment.anchor.as_ref().is_some_and(|anchor| {
+                        if anchor.path.as_deref() != Some(finding.path) {
+                            return false;
+                        }
+                        if anchor.line_type.as_deref() == Some("REMOVED") {
+                            return false;
+                        }
+                        // Publication anchors CONTEXT lines on the old side of the diff.
+                        let line = if anchor.line_type.as_deref() == Some("CONTEXT")
+                            && anchor.file_type.as_deref() != Some("TO")
+                            && anchor.line.is_some()
+                        {
+                            let Some(diff) = diff else { return false };
+                            diff.diffs
+                                .iter()
+                                .filter(|file| {
+                                    file.destination
+                                        .as_ref()
+                                        .or(file.source.as_ref())
+                                        .is_some_and(|path| path.path == finding.path)
+                                })
+                                .flat_map(|file| &file.hunks)
+                                .flat_map(|hunk| &hunk.segments)
+                                .filter(|segment| segment.line_type == "CONTEXT")
+                                .flat_map(|segment| &segment.lines)
+                                .find(|line| Some(line.source) == anchor.line)
+                                .map(|line| line.destination)
+                        } else {
+                            anchor.line
+                        };
+                        line == finding.line
+                    });
+                matches || contains(&comment.comments, finding, diff)
+            })
+        }
+        Ok(findings
+            .iter()
+            .enumerate()
+            .filter_map(|(index, finding)| {
+                contains(&comments, *finding, diff.as_ref()).then_some(index)
+            })
+            .collect())
+    }
+
+    async fn pull_request_comment_diff(
+        &self,
+        project_key: &str,
+        repository_slug: &str,
+        pull_request_id: u64,
+    ) -> Result<BitbucketDiffResponse, BitbucketDcError> {
+        let url = self.url_with_segments(&[
+            "rest",
+            "api",
+            "1.0",
+            "projects",
+            project_key,
+            "repos",
+            repository_slug,
+            "pull-requests",
+            &pull_request_id.to_string(),
+            "diff",
+        ])?;
+        let response = self
+            .authenticated_request(url)
+            .query(&[("diffType", "EFFECTIVE"), ("withComments", "false")])
+            .header(header::ACCEPT, "application/json")
+            .send()
+            .await
+            .map_err(|_| BitbucketDcError::Transport)?;
+        if !response.status().is_success() {
+            return Err(Self::http_error(response).await);
+        }
+        response
+            .json()
+            .await
+            .map_err(|_| BitbucketDcError::InvalidResponse)
     }
 
     pub async fn publish_pull_request_comment(
@@ -502,32 +672,9 @@ impl BitbucketDcClient {
         {
             return Err(BitbucketDcError::InvalidRequest);
         }
-        let diff_url = self.url_with_segments(&[
-            "rest",
-            "api",
-            "1.0",
-            "projects",
-            project_key,
-            "repos",
-            repository_slug,
-            "pull-requests",
-            &pull_request_id.to_string(),
-            "diff",
-        ])?;
-        let response = self
-            .authenticated_request(diff_url)
-            .query(&[("diffType", "EFFECTIVE"), ("withComments", "false")])
-            .header(header::ACCEPT, "application/json")
-            .send()
-            .await
-            .map_err(|_| BitbucketDcError::Transport)?;
-        if !response.status().is_success() {
-            return Err(Self::http_error(response).await);
-        }
-        let diff = response
-            .json::<BitbucketDiffResponse>()
-            .await
-            .map_err(|_| BitbucketDcError::InvalidResponse)?;
+        let diff = self
+            .pull_request_comment_diff(project_key, repository_slug, pull_request_id)
+            .await?;
         let file = diff
             .diffs
             .iter()
@@ -601,6 +748,53 @@ impl BitbucketDcClient {
             response,
             "data_integrations.bitbucket_dc",
             "publish_pull_request_comment",
+        )
+        .await
+        .map_err(|_| BitbucketDcError::InvalidResponse)
+    }
+
+    pub async fn reply_pull_request_comment(
+        &self,
+        project_key: &str,
+        repository_slug: &str,
+        pull_request_id: u64,
+        parent_id: u64,
+        text: &str,
+    ) -> Result<BitbucketComment, BitbucketDcError> {
+        validate_path_segment(project_key)?;
+        validate_path_segment(repository_slug)?;
+        if parent_id == 0 || text.trim().is_empty() {
+            return Err(BitbucketDcError::InvalidRequest);
+        }
+        let url = self.url_with_segments(&[
+            "rest",
+            "api",
+            "1.0",
+            "projects",
+            project_key,
+            "repos",
+            repository_slug,
+            "pull-requests",
+            &pull_request_id.to_string(),
+            "comments",
+        ])?;
+        let response = self
+            .authenticated_request_with_method(Method::POST, url)
+            .json(&serde_json::json!({ "text": text, "parent": { "id": parent_id } }))
+            .send_logged(
+                "data_integrations.bitbucket_dc",
+                "reply_pull_request_comment",
+                crate::application::logging::HttpBodyPolicy::Integration,
+            )
+            .await
+            .map_err(|_| BitbucketDcError::Transport)?;
+        if !response.status().is_success() {
+            return Err(Self::http_error(response).await);
+        }
+        crate::application::logging::parse_json_response::<BitbucketComment>(
+            response,
+            "data_integrations.bitbucket_dc",
+            "reply_pull_request_comment",
         )
         .await
         .map_err(|_| BitbucketDcError::InvalidResponse)

@@ -27,11 +27,10 @@ describe("UpdateBanner", () => {
     render(<UpdateBanner enabled updateVersion="0.1.5" />);
 
     expect(await screen.findByText("mework 0.1.5 is available")).toBeInTheDocument();
-    expect(screen.getByText("A new version is ready to install.")).toBeInTheDocument();
     expect(screen.queryByText(update.body)).not.toBeInTheDocument();
     expect(checkForAvailableUpdateMock).not.toHaveBeenCalled();
 
-    fireEvent.click(screen.getByRole("button", { name: "Update now" }));
+    fireEvent.click(screen.getByRole("button", { name: "Update" }));
     await waitFor(() => expect(checkForAvailableUpdateMock).toHaveBeenCalledOnce());
     await waitFor(() => expect(installAvailableUpdateMock).toHaveBeenCalledWith(update));
   });

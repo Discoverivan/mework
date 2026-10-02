@@ -7,7 +7,7 @@ import { ActionSettingsSection } from "./ActionSettingsSection";
 vi.mock("./api", () => ({ getCachedPromptSettings: vi.fn().mockReturnValue(null), getPromptSettings: vi.fn(), savePromptSettings: vi.fn() }));
 
 const settings: PromptSettings = {
-  action: "pullRequestReview", instructions: "Review concrete defects.", defaultInstructions: "Review concrete defects.",
+  action: "pullRequestReview", instructions: "Review concrete defects.", instructionsHash: "example-instructions-hash", defaultInstructions: "Review concrete defects.",
   protectedRules: "Return the required JSON object.", customized: false,
 };
 

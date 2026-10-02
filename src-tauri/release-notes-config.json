@@ -1,3 +1,4 @@
 {
-  "cacheTtlSeconds": 3600
+  "cacheTtlSeconds": 3600,
+  "prefetchReleaseCount": 10
 }
