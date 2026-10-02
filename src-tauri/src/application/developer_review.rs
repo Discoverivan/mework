@@ -799,6 +799,28 @@ fn migrate_legacy_state(raw: &str) -> Option<PersistedReviewState> {
     Some(PersistedReviewState { reviews })
 }
 
+pub(crate) async fn seed_mock_reviews(
+    pool: &SqlitePool,
+    requests: &[MyPullRequestDto],
+) -> Result<(), String> {
+    let _guard = review_state_lock().lock().await;
+    let mut state = load_state(pool).await?;
+    for request in requests {
+        if let Some(review) = &request.review {
+            state.reviews.insert(
+                pull_request_review_key(
+                    &request.integration_id,
+                    &request.project_key,
+                    &request.repository_slug,
+                    &request.pull_request_id,
+                ),
+                review.clone(),
+            );
+        }
+    }
+    save_state(pool, &state).await
+}
+
 async fn save_state(pool: &SqlitePool, state: &PersistedReviewState) -> Result<(), String> {
     let value = serde_json::to_string(state)
         .map_err(|_| "failed to serialize pull request review state".to_owned())?;

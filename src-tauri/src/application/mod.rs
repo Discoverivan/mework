@@ -19,6 +19,7 @@ pub mod integration_error;
 pub mod logging;
 #[cfg(feature = "dev-mock-rest")]
 pub mod mock_rest;
+pub(crate) mod mock_reviews;
 pub mod notifications;
 pub mod planning;
 pub mod polling;
