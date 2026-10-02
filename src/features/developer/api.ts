@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import { APP_EVENT, emitAppEvent } from "@/app/app-events";
 import type {
   BitbucketRepository,
   BitbucketUser,
@@ -163,4 +164,7 @@ export const getPullRequestReviewSettings = () =>
   invoke<PullRequestReviewSettings>("pull_request_review_settings");
 
 export const savePullRequestReviewSettings = (settings: PullRequestReviewSettings) =>
-  invoke<PullRequestReviewSettings>("save_pull_request_review_settings", { settings });
+  invoke<PullRequestReviewSettings>("save_pull_request_review_settings", { settings }).then((saved) => {
+    emitAppEvent(APP_EVENT.pullRequestActivityChanged);
+    return saved;
+  });

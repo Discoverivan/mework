@@ -92,13 +92,13 @@ export interface PullRequestReviewResult {
 }
 
 export interface PullRequestReviewExecution {
-  promptInstructions?: string | null;
+  instructionsHash?: string | null;
   provider: AiProviderId;
   providerName: string;
   providerInstanceId: string | null;
   model: string;
   reasoning: AiReasoning | null;
-  fastMode: boolean | null;
+  mode: "normal" | "fast" | null;
 }
 
 export interface PullRequestReviewState {
