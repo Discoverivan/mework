@@ -1074,7 +1074,7 @@ export const ru: Record<TranslationKey, string> = {
   "pr.dialog.retryComparison": "Повторить сравнение комментариев",
   "pr.dialog.existingComment": "Существующий комментарий",
   "pr.dialog.existingCommentFor": "Существующий комментарий для {file}",
-  "pr.dialog.duplicateCovered": "Дубль: существующее обсуждение уже полностью покрывает это замечание.",
+  "pr.dialog.duplicateCovered": "Существующее обсуждение уже полностью покрывает это замечание.",
   "pr.dialog.partiallyCovered": "Существующее обсуждение частично покрывает замечание. Недостающее пояснение можно опубликовать ответом.",
   "pr.dialog.publishAddition": "Опубликовать пояснение",
   "pr.dialog.additionDescription": "Проверьте недостающее пояснение перед публикацией ответом на существующий комментарий.",
