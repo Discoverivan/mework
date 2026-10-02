@@ -12,6 +12,10 @@ use crate::application::{ai, ai_usage_statistics, general, planning};
 use crate::domain::models::IntegrationKind;
 use crate::infrastructure::db::{planning_repositories, repositories};
 
+mod actions;
+#[cfg(test)]
+mod actions_test;
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TaskDraftDto {
@@ -48,7 +52,7 @@ pub struct JiraTaskMemberDto {
     pub active: bool,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct JiraCreatedTaskDto {
     pub id: String,
@@ -60,6 +64,7 @@ pub struct JiraCreatedTaskDto {
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct JiraTaskCreateRequest {
+    pub operation_key: String,
     pub managed_project_id: String,
     #[serde(default)]
     pub issue_type: JiraTaskIssueType,
@@ -633,6 +638,12 @@ pub async fn create_task(
     pool: &SqlitePool,
     request: JiraTaskCreateRequest,
 ) -> Result<JiraCreatedTaskDto, String> {
+    if request.operation_key.trim().is_empty() || request.operation_key.len() > 255 {
+        return Err("jira_task_operation_key_required".to_owned());
+    }
+    if let Some(created) = actions::result(pool, &request.operation_key).await? {
+        return Ok(created);
+    }
     let managed_project_id = required_text(&request.managed_project_id, "Managed project", 255)?;
     let summary = required_text(&request.summary, "Summary", 255)?;
     let description =
@@ -671,18 +682,12 @@ pub async fn create_task(
     if secret.is_empty() {
         return Err("Jira credentials are unavailable".to_owned());
     }
-    let mut fields = serde_json::Map::new();
-    fields.insert(
-        "project".to_owned(),
-        json!({ "key": project.jira_project_key }),
+    let mut fields = task_fields(
+        &project.jira_project_key,
+        request.issue_type,
+        summary,
+        description,
     );
-    fields.insert(
-        "issuetype".to_owned(),
-        jira_issue_type_field(request.issue_type),
-    );
-    fields.insert("summary".to_owned(), Value::String(summary));
-    fields.insert("description".to_owned(), Value::String(description));
-    fields.insert("priority".to_owned(), json!({ "name": "Medium" }));
     if let Some(points) = story_points {
         let field_id = if let Some(field_id) = project
             .story_points_field_id
@@ -718,11 +723,50 @@ pub async fn create_task(
     if let Some(assignee) = assignee {
         fields.insert("assignee".to_owned(), json!({ "name": assignee }));
     }
+    submit_task(
+        pool,
+        &request.operation_key,
+        &integration,
+        &client,
+        &secret,
+        fields,
+        sprint.as_deref(),
+    )
+    .await
+}
+
+fn task_fields(
+    project_key: &str,
+    issue_type: JiraTaskIssueType,
+    summary: String,
+    description: String,
+) -> serde_json::Map<String, Value> {
+    serde_json::Map::from_iter([
+        ("project".to_owned(), json!({ "key": project_key })),
+        ("issuetype".to_owned(), jira_issue_type_field(issue_type)),
+        ("summary".to_owned(), Value::String(summary)),
+        ("description".to_owned(), Value::String(description)),
+    ])
+}
+
+async fn submit_task(
+    pool: &SqlitePool,
+    operation_key: &str,
+    integration: &crate::domain::models::Integration,
+    client: &Client,
+    secret: &str,
+    fields: serde_json::Map<String, Value>,
+    sprint: Option<&str>,
+) -> Result<JiraCreatedTaskDto, String> {
+    if let Some(created) = actions::result(pool, operation_key).await? {
+        return Ok(created);
+    }
     let endpoint = jira_endpoint(&integration.base_url, "rest/api/2/issue")?;
+    actions::claim(pool, operation_key, &integration.id).await?;
     let response = jira_authenticate(
         client.post(endpoint),
         integration.account_key.as_str(),
-        &secret,
+        secret,
     )
     .json(&json!({ "fields": fields }))
     .send_logged(
@@ -731,8 +775,15 @@ pub async fn create_task(
         crate::application::logging::HttpBodyPolicy::Integration,
     )
     .await
-    .map_err(|_| "Jira task could not be created: transport error.".to_owned())?;
+    .map_err(|_| actions::UNKNOWN.to_owned())?;
     if !response.status().is_success() {
+        // Timeouts and server errors may occur after Jira commits the issue.
+        if !response.status().is_client_error()
+            || response.status() == reqwest::StatusCode::REQUEST_TIMEOUT
+        {
+            return Err(actions::UNKNOWN.to_owned());
+        }
+        actions::reject(pool, operation_key).await?;
         return Err(jira_http_error(response, "Jira task could not be created").await);
     }
     let created: JiraCreateResponse = crate::application::logging::parse_json_response(
@@ -741,32 +792,41 @@ pub async fn create_task(
         "create_task",
     )
     .await
-    .map_err(|_| "Jira create response was invalid".to_owned())?;
-    let warning = if let Some(sprint) = sprint.as_deref() {
+    .map_err(|_| actions::UNKNOWN.to_owned())?;
+    if created.id.trim().is_empty() || created.key.trim().is_empty() {
+        return Err(actions::UNKNOWN.to_owned());
+    }
+    let url = jira_endpoint(&integration.base_url, &format!("browse/{}", created.key))?.to_string();
+    let mut result = JiraCreatedTaskDto {
+        id: created.id,
+        key: created.key,
+        url,
+        warning: sprint.map(|_| "jira_task_sprint_unconfirmed".to_owned()),
+    };
+    // Persist creation before the optional second write, including a warning
+    // that remains accurate if the process stops during sprint assignment.
+    actions::succeed(pool, operation_key, &result).await?;
+    result.warning = if let Some(sprint) = sprint {
         assign_issue_to_sprint(
-            &client,
+            client,
             &integration.base_url,
             integration.account_key.as_str(),
-            &secret,
+            secret,
             sprint,
-            &created.key,
+            &result.key,
         )
         .await
         .err()
     } else {
         None
     };
-    let url = jira_endpoint(&integration.base_url, &format!("browse/{}", created.key))?.to_string();
-    Ok(JiraCreatedTaskDto {
-        id: created.id,
-        key: created.key,
-        url,
-        warning,
-    })
+    actions::succeed(pool, operation_key, &result).await?;
+    Ok(result)
 }
 
-fn jira_http_client(_allow_insecure_tls: &bool) -> Result<Client, String> {
+fn jira_http_client(allow_insecure_tls: &bool) -> Result<Client, String> {
     Client::builder()
+        .danger_accept_invalid_certs(*allow_insecure_tls)
         .timeout(Duration::from_secs(30))
         .build()
         .map_err(|_| "Jira transport is unavailable".to_owned())
@@ -1698,6 +1758,7 @@ mod tests {
     #[test]
     fn accepts_supported_issue_types_and_defaults_legacy_requests_to_task() {
         let spike: JiraTaskCreateRequest = serde_json::from_value(serde_json::json!({
+            "operationKey": "example-operation",
             "managedProjectId": "team-1",
             "issueType": "Spike",
             "summary": "Investigate an option",
@@ -1712,6 +1773,7 @@ mod tests {
         );
 
         let task: JiraTaskCreateRequest = serde_json::from_value(serde_json::json!({
+            "operationKey": "example-operation",
             "managedProjectId": "team-1",
             "summary": "Implement the option",
             "description": "Build the result"

@@ -1,10 +1,18 @@
 # ADR-0005: Jira planning workspace contract
 
-- **Status:** accepted for backend Tasks 44–47
+- **Status:** historical backend decision; superseded by the Data Center/Server product boundary
 - **Date checked:** 2026-09-05 (MSK)
 - **Scope:** project/board/sprint/user/field metadata and read contracts; no planning UI or remote planning writes
 
-## Decision
+## Current product boundary (2026-10-02)
+
+The supported Jira integration targets **Data Center/Server only**. Current task creation and source reads use REST v2 in `application/create_task.rs`; daily and team flows use the configured Server/DC integration and Agile REST where supported. The configured instance and its returned metadata remain authoritative.
+
+The planning workspace described below is legacy backend code. `PlanningPage` is not exposed by the current application routes. The old planning adapter still contains Cloud-specific methods, and the legacy planning application rejects Data Center planning writes. Its fixtures do not prove supported DC planning writes, and Cloud is not a supported product deployment.
+
+Before exposing planning again, choose whether to replace or retire the legacy path, verify its contract against the target DC/Server version, and implement approved durable writes where needed. Existing migration history remains intact. This ADR records that work as outstanding; it does not enable planning or claim compatibility by inference.
+
+## Historical decision (Tasks 44-47)
 
 The first adapter exposes a **Cloud-verified** Jira contract and keeps Data Center support explicit but unverified. The deployment is selected by `JiraDeployment` (`cloud` or `data_center`); the client never silently treats a Data Center response as a Cloud response. Until a target Data Center version and authenticated instance are available, Data Center capability flags remain `false`/`unknown` and fixture coverage is contract-shaped only.
 
@@ -12,9 +20,9 @@ All planning metadata is fetched through the Rust core. DTOs contain identifiers
 
 Custom field IDs are **configuration data returned by Jira**, not constants. The adapter returns field IDs and schema metadata from `/rest/api/3/field` and project/issue-type create metadata. It does not infer or invent a story-points or competency field. A managed project is invalid for planning until the user selects verified mappings and a subtask issue type from returned metadata.
 
-## Official contract review
+## Historical contract review
 
-The following current official pages were re-read on 2026-09-05:
+The original review recorded the following pages on 2026-09-05. These links and the matrix below describe the historical Cloud-oriented work, not the supported product contract:
 
 - [Jira Cloud REST v3 intro](https://developer.atlassian.com/cloud/jira/platform/rest/v3/intro/)
 - [Project APIs](https://developer.atlassian.com/cloud/jira/platform/rest/v3/api-group-projects/) — `GET /rest/api/3/project/search` is paginated and returns projects visible to the caller; visibility depends on Jira project permissions.
@@ -27,7 +35,7 @@ The following current official pages were re-read on 2026-09-05:
 
 The Cloud page also exposes OAuth scope requirements. Basic-auth/API-token and OAuth details remain an integration concern and are intentionally absent from planning DTOs. At minimum, read operations need project/board/sprint/work/user scopes and remote move/create/update operations need the corresponding write permissions; exact installation-specific permission failures are returned as redacted categories.
 
-## Capability matrix
+## Historical capability matrix
 
 | Operation | Cloud | Data Center | Boundary |
 |---|---:|---:|---|

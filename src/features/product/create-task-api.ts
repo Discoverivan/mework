@@ -37,6 +37,7 @@ export const listJiraTaskTeamMembers = (managedProjectId: string) =>
   invoke<JiraTaskMember[]>("jira_task_team_members", { managedProjectId });
 
 export const createJiraTask = (request: {
+  operationKey: string;
   managedProjectId: string;
   issueType: JiraTaskIssueType;
   summary: string;

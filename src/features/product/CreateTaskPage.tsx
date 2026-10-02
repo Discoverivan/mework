@@ -151,7 +151,7 @@ function parsePersistedCard(value: unknown): TaskCard | undefined {
     storyPoints,
     status: restoredAfterCreate ? "ready" : status,
     ...(stringValue(value.error) && !restoredAfterCreate ? { error: stringValue(value.error) } : {}),
-    ...(restoredAfterCreate ? { error: "Task creation was interrupted. Review the draft before trying again." } : {}),
+    ...(restoredAfterCreate ? { error: "jira_task_creation_interrupted" } : {}),
     ...(createdTask ? { createdTask } : {}),
   };
 }
@@ -221,6 +221,15 @@ function taskErrorMessage(
   error: unknown,
   translate: (key: TranslationKey, params?: TranslationParams) => string,
 ): string {
+  const message = typeof error === "string" ? error : isRecord(error) ? stringValue(error.message) : undefined;
+  const messages: Record<string, TranslationKey> = {
+    jira_task_outcome_unknown: "task.error.outcomeUnknown",
+    jira_task_journal_unavailable: "task.error.journalUnavailable",
+    jira_task_operation_key_required: "task.error.operationKeyRequired",
+    jira_task_creation_interrupted: "task.error.interrupted",
+    jira_task_sprint_unconfirmed: "task.error.sprintUnconfirmed",
+  };
+  if (message && Object.prototype.hasOwnProperty.call(messages, message)) return translate(messages[message]);
   if (typeof error === "string" && error.trim()) return error;
   if (isRecord(error)) {
     const message = stringValue(error.message);
@@ -542,6 +551,7 @@ export function CreateTaskPage() {
     updateCard(card.id, { status: "creating", error: undefined });
     try {
       const result = await createJiraTask({
+        operationKey: card.id,
         managedProjectId: card.teamId ?? "",
         issueType: card.issueType,
         summary: card.summary,
@@ -603,7 +613,7 @@ export function CreateTaskPage() {
             <div className="create-task-created-card-main">
               <span className="create-task-created-badge">{card.createdTask.key}</span>
               <h2 className="create-task-created-title">{card.summary}</h2>
-              {card.createdTask.warning ? <p className="create-task-created-warning" role="status">{card.createdTask.warning}</p> : null}
+              {card.createdTask.warning ? <p className="create-task-created-warning" role="status">{taskErrorMessage(card.createdTask.warning, t)}</p> : null}
             </div>
             <Check className="h-5 w-5 shrink-0 text-emerald-600 dark:text-emerald-400" aria-hidden="true" />
           </div>
@@ -634,8 +644,8 @@ export function CreateTaskPage() {
           </div>
           <Pencil className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />
         </div>
-        {card.status === "created" && card.createdTask?.warning ? <p className="mb-4 text-sm text-amber-700 dark:text-amber-300" role="status">{card.createdTask.warning}</p> : null}
-        {card.error ? <p className="mb-4 text-sm text-destructive" role="alert">{card.error}</p> : null}
+        {card.status === "created" && card.createdTask?.warning ? <p className="mb-4 text-sm text-amber-700 dark:text-amber-300" role="status">{taskErrorMessage(card.createdTask.warning, t)}</p> : null}
+        {card.error ? <p className="mb-4 text-sm text-destructive" role="alert">{taskErrorMessage(card.error, t)}</p> : null}
         <div className="grid gap-3">
           <div className="grid gap-3 sm:grid-cols-[7.25rem_minmax(0,1fr)] sm:items-end">
             <div className="grid gap-2">

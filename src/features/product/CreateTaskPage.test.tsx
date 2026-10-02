@@ -339,6 +339,7 @@ describe("CreateTaskPage", () => {
     fireEvent.click(await screen.findByRole("option", { name: "Spike" }));
     fireEvent.click(screen.getByRole("button", { name: "Create" }));
     await waitFor(() => expect(createMock).toHaveBeenCalledWith({
+      operationKey: expect.any(String),
       managedProjectId: "team-1",
       issueType: "Spike",
       summary: "Initial summary",
@@ -365,6 +366,7 @@ describe("CreateTaskPage", () => {
     fireEvent.click(screen.getByRole("button", { name: "Create" }));
 
     await waitFor(() => expect(createMock).toHaveBeenCalledWith({
+      operationKey: expect.any(String),
       managedProjectId: "team-1",
       issueType: "Task",
       summary: "Edited summary",

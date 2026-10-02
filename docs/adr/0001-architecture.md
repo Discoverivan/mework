@@ -15,7 +15,7 @@ The Rust core owns provider polling, checkpoints, snapshots, event normalization
 
 The renderer communicates only through typed Tauri commands and events. Hermes is reached by Rust adapters, primarily authenticated loopback HTTP/SSE, with ACP and CLI fallback adapters behind one interface. Jira task creation is a direct approved Rust REST action, not an AI or renderer action.
 
-SQLite uses WAL mode, foreign keys, a busy timeout, append-only migrations, and a single write coordinator. Credentials are represented in SQLite only by references and metadata; secret material belongs in the OS keyring.
+SQLite uses WAL mode, foreign keys, a busy timeout, and append-only migrations. Application services currently issue SQLx queries and transactions directly through the pool; there is no shared write coordinator. Atomic claims and durable operation records protect supported external writes. Credentials are represented in SQLite only by references and metadata; secret material belongs in the OS keyring.
 
 ## Consequences
 
