@@ -1778,6 +1778,12 @@ mod tests {
         assert!(
             cli_prompt.contains("Write the review description, summary, and comments in English")
         );
+        for prompt in [&openai_prompt, &cli_prompt] {
+            assert!(
+                prompt.contains("repository-relative destination paths and new-file line numbers")
+            );
+            assert!(prompt.contains("for findings on removed lines, set line to null"));
+        }
     }
 
     #[test]

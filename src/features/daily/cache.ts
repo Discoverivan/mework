@@ -8,6 +8,7 @@ const latestWorkspaceKeyByProject = new Map<string, string>();
 let managedProjectsCache: ManagedProject[] | undefined;
 let projectsRequest: Promise<ManagedProject[]> | undefined;
 const workspaceRequests = new Map<string, Promise<DailyWorkspace>>();
+const workspaceSelections = new Map<string, symbol>();
 let prefetchRequest: Promise<void> | undefined;
 
 export function refreshManagedProjectsCache(): Promise<ManagedProject[]> {
@@ -20,16 +21,25 @@ export function refreshManagedProjectsCache(): Promise<ManagedProject[]> {
   return request;
 }
 
-export function refreshDailyWorkspaceCache(projectId: string, sprintId?: string): Promise<DailyWorkspace> {
+export function refreshDailyWorkspaceCache(projectId: string, sprintId?: string, selectWorkspace = true): Promise<DailyWorkspace> {
+  const selection = selectWorkspace ? Symbol() : undefined;
+  if (selection) workspaceSelections.set(projectId, selection);
   const key = cacheKey(projectId, sprintId ?? "");
-  const pending = workspaceRequests.get(key);
-  if (pending) return pending;
-  const request = loadDailyWorkspace(projectId, sprintId).then((workspace) => {
-    writeDailyWorkspaceCache(workspace);
+  let request = workspaceRequests.get(key);
+  if (!request) {
+    request = loadDailyWorkspace(projectId, sprintId).then((workspace) => {
+      cacheDailyWorkspace(workspace, false);
+      return workspace;
+    }).finally(() => { if (workspaceRequests.get(key) === request) workspaceRequests.delete(key); });
+    workspaceRequests.set(key, request);
+  }
+  return request.then((workspace) => {
+    // A late background or previous selection must not replace the chosen sprint.
+    if (selection && workspaceSelections.get(projectId) === selection) {
+      writeDailyWorkspaceCache(workspace);
+    }
     return workspace;
-  }).finally(() => { if (workspaceRequests.get(key) === request) workspaceRequests.delete(key); });
-  workspaceRequests.set(key, request);
-  return request;
+  });
 }
 
 export function prefetchDailyWorkspaces(integrationIds: string[]): Promise<void> {
@@ -38,7 +48,7 @@ export function prefetchDailyWorkspaces(integrationIds: string[]): Promise<void>
     // Warm active sprints in order so startup does not flood Jira with requests.
     for (const project of projects) {
       if (!integrationIds.includes(project.integrationId)) continue;
-      await refreshDailyWorkspaceCache(project.id).catch(() => {
+      await refreshDailyWorkspaceCache(project.id, undefined, false).catch(() => {
         // A failed background load can be retried when its team is opened.
       });
     }
@@ -66,9 +76,15 @@ export function readDailyWorkspaceCache(projectId: string, sprintId?: string): D
 }
 
 export function writeDailyWorkspaceCache(workspace: DailyWorkspace): void {
+  cacheDailyWorkspace(workspace, true);
+}
+
+function cacheDailyWorkspace(workspace: DailyWorkspace, selectWorkspace: boolean): void {
   const key = cacheKey(workspace.managedProjectId, workspace.selectedSprintId);
   workspaceCache.set(key, workspace);
-  latestWorkspaceKeyByProject.set(workspace.managedProjectId, key);
+  if (selectWorkspace || !latestWorkspaceKeyByProject.has(workspace.managedProjectId)) {
+    latestWorkspaceKeyByProject.set(workspace.managedProjectId, key);
+  }
 }
 
 export function clearDailyWorkspaceCacheForTests(): void {
@@ -77,5 +93,6 @@ export function clearDailyWorkspaceCacheForTests(): void {
   managedProjectsCache = undefined;
   projectsRequest = undefined;
   workspaceRequests.clear();
+  workspaceSelections.clear();
   prefetchRequest = undefined;
 }
