@@ -22,6 +22,8 @@ const actionLabels: Record<PromptAction, TranslationKey> = {
   sprintSummary: "settings.ai.sprintSummary",
 };
 
+const instructionTextareaClassName = "min-h-0 resize-none [field-sizing:content] focus-visible:ring-inset focus-visible:ring-offset-0";
+
 export function ActionSettingsSection({ defaults, renderModelSettings, renderActionOptions, extraAction, onSaved, onSavingChange, onLoadingChange }: {
   onLoadingChange?: (loading: boolean) => void;
   onSaved?: () => void;
@@ -157,19 +159,19 @@ export function ActionSettingsSection({ defaults, renderModelSettings, renderAct
             <FieldGroup>
               <div className={viewing ? "" : "grid items-start gap-6 lg:grid-cols-2"}>
                 {!viewing ? <Field data-invalid={invalid} data-disabled={saving}>
-                  <FieldLabel htmlFor="ai-prompt-instructions">{t("settings.prompts.instructions")}</FieldLabel>
-                  <Textarea id="ai-prompt-instructions" rows={15} value={draft} onChange={(event) => setDraft(event.target.value)} disabled={saving} aria-invalid={invalid} aria-describedby="ai-prompt-help" />
+                  <FieldLabel className="pl-1" htmlFor="ai-prompt-instructions">{t("settings.prompts.instructions")}</FieldLabel>
+                  <Textarea id="ai-prompt-instructions" className={instructionTextareaClassName} rows={1} value={draft} onChange={(event) => setDraft(event.target.value)} disabled={saving} aria-invalid={invalid} aria-describedby="ai-prompt-help" />
                   <p className="text-sm text-muted-foreground" id="ai-prompt-help">{t(invalid ? "settings.prompts.validation" : "settings.prompts.instructionsHelp")}</p>
                 </Field> : null}
                 <Field>
-                  <FieldLabel htmlFor="ai-prompt-default">{t("settings.prompts.builtIn")}</FieldLabel>
-                  <Textarea id="ai-prompt-default" rows={15} value={editing?.defaultInstructions ?? ""} readOnly />
+                  <FieldLabel className="pl-1" htmlFor="ai-prompt-default">{t("settings.prompts.builtIn")}</FieldLabel>
+                  <Textarea id="ai-prompt-default" className={instructionTextareaClassName} rows={1} value={editing?.defaultInstructions ?? ""} readOnly />
                   <p className="text-sm text-muted-foreground">{t("settings.prompts.builtInHelp")}</p>
                 </Field>
               </div>
               <Field>
-                <FieldLabel htmlFor="ai-prompt-rules">{t("settings.prompts.protectedRules")}</FieldLabel>
-                <Textarea id="ai-prompt-rules" rows={4} value={editing?.protectedRules ?? ""} readOnly />
+                <FieldLabel className="pl-1" htmlFor="ai-prompt-rules">{t("settings.prompts.protectedRules")}</FieldLabel>
+                <Textarea id="ai-prompt-rules" className={instructionTextareaClassName} rows={1} value={editing?.protectedRules ?? ""} readOnly />
                 <p className="text-sm text-muted-foreground">{t("settings.prompts.protectedRulesHelp")}</p>
               </Field>
             </FieldGroup>

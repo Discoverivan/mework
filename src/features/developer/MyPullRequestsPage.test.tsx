@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type {
   MyPullRequest,
   MyPullRequestPage,
+  PullRequestCommentMatch,
   PullRequestReviewSettings,
   PullRequestReviewState,
 } from "@/shared/contracts/developer";
@@ -11,7 +12,7 @@ import { getAiSettings } from "../settings/api";
 import {
   getPullRequestReviewSettings,
   getPullRequestReviewStates,
-  getPublishedPullRequestComments,
+  getPullRequestCommentMatches,
   listMyPullRequests,
   markAllPullRequestsRead,
   markPullRequestRead,
@@ -35,7 +36,7 @@ vi.mock("../settings/api", () => ({
 vi.mock("./api", () => ({
   getPullRequestReviewSettings: vi.fn(),
   getPullRequestReviewStates: vi.fn(),
-  getPublishedPullRequestComments: vi.fn(),
+  getPullRequestCommentMatches: vi.fn(),
   listMyPullRequests: vi.fn(),
   markAllPullRequestsRead: vi.fn(),
   markPullRequestRead: vi.fn(),
@@ -52,7 +53,7 @@ vi.mock("./api", () => ({
 const getAiSettingsMock = vi.mocked(getAiSettings);
 const getSettingsMock = vi.mocked(getPullRequestReviewSettings);
 const getReviewStatesMock = vi.mocked(getPullRequestReviewStates);
-const getPublishedCommentsMock = vi.mocked(getPublishedPullRequestComments);
+const getCommentMatchesMock = vi.mocked(getPullRequestCommentMatches);
 const listMyPullRequestsMock = vi.mocked(listMyPullRequests);
 const refreshMyPullRequestsMock = vi.mocked(refreshMyPullRequests);
 const removeReviewerMock = vi.mocked(removePullRequestReviewer);
@@ -201,7 +202,7 @@ describe("MyPullRequestsPage", () => {
     getAiSettingsMock.mockResolvedValue(aiSettingsConnected);
     getSettingsMock.mockResolvedValue(emptySettings);
     getReviewStatesMock.mockResolvedValue({});
-    getPublishedCommentsMock.mockResolvedValue([]);
+    getCommentMatchesMock.mockResolvedValue({ matches: [] });
     markPullRequestReadMock.mockResolvedValue({ integrationId: "bitbucket-1", pullRequestId: "7", activity: "read" });
     markAllPullRequestsReadMock.mockResolvedValue({ markedCount: 2 });
     startReviewMock.mockResolvedValue(runningReview);
@@ -801,7 +802,7 @@ describe("MyPullRequestsPage", () => {
     const publishButton = screen.getByRole("button", { name: "Publish comment for src/retry.ts" });
     await waitFor(() => expect(publishButton).not.toBeDisabled());
     expect(publishButton).toHaveClass("app-icon-button", "size-8");
-    expect(publishButton.parentElement).toHaveClass("flex", "items-center", "justify-between");
+    expect(publishButton.parentElement).toHaveClass("flex", "items-center", "gap-2");
     expect(publishButton).toHaveAttribute("data-action-tone", "neutral");
     expect(publishButton).toHaveAttribute("title", "Publish");
     expect(publishButton).not.toHaveTextContent("Publish");
@@ -856,18 +857,61 @@ describe("MyPullRequestsPage", () => {
     expect(await screen.findByRole("button", { name: "AI review…" })).toBeDisabled();
   });
 
-  it("restores published AI comments from the PR when opening persisted review results", async () => {
+  it("links a covered finding and publishes a missing clarification as a reply", async () => {
     listMyPullRequestsMock.mockResolvedValueOnce({
       ...firstPage,
       values: [{ ...pullRequests[0], review: completedReview }, pullRequests[1]],
     });
-    getPublishedCommentsMock.mockResolvedValue([1]);
+    let finishComparison!: (value: { matches: PullRequestCommentMatch[] }) => void;
+    getCommentMatchesMock.mockImplementation(() => new Promise((resolve) => { finishComparison = resolve; }));
+    let finishPublication!: (value: { commentId: number }) => void;
+    publishCommentMock.mockImplementation(() => new Promise((resolve) => { finishPublication = resolve; }));
+    publishCommentMock.mockRejectedValueOnce(new Error("Discussion changed"));
     await renderFlatPage();
     fireEvent.click(await screen.findByRole("button", { name: "AI review results" }));
-    const published = await screen.findByRole("button", { name: "Publish comment for src/timeout.ts" });
-    await waitFor(() => expect(published).toHaveAttribute("title", "Published"));
-    expect(published).toBeDisabled();
-    expect(getPublishedCommentsMock).toHaveBeenCalledWith(expect.objectContaining({
+    for (const comment of completedReview.result!.comments) {
+      expect(screen.getByRole("status", { name: `Comment status for ${comment.file}` })).toHaveTextContent("Checking…");
+      expect(screen.queryByRole("button", { name: `Publish comment for ${comment.file}` })).not.toBeInTheDocument();
+    }
+    finishComparison({ matches: [
+      { index: 1, commentId: 11, coverage: "full", addition: "" },
+      { index: 0, commentId: 12, parentCommentId: 11, coverage: "partial", addition: "Wait for pending requests before shutdown." },
+    ] });
+    const existing = await screen.findByRole("link", { name: "Existing comment for src/timeout.ts" });
+    expect(screen.getByRole("status", { name: "Comment status for src/timeout.ts" })).toHaveTextContent("Already discussed");
+    expect(screen.getByRole("status", { name: "Comment status for src/retry.ts" })).toHaveTextContent("Partially covered");
+    expect(screen.getByRole("button", { name: "Publish comment for src/logging.ts" })).toBeEnabled();
+    expect(existing).toHaveAttribute("href", `${pullRequests[0].url}/overview?commentId=11`);
+    expect(screen.queryByRole("button", { name: "Publish comment for src/timeout.ts" })).not.toBeInTheDocument();
+    expect(screen.getByText("Duplicate: an existing discussion already fully covers this finding.")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Existing comment for src/retry.ts" })).toHaveAttribute("href", `${pullRequests[0].url}/overview?commentId=12`);
+    fireEvent.click(screen.getByRole("button", { name: "Publish clarification" }));
+    const editor = await screen.findByRole("dialog", { name: "Publish clarification" });
+    expect(within(editor).getByLabelText("Review comment")).toHaveValue("Wait for pending requests before shutdown.");
+    expect(publishCommentMock).not.toHaveBeenCalled();
+    getCommentMatchesMock.mockResolvedValue({ matches: [
+      { index: 1, commentId: 11, coverage: "full", addition: "" },
+      { index: 0, commentId: 22, parentCommentId: 21, coverage: "partial", addition: "Wait for pending requests before shutdown." },
+    ] });
+    fireEvent.click(within(editor).getByRole("button", { name: "Send" }));
+    await waitFor(() => expect(publishCommentMock).toHaveBeenCalledWith(expect.objectContaining({ pullRequestId: "7" }), {
+      ...completedReview.result!.comments[0], comment: "Wait for pending requests before shutdown.", parentCommentId: 11,
+    }));
+    await waitFor(() => expect(within(editor).getByRole("button", { name: "Send" })).toBeDisabled());
+    expect(within(editor).getByText("The matching discussion changed. Cancel this editor and reopen the comment action to review and confirm the updated destination.")).toBeInTheDocument();
+    expect(within(editor).getByLabelText("Review comment")).toHaveValue("Wait for pending requests before shutdown.");
+    expect(publishCommentMock).toHaveBeenCalledTimes(1);
+    fireEvent.click(within(editor).getByRole("button", { name: "Cancel" }));
+    fireEvent.click(screen.getByRole("button", { name: "Publish clarification" }));
+    const updatedEditor = await screen.findByRole("dialog", { name: "Publish clarification" });
+    fireEvent.click(within(updatedEditor).getByRole("button", { name: "Send" }));
+    await waitFor(() => expect(publishCommentMock).toHaveBeenLastCalledWith(expect.objectContaining({ pullRequestId: "7" }), {
+      ...completedReview.result!.comments[0], comment: "Wait for pending requests before shutdown.", parentCommentId: 21,
+    }));
+    expect(screen.getByText("Publishing…", { selector: "span" })).toHaveAttribute("aria-label", "Comment status for src/retry.ts");
+    finishPublication({ commentId: 13 });
+    await waitFor(() => expect(screen.getByRole("status", { name: "Comment status for src/retry.ts" })).toHaveTextContent("Published"));
+    expect(getCommentMatchesMock).toHaveBeenCalledWith(expect.objectContaining({
       integrationId: "bitbucket-1", projectKey: "DEMO", repositorySlug: "sample-repository",
       pullRequestId: "7", comments: completedReview.result!.comments,
     }));

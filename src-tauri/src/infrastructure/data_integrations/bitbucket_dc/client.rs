@@ -9,7 +9,8 @@ const MAX_PULL_REQUEST_DIFF_BYTES: usize = 2_000_000;
 
 use super::models::{
     BitbucketBuildStatus, BitbucketComment, BitbucketDashboardPullRequest, BitbucketDiffResponse,
-    BitbucketPage, BitbucketParticipant, BitbucketPullRequest, BitbucketRepository, BitbucketUser,
+    BitbucketPage, BitbucketParticipant, BitbucketPullRequest, BitbucketPullRequestActivity,
+    BitbucketRepository, BitbucketUser,
 };
 
 enum Authentication {
@@ -448,22 +449,56 @@ impl BitbucketDcClient {
         validate_path_segment(project_key)?;
         validate_path_segment(repository_slug)?;
         validate_limit(limit)?;
-        self.fetch_page(
-            &[
-                "rest",
-                "api",
-                "1.0",
-                "projects",
-                project_key,
-                "repos",
-                repository_slug,
-                "pull-requests",
-                &pull_request_id.to_string(),
-                "comments",
-            ],
-            &[("limit", limit.to_string()), ("start", start.to_string())],
-        )
-        .await
+        // GET /comments is file-scoped and requires path. The activity feed
+        // provides all PR comments and keeps inline anchors on the activity.
+        let page: BitbucketPage<BitbucketPullRequestActivity> = self
+            .fetch_page(
+                &[
+                    "rest",
+                    "api",
+                    "1.0",
+                    "projects",
+                    project_key,
+                    "repos",
+                    repository_slug,
+                    "pull-requests",
+                    &pull_request_id.to_string(),
+                    "activities",
+                ],
+                &[("limit", limit.to_string()), ("start", start.to_string())],
+            )
+            .await?;
+        fn inherit_anchor(
+            comment: &mut BitbucketComment,
+            anchor: Option<&super::models::BitbucketCommentAnchor>,
+        ) {
+            if comment.anchor.is_none() {
+                comment.anchor = anchor.cloned();
+            }
+            for reply in &mut comment.comments {
+                inherit_anchor(reply, comment.anchor.as_ref());
+            }
+        }
+        Ok(BitbucketPage {
+            values: page
+                .values
+                .into_iter()
+                .filter_map(|activity| {
+                    let mut comment = activity.comment?;
+                    if activity.comment_action.as_deref() == Some("DELETED") {
+                        comment.deleted = Some(true);
+                    }
+                    inherit_anchor(&mut comment, activity.comment_anchor.as_ref());
+                    Some(comment)
+                })
+                .collect(),
+            is_last_page: page.is_last_page,
+            next_page_start: page.next_page_start,
+            size: page.size,
+            total: page.total,
+            limit: page.limit,
+            start: page.start,
+        })
     }
 
     pub async fn list_pull_request_comments(
@@ -474,16 +509,23 @@ impl BitbucketDcClient {
         limit: u64,
     ) -> Result<Vec<BitbucketComment>, BitbucketDcError> {
         validate_limit(limit)?;
-        self.collect_pages(|start| {
-            self.list_pull_request_comments_page(
-                project_key,
-                repository_slug,
-                pull_request_id,
-                start,
-                limit,
-            )
-        })
-        .await
+        let comments = self
+            .collect_pages(|start| {
+                self.list_pull_request_comments_page(
+                    project_key,
+                    repository_slug,
+                    pull_request_id,
+                    start,
+                    limit,
+                )
+            })
+            .await?;
+        // Activities are newest first; retain the current version of each thread.
+        let mut seen = std::collections::HashSet::new();
+        Ok(comments
+            .into_iter()
+            .filter(|comment| seen.insert(comment.id))
+            .collect())
     }
 
     /// Rebuild publication status from the PR instead of a local publication history.
@@ -706,6 +748,53 @@ impl BitbucketDcClient {
             response,
             "data_integrations.bitbucket_dc",
             "publish_pull_request_comment",
+        )
+        .await
+        .map_err(|_| BitbucketDcError::InvalidResponse)
+    }
+
+    pub async fn reply_pull_request_comment(
+        &self,
+        project_key: &str,
+        repository_slug: &str,
+        pull_request_id: u64,
+        parent_id: u64,
+        text: &str,
+    ) -> Result<BitbucketComment, BitbucketDcError> {
+        validate_path_segment(project_key)?;
+        validate_path_segment(repository_slug)?;
+        if parent_id == 0 || text.trim().is_empty() {
+            return Err(BitbucketDcError::InvalidRequest);
+        }
+        let url = self.url_with_segments(&[
+            "rest",
+            "api",
+            "1.0",
+            "projects",
+            project_key,
+            "repos",
+            repository_slug,
+            "pull-requests",
+            &pull_request_id.to_string(),
+            "comments",
+        ])?;
+        let response = self
+            .authenticated_request_with_method(Method::POST, url)
+            .json(&serde_json::json!({ "text": text, "parent": { "id": parent_id } }))
+            .send_logged(
+                "data_integrations.bitbucket_dc",
+                "reply_pull_request_comment",
+                crate::application::logging::HttpBodyPolicy::Integration,
+            )
+            .await
+            .map_err(|_| BitbucketDcError::Transport)?;
+        if !response.status().is_success() {
+            return Err(Self::http_error(response).await);
+        }
+        crate::application::logging::parse_json_response::<BitbucketComment>(
+            response,
+            "data_integrations.bitbucket_dc",
+            "reply_pull_request_comment",
         )
         .await
         .map_err(|_| BitbucketDcError::InvalidResponse)

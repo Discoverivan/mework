@@ -5,8 +5,9 @@ import type {
   BitbucketUser,
   MyPullRequest,
   MyPullRequestPage,
-  PullRequestReviewComment,
-  PullRequestPublishedCommentsRequest,
+  PullRequestPublishableComment,
+  PullRequestCommentMatches,
+  PullRequestCommentMatchesRequest,
   PullRequestReviewSettings,
   PullRequestUnreadCounts,
   PullRequestUnreadCountsRequest,
@@ -108,7 +109,7 @@ export const markAllPullRequestsRead = () =>
 
 export const publishPullRequestComment = (
   pullRequest: MyPullRequest,
-  comment: PullRequestReviewComment,
+  comment: PullRequestPublishableComment,
 ) =>
   invoke<{ commentId: number }>("pull_request_review_publish_comment", {
     request: {
@@ -120,6 +121,7 @@ export const publishPullRequestComment = (
       file: comment.file,
       line: comment.line,
       comment: comment.comment,
+      parentCommentId: comment.parentCommentId,
     },
   });
 
@@ -170,8 +172,8 @@ export const savePullRequestReviewSettings = (settings: PullRequestReviewSetting
     return saved;
   });
 
-export const getPublishedPullRequestComments = (
-  request: PullRequestPublishedCommentsRequest,
-) => invoke<number[]>("pull_request_review_published_comments", {
+export const getPullRequestCommentMatches = (
+  request: PullRequestCommentMatchesRequest,
+) => invoke<PullRequestCommentMatches>("pull_request_review_comment_matches", {
   request,
 });

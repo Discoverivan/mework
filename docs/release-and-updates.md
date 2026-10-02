@@ -51,6 +51,12 @@ If a local signed build is needed, replace the endpoint in `src-tauri/tauri.conf
 
 ## Release notes and first launch after an update
 
+CI requires nonempty `Why this change`, `How it works`, and `Risks and migration` sections from the PR template. It also validates the release notes structure and requires nonempty English notes for application paths.
+
+`.github/workflows/dependabot-release-notes.yml` runs after `CI` completes for a PR. For open Dependabot PRs from this repository targeting `master`, it preserves the original description and existing notes, fills missing or empty required template sections, and adds missing English note blocks. Application dependency updates receive the contributor policy's generic `Fixed` note (`Performance improvements and bug fixes.`), including updates limited to development dependencies. Workflow-only updates receive an empty English block. It explicitly re-runs failed CI jobs only when it has changed the description; the validator reads the current PR description through the API, so the re-run does not reuse the old event body. The privileged workflow checks out only its trusted default-branch revision and never executes PR code or consumes PR artifacts.
+
+The automation becomes active once its workflow and scripts are merged into `master`. Existing Dependabot branches must first include that change (by rebasing or updating their branches); re-running an old CI run alone still executes the old validator. After the updated CI completes, notes are filled automatically and failed jobs are re-run. Existing malformed or nonempty note blocks are preserved for human review.
+
 For each application PR, put notes under `## Release notes` in its description. The primary format is Markdown between `<!-- release-notes:<lang> -->` and `<!-- /release-notes:<lang> -->` markers on separate lines. Language codes are not limited to English and Russian. For example:
 
 ```markdown

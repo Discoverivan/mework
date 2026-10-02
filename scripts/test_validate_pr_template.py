@@ -36,7 +36,7 @@ No migration is required.
 <!-- /release-notes:en -->
 <!-- release-notes:ru -->
 <!-- /release-notes:ru -->
-"""
+""".replace("\n", "\r\n")
         self.assertEqual(VALIDATOR.validate_pr(body, ["src/features/daily/DailyPage.tsx"]), [])
 
     def test_does_not_require_a_russian_template_block(self) -> None:

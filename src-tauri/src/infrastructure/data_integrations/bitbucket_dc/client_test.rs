@@ -6,6 +6,28 @@ use super::error::BitbucketDcError;
 use super::models::BitbucketPullRequestAuthor;
 
 #[tokio::test]
+async fn publishes_clarification_as_reply_to_existing_comment() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/rest/api/1.0/projects/DEMO/repos/sample-repository/pull-requests/7/comments"))
+        .and(body_json(serde_json::json!({ "text": "Wait for pending requests before shutdown.", "parent": { "id": 11 } })))
+        .respond_with(ResponseTemplate::new(201).set_body_json(serde_json::json!({ "id": 12, "version": 0, "text": "Wait for pending requests before shutdown." })))
+        .expect(1).mount(&server).await;
+    let client = BitbucketDcClient::new(server.uri()).unwrap();
+    let reply = client
+        .reply_pull_request_comment(
+            "DEMO",
+            "sample-repository",
+            7,
+            11,
+            "Wait for pending requests before shutdown.",
+        )
+        .await
+        .unwrap();
+    assert_eq!(reply.id, 12);
+}
+
+#[tokio::test]
 async fn error_response_retains_only_safe_provider_messages() {
     let server = MockServer::start().await;
     Mock::given(method("GET"))
@@ -408,17 +430,32 @@ async fn publishes_inline_pull_request_comment() {
 
     Mock::given(method("GET"))
         .and(path(
-            "/rest/api/1.0/projects/DEMO/repos/sample-repository/pull-requests/7/comments",
+            "/rest/api/1.0/projects/DEMO/repos/sample-repository/pull-requests/7/activities",
         ))
+        .and(query_param("start", "0"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "values": [{"id": 100, "action": "APPROVED"}],
+            "size": 1, "limit": 100, "start": 0, "isLastPage": false, "nextPageStart": 1
+        })))
+        .expect(2)
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path(
+            "/rest/api/1.0/projects/DEMO/repos/sample-repository/pull-requests/7/activities",
+        ))
+        .and(query_param("start", "1"))
         .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
             "values": [{
-                "id": 11, "version": 0, "text": "AI review: handle this edge case",
-                "anchor": {"path": "src/retry.ts", "line": 39, "lineType": "CONTEXT"}
+                "id": 101, "action": "COMMENTED", "commentAction": "ADDED",
+                "comment": {"id": 11, "version": 0, "text": "AI review: handle this edge case"},
+                "commentAnchor": {"path": "src/retry.ts", "line": 39, "lineType": "CONTEXT"}
             }, {
-                "id": 12, "version": 0, "text": "AI review: validate this input",
-                "anchor": {"path": "src/retry.ts", "line": 45, "lineType": "ADDED", "fileType": "TO"}
+                "id": 102, "action": "COMMENTED", "commentAction": "ADDED",
+                "comment": {"id": 12, "version": 0, "text": "AI review: validate this input"},
+                "commentAnchor": {"path": "src/retry.ts", "line": 45, "lineType": "ADDED", "fileType": "TO"}
             }],
-            "size": 2, "limit": 100, "start": 0, "isLastPage": true
+            "size": 2, "limit": 100, "start": 1, "isLastPage": true
         })))
         .expect(2)
         .mount(&server)

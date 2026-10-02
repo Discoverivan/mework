@@ -422,7 +422,7 @@ pub fn run() {
             commands::developer::pull_request_review_mark_read,
             commands::developer::pull_request_review_mark_all_read,
             commands::developer::pull_request_review_publish_comment,
-            commands::developer::pull_request_review_published_comments,
+            commands::developer::pull_request_review_comment_matches,
             commands::developer::pull_request_review_set_decision,
             commands::developer::pull_request_review_remove_reviewer,
             commands::developer::bitbucket_search_users,
