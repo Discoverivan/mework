@@ -1,5 +1,6 @@
 [package]
 name = "mework"
+default-run = "mework"
 version = "0.1.0"
 description = "A local-first mework desktop application"
 authors = ["you"]
