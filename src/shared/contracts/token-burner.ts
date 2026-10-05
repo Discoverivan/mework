@@ -4,17 +4,16 @@ export type TokenBurnerStatus =
   | "paused"
   | "stopping"
   | "target_reached"
+  | "no_prs"
   | "error"
   | "interrupted";
 
-export type TokenBurnerPullRequestStrategy = "awaiting_my_review" | "open" | "random_open";
 export type TokenBurnerIterationStatus = "waiting" | "running" | "completed" | "failed";
 
 export interface TokenBurnerSettings {
   dailyTarget: number;
   delayBetweenRequestsSeconds: number;
   repository: string | null;
-  pullRequestStrategy: TokenBurnerPullRequestStrategy;
 }
 
 export interface TokenBurnerRepository {

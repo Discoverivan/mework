@@ -32,7 +32,6 @@ const DEFAULT_SETTINGS: TokenBurnerSettings = {
   dailyTarget: 2_000_000,
   delayBetweenRequestsSeconds: 10,
   repository: null,
-  pullRequestStrategy: "awaiting_my_review",
 };
 
 const STATUS_KEYS = {
@@ -41,6 +40,7 @@ const STATUS_KEYS = {
   paused: "tokenBurner.statusPaused",
   stopping: "tokenBurner.statusStopping",
   target_reached: "tokenBurner.statusTargetReached",
+  no_prs: "tokenBurner.statusNoPullRequests",
   completed: "tokenBurner.statusCompleted",
   error: "tokenBurner.statusError",
   interrupted: "tokenBurner.statusInterrupted",
@@ -73,6 +73,7 @@ const STATUS_VARIANTS = {
   paused: "secondary",
   stopping: "secondary",
   target_reached: "outline",
+  no_prs: "outline",
   completed: "outline",
   error: "destructive",
   interrupted: "outline",
@@ -136,29 +137,33 @@ export function TokenBurnerPage() {
 
   useEffect(() => {
     let active = true;
-    void Promise.all([
-      getTokenBurnerSnapshot(),
-      getAiSettings(),
-      isTokenBurnerIntegrationAvailable(),
-    ]).then(async ([current, ai, hasIntegration]) => {
+    void getTokenBurnerSnapshot().then((current) => {
       if (!active) return;
       setSnapshot(current);
       setSnapshotReceivedAt(Date.now());
       setSettings(current.settings);
-      setAiSettings(ai);
-      setIntegrationAvailable(hasIntegration);
-      if (hasIntegration) {
-        try {
-          const repos = await listTokenBurnerRepositories();
-          if (active) setRepositories(repos);
-        } catch {
-          if (active) setRepositories([]);
-        }
-      }
     }).catch((error: unknown) => {
       if (active) setPageError(settingsError(error));
     }).finally(() => {
       if (active) setLoading(false);
+    });
+    void getAiSettings().then((ai) => {
+      if (active) setAiSettings(ai);
+    }).catch((error: unknown) => {
+      if (active) setPageError(settingsError(error));
+    });
+    void isTokenBurnerIntegrationAvailable().then(async (available) => {
+      if (!active) return;
+      setIntegrationAvailable(available);
+      if (!available) return;
+      try {
+        const repos = await listTokenBurnerRepositories();
+        if (active) setRepositories(repos);
+      } catch (error) {
+        if (active) setPageError(settingsError(error));
+      }
+    }).catch((error: unknown) => {
+      if (active) setPageError(settingsError(error));
     });
     const unsubscribeBurner = subscribeAppEvent(APP_EVENT.tokenBurnerChanged, (current) => {
       if (!active) return;
@@ -350,13 +355,6 @@ export function TokenBurnerPage() {
                 <SelectContent><SelectGroup><SelectItem value="__all__">{t("tokenBurner.allRepositories")}</SelectItem>{repositories.map((repository) => <SelectItem key={repository.key} value={repository.key}>{repository.name}</SelectItem>)}</SelectGroup></SelectContent>
               </Select>
             </Field>
-            <Field className="sm:col-span-2">
-              <FieldLabel htmlFor="token-burner-strategy">{t("tokenBurner.prSelection")}</FieldLabel>
-              <Select value={settings.pullRequestStrategy} onValueChange={(value) => changeSettings("pullRequestStrategy", value as TokenBurnerSettings["pullRequestStrategy"])} disabled={runningOrStopping}>
-                <SelectTrigger id="token-burner-strategy"><SelectValue /></SelectTrigger>
-                <SelectContent><SelectGroup><SelectItem value="awaiting_my_review">{t("tokenBurner.awaitingReview")}</SelectItem><SelectItem value="open">{t("tokenBurner.openPullRequests")}</SelectItem><SelectItem value="random_open">{t("tokenBurner.randomOpenPullRequest")}</SelectItem></SelectGroup></SelectContent>
-              </Select>
-            </Field>
           </FieldGroup>
           <section className="grid gap-4 rounded-md border p-4 sm:grid-cols-2" aria-label={t("tokenBurner.aiConfiguration")}>
             <div className="min-w-0"><p className="text-sm text-muted-foreground">{t("tokenBurner.aiProvider")}</p><p className="truncate font-medium">{aiSelection.provider?.name ?? t("tokenBurner.aiSettingsMissing")}</p></div>
@@ -376,7 +374,7 @@ export function TokenBurnerPage() {
       <Card>
         <CardHeader><CardTitle>{t("tokenBurner.runningNow")}</CardTitle><CardDescription>{selectedRepository?.name}</CardDescription></CardHeader>
         <CardContent className="flex flex-col gap-4">
-          {currentIterations.length === 0 && completedIterations.length === 0 ? <p className="text-sm text-muted-foreground">{t("tokenBurner.noActiveWork")}</p> : null}
+          {currentIterations.length === 0 && completedIterations.length === 0 ? <p className="flex items-center gap-2 text-sm text-muted-foreground">{state === "running" ? <Loader2 className="size-4 animate-spin" aria-hidden="true" /> : null}{t(state === "running" ? "tokenBurner.findingPullRequest" : state === "no_prs" ? "tokenBurner.noAssignedPullRequests" : "tokenBurner.noActiveWork")}</p> : null}
           {currentIterations.map((iteration) => (
             <div key={iteration.id} className="flex flex-col gap-3 rounded-md border p-4">
               <div className="flex flex-wrap items-start justify-between gap-3">

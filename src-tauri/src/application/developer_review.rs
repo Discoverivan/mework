@@ -1161,6 +1161,7 @@ pub(crate) async fn request_token_burner_review(
     openai_runtime: Option<&crate::application::ai::OpenAiCompatibleRuntimeConfig>,
     prompt: String,
     max_output_tokens: u32,
+    cancellation: std::sync::Arc<crate::application::ai_providers::cli::CliCancellation>,
 ) -> Result<
     (
         Result<PullRequestReviewResult, String>,
@@ -1188,10 +1189,13 @@ pub(crate) async fn request_token_burner_review(
     let settings = settings.clone();
     let workdir = std::env::temp_dir().join(format!("mework-model-testing-{}", Uuid::now_v7()));
     tauri::async_runtime::spawn_blocking(move || {
-        fs::create_dir(&workdir).map_err(|_| "Unable to prepare AI review workspace".to_owned())?;
-        let result = execute_cli_review_prompt_with_usage(&settings, &prompt, &workdir);
-        let _ = fs::remove_dir_all(&workdir);
-        result.map(|(review, usage)| (Ok(review), usage))
+        crate::application::ai_providers::cli::with_cli_cancellation(cancellation, || {
+            fs::create_dir(&workdir)
+                .map_err(|_| "Unable to prepare AI review workspace".to_owned())?;
+            let result = execute_cli_review_prompt_with_usage(&settings, &prompt, &workdir);
+            let _ = fs::remove_dir_all(&workdir);
+            result.map(|(review, usage)| (Ok(review), usage))
+        })
     })
     .await
     .map_err(|_| "AI review request failed".to_owned())?

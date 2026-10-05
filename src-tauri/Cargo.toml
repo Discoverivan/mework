@@ -42,6 +42,7 @@ sqlx = { version = "0.9.0", default-features = false, features = ["runtime-tokio
 tokio = { version = "1.53.1", features = ["macros", "rt-multi-thread", "sync", "signal"] }
 reqwest = { version = "0.12.24", default-features = false, features = ["json", "native-tls"] }
 base64 = "0.23"
+libc = "0.2"
 uuid = { version = "1.26.0", features = ["v7", "serde"] }
 time = { version = "0.3.55", features = ["formatting", "parsing"] }
 tauri-plugin-dialog = "2"

@@ -2606,6 +2606,7 @@ dependencies = [
  "block2",
  "dirs 7.0.0",
  "keyring",
+ "libc",
  "objc2",
  "objc2-foundation",
  "objc2-user-notifications",

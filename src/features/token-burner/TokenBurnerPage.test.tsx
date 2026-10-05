@@ -4,17 +4,20 @@ import { I18nProvider } from "@/i18n/I18nProvider";
 import type { TokenBurnerSnapshot } from "@/shared/contracts/token-burner";
 import { TokenBurnerPage } from "./TokenBurnerPage";
 
-const { snapshotMock, startMock, resetMock } = vi.hoisted(() => ({
+const { snapshotMock, startMock, resetMock, repositoriesMock, integrationAvailableMock, aiSettingsMock } = vi.hoisted(() => ({
   snapshotMock: vi.fn(),
   startMock: vi.fn(),
   resetMock: vi.fn(),
+  repositoriesMock: vi.fn(),
+  integrationAvailableMock: vi.fn(),
+  aiSettingsMock: vi.fn(),
 }));
 
 vi.mock("./api", () => ({
   getTokenBurnerSnapshot: snapshotMock,
   getTokenBurnerSettings: vi.fn(),
-  listTokenBurnerRepositories: vi.fn().mockResolvedValue([{ key: "integration-id/DEMO/example-repo", name: "Example Project / Example Repository" }]),
-  isTokenBurnerIntegrationAvailable: vi.fn().mockResolvedValue(true),
+  listTokenBurnerRepositories: repositoriesMock,
+  isTokenBurnerIntegrationAvailable: integrationAvailableMock,
   saveTokenBurnerSettings: vi.fn(),
   startTokenBurner: startMock,
   pauseTokenBurner: vi.fn(),
@@ -24,14 +27,11 @@ vi.mock("./api", () => ({
 }));
 
 vi.mock("@/features/settings/api", () => ({
-  getAiSettings: vi.fn().mockResolvedValue({
-    settings: { provider: "codex-cli", providerInstanceId: null, model: "example-codex-model", reasoning: "medium", fastMode: false, tokenBurner: null },
-    providers: [{ id: "codex-cli", instanceId: null, name: "Codex CLI", status: "connected", available: true, models: ["example-codex-model"] }],
-  }),
+  getAiSettings: aiSettingsMock,
 }));
 
 const initialSnapshot: TokenBurnerSnapshot = {
-  settings: { dailyTarget: 2_000_000, delayBetweenRequestsSeconds: 10, repository: null, pullRequestStrategy: "awaiting_my_review" },
+  settings: { dailyTarget: 2_000_000, delayBetweenRequestsSeconds: 10, repository: null },
   status: "idle",
   tokensUsedToday: 0,
   activeForMs: 0,
@@ -43,6 +43,12 @@ const initialSnapshot: TokenBurnerSnapshot = {
 describe("TokenBurnerPage", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    repositoriesMock.mockResolvedValue([{ key: "integration-id/DEMO/example-repo", name: "Example Project / Example Repository" }]);
+    integrationAvailableMock.mockResolvedValue(true);
+    aiSettingsMock.mockResolvedValue({
+      settings: { provider: "codex-cli", providerInstanceId: null, model: "example-codex-model", reasoning: "medium", fastMode: false, tokenBurner: null },
+      providers: [{ id: "codex-cli", instanceId: null, name: "Codex CLI", status: "connected", available: true, models: ["example-codex-model"] }],
+    });
     snapshotMock.mockResolvedValue(initialSnapshot);
     startMock.mockResolvedValue({
       ...initialSnapshot,
@@ -50,6 +56,30 @@ describe("TokenBurnerPage", () => {
       sessionStartedAt: Date.now(),
     });
     resetMock.mockResolvedValue(initialSnapshot);
+  });
+
+  it("opens as soon as the local snapshot loads without waiting for repositories or AI settings", async () => {
+    integrationAvailableMock.mockReturnValue(new Promise(() => {}));
+    aiSettingsMock.mockReturnValue(new Promise(() => {}));
+    render(<I18nProvider><TokenBurnerPage /></I18nProvider>);
+
+    expect(await screen.findByRole("heading", { name: "Model-testing" })).toBeInTheDocument();
+    expect(screen.queryByLabelText("Model-testing")).not.toBeInTheDocument();
+  });
+
+  it("explains when no assigned open pull requests are available", async () => {
+    snapshotMock.mockResolvedValue({ ...initialSnapshot, status: "no_prs" });
+    render(<I18nProvider><TokenBurnerPage /></I18nProvider>);
+
+    expect(await screen.findByText("No assigned open pull requests match this repository filter.")).toBeInTheDocument();
+    expect(screen.getByText("No matching assigned open PRs")).toBeInTheDocument();
+  });
+
+  it("shows active search progress before the first pull request is selected", async () => {
+    snapshotMock.mockResolvedValue({ ...initialSnapshot, status: "running" });
+    render(<I18nProvider><TokenBurnerPage /></I18nProvider>);
+
+    expect(await screen.findByText("Finding the next pull request…")).toBeInTheDocument();
   });
 
   it("surfaces failures persisted by a background session", async () => {
