@@ -4,6 +4,7 @@ import { openUrl } from "@tauri-apps/plugin-opener";
 import { ArrowLeft, ArrowRight, CalendarDays, ChevronDown, Copy, ExternalLink, MoreHorizontal, Plus, Presentation, RefreshCw, Sparkles, Square } from "lucide-react";
 import { PageHeader } from "@/components/shared/PageHeader";
 import { StatusToast } from "@/components/shared/StatusToast";
+import { useInfoPopoverAnchor } from "@/components/shared/use-info-popover-anchor";
 import { useI18n } from "@/i18n/context";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { badgeVariants } from "@/components/ui/badge";
@@ -186,12 +187,14 @@ function TaskStatusMenu({
   onError: (message?: string) => void;
 }) {
   const { t } = useI18n();
+  const { triggerRef, alignOffset, onOpenChange } = useInfoPopoverAnchor();
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [transitions, setTransitions] = useState<DailyIssueTransition[]>([]);
   const [performingId, setPerformingId] = useState<string>();
 
   async function handleOpenChange(nextOpen: boolean) {
+    onOpenChange(nextOpen);
     setOpen(nextOpen);
     if (!nextOpen) return;
     setLoading(true);
@@ -229,6 +232,7 @@ function TaskStatusMenu({
     <DropdownMenu open={open} onOpenChange={(nextOpen) => void handleOpenChange(nextOpen)}>
       <DropdownMenuTrigger asChild>
         <button
+          ref={triggerRef}
           type="button"
           className={cn(
             badgeVariants(),
@@ -241,7 +245,7 @@ function TaskStatusMenu({
           {task.status}
         </button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="start" className="w-max min-w-0 max-w-[var(--radix-dropdown-menu-content-available-width)]">
+      <DropdownMenuContent align="end" alignOffset={alignOffset} collisionPadding={5} className="w-max min-w-0 max-w-[var(--radix-dropdown-menu-content-available-width)]">
         <DropdownMenuGroup>
           {loading ? (
             <DropdownMenuItem disabled>{t("daily.loadingTransitions")}</DropdownMenuItem>
@@ -977,7 +981,7 @@ export function DailyPage() {
                   ) : (
                     <div className="daily-task-list" aria-live="polite">
                       {selectedSubtasks.map((subtask) => (
-                        <article key={subtask.id} className="daily-task-row">
+                        <article key={subtask.id} data-info-popover-boundary className="daily-task-row">
                           <button
                             type="button"
                             className="daily-task-key daily-task-link"
