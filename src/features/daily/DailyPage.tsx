@@ -247,6 +247,11 @@ function TaskStatusMenu({
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" alignOffset={alignOffset} collisionPadding={5} className="w-max min-w-0 max-w-[var(--radix-dropdown-menu-content-available-width)]">
         <DropdownMenuGroup>
+          {!loading && !transitions.some((transition) => transition.toStatus === task.status) ? (
+            <DropdownMenuItem disabled aria-current="true" className="bg-primary/10 data-[disabled]:opacity-100">
+              {task.status}
+            </DropdownMenuItem>
+          ) : null}
           {loading ? (
             <DropdownMenuItem disabled>{t("daily.loadingTransitions")}</DropdownMenuItem>
           ) : transitions.length === 0 ? (
@@ -254,6 +259,8 @@ function TaskStatusMenu({
           ) : transitions.map((transition) => (
             <DropdownMenuItem
               key={transition.id}
+              aria-current={transition.toStatus === task.status ? "true" : undefined}
+              className={transition.toStatus === task.status ? "bg-primary/10" : undefined}
               disabled={transition.requiresFields || performingId !== undefined}
               onSelect={() => void selectTransition(transition)}
             >
