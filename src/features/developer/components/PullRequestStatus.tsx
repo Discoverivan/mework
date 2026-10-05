@@ -78,34 +78,34 @@ export function PullRequestStatus({
         <PopoverTrigger asChild>
           <button
             type="button"
-            className="inline-flex size-5 items-center justify-center rounded-full text-foreground/70 transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-foreground/70 transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             aria-label={t("pr.status.openDetails")}
             title={t("pr.status.openDetails")}
           >
             <Info className="size-3.5" aria-hidden="true" />
           </button>
         </PopoverTrigger>
-        <PopoverContent align="start" className="w-80 space-y-3">
-          <p className="font-medium text-foreground">{t("pr.status.details")}</p>
-          <dl className="grid grid-cols-[minmax(0,1fr)_auto] gap-x-5 gap-y-2 text-sm">
+        <PopoverContent align="start" aria-label={t("pr.status.details")} className="w-max max-w-[min(20rem,calc(100vw-2rem))] space-y-2">
+          <p className="text-xs font-medium text-foreground">{t("pr.status.details")}</p>
+          <dl className="grid grid-cols-[minmax(0,1fr)_auto] gap-x-5 gap-y-1 text-xs">
             <dt className="text-muted-foreground">
               {t(kind === "review" ? "pr.status.reviewLabel" : "pr.status.authoredLabel")}
             </dt>
-            <dd className="text-right font-medium">{count}</dd>
+            <dd className="text-right text-foreground">{count}</dd>
             <dt className="text-muted-foreground">{t("pr.status.filters")}</dt>
-            <dd className="text-right font-medium">
+            <dd className="text-right text-foreground">
               {activeFilterCount === 0 ? t("pr.status.noFilters") : activeFilterCount}
             </dd>
             <dt className="text-muted-foreground">{t("pr.status.sort")}</dt>
-            <dd className="text-right font-medium">
+            <dd className="text-right text-foreground">
               {t(sortOrder === "newest" ? "pr.options.newestFirst" : "pr.options.oldestFirst")}
             </dd>
             <dt className="text-muted-foreground">{t("pr.status.lastUpdate")}</dt>
-            <dd className="text-right font-medium">{formattedLastSync ?? t("pr.status.notYet")}</dd>
+            <dd className="text-right text-foreground">{formattedLastSync ?? t("pr.status.notYet")}</dd>
             <dt className="text-muted-foreground">{t("pr.status.autoRefresh")}</dt>
-            <dd className="text-right font-medium">{t("pr.status.everyFiveMinutes")}</dd>
+            <dd className="text-right text-foreground">{t("pr.status.everyFiveMinutes")}</dd>
             <dt className="text-muted-foreground">{t("pr.status.nextUpdate")}</dt>
-            <dd className="text-right font-medium">{nextUpdate}</dd>
+            <dd className="text-right text-foreground">{nextUpdate}</dd>
           </dl>
         </PopoverContent>
       </Popover>
