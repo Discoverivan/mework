@@ -37,7 +37,7 @@ describe("native event bridge", () => {
     const monitors: TaskTrackerMonitor[] = [];
     nativeListeners.get("task_tracker_updated")?.({ payload: monitors });
     const burner: TokenBurnerSnapshot = {
-      settings: { dailyTarget: 2_000_000, delayBetweenRequestsSeconds: 10, repository: null, pullRequestStrategy: "awaiting_my_review" },
+      settings: { dailyTarget: 2_000_000, delayBetweenRequestsSeconds: 10, repository: null },
       status: "idle", tokensUsedToday: 0, activeForMs: 0, previousSessionInterrupted: false, activeIterations: [], completedIterations: [],
     };
     nativeListeners.get("token_burner_changed")?.({ payload: burner });

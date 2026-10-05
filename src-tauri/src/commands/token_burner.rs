@@ -75,9 +75,10 @@ pub async fn token_burner_resume<R: Runtime>(
 #[tauri::command]
 pub async fn token_burner_stop<R: Runtime>(
     state: State<'_, SqlitePool>,
+    runtime: State<'_, Arc<TokenBurnerRuntime>>,
     app: AppHandle<R>,
 ) -> Result<TokenBurnerSnapshot, String> {
-    token_burner::stop(&state, &app).await
+    token_burner::stop(&state, &app, runtime.inner()).await
 }
 
 #[tauri::command]

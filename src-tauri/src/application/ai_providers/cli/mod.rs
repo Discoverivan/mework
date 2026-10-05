@@ -3,12 +3,15 @@ use serde::Serialize;
 #[cfg(target_os = "windows")]
 use std::os::windows::process::CommandExt;
 use std::{
+    cell::RefCell,
+    collections::HashSet,
     env,
     ffi::OsStr,
     fs,
     io::{Read, Write},
     path::{Path, PathBuf},
     process::{Child, Command, Output, Stdio},
+    sync::{Arc, Mutex},
     thread,
     time::{Duration, Instant},
 };
@@ -23,11 +26,90 @@ pub mod pi;
 #[cfg(target_os = "windows")]
 const CREATE_NO_WINDOW: u32 = 0x08000000;
 
+#[derive(Default)]
+pub(crate) struct CliCancellation {
+    cancelled: std::sync::atomic::AtomicBool,
+    process_groups: Mutex<HashSet<u32>>,
+}
+
+impl CliCancellation {
+    pub(crate) fn cancel(&self) {
+        use std::sync::atomic::Ordering;
+        self.cancelled.store(true, Ordering::Release);
+        if let Ok(mut groups) = self.process_groups.lock() {
+            for pid in groups.drain() {
+                kill_process_group(pid);
+            }
+        }
+    }
+
+    fn register(&self, pid: u32) {
+        use std::sync::atomic::Ordering;
+        if self.cancelled.load(Ordering::Acquire) {
+            kill_process_group(pid);
+        } else if let Ok(mut groups) = self.process_groups.lock() {
+            if self.cancelled.load(Ordering::Acquire) {
+                kill_process_group(pid);
+            } else {
+                groups.insert(pid);
+            }
+        }
+    }
+
+    fn unregister(&self, pid: u32) {
+        if let Ok(mut groups) = self.process_groups.lock() {
+            groups.remove(&pid);
+        }
+    }
+}
+
+#[cfg(unix)]
+fn kill_process_group(pid: u32) {
+    unsafe {
+        libc::kill(-(pid as i32), libc::SIGKILL);
+    }
+}
+
+#[cfg(windows)]
+fn kill_process_group(pid: u32) {
+    let _ = local_cli_command("taskkill.exe")
+        .args(["/PID", &pid.to_string(), "/T", "/F"])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status();
+}
+
+#[cfg(not(any(unix, windows)))]
+fn kill_process_group(_pid: u32) {}
+
+thread_local! {
+    static CLI_CANCELLATION: RefCell<Option<Arc<CliCancellation>>> = const { RefCell::new(None) };
+}
+
+struct RestoreCliCancellation(Option<Arc<CliCancellation>>);
+
+impl Drop for RestoreCliCancellation {
+    fn drop(&mut self) {
+        CLI_CANCELLATION.with(|current| *current.borrow_mut() = self.0.take());
+    }
+}
+
+pub(crate) fn with_cli_cancellation<T>(
+    cancellation: Arc<CliCancellation>,
+    run: impl FnOnce() -> T,
+) -> T {
+    let previous = CLI_CANCELLATION.with(|current| current.borrow_mut().replace(cancellation));
+    let _restore = RestoreCliCancellation(previous);
+    run()
+}
+
 pub(crate) struct CliInvocation {
     provider: &'static str,
     operation: &'static str,
     model: Option<String>,
     started: Instant,
+    cancellation: Option<Arc<CliCancellation>>,
+    pid: Option<u32>,
 }
 
 impl CliInvocation {
@@ -46,6 +128,8 @@ impl CliInvocation {
             operation,
             model: model.map(str::to_owned),
             started: Instant::now(),
+            cancellation: None,
+            pid: None,
         }
     }
 
@@ -76,15 +160,39 @@ impl CliInvocation {
     }
 }
 
+impl Drop for CliInvocation {
+    fn drop(&mut self) {
+        if let (Some(cancellation), Some(pid)) = (&self.cancellation, self.pid) {
+            cancellation.unregister(pid);
+        }
+    }
+}
+
 pub(crate) fn spawn_cli(
     command: &mut Command,
     provider: &'static str,
     operation: &'static str,
     model: Option<&str>,
 ) -> std::io::Result<(Child, CliInvocation)> {
-    let invocation = CliInvocation::start(provider, operation, model);
+    let mut invocation = CliInvocation::start(provider, operation, model);
+    let cancellation = CLI_CANCELLATION.with(|current| current.borrow().clone());
+    if cancellation.is_some() {
+        #[cfg(unix)]
+        {
+            use std::os::unix::process::CommandExt;
+            command.process_group(0);
+        }
+    }
     match command.spawn() {
-        Ok(child) => Ok((child, invocation)),
+        Ok(child) => {
+            if let Some(cancellation) = cancellation {
+                let pid = child.id();
+                invocation.cancellation = Some(cancellation.clone());
+                invocation.pid = Some(pid);
+                cancellation.register(pid);
+            }
+            Ok((child, invocation))
+        }
         Err(error) => {
             invocation.failed(None, &[], &[]);
             Err(error)
@@ -98,8 +206,9 @@ pub(crate) fn run_cli_output(
     operation: &'static str,
     model: Option<&str>,
 ) -> std::io::Result<Output> {
-    let invocation = CliInvocation::start(provider, operation, model);
-    let output = command.output();
+    command.stdout(Stdio::piped()).stderr(Stdio::piped());
+    let (child, invocation) = spawn_cli(command, provider, operation, model)?;
+    let output = child.wait_with_output();
     match &output {
         Ok(output) if output.status.success() => invocation.completed(output.stdout.len()),
         Ok(output) => invocation.failed(output.status.code(), &output.stdout, &output.stderr),
@@ -193,6 +302,25 @@ pub(crate) fn capture_cli_output(
         Err(_) => invocation.failed(exit_code, &[], &[]),
     }
     result
+}
+
+#[cfg(all(test, unix))]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn cancellation_kills_the_cli_process_group() {
+        let cancellation = Arc::new(CliCancellation::default());
+        with_cli_cancellation(cancellation.clone(), || {
+            let mut command = local_cli_command("sh");
+            command.args(["-c", "sleep 60"]);
+            let (mut child, invocation) =
+                spawn_cli(&mut command, "test", "cancellation", None).unwrap();
+            cancellation.cancel();
+            assert!(!child.wait().unwrap().success());
+            drop(invocation);
+        });
+    }
 }
 
 pub(crate) fn local_cli_command(path: impl AsRef<OsStr>) -> Command {

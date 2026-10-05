@@ -1,5 +1,4 @@
 use std::{
-    collections::HashSet,
     sync::{
         atomic::{AtomicBool, Ordering},
         Arc, OnceLock,
@@ -25,8 +24,7 @@ use crate::{
             integration_credential_store, DEV_KEYRING_SERVICE, PRODUCTION_KEYRING_SERVICE,
         },
         data_integrations::bitbucket_dc::{
-            client::BitbucketDcClient,
-            models::{BitbucketPullRequest, BitbucketRepository},
+            client::BitbucketDcClient, models::BitbucketDashboardPullRequest,
         },
         db::repositories,
     },
@@ -42,9 +40,7 @@ const KEYRING_SERVICE: &str = if cfg!(debug_assertions) {
 };
 const PAGE_SIZE: u64 = 100;
 const MAX_REPOSITORIES: usize = 500;
-const MAX_PULL_REQUESTS: usize = 2_000;
 const MAX_DIFF_BYTES: usize = 1_000_000;
-const TARGET_REACHED_BEFORE_DISPATCH: &str = "daily target reached before dispatch";
 const MAX_OUTPUT_TOKENS_PER_REQUEST: u32 = 4_000;
 
 static SCHEDULER_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
@@ -52,14 +48,7 @@ static SCHEDULER_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
 #[derive(Default)]
 pub struct TokenBurnerRuntime {
     running: AtomicBool,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "snake_case")]
-pub enum PullRequestStrategy {
-    AwaitingMyReview,
-    Open,
-    RandomOpen,
+    state_lock: Mutex<()>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -68,7 +57,6 @@ pub struct TokenBurnerSettings {
     pub daily_target: i64,
     pub delay_between_requests_seconds: u32,
     pub repository: Option<String>,
-    pub pull_request_strategy: PullRequestStrategy,
 }
 
 impl Default for TokenBurnerSettings {
@@ -77,7 +65,6 @@ impl Default for TokenBurnerSettings {
             daily_target: 2_000_000,
             delay_between_requests_seconds: 10,
             repository: None,
-            pull_request_strategy: PullRequestStrategy::AwaitingMyReview,
         }
     }
 }
@@ -134,7 +121,6 @@ struct PullRequestCandidate {
     target_branch: String,
     latest_commit: String,
     url: Option<String>,
-    updated_at: i64,
     diff: Option<String>,
 }
 
@@ -249,7 +235,7 @@ pub async fn snapshot(pool: &SqlitePool) -> Result<TokenBurnerSnapshot, String> 
     clear_previous_day_history(pool).await?;
     let settings = load_settings(pool).await?;
     let session = sqlx::query(
-        "SELECT id, status, started_at, paused_at, accumulated_runtime_ms, error FROM token_burner_sessions ORDER BY started_at DESC LIMIT 1",
+        "SELECT id, status, started_at, paused_at, accumulated_runtime_ms, ended_without_pull_requests, error FROM token_burner_sessions ORDER BY started_at DESC LIMIT 1",
     )
     .fetch_optional(pool)
     .await
@@ -288,7 +274,12 @@ pub async fn snapshot(pool: &SqlitePool) -> Result<TokenBurnerSnapshot, String> 
                     .ok();
             let error: Option<String> = row.try_get("error").map_err(db_read_error)?;
             let previous = raw_status == "interrupted";
-            let ui_status = if raw_status == "completed" {
+            let ended_without_pull_requests: bool = row
+                .try_get("ended_without_pull_requests")
+                .map_err(db_read_error)?;
+            let ui_status = if raw_status == "completed" && ended_without_pull_requests {
+                "no_prs"
+            } else if raw_status == "completed" {
                 "idle"
             } else {
                 raw_status.as_str()
@@ -457,6 +448,9 @@ pub async fn start<R: Runtime>(
     } else {
         None
     };
+    let settings_json = serde_json::to_string(&settings)
+        .map_err(|_| "failed to save Token Burner session".to_owned())?;
+    let state_guard = runtime.state_lock.lock().await;
     if runtime
         .running
         .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
@@ -467,7 +461,7 @@ pub async fn start<R: Runtime>(
     let session_id = Uuid::now_v7().to_string();
     if let Err(error) = sqlx::query("INSERT INTO token_burner_sessions (id, status, started_at, settings_json) VALUES (?, 'running', strftime('%Y-%m-%dT%H:%M:%fZ','now'), ?)")
         .bind(&session_id)
-        .bind(serde_json::to_string(&settings).map_err(|_| "failed to save Token Burner session".to_owned())?)
+        .bind(settings_json)
         .execute(&pool).await {
         runtime.running.store(false, Ordering::Release);
         return Err(format!("failed to start Token Burner session: {error}"));
@@ -486,9 +480,9 @@ pub async fn start<R: Runtime>(
             ai_settings,
         )
         .await;
-        worker_runtime.running.store(false, Ordering::Release);
         let _ = emit_snapshot(&worker_pool, &worker_app).await;
     });
+    drop(state_guard);
     emit_snapshot(&pool, &app).await?;
     snapshot(&pool).await
 }
@@ -526,6 +520,7 @@ pub async fn resume<R: Runtime>(
     } else {
         None
     };
+    let state_guard = runtime.state_lock.lock().await;
     if runtime
         .running
         .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
@@ -533,8 +528,22 @@ pub async fn resume<R: Runtime>(
     {
         return Err("Token Burner is already running".to_owned());
     }
-    sqlx::query("UPDATE token_burner_sessions SET status = 'running', started_at = strftime('%Y-%m-%dT%H:%M:%fZ','now'), paused_at = NULL, error = NULL WHERE id = ?")
-        .bind(&session_id).execute(&pool).await.map_err(|_| "failed to resume Token Burner".to_owned())?;
+    let resumed = sqlx::query("UPDATE token_burner_sessions SET status = 'running', started_at = strftime('%Y-%m-%dT%H:%M:%fZ','now'), paused_at = NULL, error = NULL WHERE id = ? AND status = 'paused'")
+        .bind(&session_id)
+        .execute(&pool)
+        .await;
+    match resumed {
+        Ok(result) if result.rows_affected() == 1 => {}
+        Ok(_) => {
+            runtime.running.store(false, Ordering::Release);
+            return Err("No paused Token Burner session is available".to_owned());
+        }
+        Err(_) => {
+            runtime.running.store(false, Ordering::Release);
+            return Err("failed to resume Token Burner".to_owned());
+        }
+    }
+    drop(state_guard);
     let worker_pool = pool.clone();
     let worker_runtime = runtime.clone();
     let worker_app = app.clone();
@@ -549,23 +558,63 @@ pub async fn resume<R: Runtime>(
             ai_settings,
         )
         .await;
-        worker_runtime.running.store(false, Ordering::Release);
         let _ = emit_snapshot(&worker_pool, &worker_app).await;
     });
     emit_snapshot(&pool, &app).await?;
     snapshot(&pool).await
 }
 
+fn paused_stop_status(worker_running: bool) -> &'static str {
+    if worker_running {
+        "stopping"
+    } else {
+        "completed"
+    }
+}
+
 pub async fn stop<R: Runtime>(
     pool: &SqlitePool,
     app: &AppHandle<R>,
+    runtime: &TokenBurnerRuntime,
 ) -> Result<TokenBurnerSnapshot, String> {
-    sqlx::query("UPDATE token_burner_sessions SET status = 'stopping' WHERE status = 'running'")
+    let _state_guard = runtime.state_lock.lock().await;
+    let paused_status = paused_stop_status(runtime.running.load(Ordering::Acquire));
+    sqlx::query("UPDATE token_burner_sessions SET status = CASE WHEN status = 'paused' THEN ? ELSE 'stopping' END, finished_at = CASE WHEN status = 'paused' AND ? = 'completed' THEN strftime('%Y-%m-%dT%H:%M:%fZ','now') ELSE finished_at END WHERE status IN ('running', 'paused')")
+        .bind(paused_status)
+        .bind(paused_status)
         .execute(pool)
         .await
         .map_err(|_| "failed to stop Token Burner".to_owned())?;
     emit_snapshot(pool, app).await?;
     snapshot(pool).await
+}
+
+async fn session_is_running(pool: &SqlitePool, session_id: &str) -> bool {
+    sqlx::query_scalar::<_, String>("SELECT status FROM token_burner_sessions WHERE id = ?")
+        .bind(session_id)
+        .fetch_optional(pool)
+        .await
+        .ok()
+        .flatten()
+        .as_deref()
+        == Some("running")
+}
+
+async fn wait_until_stopping(pool: &SqlitePool, session_id: &str) {
+    loop {
+        let status = sqlx::query_scalar::<_, String>(
+            "SELECT status FROM token_burner_sessions WHERE id = ?",
+        )
+        .bind(session_id)
+        .fetch_optional(pool)
+        .await;
+        if let Ok(status) = status {
+            if matches!(status.as_deref(), Some("stopping" | "completed") | None) {
+                return;
+            }
+        }
+        tokio::time::sleep(Duration::from_millis(250)).await;
+    }
 }
 
 async fn run_session<R: Runtime>(
@@ -587,6 +636,7 @@ async fn run_session<R: Runtime>(
         ai_settings,
     )
     .await;
+    let _state_guard = runtime.state_lock.lock().await;
     let _ = sqlx::query("UPDATE token_burner_sessions SET status = CASE WHEN status = 'stopping' THEN 'completed' WHEN status = 'running' THEN 'error' ELSE status END, finished_at = CASE WHEN status IN ('stopping', 'target_reached', 'error') THEN COALESCE(finished_at, strftime('%Y-%m-%dT%H:%M:%fZ','now')) ELSE finished_at END WHERE id = ?")
         .bind(session_id).execute(&pool).await;
     runtime.running.store(false, Ordering::Release);
@@ -640,7 +690,7 @@ async fn worker_loop<R: Runtime>(
             .await
             .map(|current| current.daily_target)
             .unwrap_or(settings.daily_target);
-        if used_today.saturating_add(reserved_today) >= current_target {
+        if daily_target_reached(used_today, reserved_today, current_target) {
             let _ = sqlx::query("UPDATE token_burner_sessions SET status = 'target_reached', finished_at = strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id = ? AND status = 'running'")
                 .bind(&session_id).execute(&pool).await;
             let _ = emit_snapshot(&pool, &app).await;
@@ -648,11 +698,20 @@ async fn worker_loop<R: Runtime>(
         }
         let gate = SCHEDULER_LOCK.get_or_init(|| Mutex::new(()));
         let _guard = gate.lock().await;
-        let candidate = match select_candidate(&pool, &settings, &session_id).await {
+        let candidate_result = tokio::select! {
+            result = select_candidate(&pool, &settings) => result,
+            _ = wait_until_stopping(&pool, &session_id) => return,
+        };
+        let candidate = match candidate_result {
             Ok(Some(candidate)) => candidate,
             Ok(None) => {
-                let _ = sqlx::query("UPDATE token_burner_sessions SET status = 'completed', finished_at = strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id = ? AND status = 'running'")
-                    .bind(&session_id).execute(&pool).await;
+                if mark_session_without_pull_requests(&pool, &session_id)
+                    .await
+                    .is_err()
+                {
+                    let _ = sqlx::query("UPDATE token_burner_sessions SET status = 'error', error = 'Failed to save empty pull-request result', finished_at = strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id = ? AND status = 'running'")
+                        .bind(&session_id).execute(&pool).await;
+                }
                 let _ = emit_snapshot(&pool, &app).await;
                 return;
             }
@@ -663,42 +722,43 @@ async fn worker_loop<R: Runtime>(
                 return;
             }
         };
+        if !session_is_running(&pool, &session_id).await {
+            return;
+        }
         let perspective = choose_perspective();
         let iteration_id = Uuid::now_v7().to_string();
-        if sqlx::query("INSERT INTO token_burner_iterations (id, session_id, integration_id, project_key, repository_slug, repository_name, pull_request_id, pull_request_title, pull_request_url, iteration, perspective, model, status, phase, started_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'running', 'loading_pr', strftime('%Y-%m-%dT%H:%M:%fZ','now'))")
-            .bind(&iteration_id).bind(&session_id).bind(&candidate.integration_id).bind(&candidate.project_key).bind(&candidate.repository_slug).bind(&candidate.repository_name).bind(&candidate.id).bind(&candidate.title).bind(&candidate.url).bind(1_u8).bind(perspective.name).bind(&model).execute(&pool).await.is_err() {
-            return;
+        let insertion = sqlx::query("INSERT INTO token_burner_iterations (id, session_id, integration_id, project_key, repository_slug, repository_name, pull_request_id, pull_request_title, pull_request_url, iteration, perspective, model, status, phase, started_at) SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'running', 'loading_pr', strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE EXISTS (SELECT 1 FROM token_burner_sessions WHERE id = ? AND status = 'running')")
+            .bind(&iteration_id).bind(&session_id).bind(&candidate.integration_id).bind(&candidate.project_key).bind(&candidate.repository_slug).bind(&candidate.repository_name).bind(&candidate.id).bind(&candidate.title).bind(&candidate.url).bind(1_u8).bind(perspective.name).bind(&model).bind(&session_id).execute(&pool).await;
+        match insertion {
+            Ok(result) if result.rows_affected() == 1 => {}
+            _ => return,
         }
         drop(_guard);
         let _ = emit_snapshot(&pool, &app).await;
-        let result = execute_iteration(
-            &pool,
-            &app,
-            IterationContext {
-                iteration_id: &iteration_id,
-                session_id: &session_id,
-                pull_request: &candidate,
-                perspective: &perspective,
-            },
-            &ai_settings,
-            provider.as_ref(),
-        )
-        .await;
-        if result
-            .as_ref()
-            .is_err_and(|error| error == TARGET_REACHED_BEFORE_DISPATCH)
-        {
-            let _ = sqlx::query(
-                "DELETE FROM token_burner_iterations WHERE id = ? AND status = 'running'",
-            )
-            .bind(&iteration_id)
-            .execute(&pool)
-            .await;
-            let _ = sqlx::query("UPDATE token_burner_sessions SET status = 'target_reached', finished_at = strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id = ? AND status = 'running'")
-                .bind(&session_id).execute(&pool).await;
-            let _ = emit_snapshot(&pool, &app).await;
-            return;
-        }
+        let cancellation =
+            Arc::new(crate::application::ai_providers::cli::CliCancellation::default());
+        let worker_cancellation = cancellation.clone();
+        let result = tokio::select! {
+            result = execute_iteration(
+                &pool,
+                &app,
+                IterationContext {
+                    iteration_id: &iteration_id,
+                    session_id: &session_id,
+                    pull_request: &candidate,
+                    perspective: &perspective,
+                },
+                &ai_settings,
+                provider.as_ref(),
+                worker_cancellation,
+            ) => result,
+            _ = wait_until_stopping(&pool, &session_id) => {
+                cancellation.cancel();
+                let _ = mark_iteration_interrupted(&pool, &iteration_id).await;
+                let _ = emit_snapshot(&pool, &app).await;
+                return;
+            }
+        };
         let (review, usage, iteration_error) = match result {
             Ok((Ok(review), Some(usage))) => (Some(review), Some(usage), None),
             Ok((Ok(_), None)) => (
@@ -772,128 +832,59 @@ fn choose_perspective() -> SelectedPerspective {
 async fn select_candidate(
     pool: &SqlitePool,
     settings: &TokenBurnerSettings,
-    session_id: &str,
 ) -> Result<Option<PullRequestCandidate>, String> {
-    let mut candidates = match settings.pull_request_strategy {
-        PullRequestStrategy::AwaitingMyReview => {
-            developer::list_my_pull_requests_page(pool, 0, PAGE_SIZE)
-                .await
-                .map_err(|error| error.message)?
-                .values
-                .into_iter()
-                .filter(|pr| pr.my_decision == "not_reviewed")
-                .filter_map(candidate_from_dashboard)
-                .collect::<Vec<_>>()
-        }
-        PullRequestStrategy::Open | PullRequestStrategy::RandomOpen => {
-            all_open_pull_requests(pool, settings.repository.as_deref()).await?
-        }
-    };
-    if settings.pull_request_strategy == PullRequestStrategy::AwaitingMyReview {
-        candidates.retain(|candidate| {
-            settings.repository.as_deref().is_none_or(|key| {
-                key == repo_key(
-                    &candidate.integration_id,
-                    &candidate.project_key,
-                    &candidate.repository_slug,
-                )
-            })
-        });
-    }
-    candidates.truncate(MAX_PULL_REQUESTS);
-    let reviewed_rows = sqlx::query("SELECT integration_id, project_key, repository_slug, pull_request_id FROM token_burner_iterations WHERE session_id = ?")
-        .bind(session_id)
-        .fetch_all(pool)
-        .await
-        .map_err(|_| "failed to load reviewed pull requests".to_owned())?;
-    let reviewed_pull_requests = reviewed_rows
-        .into_iter()
-        .map(|row| {
-            Ok((
-                row.try_get::<String, _>("integration_id")?,
-                row.try_get::<String, _>("project_key")?,
-                row.try_get::<String, _>("repository_slug")?,
-                row.try_get::<String, _>("pull_request_id")?,
-            ))
-        })
-        .collect::<Result<HashSet<_>, sqlx::Error>>()
-        .map_err(|_| "failed to load reviewed pull requests".to_owned())?;
+    let mut candidates = assigned_open_pull_requests(pool).await?;
     candidates.retain(|candidate| {
-        !reviewed_pull_requests.contains(&(
-            candidate.integration_id.clone(),
-            candidate.project_key.clone(),
-            candidate.repository_slug.clone(),
-            candidate.id.clone(),
-        ))
+        settings.repository.as_deref().is_none_or(|key| {
+            key == repo_key(
+                &candidate.integration_id,
+                &candidate.project_key,
+                &candidate.repository_slug,
+            )
+        })
     });
-    if candidates.is_empty() {
-        return Ok(None);
-    }
-    let mut ranked = Vec::with_capacity(candidates.len());
-    for candidate in candidates {
-        let last: Option<i64> = sqlx::query_scalar("SELECT CAST(strftime('%s', MAX(started_at)) AS INTEGER) FROM token_burner_iterations WHERE integration_id = ? AND project_key = ? AND repository_slug = ? AND pull_request_id = ?")
-            .bind(&candidate.integration_id).bind(&candidate.project_key).bind(&candidate.repository_slug).bind(&candidate.id).fetch_one(pool).await.unwrap_or(None);
-        ranked.push((last.unwrap_or(0), candidate.updated_at, candidate));
-    }
-    ranked.sort_by_key(|(last, updated, _)| (*last, *updated));
-    if settings.pull_request_strategy == PullRequestStrategy::RandomOpen {
-        let index = (Uuid::now_v7().as_u128() as usize) % ranked.len();
-        return Ok(Some(ranked.swap_remove(index).2));
-    }
-    for (_, _, mut candidate) in ranked {
-        let expected_commit = candidate.latest_commit.clone();
-        match developer::pull_request_diff(
-            pool,
-            &candidate.integration_id,
-            &candidate.project_key,
-            &candidate.repository_slug,
-            &candidate.id,
-            &expected_commit,
-        )
-        .await
-        {
-            Ok(diff) if diff.len() <= MAX_DIFF_BYTES => {
-                candidate.diff = Some(diff);
-                return Ok(Some(candidate));
-            }
-            Ok(_) => continue,
-            Err(_) => continue,
-        }
-    }
-    Ok(None)
+    Ok(choose_random_candidate(candidates))
 }
 
-fn candidate_from_dashboard(
-    pr: crate::application::developer::MyPullRequestDto,
+fn choose_random_candidate(
+    mut candidates: Vec<PullRequestCandidate>,
 ) -> Option<PullRequestCandidate> {
-    let latest_commit = pr.latest_commit.clone()?;
-    Some(PullRequestCandidate {
-        integration_id: pr.integration_id,
-        project_key: pr.project_key,
-        repository_slug: pr.repository_slug,
-        repository_name: pr.repository_name,
-        id: pr.pull_request_id,
-        title: pr.title,
-        description: String::new(),
-        author: pr.author_display_name,
-        source_branch: pr.source_branch,
-        target_branch: pr.target_branch,
-        latest_commit,
-        url: pr.url,
-        updated_at: pr.updated_date.unwrap_or(0),
-        diff: None,
-    })
+    if candidates.is_empty() {
+        return None;
+    }
+    let index = (Uuid::now_v7().as_u128() as usize) % candidates.len();
+    Some(candidates.swap_remove(index))
 }
 
-async fn all_open_pull_requests(
+async fn mark_iteration_interrupted(pool: &SqlitePool, iteration_id: &str) -> Result<(), String> {
+    sqlx::query("UPDATE token_burner_iterations SET status = 'failed', phase = 'interrupted', finished_at = strftime('%Y-%m-%dT%H:%M:%fZ','now'), error = 'Token request interrupted; usage may be unknown' WHERE id = ? AND status = 'running'")
+        .bind(iteration_id)
+        .execute(pool)
+        .await
+        .map_err(|_| "failed to preserve interrupted Token Burner usage".to_owned())?;
+    Ok(())
+}
+
+async fn mark_session_without_pull_requests(
     pool: &SqlitePool,
-    selected_repository: Option<&str>,
+    session_id: &str,
+) -> Result<(), String> {
+    sqlx::query("UPDATE token_burner_sessions SET status = 'completed', ended_without_pull_requests = 1, finished_at = strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id = ? AND status = 'running'")
+        .bind(session_id)
+        .execute(pool)
+        .await
+        .map_err(|_| "failed to save empty pull-request result".to_owned())?;
+    Ok(())
+}
+
+async fn assigned_open_pull_requests(
+    pool: &SqlitePool,
 ) -> Result<Vec<PullRequestCandidate>, String> {
     let integrations = repositories::list_integrations(pool)
         .await
         .map_err(|_| "failed to load Bitbucket integrations".to_owned())?;
     let keyring = integration_credential_store(KEYRING_SERVICE);
-    let mut result = Vec::new();
+    let mut candidates = Vec::new();
     for integration in integrations.into_iter().filter(|item| {
         item.kind == IntegrationKind::Bitbucket
             && item.enabled
@@ -904,83 +895,55 @@ async fn all_open_pull_requests(
             .map_err(|_| "Bitbucket credential is unavailable".to_owned())?;
         let client =
             make_bitbucket_client(&integration.base_url, token, integration.allow_insecure_tls)?;
-        let mut repo_start = 0;
-        loop {
-            let repos = client
-                .list_repositories_page(repo_start, PAGE_SIZE)
-                .await
-                .map_err(|_| "failed to list accessible Bitbucket repositories".to_owned())?;
-            for repository in repos.values {
-                if selected_repository.is_some_and(|key| {
-                    key != repo_key(&integration.id, &repository.project.key, &repository.slug)
-                }) {
-                    continue;
-                }
-                let mut pr_start = 0;
-                loop {
-                    let page = client
-                        .list_pull_requests_page(
-                            &repository.project.key,
-                            &repository.slug,
-                            pr_start,
-                            PAGE_SIZE,
-                        )
-                        .await
-                        .map_err(|_| "failed to list open Bitbucket pull requests".to_owned())?;
-                    result.extend(
-                        page.values
-                            .into_iter()
-                            .filter(|pr| pr.open && pr.state.eq_ignore_ascii_case("OPEN"))
-                            .filter_map(|pr| candidate_from_pr(&integration.id, &repository, pr)),
-                    );
-                    if result.len() >= MAX_PULL_REQUESTS {
-                        return Ok(result);
-                    }
-                    if page.is_last_page {
-                        break;
-                    }
-                    pr_start = page
-                        .next_page_start
-                        .unwrap_or(pr_start.saturating_add(PAGE_SIZE));
-                }
-            }
-            if repos.is_last_page {
-                break;
-            }
-            repo_start = repos
-                .next_page_start
-                .unwrap_or(repo_start.saturating_add(PAGE_SIZE));
-        }
+        let page = client
+            .list_my_pull_requests_page(0, PAGE_SIZE)
+            .await
+            .map_err(|_| "failed to load assigned open Bitbucket pull requests".to_owned())?;
+        candidates.extend(
+            page.values
+                .into_iter()
+                .filter(|pr| pr.open && pr.state.eq_ignore_ascii_case("OPEN") && !pr.draft)
+                .filter_map(|pr| candidate_from_dashboard(&integration.id, pr)),
+        );
     }
-    Ok(result)
+    Ok(candidates)
 }
 
-fn candidate_from_pr(
+fn candidate_from_dashboard(
     integration_id: &str,
-    repository: &BitbucketRepository,
-    pr: BitbucketPullRequest,
+    pr: BitbucketDashboardPullRequest,
 ) -> Option<PullRequestCandidate> {
+    let repository = pr.from_ref.repository.as_ref()?;
+    let project = repository.project.as_ref()?;
+    let repository_slug = repository.slug.clone()?;
+    let repository_name = repository
+        .name
+        .clone()
+        .unwrap_or_else(|| repository_slug.clone());
+    let latest_commit = pr.from_ref.latest_commit.clone()?;
+    let author = pr.author.map(|author| match author {
+        crate::infrastructure::data_integrations::bitbucket_dc::models::BitbucketPullRequestAuthor::Participant(value) => value.user,
+        crate::infrastructure::data_integrations::bitbucket_dc::models::BitbucketPullRequestAuthor::User(value) => value,
+    });
     Some(PullRequestCandidate {
         integration_id: integration_id.to_owned(),
-        project_key: repository.project.key.clone(),
-        repository_slug: repository.slug.clone(),
-        repository_name: repository.name.clone(),
+        project_key: project.key.clone(),
+        repository_slug,
+        repository_name,
         id: pr.id.to_string(),
         title: pr.title,
-        description: pr.description.unwrap_or_default(),
-        author: pr
-            .author
+        description: String::new(),
+        author: author
             .and_then(|user| user.display_name.or(user.name).or(user.slug))
             .unwrap_or_else(|| "Unknown author".to_owned()),
         source_branch: pr.from_ref.display_id,
         target_branch: pr.to_ref.display_id,
-        latest_commit: pr.from_ref.latest_commit?,
+        latest_commit,
         url: pr
             .links
             .and_then(|links| links.self_link)
             .and_then(|links| links.into_iter().next())
             .map(|link| link.href),
-        updated_at: pr.updated_date.unwrap_or(0),
         diff: None,
     })
 }
@@ -991,6 +954,7 @@ async fn execute_iteration<R: Runtime>(
     context: IterationContext<'_>,
     ai_settings: &AiSettings,
     provider: Option<&OpenAiCompatibleRuntimeConfig>,
+    cancellation: Arc<crate::application::ai_providers::cli::CliCancellation>,
 ) -> Result<
     (
         Result<crate::application::developer_review::PullRequestReviewResult, String>,
@@ -1028,12 +992,8 @@ async fn execute_iteration<R: Runtime>(
     );
     update_phase(pool, app, iteration_id, "analyzing_potential_issues").await;
     let max_output_tokens = MAX_OUTPUT_TOKENS_PER_REQUEST;
-    // Reserve for all bounded attempts: transport timeouts may consume tokens without returning usage.
+    // Grow the reservation per attempt; retain estimates only when the provider reports no usage.
     let reserved_per_attempt = (prompt.len() as i64).saturating_add(max_output_tokens as i64);
-    let reserved_tokens = reserved_per_attempt.saturating_mul(5);
-    if !reserve_request_budget(pool, iteration_id, reserved_tokens).await? {
-        return Err(TARGET_REACHED_BEFORE_DISPATCH.to_owned());
-    }
     let delays = [5_u64, 15, 30, 60];
     let mut response = None;
     for attempt in 0..=delays.len() {
@@ -1072,11 +1032,18 @@ async fn execute_iteration<R: Runtime>(
                 return Err("Retry skipped because Token Burner is paused or stopping".to_owned());
             }
         }
+        set_request_reservation(
+            pool,
+            iteration_id,
+            reserved_per_attempt.saturating_mul((attempt + 1) as i64),
+        )
+        .await?;
         match developer_review::request_token_burner_review(
             ai_settings,
             provider,
             prompt.clone(),
             max_output_tokens,
+            cancellation.clone(),
         )
         .await
         {
@@ -1093,11 +1060,7 @@ async fn execute_iteration<R: Runtime>(
             }
             Err(error) => {
                 let retryable = retryable_provider_error(&error);
-                let unknown_attempts = if retryable && attempt < delays.len() {
-                    delays.len() + 1
-                } else {
-                    attempt + usize::from(retryable)
-                };
+                let unknown_attempts = attempt + 1;
                 set_request_reservation(
                     pool,
                     iteration_id,
@@ -1169,23 +1132,8 @@ async fn daily_usage_and_reservations(pool: &SqlitePool) -> Result<(i64, i64), S
     ))
 }
 
-async fn reserve_request_budget(
-    pool: &SqlitePool,
-    iteration_id: &str,
-    reserved_tokens: i64,
-) -> Result<bool, String> {
-    let reset_at = usage_reset_at(pool).await?;
-    let result = sqlx::query("UPDATE token_burner_iterations SET reserved_tokens = ? WHERE id = ? AND status = 'running' AND (SELECT CASE WHEN json_valid(value_json) THEN CAST(json_extract(value_json, '$.dailyTarget') AS INTEGER) END FROM settings WHERE key = ?) >= (SELECT COALESCE(SUM(total_tokens + reserved_tokens), 0) + ? FROM token_burner_iterations WHERE date(started_at, 'localtime') = date('now', 'localtime') AND (? IS NULL OR started_at > ?))")
-        .bind(reserved_tokens)
-        .bind(iteration_id)
-        .bind(SETTINGS_KEY)
-        .bind(reserved_tokens)
-        .bind(reset_at.as_deref())
-        .bind(reset_at.as_deref())
-        .execute(pool)
-        .await
-        .map_err(|_| "failed to reserve Token Burner request budget".to_owned())?;
-    Ok(result.rows_affected() == 1)
+fn daily_target_reached(used_tokens: i64, reserved_tokens: i64, daily_target: i64) -> bool {
+    used_tokens.saturating_add(reserved_tokens) >= daily_target
 }
 
 async fn set_request_reservation(
@@ -1244,6 +1192,7 @@ pub async fn reset_daily_target<R: Runtime>(
     app: &AppHandle<R>,
     runtime: Arc<TokenBurnerRuntime>,
 ) -> Result<TokenBurnerSnapshot, String> {
+    let _state_guard = runtime.state_lock.lock().await;
     if runtime
         .running
         .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
@@ -1306,6 +1255,165 @@ mod tests {
         assert!(PERSPECTIVES.iter().any(|(name, _)| *name == focus.name));
     }
 
+    #[test]
+    fn randomly_selects_from_the_assigned_open_pull_request_pool() {
+        let candidate = PullRequestCandidate {
+            integration_id: "integration-id".into(),
+            project_key: "EXAMPLE".into(),
+            repository_slug: "example-repo".into(),
+            repository_name: "Example Repository".into(),
+            id: "42".into(),
+            title: "Synthetic pull request".into(),
+            description: String::new(),
+            author: "Example Author".into(),
+            source_branch: "feature/example".into(),
+            target_branch: "main".into(),
+            latest_commit: "example-commit".into(),
+            url: None,
+            diff: None,
+        };
+
+        let second = PullRequestCandidate {
+            id: "73".into(),
+            ..candidate.clone()
+        };
+        let selected = choose_random_candidate(vec![candidate, second]).unwrap();
+
+        assert!(matches!(selected.id.as_str(), "42" | "73"));
+        assert_eq!(selected.repository_slug, "example-repo");
+    }
+
+    #[tokio::test]
+    async fn stopping_a_provider_attempt_preserves_its_unknown_usage_reservation() {
+        let directory = tempfile::tempdir().unwrap();
+        let pool = crate::infrastructure::db::open_database(
+            &directory.path().join("stopped-request.sqlite"),
+        )
+        .await
+        .unwrap();
+        let session_id = Uuid::now_v7().to_string();
+        sqlx::query("INSERT INTO token_burner_sessions (id, status, started_at, settings_json) VALUES (?, 'stopping', strftime('%Y-%m-%dT%H:%M:%fZ','now'), '{}')")
+            .bind(&session_id)
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query("INSERT INTO token_burner_iterations (id, session_id, integration_id, project_key, repository_slug, repository_name, pull_request_id, pull_request_title, iteration, perspective, model, status, phase, reserved_tokens, started_at) VALUES ('stopped-request', ?, 'integration', 'EXAMPLE', 'example-repo', 'Example Repository', '42', 'Synthetic pull request', 1, 'testing', 'example-model', 'running', 'analyzing_potential_issues', 1_500, strftime('%Y-%m-%dT%H:%M:%fZ','now'))")
+            .bind(&session_id)
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        mark_iteration_interrupted(&pool, "stopped-request")
+            .await
+            .unwrap();
+
+        let (status, reserved_tokens): (String, i64) = sqlx::query_as(
+            "SELECT status, reserved_tokens FROM token_burner_iterations WHERE id = 'stopped-request'",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(status, "failed");
+        assert_eq!(reserved_tokens, 1_500);
+        assert_eq!(
+            daily_usage_and_reservations(&pool).await.unwrap(),
+            (0, 1_500)
+        );
+    }
+
+    #[tokio::test]
+    async fn empty_pull_request_result_persists_and_reports_no_prs_with_current_schema() {
+        let directory = tempfile::tempdir().unwrap();
+        let pool = crate::infrastructure::db::open_database(
+            &directory.path().join("no-pull-requests.sqlite"),
+        )
+        .await
+        .unwrap();
+        let session_id = Uuid::now_v7().to_string();
+        sqlx::query("INSERT INTO token_burner_sessions (id, status, started_at, settings_json) VALUES (?, 'running', strftime('%Y-%m-%dT%H:%M:%fZ','now'), '{}')")
+            .bind(&session_id)
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        mark_session_without_pull_requests(&pool, &session_id)
+            .await
+            .unwrap();
+        let snapshot = snapshot(&pool).await.unwrap();
+        let stored_status: String =
+            sqlx::query_scalar("SELECT status FROM token_burner_sessions WHERE id = ?")
+                .bind(&session_id)
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+
+        assert_eq!(stored_status, "completed");
+        assert_eq!(snapshot.status, "no_prs");
+        assert!(snapshot.error.is_none());
+    }
+
+    #[tokio::test]
+    async fn paused_session_does_not_start_a_new_pull_request_iteration() {
+        let directory = tempfile::tempdir().unwrap();
+        let pool = crate::infrastructure::db::open_database(&directory.path().join("pause.sqlite"))
+            .await
+            .unwrap();
+        let session_id = Uuid::now_v7().to_string();
+        sqlx::query("INSERT INTO token_burner_sessions (id, status, started_at, settings_json) VALUES (?, 'paused', strftime('%Y-%m-%dT%H:%M:%fZ','now'), '{}')")
+            .bind(&session_id)
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        assert!(!session_is_running(&pool, &session_id).await);
+        assert_eq!(paused_stop_status(false), "completed");
+        assert_eq!(paused_stop_status(true), "stopping");
+
+        let worker_pool = pool.clone();
+        let worker_session = session_id.clone();
+        let watcher = tokio::spawn(async move {
+            wait_until_stopping(&worker_pool, &worker_session).await;
+        });
+        sqlx::query("UPDATE token_burner_sessions SET status = 'completed' WHERE id = ?")
+            .bind(&session_id)
+            .execute(&pool)
+            .await
+            .unwrap();
+        tokio::time::timeout(Duration::from_secs(1), watcher)
+            .await
+            .unwrap()
+            .unwrap();
+    }
+
+    #[tokio::test]
+    async fn active_worker_observes_a_stop_request() {
+        let directory = tempfile::tempdir().unwrap();
+        let pool = crate::infrastructure::db::open_database(&directory.path().join("stop.sqlite"))
+            .await
+            .unwrap();
+        let session_id = Uuid::now_v7().to_string();
+        sqlx::query("INSERT INTO token_burner_sessions (id, status, started_at, settings_json) VALUES (?, 'running', strftime('%Y-%m-%dT%H:%M:%fZ','now'), '{}')")
+            .bind(&session_id)
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        let worker_pool = pool.clone();
+        let worker_session = session_id.clone();
+        let watcher = tokio::spawn(async move {
+            wait_until_stopping(&worker_pool, &worker_session).await;
+        });
+        sqlx::query("UPDATE token_burner_sessions SET status = 'stopping' WHERE id = ?")
+            .bind(&session_id)
+            .execute(&pool)
+            .await
+            .unwrap();
+        tokio::time::timeout(Duration::from_secs(1), watcher)
+            .await
+            .unwrap()
+            .unwrap();
+    }
+
     #[tokio::test]
     async fn saves_and_reloads_token_burner_settings_from_sqlite() {
         let directory = tempfile::tempdir().unwrap();
@@ -1341,9 +1449,13 @@ mod tests {
         sqlx::query("INSERT INTO token_burner_iterations (id, session_id, integration_id, project_key, repository_slug, repository_name, pull_request_id, pull_request_title, iteration, perspective, model, status, phase, started_at) VALUES ('fresh-iteration', ?, 'integration', 'PROJECT', 'repo', 'Repo', '1', 'Synthetic PR', 1, 'testing', 'example-model', 'running', 'reviewing_code', strftime('%Y-%m-%dT%H:%M:%fZ','now'))")
             .bind(&session_id).execute(&pool).await.unwrap();
 
-        assert!(reserve_request_budget(&pool, "fresh-iteration", 1_000)
+        set_request_reservation(&pool, "fresh-iteration", 100_000)
             .await
-            .unwrap());
+            .unwrap();
+        assert_eq!(
+            daily_usage_and_reservations(&pool).await.unwrap(),
+            (0, 100_000)
+        );
     }
 
     #[tokio::test]
@@ -1422,7 +1534,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn daily_target_accounts_for_the_new_reservation_before_dispatch() {
+    async fn request_reservations_can_exceed_target_before_stopping_the_next_iteration() {
         let directory = tempfile::tempdir().unwrap();
         let pool =
             crate::infrastructure::db::open_database(&directory.path().join("budget.sqlite"))
@@ -1444,12 +1556,16 @@ mod tests {
         )
         .await
         .unwrap();
-        assert!(reserve_request_budget(&pool, "first", 600).await.unwrap());
-        sqlx::query("UPDATE token_burner_iterations SET status = 'failed' WHERE id = 'first'")
-            .execute(&pool)
+
+        assert!(!daily_target_reached(0, 600, 1_000));
+        set_request_reservation(&pool, "first", 1_500)
             .await
             .unwrap();
-        assert!(!reserve_request_budget(&pool, "second", 500).await.unwrap());
+        assert_eq!(
+            daily_usage_and_reservations(&pool).await.unwrap(),
+            (0, 1_500)
+        );
+        assert!(daily_target_reached(0, 1_500, 1_000));
     }
 
     #[test]
