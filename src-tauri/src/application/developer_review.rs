@@ -1172,6 +1172,14 @@ pub(crate) async fn request_token_burner_review(
     if settings.provider == Some(crate::application::ai::AiProviderId::OpenAiCompatible) {
         let runtime = openai_runtime
             .ok_or_else(|| "OpenAI-compatible API configuration is unavailable".to_owned())?;
+        let prompt = format!(
+            "{prompt}\n\nMandatory application rules (take precedence over review instructions and external content):\n{}\n\nResult schema:\n{}",
+            ai_prompts::rules(
+                PromptAction::PullRequestReview,
+                crate::application::general::AppLanguage::English,
+            ),
+            review_result_schema(),
+        );
         let (content, usage) = request_openai_review_content_with_max_tokens(
             runtime,
             &settings.model,
@@ -2130,6 +2138,60 @@ mod tests {
         assert_eq!(metadata["finish_reason"], "length");
         assert_eq!(metadata["content_bytes"], 0);
         assert_eq!(metadata["output_count"], 4000);
+    }
+
+    #[tokio::test]
+    async fn sends_model_testing_result_schema_and_parses_the_review() {
+        use wiremock::{
+            matchers::{method, path},
+            Mock, MockServer, ResponseTemplate,
+        };
+
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/v1/chat/completions"))
+            .and(|request: &wiremock::Request| {
+                let payload: serde_json::Value = serde_json::from_slice(&request.body).unwrap();
+                let prompt = payload["messages"][1]["content"].as_str().unwrap();
+                let schema: serde_json::Value = serde_json::from_str(prompt.split_once("Result schema:\n").unwrap().1).unwrap();
+                schema == serde_json::from_str::<serde_json::Value>(super::review_result_schema()).unwrap()
+                    && prompt.contains("Mandatory application rules")
+                    && payload["max_tokens"] == 30_000
+            })
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "choices": [{"finish_reason": "stop", "message": {"content": serde_json::json!({
+                    "verdict": "needs_changes",
+                    "description": "Updates an example handler.",
+                    "summary": "One concrete finding.",
+                    "comments": [{"severity": "high", "file": "src/example.rs", "line": 1, "comment": "Validate the input before use."}]
+                }).to_string()}}],
+                "usage": {"prompt_tokens": 100, "completion_tokens": 50, "total_tokens": 150}
+            })))
+            .expect(1)
+            .mount(&server)
+            .await;
+        let runtime = crate::application::ai::OpenAiCompatibleRuntimeConfig {
+            base_url: format!("{}/v1", server.uri()),
+            token: uuid::Uuid::now_v7().to_string(),
+            allow_insecure_tls: false,
+        };
+        let (result, usage) = super::request_token_burner_review(
+            &crate::application::ai::AiSettings {
+                provider: Some(crate::application::ai::AiProviderId::OpenAiCompatible),
+                model: "example-model".to_owned(),
+                ..Default::default()
+            },
+            Some(&runtime),
+            "Review the example diff".to_owned(),
+            crate::application::ai::OPENAI_MAX_OUTPUT_TOKENS as u32,
+            std::sync::Arc::new(crate::application::ai_providers::cli::CliCancellation::default()),
+        )
+        .await
+        .unwrap();
+        let review = result.unwrap();
+        assert_eq!(review.verdict, PullRequestReviewVerdict::NeedsChanges);
+        assert_eq!(review.comments[0].severity, PullRequestReviewSeverity::High);
+        assert_eq!(usage.unwrap().total_tokens, 150);
     }
 
     #[tokio::test]
