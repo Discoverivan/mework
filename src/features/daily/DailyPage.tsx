@@ -923,7 +923,7 @@ export function DailyPage() {
 
           <section className="daily-tasks-column" aria-label={t("daily.selectedTasks")}>
             {selectedOwner ? (
-              <Card className="daily-selected-member-card">
+              <Card data-info-popover-boundary className="daily-selected-member-card">
                 <CardHeader className="daily-selected-member-header">
                   <div className="flex min-w-0 items-center gap-3">
                     {selectedMember ? <MemberAvatar member={selectedMember} className="h-9 w-9 shrink-0" managedProjectId={workspace.managedProjectId} /> : null}
@@ -981,7 +981,7 @@ export function DailyPage() {
                   ) : (
                     <div className="daily-task-list" aria-live="polite">
                       {selectedSubtasks.map((subtask) => (
-                        <article key={subtask.id} data-info-popover-boundary className="daily-task-row">
+                        <article key={subtask.id} className="daily-task-row">
                           <button
                             type="button"
                             className="daily-task-key daily-task-link"
