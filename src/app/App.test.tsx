@@ -193,6 +193,7 @@ function pullRequestPage(activity: "new" | "updated" | "read"): MyPullRequestPag
 
 describe("mework application shell", () => {
   beforeEach(() => {
+    vi.unstubAllEnvs();
     prefetchDailyWorkspacesMock.mockReset();
     prefetchDailyWorkspacesMock.mockResolvedValue(undefined);
     window.location.hash = "";
@@ -269,6 +270,7 @@ describe("mework application shell", () => {
 
       expect(await screen.findByRole("heading", { name: "What's new" })).toBeInTheDocument();
       expect(screen.getByText("Find saved items faster.")).toBeInTheDocument();
+      expect(document.querySelector(".dev-build-banner")).toBeNull();
       expect(screen.queryByText("Reopen saved items.")).not.toBeInTheDocument();
       fireEvent.click(screen.getByRole("button", { name: "Older release" }));
       expect(await screen.findByText("Reopen saved items.")).toBeInTheDocument();
@@ -294,6 +296,7 @@ describe("mework application shell", () => {
   });
 
   it("keeps local scenario data in mock mode and reuses the About update check", async () => {
+    vi.stubEnv("DEV", true);
     devOverlayEnabledMock.mockResolvedValueOnce(true);
 
     render(<App />);
@@ -302,6 +305,7 @@ describe("mework application shell", () => {
     expect(screen.getByRole("heading", { name: "Added" })).toBeInTheDocument();
     expect(screen.getByText("Browse release notes by version from About.")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Close" }));
+    expect(screen.getByRole("note", { name: "Development build" })).toBeInTheDocument();
     expect(markReleaseNotesSeenMock).not.toHaveBeenCalled();
     expect(releaseNotesStateMock).not.toHaveBeenCalled();
 

@@ -29,6 +29,51 @@ body,
   background: var(--background);
 }
 
+.dev-build-banner {
+  --dev-warning-yellow: #facc15;
+  --dev-warning-black: #18181b;
+  position: absolute;
+  inset: 0 0 auto;
+  z-index: 3;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  height: 22px;
+  pointer-events: none;
+}
+
+.dev-build-banner::before {
+  position: absolute;
+  inset: 0 0 auto;
+  height: 5px;
+  background: repeating-linear-gradient(
+    135deg,
+    var(--dev-warning-yellow) 0 9px,
+    var(--dev-warning-black) 9px 18px
+  );
+  content: "";
+}
+
+.dev-build-banner-label {
+  position: relative;
+  max-width: calc(100% - 24px);
+  overflow: hidden;
+  margin-top: 5px;
+  padding: 1px 10px 2px;
+  border: 1px solid var(--dev-warning-black);
+  border-top: 0;
+  border-radius: 0 0 4px 4px;
+  background: var(--dev-warning-yellow);
+  color: var(--dev-warning-black);
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: .08em;
+  line-height: 12px;
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
 .app-shell aside {
   display: flex;
   flex-direction: column;

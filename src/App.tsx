@@ -402,6 +402,7 @@ function AppContent() {
           unreadAuthoredPullRequestCount={unreadAuthoredPullRequestCount}
           unreadTaskTrackerCount={unreadTaskTrackerCount}
           modelTestingEnabled={modelTestingEnabled}
+          developmentBanner={import.meta.env.DEV || mockMode}
         >
           <AppRoutes
             route={route}

@@ -11,6 +11,7 @@ describe("AppShell product navigation", () => {
       </AppShell>,
     );
 
+    expect(screen.queryByRole("note", { name: "Development build" })).not.toBeInTheDocument();
     expect(document.querySelector(".app-brand img")).toHaveAttribute("src", "/mework-icon.png");
     expect(document.querySelector(".sidebar-navigation")).toContainElement(screen.getByRole("link", { name: "About" }));
     expect(document.querySelector(".sidebar-navigation")).not.toContainElement(document.querySelector(".sidebar-footer"));
@@ -80,6 +81,13 @@ describe("AppShell product navigation", () => {
     expect(versionButton.querySelector(".sidebar-update-badge")).toHaveTextContent("Update");
     fireEvent.click(versionButton);
     expect(onOpenApplicationInfo).toHaveBeenCalledOnce();
+  });
+
+  it("shows the striped development banner when the dev/mock build flag is enabled", () => {
+    render(<AppShell developmentBanner><div>Content</div></AppShell>);
+
+    const banner = screen.getByRole("note", { name: "Development build" });
+    expect(banner).toHaveTextContent("Development build");
   });
 
   it("opens About mework from development builds", () => {
