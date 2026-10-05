@@ -357,7 +357,7 @@ export function TokenBurnerPage() {
                     <Info className="size-3.5" aria-hidden="true" />
                   </button>
                 </PopoverTrigger>
-                <PopoverContent align="end" alignOffset={alignOffset} className="w-max max-w-[min(20rem,calc(100vw-2rem))]">
+                <PopoverContent align="end" alignOffset={alignOffset} sideOffset={6} className="w-max max-w-[min(20rem,calc(100vw-2rem))]">
                   <p className="whitespace-pre-wrap break-words text-xs text-muted-foreground">{lastError}</p>
                 </PopoverContent>
               </Popover>
