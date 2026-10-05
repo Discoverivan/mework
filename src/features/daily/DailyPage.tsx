@@ -680,6 +680,19 @@ export function DailyPage() {
           </Button>
           <Button
             type="button"
+            variant={presenterOpen ? "secondary" : "default"}
+            size="icon"
+            className="h-9 w-9"
+            disabled={!workspace || loadingWorkspace || (!presenterOpen && !selectedMember)}
+            aria-pressed={presenterOpen}
+            aria-label={presenterOpen ? t("daily.presenter.stop") : t("daily.presenter.start")}
+            title={presenterOpen ? t("daily.presenter.stop") : t("daily.presenter.start")}
+            onClick={() => void togglePresenter()}
+          >
+            {presenterOpen ? <Square aria-hidden="true" /> : <Presentation aria-hidden="true" />}
+          </Button>
+          <Button
+            type="button"
             variant="outline"
             size="icon"
             className="h-9 w-9"
@@ -691,19 +704,6 @@ export function DailyPage() {
             }}
           >
             <ExternalLink aria-hidden="true" />
-          </Button>
-          <Button
-            type="button"
-            variant={presenterOpen ? "secondary" : "default"}
-            size="icon"
-            className="h-9 w-9"
-            disabled={!workspace || loadingWorkspace || (!presenterOpen && !selectedMember)}
-            aria-pressed={presenterOpen}
-            aria-label={presenterOpen ? t("daily.presenter.stop") : t("daily.presenter.start")}
-            title={presenterOpen ? t("daily.presenter.stop") : t("daily.presenter.start")}
-            onClick={() => void togglePresenter()}
-          >
-            {presenterOpen ? <Square aria-hidden="true" /> : <Presentation aria-hidden="true" />}
           </Button>
           <Separator orientation="vertical" className="h-6" />
           <Button
