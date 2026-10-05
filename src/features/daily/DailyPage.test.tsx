@@ -230,8 +230,8 @@ describe("DailyPage smoke test", () => {
     const actionItems = Array.from(actionGroup.children);
     expect(actionItems).toEqual([
       aiSummaryButton,
-      sprintBoardButton,
       presenterButton,
+      sprintBoardButton,
       actionSeparator,
       refreshButton,
       createTaskButton,
