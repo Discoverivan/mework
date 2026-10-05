@@ -102,6 +102,23 @@ describe("TokenBurnerPage", () => {
     expect(screen.getByText("Example provider failure")).toBeInTheDocument();
   });
 
+  it("keeps the live failure received while the initial snapshot is loading", async () => {
+    let resolveSnapshot!: (snapshot: TokenBurnerSnapshot) => void;
+    snapshotMock.mockReturnValue(new Promise<TokenBurnerSnapshot>((resolve) => { resolveSnapshot = resolve; }));
+    render(<I18nProvider><TokenBurnerPage /></I18nProvider>);
+
+    const failed = { ...initialSnapshot, status: "error" as const, sessionStartedAt: 1, error: "Example live failure" };
+    await act(async () => {
+      emitAppEvent(APP_EVENT.tokenBurnerChanged, failed);
+      resolveSnapshot(initialSnapshot);
+    });
+
+    expect(screen.getByText("Paused due to errors")).toBeInTheDocument();
+    expect(screen.getByRole("alert")).toHaveTextContent("Example live failure");
+    fireEvent.click(screen.getByRole("button", { name: "Model-testing error details" }));
+    expect(screen.getByText("Example live failure")).toBeInTheDocument();
+  });
+
   it("revalidates Bitbucket after configuration changes and reopening without retrying AI", async () => {
     snapshotMock.mockResolvedValue({ ...initialSnapshot, status: "error", error: "Previous provider failure" });
     integrationAvailableMock.mockResolvedValue(false);

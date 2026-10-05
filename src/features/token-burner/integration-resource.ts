@@ -31,13 +31,15 @@ function refresh() {
     let loadedRevision: number;
     do {
       loadedRevision = revision;
+      let available = false;
       try {
-        const available = await isTokenBurnerIntegrationAvailable();
+        available = await isTokenBurnerIntegrationAvailable();
         if (currentEpoch !== epoch || listeners.size === 0) return;
         const repositories = available ? await listTokenBurnerRepositories() : [];
         if (loadedRevision === revision && currentEpoch === epoch) publish({ available, repositories, error: null });
       } catch (error) {
-        if (loadedRevision === revision && currentEpoch === epoch) publish({ available: false, repositories: [], error });
+        // A repository-list failure must not invalidate a configured integration.
+        if (loadedRevision === revision && currentEpoch === epoch) publish({ available, repositories: [], error });
       }
     } while (loadedRevision !== revision && listeners.size > 0 && currentEpoch === epoch);
   }).finally(() => { if (request === sharedRequest) request = undefined; });

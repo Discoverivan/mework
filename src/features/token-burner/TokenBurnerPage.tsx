@@ -141,6 +141,13 @@ export function TokenBurnerPage() {
   const [errorNotice, setErrorNotice] = useState<{ message: string; revision: number } | null>(null);
   const lastSnapshot = useRef<TokenBurnerSnapshot | null>(null);
 
+  function acceptSnapshot(current: TokenBurnerSnapshot) {
+    lastSnapshot.current = current;
+    setSnapshot(current);
+    setSnapshotReceivedAt(Date.now());
+    setSettings(current.settings);
+  }
+
   function showErrorNotice(message: string) {
     setErrorNotice((current) => ({ message, revision: (current?.revision ?? 0) + 1 }));
   }
@@ -152,14 +159,12 @@ export function TokenBurnerPage() {
 
   useEffect(() => {
     let active = true;
+    const initialSnapshot = lastSnapshot.current;
     void getTokenBurnerSnapshot().then((current) => {
-      if (!active) return;
-      lastSnapshot.current = current;
-      setSnapshot(current);
-      setSnapshotReceivedAt(Date.now());
-      setSettings(current.settings);
+      // A live event can arrive while the initial command is still resolving.
+      if (active && lastSnapshot.current === initialSnapshot) acceptSnapshot(current);
     }).catch((error: unknown) => {
-      if (active) setPageError(settingsError(error));
+      if (active && lastSnapshot.current === initialSnapshot) setPageError(settingsError(error));
     }).finally(() => {
       if (active) setLoading(false);
     });
@@ -177,15 +182,12 @@ export function TokenBurnerPage() {
     const unsubscribeBurner = subscribeAppEvent(APP_EVENT.tokenBurnerChanged, (current) => {
       if (!active) return;
       const previous = lastSnapshot.current;
-      if (current.error && previous && (
+      if (current.error && (!previous || (
         current.error !== previous.error
         || current.status !== previous.status
         || current.sessionStartedAt !== previous.sessionStartedAt
-      )) showErrorNotice(current.error);
-      lastSnapshot.current = current;
-      setSnapshot(current);
-      setSnapshotReceivedAt(Date.now());
-      setSettings(current.settings);
+      ))) showErrorNotice(current.error);
+      acceptSnapshot(current);
     });
     const unsubscribeAi = subscribeAppEvent(APP_EVENT.aiSettingsChanged, setAiSettings);
     let currentLocalDay = new Date().toDateString();
@@ -194,13 +196,11 @@ export function TokenBurnerPage() {
       const nextLocalDay = new Date().toDateString();
       if (nextLocalDay === currentLocalDay) return;
       currentLocalDay = nextLocalDay;
+      const beforeRefresh = lastSnapshot.current;
       void getTokenBurnerSnapshot().then((next) => {
-        if (!active) return;
-        setSnapshot(next);
-        setSnapshotReceivedAt(Date.now());
-        setSettings(next.settings);
+        if (active && lastSnapshot.current === beforeRefresh) acceptSnapshot(next);
       }).catch((error: unknown) => {
-        if (active) setPageError(settingsError(error));
+        if (active && lastSnapshot.current === beforeRefresh) setPageError(settingsError(error));
       });
     }, 30_000);
     return () => {
@@ -256,9 +256,7 @@ export function TokenBurnerPage() {
     try {
       const handlers = { start: startTokenBurner, pause: pauseTokenBurner, resume: resumeTokenBurner, stop: stopTokenBurner };
       const next = await handlers[action]();
-      lastSnapshot.current = next;
-      setSnapshot(next);
-      setSettings(next.settings);
+      acceptSnapshot(next);
     } catch (error) {
       setPageError(settingsError(error));
     } finally {
@@ -271,9 +269,7 @@ export function TokenBurnerPage() {
     setPageError(null);
     try {
       const next = await resetTokenBurnerDailyTarget();
-      setSnapshot(next);
-      setSnapshotReceivedAt(Date.now());
-      setSettings(next.settings);
+      acceptSnapshot(next);
       setResetConfirmOpen(false);
     } catch (error) {
       setPageError(settingsError(error));
