@@ -61,6 +61,7 @@ interface AppShellProps {
   unreadAuthoredPullRequestCount?: number;
   unreadTaskTrackerCount?: number;
   modelTestingEnabled?: boolean;
+  developmentBanner?: boolean;
 }
 
 const productNavigation: NavigationItem[] = [
@@ -106,6 +107,7 @@ export function AppShell({
   unreadAuthoredPullRequestCount = 0,
   unreadTaskTrackerCount = 0,
   modelTestingEnabled = false,
+  developmentBanner = false,
 }: AppShellProps) {
   const { resolvedTheme, themePreference: contextThemePreference, t } = useI18n();
   const selectedTheme = themePreference ?? contextThemePreference;
@@ -164,6 +166,15 @@ export function AppShell({
 
   return (
     <div className="app-shell">
+      {developmentBanner ? (
+        <div
+          className="dev-build-banner"
+          role="note"
+          aria-label={t("nav.developmentBuild")}
+        >
+          <span className="dev-build-banner-label">{t("nav.developmentBuild")}</span>
+        </div>
+      ) : null}
       <aside aria-label={t("nav.primary")}>
         <div className="app-brand">
           <img src="/mework-icon.png" alt="" aria-hidden="true" />
