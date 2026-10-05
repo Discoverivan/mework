@@ -281,7 +281,7 @@ export function PullRequestReviewDialog({
         </DialogHeader>
         <DialogBody className="max-h-[70vh] space-y-5 overflow-y-auto">
           {reviewFailed ? (
-            <Alert variant="destructive">
+            <Alert variant="destructive" data-info-popover-boundary>
               <CircleAlert aria-hidden="true" className="size-4 translate-y-0.5" />
               <AlertTitle className="flex items-center gap-2">
                 {t("pr.aiReviewError")}
@@ -292,7 +292,7 @@ export function PullRequestReviewDialog({
           ) : null}
           {result && !reviewFailed ? (
             <>
-              <section aria-labelledby="ai-summary-title" className="space-y-2 rounded-lg border bg-card px-4 pb-4 pt-3">
+              <section data-info-popover-boundary aria-labelledby="ai-summary-title" className="space-y-2 rounded-lg border bg-card px-4 pb-4 pt-3">
                 <div className="space-y-2">
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <h3 id="ai-summary-title" className="text-base font-semibold leading-tight">{t("pr.dialog.aiSummary")}</h3>

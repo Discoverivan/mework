@@ -41,7 +41,6 @@ const KEYRING_SERVICE: &str = if cfg!(debug_assertions) {
 const PAGE_SIZE: u64 = 100;
 const MAX_REPOSITORIES: usize = 500;
 const MAX_DIFF_BYTES: usize = 1_000_000;
-const MAX_OUTPUT_TOKENS_PER_REQUEST: u32 = 4_000;
 
 static SCHEDULER_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
 
@@ -989,7 +988,7 @@ async fn execute_iteration<R: Runtime>(
         pr.project_key, pr.repository_slug, pr.id, pr.title, truncate(&pr.description, 4_000), pr.author, pr.source_branch, pr.target_branch, perspective.name, perspective.instructions, changed_files_from_diff(&diff).join(", "), diff
     );
     update_phase(pool, app, iteration_id, "analyzing_potential_issues").await;
-    let max_output_tokens = MAX_OUTPUT_TOKENS_PER_REQUEST;
+    let max_output_tokens = ai::OPENAI_MAX_OUTPUT_TOKENS as u32;
     // Grow the reservation per attempt; retain estimates only when the provider reports no usage.
     let reserved_per_attempt = (prompt.len() as i64).saturating_add(max_output_tokens as i64);
     let delays = [5_u64, 15, 30, 60];

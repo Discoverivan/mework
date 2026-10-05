@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
-import { Loader2, Pause, Play, Settings2, Square, RotateCcw } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { Info, Loader2, Pause, Play, Settings2, Square, RotateCcw } from "lucide-react";
 
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
@@ -7,19 +7,21 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { useInfoPopoverAnchor } from "@/components/shared/use-info-popover-anchor";
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Field, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { PageHeader } from "@/components/shared/PageHeader";
+import { StatusToast } from "@/components/shared/StatusToast";
 import { APP_EVENT, subscribeAppEvent } from "@/app/app-events";
 import { getAiSettings } from "@/features/settings/api";
 import type { AiProvider, AiSettings } from "@/shared/contracts/settings";
 import type { TokenBurnerSettings, TokenBurnerSnapshot } from "@/shared/contracts/token-burner";
 import type { TranslationKey } from "@/i18n/locales/en";
 import { useI18n } from "@/i18n/context";
+import { subscribeModelTestingIntegrations } from "./integration-resource";
 import {
   getTokenBurnerSnapshot,
-  isTokenBurnerIntegrationAvailable,
-  listTokenBurnerRepositories,
   pauseTokenBurner,
   resumeTokenBurner,
   resetTokenBurnerDailyTarget,
@@ -117,11 +119,13 @@ function settingsError(error: unknown): string {
 }
 
 export function TokenBurnerPage() {
+  const { triggerRef, alignOffset, onOpenChange } = useInfoPopoverAnchor();
   const { t } = useI18n();
   const [snapshot, setSnapshot] = useState<TokenBurnerSnapshot | null>(null);
   const [settings, setSettings] = useState<TokenBurnerSettings>(DEFAULT_SETTINGS);
   const [repositories, setRepositories] = useState<{ key: string; name: string }[]>([]);
   const [integrationAvailable, setIntegrationAvailable] = useState(false);
+  const [integrationError, setIntegrationError] = useState<string | null>(null);
   const [aiSettings, setAiSettings] = useState<Awaited<ReturnType<typeof getAiSettings>> | null>(null);
   const [loading, setLoading] = useState(true);
   const [pageError, setPageError] = useState<string | null>(null);
@@ -134,16 +138,33 @@ export function TokenBurnerPage() {
   const [resetConfirmOpen, setResetConfirmOpen] = useState(false);
   const [now, setNow] = useState(() => Date.now());
   const [snapshotReceivedAt, setSnapshotReceivedAt] = useState(() => Date.now());
+  const [errorNotice, setErrorNotice] = useState<{ message: string; revision: number } | null>(null);
+  const lastSnapshot = useRef<TokenBurnerSnapshot | null>(null);
+
+  function acceptSnapshot(current: TokenBurnerSnapshot) {
+    lastSnapshot.current = current;
+    setSnapshot(current);
+    setSnapshotReceivedAt(Date.now());
+    setSettings(current.settings);
+  }
+
+  function showErrorNotice(message: string) {
+    setErrorNotice((current) => ({ message, revision: (current?.revision ?? 0) + 1 }));
+  }
+
+  useEffect(() => {
+    const error = pageError ?? integrationError;
+    if (error) showErrorNotice(error);
+  }, [pageError, integrationError]);
 
   useEffect(() => {
     let active = true;
+    const initialSnapshot = lastSnapshot.current;
     void getTokenBurnerSnapshot().then((current) => {
-      if (!active) return;
-      setSnapshot(current);
-      setSnapshotReceivedAt(Date.now());
-      setSettings(current.settings);
+      // A live event can arrive while the initial command is still resolving.
+      if (active && lastSnapshot.current === initialSnapshot) acceptSnapshot(current);
     }).catch((error: unknown) => {
-      if (active) setPageError(settingsError(error));
+      if (active && lastSnapshot.current === initialSnapshot) setPageError(settingsError(error));
     }).finally(() => {
       if (active) setLoading(false);
     });
@@ -152,24 +173,21 @@ export function TokenBurnerPage() {
     }).catch((error: unknown) => {
       if (active) setPageError(settingsError(error));
     });
-    void isTokenBurnerIntegrationAvailable().then(async (available) => {
+    const unsubscribeIntegrations = subscribeModelTestingIntegrations((current) => {
       if (!active) return;
-      setIntegrationAvailable(available);
-      if (!available) return;
-      try {
-        const repos = await listTokenBurnerRepositories();
-        if (active) setRepositories(repos);
-      } catch (error) {
-        if (active) setPageError(settingsError(error));
-      }
-    }).catch((error: unknown) => {
-      if (active) setPageError(settingsError(error));
+      setIntegrationAvailable(current.available);
+      setRepositories(current.repositories);
+      setIntegrationError(current.error == null ? null : settingsError(current.error));
     });
     const unsubscribeBurner = subscribeAppEvent(APP_EVENT.tokenBurnerChanged, (current) => {
       if (!active) return;
-      setSnapshot(current);
-      setSnapshotReceivedAt(Date.now());
-      setSettings(current.settings);
+      const previous = lastSnapshot.current;
+      if (current.error && (!previous || (
+        current.error !== previous.error
+        || current.status !== previous.status
+        || current.sessionStartedAt !== previous.sessionStartedAt
+      ))) showErrorNotice(current.error);
+      acceptSnapshot(current);
     });
     const unsubscribeAi = subscribeAppEvent(APP_EVENT.aiSettingsChanged, setAiSettings);
     let currentLocalDay = new Date().toDateString();
@@ -178,19 +196,18 @@ export function TokenBurnerPage() {
       const nextLocalDay = new Date().toDateString();
       if (nextLocalDay === currentLocalDay) return;
       currentLocalDay = nextLocalDay;
+      const beforeRefresh = lastSnapshot.current;
       void getTokenBurnerSnapshot().then((next) => {
-        if (!active) return;
-        setSnapshot(next);
-        setSnapshotReceivedAt(Date.now());
-        setSettings(next.settings);
+        if (active && lastSnapshot.current === beforeRefresh) acceptSnapshot(next);
       }).catch((error: unknown) => {
-        if (active) setPageError(settingsError(error));
+        if (active && lastSnapshot.current === beforeRefresh) setPageError(settingsError(error));
       });
     }, 30_000);
     return () => {
       active = false;
       unsubscribeBurner();
       unsubscribeAi();
+      unsubscribeIntegrations();
       window.clearInterval(timer);
     };
   }, []);
@@ -239,8 +256,7 @@ export function TokenBurnerPage() {
     try {
       const handlers = { start: startTokenBurner, pause: pauseTokenBurner, resume: resumeTokenBurner, stop: stopTokenBurner };
       const next = await handlers[action]();
-      setSnapshot(next);
-      setSettings(next.settings);
+      acceptSnapshot(next);
     } catch (error) {
       setPageError(settingsError(error));
     } finally {
@@ -253,9 +269,7 @@ export function TokenBurnerPage() {
     setPageError(null);
     try {
       const next = await resetTokenBurnerDailyTarget();
-      setSnapshot(next);
-      setSnapshotReceivedAt(Date.now());
-      setSettings(next.settings);
+      acceptSnapshot(next);
       setResetConfirmOpen(false);
     } catch (error) {
       setPageError(settingsError(error));
@@ -284,12 +298,14 @@ export function TokenBurnerPage() {
   const currentIterations = snapshot?.activeIterations ?? [];
   const completedIterations = snapshot?.completedIterations ?? [];
   const selectedRepository = repositories.find((repository) => repository.key === settings.repository);
+  const lastError = pageError ?? integrationError ?? snapshot?.error;
 
   if (loading) return <div className="flex min-h-48 items-center justify-center"><Loader2 className="size-5 animate-spin" aria-label={t("tokenBurner.title")} /></div>;
 
   return (
-    <div className="flex flex-col gap-6">
+    <div className="flex flex-col gap-4">
       <PageHeader
+        className="mb-0!"
         title={t("tokenBurner.title")}
         titleId="token-burner-title"
         description={t("tokenBurner.subtitle")}
@@ -300,8 +316,7 @@ export function TokenBurnerPage() {
         )}
       />
 
-      {pageError ? <Alert variant="destructive"><AlertDescription>{t("tokenBurner.error", { error: pageError })}</AlertDescription></Alert> : null}
-      {!pageError && snapshot?.error ? <Alert variant="destructive"><AlertDescription>{t("tokenBurner.error", { error: snapshot.error })}</AlertDescription></Alert> : null}
+      <StatusToast key={errorNotice?.revision} variant="error" duration={6000} message={errorNotice ? t("tokenBurner.error", { error: errorNotice.message }) : null} onDismiss={() => setErrorNotice(null)} />
       {snapshot?.previousSessionInterrupted ? <Alert><AlertDescription>{t("tokenBurner.interruptedHint")}</AlertDescription></Alert> : null}
       {!integrationAvailable ? <Alert><AlertDescription>{t("tokenBurner.bitbucketRequired")}</AlertDescription></Alert> : null}
       {!aiSelection.ready ? (
@@ -331,16 +346,39 @@ export function TokenBurnerPage() {
             <p className="text-sm text-muted-foreground tabular-nums">{formatTokens(tokensToday, true)} / {formatTokens(target, true)}</p>
           </CardContent>
         </Card>
-        <Card>
+        <Card data-info-popover-boundary>
           <CardHeader className="pb-2"><CardDescription>{t("tokenBurner.activeFor")}</CardDescription><CardTitle className="text-2xl tabular-nums">{activeForLabel}</CardTitle></CardHeader>
-          <CardContent><Badge variant={statusVariant}>{t(statusKey)}</Badge></CardContent>
+          <CardContent className="flex items-center gap-1.5">
+            <Badge variant={statusVariant}>{t(statusKey)}</Badge>
+            {lastError ? (
+              <Popover onOpenChange={onOpenChange}>
+                <PopoverTrigger asChild>
+                  <button ref={triggerRef} type="button" className="inline-flex size-5 items-center justify-center rounded-full text-foreground/70 transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" aria-label={t("tokenBurner.errorDetailsTitle")} title={t("tokenBurner.errorDetailsTitle")}>
+                    <Info className="size-3.5" aria-hidden="true" />
+                  </button>
+                </PopoverTrigger>
+                <PopoverContent align="end" alignOffset={alignOffset} sideOffset={6} className="w-max max-w-[min(20rem,calc(100vw-2rem))]">
+                  <p className="whitespace-pre-wrap break-words text-xs text-muted-foreground">{lastError}</p>
+                </PopoverContent>
+              </Popover>
+            ) : null}
+          </CardContent>
         </Card>
       </section>
 
       <Card>
         <CardHeader>
-          <CardTitle>{t("tokenBurner.configuration")}</CardTitle>
-          <CardDescription>{t("tokenBurner.configurationDescription")}</CardDescription>
+          <div className="flex items-center justify-between gap-4">
+            <div className="flex min-w-0 flex-col gap-1.5">
+              <CardTitle>{t("tokenBurner.configuration")}</CardTitle>
+              <CardDescription>{t("tokenBurner.configurationDescription")}</CardDescription>
+            </div>
+            <div className="shrink-0">
+              {state === "running" ? <div className="flex gap-2"><Button variant="outline" onClick={() => void runAction("pause")} disabled={actionBusy}><Pause data-icon="inline-start" />{t("tokenBurner.pause")}</Button><Button variant="outline" onClick={() => void runAction("stop")} disabled={actionBusy}><Square data-icon="inline-start" />{t("tokenBurner.stop")}</Button></div>
+                : state === "paused" ? <div className="flex gap-2"><Button onClick={() => void runAction("resume")} disabled={actionBusy}><Play data-icon="inline-start" />{t("tokenBurner.resume")}</Button><Button variant="outline" onClick={() => void runAction("stop")} disabled={actionBusy}><Square data-icon="inline-start" />{t("tokenBurner.stop")}</Button></div>
+                  : <Button onClick={() => void runAction("start")} disabled={actionBusy || !integrationAvailable || !aiSelection.ready || state === "stopping"}>{state === "error" || state === "interrupted" ? <RotateCcw data-icon="inline-start" /> : <Play data-icon="inline-start" />}{t(state === "error" || state === "interrupted" ? "tokenBurner.retry" : "tokenBurner.start")}</Button>}
+            </div>
+          </div>
         </CardHeader>
         <CardContent className="grid gap-5 lg:grid-cols-2">
           <FieldGroup className="grid gap-4 sm:grid-cols-2">
@@ -364,11 +402,6 @@ export function TokenBurnerPage() {
             <div className="flex items-center justify-between gap-3 sm:col-span-2"><Badge variant={aiSelection.ready ? "secondary" : "destructive"}>{t(aiSelection.ready ? "tokenBurner.aiReady" : "tokenBurner.aiSettingsMissing")}</Badge><Button type="button" variant="ghost" size="sm" onClick={openAiSettings}>{t("tokenBurner.changeAiSettings")}</Button></div>
           </section>
         </CardContent>
-        <div className="flex justify-end px-6 pb-5">
-          {state === "running" ? <div className="flex gap-2"><Button variant="outline" onClick={() => void runAction("pause")} disabled={actionBusy}><Pause data-icon="inline-start" />{t("tokenBurner.pause")}</Button><Button variant="outline" onClick={() => void runAction("stop")} disabled={actionBusy}><Square data-icon="inline-start" />{t("tokenBurner.stop")}</Button></div>
-            : state === "paused" ? <div className="flex gap-2"><Button onClick={() => void runAction("resume")} disabled={actionBusy}><Play data-icon="inline-start" />{t("tokenBurner.resume")}</Button><Button variant="outline" onClick={() => void runAction("stop")} disabled={actionBusy}><Square data-icon="inline-start" />{t("tokenBurner.stop")}</Button></div>
-              : <Button onClick={() => void runAction("start")} disabled={actionBusy || !integrationAvailable || !aiSelection.ready || state === "stopping"}>{state === "error" || state === "interrupted" ? <RotateCcw data-icon="inline-start" /> : <Play data-icon="inline-start" />}{t(state === "error" || state === "interrupted" ? "tokenBurner.retry" : "tokenBurner.start")}</Button>}
-        </div>
       </Card>
 
       <Card>

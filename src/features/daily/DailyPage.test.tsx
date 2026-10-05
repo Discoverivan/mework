@@ -243,6 +243,7 @@ describe("DailyPage smoke test", () => {
     const statusButton = screen.getByRole("button", { name: "Change status for DEMO-2 (current: In Progress)" });
     fireEvent.pointerDown(statusButton, { button: 0, ctrlKey: false });
     expect(await screen.findByRole("menuitem", { name: /Code Review/ })).toBeInTheDocument();
+    expect(screen.getByRole("menuitem", { name: "In Progress" })).toHaveAttribute("aria-current", "true");
     expect(screen.getByRole("menuitem", { name: /Complete required fields in Jira/ })).toHaveAttribute("aria-disabled", "true");
     refreshDailyWorkspaceMock.mockResolvedValueOnce(workspace.subtasks.map((task) =>
       task.key === "DEMO-2" ? { ...task, status: "Code Review" } : task,
