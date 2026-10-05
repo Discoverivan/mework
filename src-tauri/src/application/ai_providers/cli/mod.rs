@@ -207,10 +207,7 @@ pub(crate) fn run_cli_output(
     model: Option<&str>,
 ) -> std::io::Result<Output> {
     command.stdout(Stdio::piped()).stderr(Stdio::piped());
-    let (child, invocation) = match spawn_cli(command, provider, operation, model) {
-        Ok(child) => child,
-        Err(error) => return Err(error),
-    };
+    let (child, invocation) = spawn_cli(command, provider, operation, model)?;
     let output = child.wait_with_output();
     match &output {
         Ok(output) if output.status.success() => invocation.completed(output.stdout.len()),
