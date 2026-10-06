@@ -180,7 +180,7 @@ export function DevOverlay() {
             {error ? <p role="alert" className="text-sm text-destructive">{error}</p> : null}
             {section === "tasks" ? (
               <div className="flex flex-col gap-3">
-                <form onSubmit={submitTask} className="flex flex-col gap-2">
+                <form autoComplete="off" onSubmit={submitTask} className="flex flex-col gap-2">
                   <Label htmlFor="dev-mock-task-summary">{t("devOverlay.taskSummary")}</Label>
                   <div className="flex gap-2">
                     <Input
@@ -199,7 +199,7 @@ export function DevOverlay() {
                 </Button>
                 <div className="flex flex-col gap-2">
                   <Label htmlFor="dev-mock-task">{t("devOverlay.selectTask")}</Label>
-                  <select
+                  <select autoComplete="off"
                     id="dev-mock-task"
                     className="h-9 rounded-md border border-input bg-background px-2 text-sm"
                     value={selectedTaskKey}
@@ -216,7 +216,7 @@ export function DevOverlay() {
                     {tasks.map((task) => <option key={task.key} value={task.key}>{task.key} · {task.summary}</option>)}
                   </select>
                   <div className="flex gap-2">
-                    <select
+                    <select autoComplete="off"
                       aria-label={t("devOverlay.taskStatus")}
                       className="h-9 min-w-0 flex-1 rounded-md border border-input bg-background px-2 text-sm"
                       value={selectedStatus}
@@ -253,7 +253,7 @@ export function DevOverlay() {
                 <DialogTitle>{t("devOverlay.subtaskTitle")}</DialogTitle>
                 <DialogDescription>{t("devOverlay.subtaskDialogDescription")}</DialogDescription>
               </DialogHeader>
-              <form onSubmit={submitSubtask} className="space-y-4">
+              <form autoComplete="off" onSubmit={submitSubtask} className="space-y-4">
                 <DialogBody className="max-h-[55vh] space-y-3 pr-2">
                   <FieldGroup className="gap-3">
                     <Field>
@@ -318,7 +318,7 @@ export function DevOverlay() {
                 </DialogBody>
                 <DialogFooter className="flex-row justify-end gap-2 sm:space-x-0">
                   <DialogClose asChild>
-                    <Button type="button" variant="outline" disabled={busy}>{t("devOverlay.cancel")}</Button>
+                    <Button data-dialog-cancel type="button" variant="outline" disabled={busy}>{t("devOverlay.cancel")}</Button>
                   </DialogClose>
                   <Button type="submit" disabled={busy || !subtaskSummary.trim() || !parentIssueKey || !assigneeId || !sprintId}>
                     {t("devOverlay.addSubtask")}

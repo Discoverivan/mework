@@ -1,11 +1,13 @@
+import { Hint } from "@/components/ui/tooltip";
 import { useEffect, useMemo, useState } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
-import { MoreHorizontal, Pencil, Play, Plus, Terminal, Trash2 } from "lucide-react";
+import { MoreHorizontal, Pencil, Play, Terminal, Trash2 } from "lucide-react";
 
 import { PageHeader } from "@/components/shared/PageHeader";
 import { EmptyState } from "@/components/shared/EmptyState";
 import { useI18n } from "@/i18n/context";
 import type { TranslationKey } from "@/i18n/locales/en";
+import { CreateButton } from "@/components/shared/CreateButton";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
@@ -233,16 +235,12 @@ export function CommandBoardPage() {
         titleId="command-board-title"
         description={t("command.description")}
         actions={(
-          <Button
-            size="icon"
-            actionTone="add"
-            className="h-9 w-9"
+          <CreateButton
+            className="h-9"
             onClick={openCreateDialog}
             aria-label={t("command.add")}
             title={t("command.add")}
-          >
-            <Plus className="size-4" aria-hidden="true" />
-          </Button>
+          />
         )}
       />
 
@@ -333,7 +331,7 @@ export function CommandBoardPage() {
               <h2 className="truncate text-base font-semibold text-foreground">{item.name}</h2>
               {runningId === item.id ? <span className="text-xs text-muted-foreground">{t("command.running")}</span> : <Play className="h-3.5 w-3.5 text-muted-foreground" aria-hidden="true" />}
             </div>
-            <p className="mt-2 truncate font-mono text-xs text-muted-foreground" title={item.scriptPath}>{item.scriptPath}</p>
+            <Hint content={item.scriptPath}><p className="mt-2 truncate font-mono text-xs text-muted-foreground">{item.scriptPath}</p></Hint>
             <p className="mt-3 text-xs text-muted-foreground">{t("command.systemLauncher")}</p>
           </article>
         ))}
@@ -345,7 +343,7 @@ export function CommandBoardPage() {
             <DialogTitle>{t(form.id ? "command.editTitle" : "command.addTitle")}</DialogTitle>
             <DialogDescription>{t("command.dialogDescription")}</DialogDescription>
           </DialogHeader>
-          <form id="command-board-form" className="grid gap-4 py-2" onSubmit={(event) => { event.preventDefault(); void handleSave(); }}>
+          <form autoComplete="off" id="command-board-form" className="grid gap-4 py-2" onSubmit={(event) => { event.preventDefault(); void handleSave(); }}>
             <div className="grid gap-2">
               <Label htmlFor="command-name">{t("command.name")}</Label>
               <Input id="command-name" value={form.name} onChange={(event) => updateForm("name", event.target.value)} />
@@ -353,15 +351,15 @@ export function CommandBoardPage() {
             <div className="grid gap-2">
               <Label>{t("command.scriptFile")}</Label>
               <div className="flex gap-2">
-                <div id="command-script" className="flex h-10 min-w-0 flex-1 items-center truncate rounded-md border border-input bg-muted/30 px-3 text-sm text-muted-foreground" aria-label={t("command.selectedScript")} title={form.scriptPath || undefined}>
+                <Hint content={form.scriptPath || undefined}><div id="command-script" className="flex h-10 min-w-0 flex-1 items-center truncate rounded-md border border-input bg-muted/30 px-3 text-sm text-muted-foreground" aria-label={t("command.selectedScript")}>
                   {form.scriptPath ? scriptFileName(form.scriptPath) : t("command.noScript")}
-                </div>
+                </div></Hint>
                 <Button type="button" variant="outline" onClick={() => void chooseFile()}>{t("command.chooseScript")}</Button>
               </div>
             </div>
             <div className="grid gap-2">
               <Label htmlFor="command-arguments">{t("command.arguments")}</Label>
-              <textarea id="command-arguments" className="flex min-h-20 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2" value={form.arguments} onChange={(event) => updateForm("arguments", event.target.value)} placeholder="--verbose" rows={2} />
+              <textarea autoComplete="off" id="command-arguments" className="flex min-h-20 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2" value={form.arguments} onChange={(event) => updateForm("arguments", event.target.value)} placeholder="--verbose" rows={2} />
             </div>
             <div className="grid gap-2">
               <Label htmlFor="command-working-directory">{t("command.workingDirectory")}</Label>
@@ -369,7 +367,7 @@ export function CommandBoardPage() {
             </div>
           </form>
           <DialogFooter>
-            <Button type="button" variant="ghost" onClick={() => setDialogOpen(false)}>{t("settings.common.cancel")}</Button>
+            <Button data-dialog-cancel type="button" variant="ghost" onClick={() => setDialogOpen(false)}>{t("settings.common.cancel")}</Button>
             <Button type="submit" form="command-board-form" actionTone="edit" disabled={saving}>{saving ? t("settings.common.saving") : t("settings.common.save")}</Button>
           </DialogFooter>
         </DialogContent>

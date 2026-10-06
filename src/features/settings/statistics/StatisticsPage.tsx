@@ -22,7 +22,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useI18n } from "@/i18n/context";
 import { getAiUsageStatistics, type AiUsagePeriod, type AiUsageStatistics } from "./api";
@@ -226,23 +226,12 @@ export function StatisticsPage() {
         titleId="statistics-page-title"
         description={t("statistics.description")}
         actions={(
-          <ToggleGroup
-            type="single"
-            value={period}
-            variant="outline"
-            size="sm"
-            aria-label={t("statistics.period")}
-            className="flex-wrap"
-            onValueChange={(value) => {
-              if (value) setPeriod(value as AiUsagePeriod);
-            }}
-          >
-            {PERIODS.map((option) => (
-              <ToggleGroupItem key={option.value} value={option.value}>
-                {t(option.label)}
-              </ToggleGroupItem>
-            ))}
-          </ToggleGroup>
+          <Select value={period} onValueChange={(value) => setPeriod(value as AiUsagePeriod)}>
+            <SelectTrigger className="h-9" aria-label={t("statistics.period")}><SelectValue /></SelectTrigger>
+            <SelectContent>
+              {PERIODS.map((option) => <SelectItem key={option.value} value={option.value}>{t(option.label)}</SelectItem>)}
+            </SelectContent>
+          </Select>
         )}
       />
 

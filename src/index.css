@@ -166,6 +166,24 @@
     cursor: pointer;
   }
 
+  .app-dialog-sections {
+    gap: 1.5rem;
+  }
+
+  :root[data-button-style="quiet"] .app-dialog-content {
+    gap: 0.75rem;
+  }
+
+  :root[data-button-style="quiet"] .app-dialog-sections {
+    gap: 1rem;
+  }
+
+  :root[data-button-style="quiet"] .app-toggle {
+    height: auto;
+    min-height: 2rem;
+    padding: 0.25rem 0.375rem;
+  }
+
   /* Keep sidebar geometry stable when switching the action appearance. */
   :root[data-button-style="quiet"] .app-icon-button:not(:where(.app-shell aside *)) {
     max-width: 2rem;
@@ -261,18 +279,31 @@
     color: var(--app-action-color);
   }
 
-  :root[data-button-style="filled"] .app-action-text:not(:where(.app-shell aside *)):not([data-button-variant="link"]):is([data-action-tone="edit"], [data-action-tone="add"], [data-action-tone="success"], [data-action-tone="warning"], [data-action-tone="delete"], [data-button-variant="destructive"]):not(:disabled):is(:hover, :focus-visible) {
+  :root[data-button-style="filled"] .app-action-text:not(:where(.app-shell aside *)):not([data-button-variant="link"]):is([data-action-tone="edit"], [data-action-tone="success"], [data-action-tone="warning"], [data-action-tone="delete"], [data-button-variant="destructive"]):not(:disabled):is(:hover, :focus-visible) {
     border-color: var(--app-action-color);
     background: var(--app-action-color);
     color: var(--primary-foreground);
   }
 
-  :root[data-button-style="filled"] .app-action-text:not(:where(.app-shell aside *)):not([data-button-variant="link"]):is([data-action-tone="add"], [data-action-tone="success"], [data-action-tone="warning"]):not(:disabled):is(:hover, :focus-visible) {
+  :root[data-button-style="filled"] .app-action-text:not(:where(.app-shell aside *)):not([data-button-variant="link"]):is([data-action-tone="success"], [data-action-tone="warning"]):not(:disabled):is(:hover, :focus-visible) {
     color: var(--overlay);
   }
 
   :root[data-button-style="filled"] .app-action-text:not(:where(.app-shell aside *)):not([data-button-variant="link"]):is([data-action-tone="delete"], [data-button-variant="destructive"]):not(:disabled):is(:hover, :focus-visible) {
     color: var(--destructive-foreground);
+  }
+
+  /* Creation actions use the same restrained fill as standalone plus buttons. */
+  :root[data-button-style="filled"] .app-action-text[data-action-tone="add"] {
+    border-color: transparent;
+    background: var(--secondary);
+    color: var(--secondary-foreground);
+  }
+
+  :root[data-button-style="filled"] .app-action-text[data-action-tone="add"]:not(:disabled):is(:hover, :focus-visible) {
+    border-color: transparent;
+    background: color-mix(in srgb, var(--app-action-color) 14%, var(--secondary));
+    color: var(--app-action-color);
   }
 
   :root[data-button-style="quiet"] .pr-filter-mode,
@@ -317,10 +348,10 @@
     height: 16px;
   }
 
-  :root[data-button-style="filled"] .pr-filter-group .app-icon-button[data-action-tone="add"] {
+  :root[data-button-style="filled"][data-theme="dark"] .pr-filter-group :is(.app-icon-button, .app-action-text)[data-action-tone="add"] {
     background: var(--card);
   }
 
-  :root[data-button-style="filled"] .pr-filter-group .app-icon-button[data-action-tone="add"]:not(:disabled):is(:hover, :focus-visible) {
+  :root[data-button-style="filled"][data-theme="dark"] .pr-filter-group :is(.app-icon-button, .app-action-text)[data-action-tone="add"]:not(:disabled):is(:hover, :focus-visible) {
     background: color-mix(in srgb, var(--app-action-color) 14%, var(--card));
   }

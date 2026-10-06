@@ -51,6 +51,7 @@ const project = {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  Element.prototype.scrollIntoView = vi.fn();
   listProjectsMock.mockResolvedValue([project]);
   listBoardsMock.mockResolvedValue([{ id: "board-1", name: "Platform board" }]);
   listMembersMock.mockResolvedValue([]);
@@ -77,7 +78,7 @@ beforeEach(() => {
 });
 
 describe("ManagedProjectsSettings task creation settings", () => {
-  it("explains why the Confluence field is unavailable while editing a team", async () => {
+  it("shows the saved board and saves or closes editing without waiting for board choices", async () => {
     render(
       <ManagedProjectsSettings
         jiraIntegrations={[{
@@ -87,7 +88,7 @@ describe("ManagedProjectsSettings task creation settings", () => {
           enabled: true,
           capabilities: {},
         }]}
-        validateProjectKey={vi.fn()}
+        validateProjectKey={vi.fn().mockResolvedValue({ projectId: project.projectId, projectKey: project.projectKey, projectName: project.projectName })}
       />,
     );
 
@@ -97,6 +98,24 @@ describe("ManagedProjectsSettings task creation settings", () => {
     const hint = screen.getByText("Configure and enable Confluence to select a team space.");
     expect(confluenceField).toBeDisabled();
     expect(confluenceField).toHaveAttribute("aria-describedby", hint.id);
+    expect(screen.getByRole("combobox", { name: "Jira board" })).toHaveTextContent(/board-1|Platform board/);
+    listBoardsMock.mockReturnValueOnce(new Promise(() => {}));
+    fireEvent.click(screen.getByRole("combobox", { name: "Jira board" }));
+    expect(await screen.findByText("Loading Jira boards for this project…")).toBeInTheDocument();
+    fireEvent.keyDown(screen.getByRole("option", { name: "Loading Jira boards…" }), { key: "Escape" });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(saveProjectMock).toHaveBeenCalledWith(expect.objectContaining({ boardId: "board-1" })));
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: "Edit Platform team" }));
+    listBoardsMock.mockReturnValueOnce(new Promise(() => {}));
+    fireEvent.click(screen.getByRole("combobox", { name: "Jira board" }));
+    expect(await screen.findByText("Loading Jira boards for this project…")).toBeInTheDocument();
+    fireEvent.keyDown(screen.getByRole("option", { name: "Loading Jira boards…" }), { key: "Escape" });
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Edit Platform team" }));
+    fireEvent.click(screen.getByRole("button", { name: "Close" }));
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
 
   it("creates a team through project validation and board selection steps", async () => {
@@ -138,7 +157,7 @@ describe("ManagedProjectsSettings task creation settings", () => {
     expect(deleteTeamButton.querySelector("svg.lucide-trash-2")).not.toBeNull();
     const addTeamButton = await screen.findByRole("button", { name: "Add team" });
     expect(addTeamButton.querySelector("svg.lucide-plus")).not.toBeNull();
-    expect(addTeamButton).not.toHaveTextContent("Add team");
+    expect(addTeamButton).toHaveTextContent("Create");
     expect(addTeamButton.closest("header")).toHaveClass("page-header");
     expect(screen.getByText("Configure Jira teams, boards, members, and task creation defaults.")).toBeInTheDocument();
     fireEvent.click(addTeamButton);
@@ -161,7 +180,7 @@ describe("ManagedProjectsSettings task creation settings", () => {
 
     fireEvent.click(screen.getByRole("combobox", { name: "Jira board" }));
     fireEvent.click(screen.getByRole("option", { name: "Platform board (board-1)" }));
-    fireEvent.click(screen.getByRole("button", { name: "Save team" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
     await waitFor(() => expect(saveProjectMock).toHaveBeenCalledWith(expect.objectContaining({
       integrationId: "jira-1",
       jiraProjectId: "10001",
@@ -269,7 +288,7 @@ describe("ManagedProjectsSettings task creation settings", () => {
     fireEvent.click(screen.getByRole("combobox", { name: "Default Epic link for task creation" }));
     fireEvent.click(screen.getByRole("option", { name: /DEMO-EPIC-1/ }));
 
-    fireEvent.click(screen.getByRole("button", { name: "Save task creation settings" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
     await waitFor(() => expect(saveProjectMock).toHaveBeenCalledWith(expect.objectContaining({
       id: "team-1",
       defaultTaskSprintId: "sprint-1",

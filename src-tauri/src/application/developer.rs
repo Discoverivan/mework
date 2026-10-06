@@ -30,7 +30,7 @@ const KEYRING_SERVICE: &str = if cfg!(debug_assertions) {
     PRODUCTION_KEYRING_SERVICE
 };
 const REVIEW_FILTERS_SETTING_KEY: &str = "developer.pull_request_review_filters";
-const REVIEW_FILTERS_SCHEMA_VERSION: i64 = 4;
+const REVIEW_FILTERS_SCHEMA_VERSION: i64 = 5;
 const PULL_REQUEST_ACTIVITY_SETTING_KEY: &str = "developer.pull_request_activity";
 const PULL_REQUEST_ACTIVITY_SCHEMA_VERSION: i64 = 1;
 const PULL_REQUEST_CACHE_SETTING_KEY: &str = "developer.pull_request_cache";
@@ -44,9 +44,19 @@ pub(crate) fn pull_request_state_lock() -> &'static tokio::sync::Mutex<()> {
     PULL_REQUEST_STATE_LOCK.get_or_init(|| tokio::sync::Mutex::new(()))
 }
 
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub enum PullRequestFilterMode {
+    Allow,
+    #[default]
+    Deny,
+}
+
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct PullRequestReviewSettings {
+    #[serde(default)]
+    pub filter_mode: PullRequestFilterMode,
     #[serde(default)]
     pub project_blacklist: Vec<String>,
     #[serde(default)]
@@ -80,20 +90,35 @@ pub async fn get_pull_request_review_settings(
     let Some(value) = value else {
         return Ok(PullRequestReviewSettings::default());
     };
-    let settings = serde_json::from_str::<PullRequestReviewSettings>(&value).map_err(|_| {
+    let invalid_settings = || {
         command_error(
             "invalid_settings",
             "Saved pull request review settings are invalid",
             false,
         )
-    })?;
+    };
+    let saved: serde_json::Value = serde_json::from_str(&value).map_err(|_| invalid_settings())?;
+    let has_saved_mode = saved.get("filterMode").is_some();
+    let settings = serde_json::from_value(saved).map_err(|_| invalid_settings())?;
     let mut settings = normalize_settings(settings)?;
+    if !has_saved_mode {
+        settings.filter_mode = if settings.project_whitelist.is_empty()
+            && settings.repository_whitelist.is_empty()
+            && settings.creator_whitelist.is_empty()
+        {
+            PullRequestFilterMode::Deny
+        } else {
+            PullRequestFilterMode::Allow
+        };
+    }
+    let mut changed = !has_saved_mode;
     // Older versions stored project exclusions alongside repository filters.
     // Use provider-backed cached identities instead of guessing from spelling.
     if let Ok(cache) = load_pull_request_cache(pool).await {
-        if relocate_legacy_project_filters(&mut settings, &cache.values) {
-            return save_pull_request_review_settings(pool, settings).await;
-        }
+        changed |= relocate_legacy_project_filters(&mut settings, &cache.values);
+    }
+    if changed {
+        return save_pull_request_review_settings(pool, settings).await;
     }
     Ok(settings)
 }
@@ -172,6 +197,7 @@ fn normalize_settings(
     settings: PullRequestReviewSettings,
 ) -> Result<PullRequestReviewSettings, DeveloperCommandError> {
     Ok(PullRequestReviewSettings {
+        filter_mode: settings.filter_mode,
         project_blacklist: normalize_filter_values(
             settings.project_blacklist,
             "project blacklist",
@@ -2312,15 +2338,15 @@ fn matches_review_settings(
             .author_display_name
             .eq_ignore_ascii_case(value.trim())
     });
-    let whitelist_configured = !settings.project_whitelist.is_empty()
-        || !settings.repository_whitelist.is_empty()
-        || !settings.creator_whitelist.is_empty();
-    if project_blacklist_matches || repository_blacklist_matches || creator_blacklist_matches {
-        false
-    } else if whitelist_configured {
-        project_whitelist_matches || repository_whitelist_matches || creator_whitelist_matches
-    } else {
-        true
+    match settings.filter_mode {
+        PullRequestFilterMode::Allow => {
+            project_whitelist_matches || repository_whitelist_matches || creator_whitelist_matches
+        }
+        PullRequestFilterMode::Deny => {
+            !(project_blacklist_matches
+                || repository_blacklist_matches
+                || creator_blacklist_matches)
+        }
     }
 }
 
@@ -2984,6 +3010,7 @@ mod tests {
         let saved = save_pull_request_review_settings(
             &pool,
             PullRequestReviewSettings {
+                filter_mode: super::PullRequestFilterMode::Allow,
                 project_blacklist: vec!["SAMPLE".into()],
                 project_whitelist: vec!["DEMO".into()],
                 repository_blacklist: vec!["SAMPLE/legacy".into()],
@@ -3010,6 +3037,22 @@ mod tests {
             get_pull_request_review_settings(&pool).await.unwrap(),
             saved
         );
+        for filter_mode in [
+            super::PullRequestFilterMode::Allow,
+            super::PullRequestFilterMode::Deny,
+        ] {
+            let empty = PullRequestReviewSettings {
+                filter_mode,
+                ..Default::default()
+            };
+            save_pull_request_review_settings(&pool, empty.clone())
+                .await
+                .unwrap();
+            assert_eq!(
+                get_pull_request_review_settings(&pool).await.unwrap(),
+                empty
+            );
+        }
     }
 
     #[tokio::test]
@@ -3038,6 +3081,7 @@ mod tests {
         assert!(matches_review_settings(
             &pull_request,
             &PullRequestReviewSettings {
+                filter_mode: super::PullRequestFilterMode::Allow,
                 project_whitelist: vec!["DEMO".into()],
                 ..Default::default()
             }
@@ -3067,9 +3111,21 @@ mod tests {
         assert!(!matches_review_settings(
             &pull_request,
             &PullRequestReviewSettings {
+                filter_mode: super::PullRequestFilterMode::Allow,
                 creator_whitelist: vec!["Test Author B".into()],
                 ..Default::default()
             }
+        ));
+        assert!(!matches_review_settings(
+            &pull_request,
+            &PullRequestReviewSettings {
+                filter_mode: super::PullRequestFilterMode::Allow,
+                ..Default::default()
+            }
+        ));
+        assert!(matches_review_settings(
+            &pull_request,
+            &PullRequestReviewSettings::default()
         ));
         let directory = tempfile::tempdir().unwrap();
         let pool = open_database(&directory.path().join("mework.sqlite"))
@@ -3104,12 +3160,22 @@ mod tests {
         assert!(!matches_review_settings(&pull_request, &migrated));
     }
 
-    #[test]
-    fn reads_legacy_whitelist_only_settings_with_safe_defaults() {
-        let settings: PullRequestReviewSettings = serde_json::from_str(
+    #[tokio::test]
+    async fn reads_legacy_whitelist_only_settings_with_safe_defaults() {
+        let directory = tempfile::tempdir().unwrap();
+        let pool = open_database(&directory.path().join("mework.sqlite"))
+            .await
+            .unwrap();
+        crate::infrastructure::db::repositories::upsert_setting(
+            &pool,
+            super::REVIEW_FILTERS_SETTING_KEY,
             r#"{"repositoryWhitelist":["DEMO/sample-repository"],"creatorWhitelist":["Test Author A"]}"#,
+            4,
         )
+        .await
         .unwrap();
+        let settings = get_pull_request_review_settings(&pool).await.unwrap();
+        assert_eq!(settings.filter_mode, super::PullRequestFilterMode::Allow);
         assert_eq!(
             settings.repository_whitelist,
             vec!["DEMO/sample-repository"]

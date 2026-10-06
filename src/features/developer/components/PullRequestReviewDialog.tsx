@@ -1,3 +1,4 @@
+import { Hint } from "@/components/ui/tooltip";
 import { useEffect, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import { CheckCircle2, CircleAlert, ExternalLink, Loader2, Pencil, RefreshCw, Send } from "lucide-react";
@@ -246,10 +247,10 @@ export function PullRequestReviewDialog({
 
   const openInBrowser = pullRequest?.url ? (
     <Button asChild type="button" variant="outline" size="sm" actionTone="neutral" className="shrink-0 text-foreground">
-      <a href={pullRequest.url} target="_blank" rel="noreferrer" aria-label={t("pr.dialog.openWeb")} title={t("pr.dialog.openWeb")} onClick={() => onOpenPullRequest(pullRequest)}>
+      <Hint content={t("pr.dialog.openWeb")}><a href={pullRequest.url} target="_blank" rel="noreferrer" aria-label={t("pr.dialog.openWeb")} onClick={() => onOpenPullRequest(pullRequest)}>
         <ExternalLink aria-hidden="true" />
         {t("pr.dialog.openWeb")}
-      </a>
+      </a></Hint>
     </Button>
   ) : null;
 
@@ -335,18 +336,18 @@ export function PullRequestReviewDialog({
                                 <li key={`${comment.file}:${comment.line ?? "na"}:${index}`} className="space-y-2 rounded-md border bg-background p-3">
                                   <div className="flex min-w-0">
                                     {diffUrl ? (
-                                      <a href={diffUrl} target="_blank" rel="noopener noreferrer" className={cn(locationClass, "hover:bg-accent hover:[&_span]:underline focus-visible:[&_span]:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring")} title={t("pr.dialog.openCommentLocation", { location })} onClick={() => { if (pullRequest) onOpenPullRequest(pullRequest); }}>
+                                      <Hint content={t("pr.dialog.openCommentLocation", { location })}><a href={diffUrl} target="_blank" rel="noopener noreferrer" className={cn(locationClass, "hover:bg-accent hover:[&_span]:underline focus-visible:[&_span]:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring")} onClick={() => { if (pullRequest) onOpenPullRequest(pullRequest); }}>
                                         <CommentLocation comment={comment} />
-                                      </a>
+                                      </a></Hint>
                                     ) : <p className={locationClass}><CommentLocation comment={comment} /></p>}
                                   </div>
                                   <ReviewMarkdown>{comment.comment}</ReviewMarkdown>
                                   {matched?.coverage === "partial" ? <p className="text-sm text-muted-foreground">{t("pr.dialog.partiallyCovered")}</p> : null}
                                   <div className="flex flex-wrap items-center justify-end gap-2">
-                                    {status !== "ready" ? <span role="status" aria-label={t("pr.dialog.statusFor", { file: reviewCommentPath(comment.file) })} className={cn("flex items-center gap-1.5 text-xs", status === "checkFailed" ? "text-destructive" : "text-muted-foreground")} title={status === "checkFailed" ? t("pr.dialog.publicationCheckError") : status === "duplicate" ? t("pr.dialog.duplicateCovered") : status === "partial" ? t("pr.dialog.partiallyCovered") : undefined}>
+                                    {status !== "ready" ? <Hint content={status === "checkFailed" ? t("pr.dialog.publicationCheckError") : status === "duplicate" ? t("pr.dialog.duplicateCovered") : status === "partial" ? t("pr.dialog.partiallyCovered") : undefined}><span role="status" aria-label={t("pr.dialog.statusFor", { file: reviewCommentPath(comment.file) })} className={cn("flex items-center gap-1.5 text-xs", status === "checkFailed" ? "text-destructive" : "text-muted-foreground")}>
                                       {status === "checking" || status === "publishing" ? <Loader2 aria-hidden="true" className="size-4 animate-spin" /> : status === "checkFailed" ? <CircleAlert aria-hidden="true" className="size-4" /> : status === "published" ? <CheckCircle2 aria-hidden="true" className="size-4" /> : null}
                                       {t(`pr.dialog.commentStatus.${status}`)}
-                                    </span> : null}
+                                    </span></Hint> : null}
                                     {matched?.coverage === "partial" && matchedUrl ? <Button asChild variant="outline" size="sm"><a href={matchedUrl} target="_blank" rel="noopener noreferrer" aria-label={t("pr.dialog.existingCommentFor", { file: reviewCommentPath(comment.file) })}><ExternalLink aria-hidden="true" />{t("pr.dialog.existingComment")}</a></Button> : null}
                                     {status === "checkFailed" ? <Button type="button" variant="outline" size="icon" className="size-8" aria-label={t("pr.dialog.retryComparisonFor", { file: reviewCommentPath(comment.file) })} title={t("pr.dialog.retryComparison")} onClick={retryComparison}><RefreshCw aria-hidden="true" /></Button>
                                     : status === "checking" ? null
@@ -480,7 +481,7 @@ export function PullRequestReviewDialog({
             </div>
             <div className="grid gap-2">
               <Label htmlFor="review-comment-editor">{t("pr.dialog.comment")}</Label>
-              <textarea
+              <textarea autoComplete="off"
                 id="review-comment-editor"
                 aria-label={t("pr.dialog.reviewComment")}
                 className="min-h-32 w-full resize-y rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
@@ -504,7 +505,7 @@ export function PullRequestReviewDialog({
             {actionError ? <p role="alert" className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">{actionError}</p> : null}
           </DialogBody>
           <DialogFooter>
-            <Button
+            <Button data-dialog-cancel
               type="button"
               variant="outline"
               onClick={() => {

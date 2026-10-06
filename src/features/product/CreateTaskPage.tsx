@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
-import { Check, ClipboardList, ExternalLink, LoaderCircle, Pencil, Plus, RefreshCw, Sparkles, Trash2 } from "lucide-react";
+import { Check, ClipboardList, ExternalLink, LoaderCircle, Pencil, RefreshCw, Sparkles, Trash2 } from "lucide-react";
 
 import { PageHeader } from "@/components/shared/PageHeader";
 import { EmptyState } from "@/components/shared/EmptyState";
 import { useI18n } from "@/i18n/context";
 import type { TranslationKey } from "@/i18n/locales/en";
 import type { TranslationParams } from "@/i18n/types";
+import { CreateButton } from "@/components/shared/CreateButton";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -34,7 +35,7 @@ import "./create-task.css";
 
 const UNASSIGNED_VALUE = "__unassigned__";
 
-function readCreateTaskRouteContext(): { teamId?: string; sprintId?: string } {
+function readCreateTaskRouteContext(): { teamId?: string; sprintId?: string; openForm?: boolean } {
   if (typeof window === "undefined") return {};
   const query = window.location.hash.split("?", 2)[1];
   if (!query) return {};
@@ -42,6 +43,7 @@ function readCreateTaskRouteContext(): { teamId?: string; sprintId?: string } {
   return {
     teamId: params.get("team") || undefined,
     sprintId: params.get("sprint") || undefined,
+    openForm: params.get("new") === "1",
   };
 }
 
@@ -319,7 +321,7 @@ function DraftSkeletonCard() {
 export function CreateTaskPage() {
   const { t } = useI18n();
   const routeContext = useRef(readCreateTaskRouteContext()).current;
-  const [dialogOpen, setDialogOpen] = useState(false);
+  const [dialogOpen, setDialogOpen] = useState(() => routeContext.openForm ?? false);
   const [prompt, setPrompt] = useState("");
   const [cards, setCards] = useState<TaskCard[]>(() => readPersistedCreateTaskState().cards);
   const [teams, setTeams] = useState<ManagedProject[]>([]);
@@ -335,6 +337,14 @@ export function CreateTaskPage() {
   const [descriptionImproveErrorCardId, setDescriptionImproveErrorCardId] = useState<string>();
   const [descriptionImproveInFlight, setDescriptionImproveInFlight] = useState(false);
   const generationInFlight = useRef(new Set<string>());
+
+  useEffect(() => {
+    if (!routeContext.openForm) return;
+    const [path, query] = window.location.hash.split("?", 2);
+    const params = new URLSearchParams(query);
+    params.delete("new");
+    window.history.replaceState(window.history.state, "", `${path}?${params.toString()}`);
+  }, [routeContext]);
 
   useEffect(() => {
     persistCreateTaskState({ cards, selectedTeamId });
@@ -687,7 +697,7 @@ export function CreateTaskPage() {
                 </Button>
               )}
             </div>
-            <textarea id={`draft-description-${card.id}`} aria-busy={isDescriptionImproving} className="min-h-32 w-full resize-y rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2" value={card.description} disabled={card.status === "creating" || isDescriptionImproving} onChange={(event) => updateCard(card.id, { description: event.target.value })} />
+            <textarea autoComplete="off" id={`draft-description-${card.id}`} aria-busy={isDescriptionImproving} className="min-h-32 w-full resize-y rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2" value={card.description} disabled={card.status === "creating" || isDescriptionImproving} onChange={(event) => updateCard(card.id, { description: event.target.value })} />
             {hasDescriptionImproveError ? <p className="text-xs text-destructive" role="alert">{descriptionImproveError}</p> : null}
             <p className="text-xs text-muted-foreground">{t("task.markupHelp")}</p>
           </div>
@@ -802,17 +812,13 @@ export function CreateTaskPage() {
           </SelectContent>
         </Select>
         <div className="ml-auto flex items-center gap-2">
-          <Button
+          <CreateButton
             type="button"
-            size="icon"
-            actionTone="add"
-            className="h-9 w-9"
+            className="h-9"
             onClick={() => setDialogOpen(true)}
             aria-label={t("task.new")}
             title={t("task.new")}
-          >
-            <Plus className="size-4" aria-hidden="true" />
-          </Button>
+          />
         </div>
       </div>
 
@@ -842,14 +848,21 @@ export function CreateTaskPage() {
             <DialogDescription>{t("task.describeDescription")}</DialogDescription>
           </DialogHeader>
           <DialogBody>
-            <form id="create-task-form" className="create-task-form" onSubmit={submitPrompt}>
+            <form autoComplete="off" id="create-task-form" className="create-task-form" onSubmit={submitPrompt}>
+              <div className="grid gap-2">
+                <Label htmlFor="create-task-form-sprint">{t("task.sprint")}</Label>
+                <Select value={selectedSprintId} onValueChange={setSelectedSprintId} disabled={selectedContext?.sprintsLoading || !selectedContext?.sprints.length}>
+                  <SelectTrigger id="create-task-form-sprint" aria-label={t("task.sprint")}><SelectValue placeholder={selectedContext?.sprintsLoading ? t("task.loadingSprints") : t("task.noSprints")} /></SelectTrigger>
+                  <SelectContent>{selectedContext?.sprints.map((sprint) => <SelectItem key={sprint.id} value={sprint.id}>{sprint.name}</SelectItem>)}</SelectContent>
+                </Select>
+              </div>
               <label className="sr-only" htmlFor="task-description">{t("task.describe")}</label>
-              <textarea id="task-description" className="create-task-textarea create-task-textarea--dialog" value={prompt} placeholder={t("task.describe")} autoFocus required onChange={(event) => setPrompt(event.target.value)} />
+              <textarea autoComplete="off" id="task-description" className="create-task-textarea create-task-textarea--dialog" value={prompt} placeholder={t("task.describe")} autoFocus required onChange={(event) => setPrompt(event.target.value)} />
             </form>
           </DialogBody>
           <DialogFooter>
-            <Button type="button" variant="outline" onClick={() => setDialogOpen(false)}>{t("settings.common.cancel")}</Button>
-            <Button type="submit" form="create-task-form" disabled={!prompt.trim()}>
+            <Button data-dialog-cancel type="button" variant="outline" onClick={() => setDialogOpen(false)}>{t("settings.common.cancel")}</Button>
+            <Button type="submit" form="create-task-form" actionTone="add" disabled={!prompt.trim()}>
               <Sparkles aria-hidden="true" />
               {t("task.create")}
             </Button>
@@ -865,7 +878,7 @@ export function CreateTaskPage() {
           </DialogHeader>
           <DialogBody>
             <label className="sr-only" htmlFor="description-improve-context">{t("task.additionalContext")}</label>
-            <textarea
+            <textarea autoComplete="off"
               id="description-improve-context"
               className="create-task-textarea create-task-textarea--dialog"
               value={descriptionImproveContext}
@@ -876,7 +889,7 @@ export function CreateTaskPage() {
             {descriptionImproveError ? <p className="mt-2 text-sm text-destructive" role="alert">{descriptionImproveError}</p> : null}
           </DialogBody>
           <DialogFooter className="create-task-dialog-footer">
-            <Button type="button" variant="outline" onClick={() => closeDescriptionImproveDialog()} disabled={descriptionImproveInFlight}>{t("settings.common.cancel")}</Button>
+            <Button data-dialog-cancel type="button" variant="outline" onClick={() => closeDescriptionImproveDialog()} disabled={descriptionImproveInFlight}>{t("settings.common.cancel")}</Button>
             <Button type="button" onClick={() => void improveDescription()} disabled={!descriptionImproveContext.trim() || descriptionImproveInFlight}>
               <Sparkles aria-hidden="true" />
               {descriptionImproveInFlight ? t("task.improving") : t("task.improve")}

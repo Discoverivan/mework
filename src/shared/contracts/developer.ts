@@ -69,6 +69,7 @@ export interface BitbucketUser {
 }
 
 export interface PullRequestReviewSettings {
+  filterMode: "allow" | "deny";
   projectBlacklist: string[];
   projectWhitelist: string[];
   repositoryBlacklist: string[];

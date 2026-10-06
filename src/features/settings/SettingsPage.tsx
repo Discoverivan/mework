@@ -1,4 +1,5 @@
-import { AlertTriangle, CheckCircle2, Circle, CircleHelp, Loader2, Pencil, Plus, RefreshCw, Sparkles, Trash2 } from "lucide-react";
+import { Hint } from "@/components/ui/tooltip";
+import { AlertTriangle, CheckCircle2, Circle, CircleHelp, Loader2, Pencil, RefreshCw, Sparkles, Trash2 } from "lucide-react";
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import {
   Alert,
@@ -10,8 +11,10 @@ import { PageHeader } from "@/components/shared/PageHeader";
 import { ActionSettingsSection } from "./prompts/ActionSettingsSection";
 import { AiRetriesField } from "./AiRetriesField";
 import { Card, CardContent, CardDescription, CardHeader } from "@/components/ui/card";
+import { CreateButton } from "@/components/shared/CreateButton";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { StoredSecretInput } from "@/components/shared/StoredSecretInput";
 import { Label } from "@/components/ui/label";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Separator } from "@/components/ui/separator";
@@ -1074,9 +1077,7 @@ export function SettingsPage({ section = "integrations", focusActivity, mockMode
           actions={section === "integrations" ? (
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button type="button" variant="ghost" size="icon" actionTone="add" className="h-9 w-9 text-muted-foreground hover:bg-transparent hover:text-primary" aria-label={t("settings.data.add")} title={t("settings.data.add")} disabled={loading || availableIntegrationProviders.length === 0}>
-                  <Plus className="size-4" aria-hidden="true" />
-                </Button>
+                <CreateButton type="button" variant="ghost" className="h-9" aria-label={t("settings.data.add")} title={t("settings.data.add")} disabled={loading || availableIntegrationProviders.length === 0} />
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
                 {availableIntegrationProviders.map((candidate) => (
@@ -1087,7 +1088,7 @@ export function SettingsPage({ section = "integrations", focusActivity, mockMode
               </DropdownMenuContent>
             </DropdownMenu>
           ) : undefined}
-        />
+                />
       ) : null}
 
       {section !== "general" && section !== "ai" && loading ? (
@@ -1133,13 +1134,11 @@ export function SettingsPage({ section = "integrations", focusActivity, mockMode
                 {selectedAiGroup === "cli" ? (
                   <DropdownMenu open={addAiMenuOpen} onOpenChange={handleCliMenuOpenChange}>
                     <DropdownMenuTrigger asChild>
-                      <Button type="button" variant="ghost" size="icon" actionTone="add" className="ml-auto h-9 w-9 text-muted-foreground hover:bg-transparent hover:text-primary" aria-label={t("settings.aiProviders.addCli")} title={t("settings.aiProviders.addCli")} disabled={allCliAdded || addingAi}>
-                        <Plus className="size-4" aria-hidden="true" />
-                      </Button>
+                      <CreateButton type="button" variant="ghost" className="ml-auto h-9" aria-label={t("settings.aiProviders.addCli")} title={t("settings.aiProviders.addCli")} disabled={allCliAdded || addingAi} />
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="end" className="w-max min-w-0">
                       {cliMenuOptions.map(({ id, name, ready, reason, checking }) => (
-                        <div key={id} className="flex items-center gap-1" title={ready ? undefined : reason ?? undefined}>
+                        <Hint key={id} content={ready ? undefined : reason ?? undefined}><div className="flex items-center gap-1">
                           <DropdownMenuItem
                             className={cn(ADD_MENU_ITEM_CLASS, "min-w-0 flex-1", !ready && "cursor-help text-muted-foreground")}
                             aria-label={reason && !ready ? `${name}: ${reason}` : name}
@@ -1151,14 +1150,12 @@ export function SettingsPage({ section = "integrations", focusActivity, mockMode
                           <DropdownMenuItem className="size-7 shrink-0 justify-center p-0 [&_svg]:!size-3.5" aria-label={`${t("settings.aiProviders.retryCheck")}: ${name}`} title={`${t("settings.aiProviders.retryCheck")}: ${name}`} disabled={checking || addingAi} onSelect={(event) => { event.preventDefault(); void checkCliProvider(id); }}>
                             {checking ? <Loader2 className="animate-spin" aria-hidden="true" /> : <RefreshCw aria-hidden="true" />}
                           </DropdownMenuItem>
-                        </div>
+                        </div></Hint>
                       ))}
                     </DropdownMenuContent>
                   </DropdownMenu>
                 ) : (
-                  <Button type="button" variant="ghost" size="icon" actionTone="add" className="ml-auto h-9 w-9 text-muted-foreground hover:bg-transparent hover:text-primary" aria-label={t("settings.aiProviders.addApi")} title={t("settings.aiProviders.addApi")} onClick={() => openOpenAiCompatibleDialog()}>
-                    <Plus className="size-4" aria-hidden="true" />
-                  </Button>
+                  <CreateButton type="button" variant="ghost" className="ml-auto h-9" aria-label={t("settings.aiProviders.addApi")} title={t("settings.aiProviders.addApi")} onClick={() => openOpenAiCompatibleDialog()} />
                 )}
               </div>
               <Card className="min-w-0">
@@ -1181,16 +1178,16 @@ export function SettingsPage({ section = "integrations", focusActivity, mockMode
                             <div className="min-w-0 flex-1">
                               <p className="truncate text-[13.5px]">{candidate.name}</p>
                               {candidate.baseUrl || candidate.version || candidate.message ? (
-                                <p className="truncate text-xs text-muted-foreground" title={candidate.baseUrl ?? aiProviderMessage(candidate, t) ?? candidate.version}>
+                                <Hint content={candidate.baseUrl ?? aiProviderMessage(candidate, t) ?? candidate.version}><p className="truncate text-xs text-muted-foreground">
                                   {candidate.baseUrl ?? aiProviderMessage(candidate, t) ?? candidate.version}
-                                </p>
+                                </p></Hint>
                               ) : null}
                             </div>
                             <div className="ml-auto flex shrink-0 items-center gap-1.5">
-                              <span className="mr-1 flex items-center gap-1.5 text-[13px] text-muted-foreground [&_svg]:size-[18px]" title={aiProviderMessage(candidate, t)}>
+                              <Hint content={aiProviderMessage(candidate, t)}><span className="mr-1 flex items-center gap-1.5 text-[13px] text-muted-foreground [&_svg]:size-[18px]">
                                 {aiStatusIcon(candidate.status)}
                                 {t(AI_STATUS_LABEL_KEYS[candidate.status])}
-                              </span>
+                              </span></Hint>
                               <Button type="button" size="icon" variant="ghost" className="size-7 [&_svg]:!size-4" aria-label={t("settings.aiProviders.refreshLabel", { provider: candidate.name })} title={t("settings.aiProviders.refreshLabel", { provider: candidate.name })} onClick={() => void handleRefreshAiProvider(candidate)} disabled={refreshingAiProvider !== null || openAiSaving || aiDeleting || aiSaving}>
                                 <RefreshCw className={cn(refreshingAiProvider === (candidate.instanceId ?? candidate.id) && "animate-spin")} aria-hidden="true" />
                               </Button>
@@ -1285,7 +1282,7 @@ export function SettingsPage({ section = "integrations", focusActivity, mockMode
               <h3 className="text-base font-medium">{t("settings.ai.tokenBurner")}</h3>
               {renderActionModelSettings("tokenBurner")}
             </section>}
-          />
+                      />
 
         <Dialog open={deletingAiProvider !== null} onOpenChange={(open) => { if (!open && !aiDeleting) setDeletingAiProvider(null); }}>
           <DialogContent>
@@ -1295,7 +1292,7 @@ export function SettingsPage({ section = "integrations", focusActivity, mockMode
             </DialogHeader>
             {aiDeleteError ? <DialogBody><Alert variant="destructive" role="alert"><AlertDescription>{aiDeleteError}</AlertDescription></Alert></DialogBody> : null}
             <DialogFooter>
-              <Button type="button" variant="outline" onClick={() => setDeletingAiProvider(null)} disabled={aiDeleting}>{t("settings.common.cancel")}</Button>
+              <Button data-dialog-cancel type="button" variant="outline" onClick={() => setDeletingAiProvider(null)} disabled={aiDeleting}>{t("settings.common.cancel")}</Button>
               <Button type="button" variant="destructive" onClick={() => void handleDeleteAiProvider()} disabled={aiDeleting}>{t("settings.aiProviders.delete")}</Button>
             </DialogFooter>
           </DialogContent>
@@ -1323,7 +1320,7 @@ export function SettingsPage({ section = "integrations", focusActivity, mockMode
                   <AlertDescription>{openAiError}</AlertDescription>
                 </Alert>
               ) : null}
-              <form
+              <form autoComplete="off"
                 id="openai-compatible-settings-form"
                 className="grid gap-4"
                 onSubmit={handleSaveOpenAiCompatible}
@@ -1356,12 +1353,12 @@ export function SettingsPage({ section = "integrations", focusActivity, mockMode
                 </div>
                 <div className="grid gap-2">
                   <Label htmlFor="openai-compatible-token">{t("settings.openAi.token")}</Label>
-                  <Input
+                  <StoredSecretInput
                     id="openai-compatible-token"
+                    hasStoredValue={editingOpenAiHasToken}
                     name="token"
                     type="password"
                     value={openAiForm.token}
-                    placeholder={editingOpenAiHasToken ? "••••••••" : undefined}
                     autoComplete="new-password"
                     onChange={(event) => setOpenAiForm((current) => ({ ...current, token: event.target.value }))}
                     disabled={openAiSaving}
@@ -1391,7 +1388,7 @@ export function SettingsPage({ section = "integrations", focusActivity, mockMode
               </form>
             </DialogBody>
             <DialogFooter>
-              <Button
+              <Button data-dialog-cancel
                 type="button"
                 variant="outline"
                 onClick={() => setOpenAiDialogOpen(false)}
@@ -1529,7 +1526,7 @@ export function SettingsPage({ section = "integrations", focusActivity, mockMode
                     <AlertDescription>{error}</AlertDescription>
                   </Alert>
                 ) : null}
-                <form
+                <form autoComplete="off"
                   id="integration-settings-form"
                   className="grid gap-4"
                   onSubmit={handleSave}
@@ -1551,8 +1548,9 @@ export function SettingsPage({ section = "integrations", focusActivity, mockMode
 
                   <div className="grid gap-2">
                     <Label htmlFor="settings-secret">{t("settings.integration.personalToken")}</Label>
-                    <Input
+                    <StoredSecretInput
                       id="settings-secret"
+                      hasStoredValue={Boolean(selectedIntegration?.credentialRef)}
                       aria-label={t("settings.integration.personalToken")}
                       name="secret"
                       type="password"
@@ -1585,6 +1583,9 @@ export function SettingsPage({ section = "integrations", focusActivity, mockMode
                 </form>
               </DialogBody>
               <DialogFooter>
+                <Button data-dialog-cancel type="button" variant="outline" onClick={() => setSelectedKind(null)} disabled={controlsDisabled}>
+                  {t("settings.common.cancel")}
+                </Button>
                 <Button type="submit" form="integration-settings-form" actionTone="edit" disabled={controlsDisabled}>
                   {action === "save" ? t("settings.common.saving") : t("settings.integration.save")}
                 </Button>
@@ -1601,7 +1602,7 @@ export function SettingsPage({ section = "integrations", focusActivity, mockMode
             </DialogHeader>
             {integrationDeleteError ? <DialogBody><Alert variant="destructive" role="alert"><AlertDescription>{integrationDeleteError}</AlertDescription></Alert></DialogBody> : null}
             <DialogFooter>
-              <Button type="button" variant="outline" onClick={() => setDeletingIntegrationKind(null)} disabled={action !== null}>{t("settings.common.cancel")}</Button>
+              <Button data-dialog-cancel type="button" variant="outline" onClick={() => setDeletingIntegrationKind(null)} disabled={action !== null}>{t("settings.common.cancel")}</Button>
               <Button type="button" variant="destructive" onClick={() => void handleDelete()} disabled={action !== null}>{action === "delete" ? t("settings.integration.deleting") : t("settings.integration.delete")}</Button>
             </DialogFooter>
           </DialogContent>
@@ -1639,7 +1640,7 @@ export function SettingsPage({ section = "integrations", focusActivity, mockMode
                 </details>
               </DialogBody>
               <DialogFooter>
-                <Button
+                <Button data-dialog-cancel
                   type="button"
                   variant="outline"
                   aria-label={healthConfirmation.saveInput

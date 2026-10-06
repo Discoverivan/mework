@@ -138,7 +138,7 @@ export function PullRequestDisplayOptionsDialog({
           </section>
         </DialogBody>
         <DialogFooter>
-          <Button type="button" variant="outline" actionTone="neutral" onClick={() => onOpenChange(false)}>{t("settings.common.cancel")}</Button>
+          <Button data-dialog-cancel type="button" variant="outline" actionTone="neutral" onClick={() => onOpenChange(false)}>{t("settings.common.cancel")}</Button>
           <Button type="button" variant="outline" actionTone="edit" onClick={apply} disabled={!hasChanges}>{t("settings.common.save")}</Button>
         </DialogFooter>
       </DialogContent>

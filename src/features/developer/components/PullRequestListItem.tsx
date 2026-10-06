@@ -1,3 +1,4 @@
+import { Hint } from "@/components/ui/tooltip";
 import { Check, CheckCircle2, CircleAlert, Clock3, ExternalLink, Loader2, MessageSquare, MoreHorizontal, RefreshCw, Sparkles, Ban, SmilePlus } from "lucide-react";
 import { useState } from "react";
 
@@ -75,22 +76,22 @@ export function ReviewerDecisionIcon({ decision }: { decision: MyPullRequestDeci
   const { t } = useI18n();
   if (decision === "approved") {
     return (
-      <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-success/10 text-success" role="img" aria-label={t("pr.decision.approved")} title={t("pr.decision.approved")}>
+      <Hint content={t("pr.decision.approved")}><span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-success/10 text-success" role="img" aria-label={t("pr.decision.approved")}>
         <CheckCircle2 className="size-5" aria-hidden="true" />
-      </span>
+      </span></Hint>
     );
   }
   if (decision === "needs_work") {
     return (
-      <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-warning/10 text-warning" role="img" aria-label={t("pr.decision.needsWork")} title={t("pr.decision.needsWork")}>
+      <Hint content={t("pr.decision.needsWork")}><span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-warning/10 text-warning" role="img" aria-label={t("pr.decision.needsWork")}>
         <CircleAlert className="size-5" aria-hidden="true" />
-      </span>
+      </span></Hint>
     );
   }
   return (
-    <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground" role="img" aria-label={t("pr.decision.pending")} title={t("pr.decision.pending")}>
+    <Hint content={t("pr.decision.pending")}><span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground" role="img" aria-label={t("pr.decision.pending")}>
       <Clock3 className="size-5" aria-hidden="true" />
-    </span>
+    </span></Hint>
   );
 }
 

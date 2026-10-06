@@ -204,6 +204,8 @@ describe("DailyPage smoke test", () => {
     const assigneeBoardButton = screen.getByRole("button", { name: "Open sprint board for this assignee in Jira" });
     const presenterButton = screen.getByRole("button", { name: "Presenter view" });
     const createTaskButton = screen.getByRole("button", { name: "Create task for this sprint" });
+    expect(createTaskButton).toHaveClass("h-9", "w-9", "app-icon-button");
+    expect(createTaskButton).not.toHaveTextContent("Create");
     expect(createTaskButton.querySelector("svg.lucide-plus")).toBeInTheDocument();
     fireEvent.click(sprintBoardButton);
     await waitFor(() => expect(openUrlMock).toHaveBeenCalledWith(workspace.sprintBoardUrl));
@@ -211,9 +213,9 @@ describe("DailyPage smoke test", () => {
     await waitFor(() => expect(openUrlMock).toHaveBeenCalledWith(workspace.sprintBoardUrlsByAssignee["test-user-a"]));
     expect(screen.getByRole("combobox", { name: "Sprint" }).nextElementSibling).toBe(sprintBoardButton);
     expect(screen.getByRole("heading", { name: "Test Author A" }).nextElementSibling).toBe(assigneeBoardButton.parentElement);
-    expect(assigneeBoardButton.parentElement).toHaveAttribute("title", "Open sprint board for this assignee in Jira");
+    expect(assigneeBoardButton.parentElement).toHaveAttribute("data-tooltip", "Open sprint board for this assignee in Jira");
     fireEvent.click(createTaskButton);
-    expect(window.location.hash).toBe("#product/create-task?team=managed-1&sprint=sprint-1");
+    expect(window.location.hash).toBe("#product/create-task?team=managed-1&sprint=sprint-1&new=1");
     expect(refreshButton).toHaveClass("h-9", "w-9");
     expect(refreshButton).not.toHaveTextContent("Refresh");
     expect(presenterButton).toHaveClass("h-9", "w-9");
@@ -242,6 +244,12 @@ describe("DailyPage smoke test", () => {
     expect(screen.getByText("DEMO-2")).toBeInTheDocument();
     expect(screen.getByText("SP 3")).toBeInTheDocument();
     const statusButton = screen.getByRole("button", { name: "Change status for DEMO-2 (current: In Progress)" });
+    expect(statusButton).not.toHaveAttribute("title");
+    fireEvent.focus(statusButton);
+    const statusHint = await screen.findByRole("tooltip");
+    expect(statusHint).toHaveTextContent("Change status");
+    expect(statusHint.closest("[data-side]")).toHaveAttribute("data-side", "bottom");
+    fireEvent.blur(statusButton);
     fireEvent.pointerDown(statusButton, { button: 0, ctrlKey: false });
     expect(await screen.findByRole("menuitem", { name: /Code Review/ })).toBeInTheDocument();
     expect(screen.getByRole("menuitem", { name: "In Progress" })).toHaveAttribute("aria-current", "true");
@@ -312,7 +320,7 @@ describe("DailyPage smoke test", () => {
     fireEvent.click(screen.getByRole("option", { name: "Sprint 41 (Closed)" }));
     await waitFor(() => expect(loadDailyWorkspaceMock).toHaveBeenLastCalledWith("managed-1", "sprint-0"));
     await waitFor(() => expect(screen.getByRole("button", { name: "Open sprint board for this assignee in Jira" })).toBeDisabled());
-    expect(screen.getByRole("button", { name: "Open sprint board for this assignee in Jira" }).parentElement).toHaveAttribute("title", "No Jira assignee quick filter is available for this person.");
+    expect(screen.getByRole("button", { name: "Open sprint board for this assignee in Jira" }).parentElement).toHaveAttribute("data-tooltip", "No Jira assignee quick filter is available for this person.");
     fireEvent.click(sprintBoardButton);
     await waitFor(() => expect(openUrlMock).toHaveBeenLastCalledWith("https://jira.example.invalid/secure/RapidBoard.jspa?rapidView=42&projectKey=DEMO&sprint=sprint-0"));
 

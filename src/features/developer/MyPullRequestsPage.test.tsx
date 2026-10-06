@@ -70,6 +70,7 @@ const publishCommentMock = vi.mocked(publishPullRequestComment);
 const startReviewMock = vi.mocked(startPullRequestReview);
 
 const emptySettings: PullRequestReviewSettings = {
+  filterMode: "deny",
   projectBlacklist: [],
   projectWhitelist: [],
   repositoryBlacklist: [],
@@ -279,8 +280,8 @@ describe("MyPullRequestsPage", () => {
     expect(screen.getByText("Every 5 minutes")).toBeInTheDocument();
     expect(listMyPullRequestsMock).toHaveBeenCalledWith(0, 100);
     expect(refreshMyPullRequestsMock).not.toHaveBeenCalled();
-    expect(screen.getByText("NEW")).toHaveAttribute("title", "New pull request you haven't viewed yet");
-    expect(screen.getByText("UPDATED")).toHaveAttribute("title", "Updated since you last viewed it");
+    expect(screen.getByText("NEW")).toHaveAttribute("data-tooltip", "New pull request you haven't viewed yet");
+    expect(screen.getByText("UPDATED")).toHaveAttribute("data-tooltip", "Updated since you last viewed it");
     expect(screen.getByText("sample-repository", { exact: false }).closest("p")).toHaveTextContent("DEMO/");
     expect(screen.getByText("NEW").closest(".pr-review-card-meta")).toBeInTheDocument();
     expect(screen.getByText("UPDATED").closest(".pr-review-card-meta")).toBeInTheDocument();
@@ -424,6 +425,31 @@ describe("MyPullRequestsPage", () => {
     expect(screen.queryByRole("status", { name: "Loading pull request review" })).not.toBeInTheDocument();
   });
 
+  it("saves the active mode so empty Allow hides all PRs and empty Deny shows all PRs", async () => {
+    await renderFlatPage();
+    await screen.findByRole("heading", { name: "Example pull request" });
+    fireEvent.click(screen.getByRole("button", { name: "Filters" }));
+    expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
+    fireEvent.click(screen.getByRole("radio", { name: "Allow" }));
+    expect(screen.getByRole("button", { name: "Save" })).toBeEnabled();
+    fireEvent.click(screen.getByRole("radio", { name: "Deny" }));
+    expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
+    fireEvent.click(screen.getByRole("radio", { name: "Allow" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Filters" })).not.toBeInTheDocument());
+    expect(saveSettingsMock).toHaveBeenCalledWith({ ...emptySettings, filterMode: "allow" });
+    expect(screen.queryByRole("heading", { name: "Example pull request" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Example documentation change" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Filters" }));
+    expect(screen.getByRole("radio", { name: "Allow" })).toBeChecked();
+    expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
+    fireEvent.click(screen.getByRole("radio", { name: "Deny" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(saveSettingsMock).toHaveBeenLastCalledWith(emptySettings));
+    expect(await screen.findByRole("heading", { name: "Example pull request" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Example documentation change" })).toBeInTheDocument();
+  });
+
   it("opens filters and applies a creator filter after saving", async () => {
     await renderFlatPage();
     await screen.findByRole("heading", { name: "Example pull request" });
@@ -439,6 +465,7 @@ describe("MyPullRequestsPage", () => {
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
 
     await waitFor(() => expect(saveSettingsMock).toHaveBeenCalledWith({
+      filterMode: "deny",
       projectBlacklist: [],
       projectWhitelist: [],
       repositoryBlacklist: [],
@@ -481,6 +508,7 @@ describe("MyPullRequestsPage", () => {
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
 
     await waitFor(() => expect(saveSettingsMock).toHaveBeenCalledWith({
+      filterMode: "allow",
       projectBlacklist: [],
       projectWhitelist: ["DEMO"],
       repositoryBlacklist: [],
@@ -510,6 +538,7 @@ describe("MyPullRequestsPage", () => {
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
 
     await waitFor(() => expect(saveSettingsMock).toHaveBeenCalledWith({
+      filterMode: "deny",
       projectBlacklist: [],
       projectWhitelist: [],
       repositoryBlacklist: [],
@@ -567,7 +596,7 @@ describe("MyPullRequestsPage", () => {
     await screen.findByRole("heading", { name: "Example pull request" });
 
     const startButton = screen.getAllByRole("button", { name: "Start AI review" })[0];
-    expect(startButton).toHaveAttribute("title", "Start AI review");
+    expect(startButton).toHaveAttribute("data-tooltip", "Start AI review");
     expect(startButton.querySelector("svg.lucide-sparkles")).toBeInTheDocument();
     fireEvent.click(startButton);
     await waitFor(() => expect(startReviewMock).toHaveBeenCalledWith(expect.objectContaining(pullRequests[0])));
@@ -839,12 +868,12 @@ describe("MyPullRequestsPage", () => {
     expect(publishButton).toHaveClass("app-action-text", "h-9");
     expect(publishButton.parentElement).toHaveClass("flex", "items-center", "gap-2");
     expect(publishButton).toHaveAttribute("data-action-tone", "neutral");
-    expect(publishButton).toHaveAttribute("title", "Publish");
+    expect(publishButton).toHaveAttribute("data-tooltip", "Publish");
     expect(publishButton).toHaveTextContent("Publish");
     expect(screen.getAllByRole("button", { name: /Publish comment for/ })).toHaveLength(3);
     const openInBrowser = screen.getByRole("link", { name: "Open in browser" });
     expect(openInBrowser).toHaveAttribute("href", pullRequests[0].url);
-    expect(openInBrowser).toHaveAttribute("title", "Open in browser");
+    expect(openInBrowser).toHaveAttribute("data-tooltip", "Open in browser");
     expect(openInBrowser).toHaveClass("app-action-text", "h-9");
     expect(screen.getByRole("button", { name: "Re-run review" })).toHaveClass("app-action-text", "h-9");
     expect(openInBrowser).toHaveTextContent("Open in browser");
@@ -862,7 +891,7 @@ describe("MyPullRequestsPage", () => {
       { ...markdownReview.result!.comments[0], comment: "Guard this operation before retrying before the next attempt." },
     ));
     await waitFor(() => expect(screen.queryByRole("dialog", { name: "Edit review comment" })).not.toBeInTheDocument());
-    await waitFor(() => expect(publishButton).toHaveAttribute("title", "Published"));
+    await waitFor(() => expect(publishButton).toHaveAttribute("data-tooltip", "Published"));
     expect(publishButton).toBeDisabled();
     const nextPublishButton = screen.getByRole("button", { name: "Publish comment for src/timeout.ts" });
     fireEvent.keyDown(nextPublishButton, { key: "ArrowDown" });
@@ -919,7 +948,7 @@ describe("MyPullRequestsPage", () => {
     expect(existing).toHaveAttribute("href", `${pullRequests[0].url}/overview?commentId=11`);
     expect(screen.queryByRole("button", { name: "Publish comment for src/timeout.ts" })).not.toBeInTheDocument();
     const duplicateStatus = screen.getByRole("status", { name: "Comment status for src/timeout.ts" });
-    expect(duplicateStatus).toHaveAttribute("title", "An existing discussion already fully covers this finding.");
+    expect(duplicateStatus).toHaveAttribute("data-tooltip", "An existing discussion already fully covers this finding.");
     expect(screen.queryByText("An existing discussion already fully covers this finding.")).not.toBeInTheDocument();
     const duplicateCard = existing.closest("li")!;
     expect(duplicateCard.lastElementChild).toContainElement(duplicateStatus);
@@ -932,7 +961,7 @@ describe("MyPullRequestsPage", () => {
     const publishClarification = screen.getByRole("button", { name: "Publish comment for src/retry.ts" });
     expect(publishClarification).toHaveClass("app-action-text", "h-9");
     expect(publishClarification).toHaveAttribute("data-action-tone", "neutral");
-    expect(publishClarification).toHaveAttribute("title", "Publish clarification");
+    expect(publishClarification).toHaveAttribute("data-tooltip", "Publish clarification");
     expect(publishClarification).toHaveTextContent("Publish clarification");
     expect(publishClarification.querySelector(".lucide-send")).toBeInTheDocument();
     fireEvent.click(publishClarification);

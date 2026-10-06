@@ -155,7 +155,7 @@ export function ActionSettingsSection({ defaults, renderModelSettings, renderAct
         </DialogHeader>
         <DialogBody>
           {saveError ? <Alert variant="destructive" role="alert" className="mb-4"><AlertDescription>{t("settings.prompts.saveError")}</AlertDescription></Alert> : null}
-          <form id="ai-prompt-form" onSubmit={(event) => { event.preventDefault(); if (!invalid) void save(); }}>
+          <form autoComplete="off" id="ai-prompt-form" onSubmit={(event) => { event.preventDefault(); if (!invalid) void save(); }}>
             <FieldGroup>
               <div className={viewing ? "" : "grid items-start gap-6 lg:grid-cols-2"}>
                 {!viewing ? <Field data-invalid={invalid} data-disabled={saving}>
@@ -179,7 +179,7 @@ export function ActionSettingsSection({ defaults, renderModelSettings, renderAct
         </DialogBody>
         <DialogFooter className="gap-2">
           {!viewing ? <Button type="button" variant="outline" disabled={saving || draft === editing?.defaultInstructions} onClick={() => { if (editing) { setDraft(editing.defaultInstructions); setSaveError(false); } }}><RotateCcw data-icon="inline-start" aria-hidden="true" />{t("settings.prompts.reset")}</Button> : null}
-          <Button type="button" variant="outline" disabled={saving} onClick={() => setEditing(null)}>{t(viewing ? "common.close" : "settings.common.cancel")}</Button>
+          <Button data-dialog-cancel={viewing ? undefined : true} type="button" variant="outline" disabled={saving} onClick={() => setEditing(null)}>{t(viewing ? "common.close" : "settings.common.cancel")}</Button>
           {!viewing ? <Button type="submit" form="ai-prompt-form" actionTone="edit" disabled={saving || invalid || draft === editing?.instructions}>{t(saving ? "settings.prompts.saving" : "settings.prompts.save")}</Button> : null}
         </DialogFooter>
       </DialogContent>

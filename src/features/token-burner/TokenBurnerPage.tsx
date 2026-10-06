@@ -1,10 +1,11 @@
+import { Hint } from "@/components/ui/tooltip";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Check, CheckCircle2, ChevronDown, Circle, CircleAlert, Info, Loader2, Pause, Play, Settings2, Square, RotateCcw } from "lucide-react";
 import "./model-testing.css";
 
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { ManualNumberField } from "@/components/shared/ManualNumberField";
@@ -79,24 +80,30 @@ const PERSPECTIVE_KEYS: Record<string, TranslationKey> = {
 };
 
 const STATUS_PRESENTATION = {
-  idle: { icon: Circle, color: "border-input bg-input/40 text-foreground" },
-  running: { icon: Loader2, color: "border-primary/30 bg-primary/10 text-primary" },
-  paused: { icon: Pause, color: "border-warning/30 bg-warning/10 text-warning" },
-  stopping: { icon: Loader2, color: "border-warning/30 bg-warning/10 text-warning" },
-  target_reached: { icon: CheckCircle2, color: "border-success/30 bg-success/10 text-success" },
-  no_prs: { icon: Circle, color: "border-border bg-muted/50 text-muted-foreground" },
-  completed: { icon: CheckCircle2, color: "border-success/30 bg-success/10 text-success" },
-  error: { icon: CircleAlert, color: "border-destructive/30 bg-destructive/10 text-destructive" },
-  interrupted: { icon: Square, color: "border-warning/30 bg-warning/10 text-warning" },
+  idle: { icon: Circle, color: "bg-input/40 text-foreground", help: "tokenBurner.statusHelp.idle" },
+  running: { icon: Loader2, color: "bg-primary/10 text-primary", help: "tokenBurner.statusHelp.running" },
+  paused: { icon: Pause, color: "bg-warning/10 text-warning", help: "tokenBurner.statusHelp.paused" },
+  stopping: { icon: Loader2, color: "bg-warning/10 text-warning", help: "tokenBurner.statusHelp.stopping" },
+  target_reached: { icon: CheckCircle2, color: "bg-success/10 text-success", help: "tokenBurner.statusHelp.targetReached" },
+  no_prs: { icon: Circle, color: "bg-muted/50 text-muted-foreground", help: "tokenBurner.statusHelp.noPrs" },
+  completed: { icon: CheckCircle2, color: "bg-success/10 text-success", help: "tokenBurner.statusHelp.completed" },
+  error: { icon: CircleAlert, color: "bg-destructive/10 text-destructive", help: "tokenBurner.statusHelp.error" },
+  interrupted: { icon: Square, color: "bg-warning/10 text-warning", help: "tokenBurner.statusHelp.interrupted" },
 } as const;
 
-function ModelTestingStatus({ status, label }: { status: keyof typeof STATUS_PRESENTATION; label: string }) {
-  const { icon: Icon, color } = STATUS_PRESENTATION[status];
+function ModelTestingStatus({ status, label, description }: { status: keyof typeof STATUS_PRESENTATION; label: string; description?: string }) {
+  const { t } = useI18n();
+  const { icon: Icon, color, help } = STATUS_PRESENTATION[status];
   return (
-    <Badge variant="outline" className={cn("model-testing-status min-h-9 gap-2 rounded-full px-3 text-sm font-medium", color)}>
-      <Icon className={cn("size-4 shrink-0", (status === "running" || status === "stopping") && "animate-spin motion-reduce:animate-none")} aria-hidden="true" />
-      {label}
-    </Badge>
+    <TooltipProvider delayDuration={300}><Tooltip>
+      <TooltipTrigger asChild>
+        <span tabIndex={0} className={cn("model-testing-status inline-flex min-h-9 items-center gap-2 rounded-full border border-transparent px-3 py-0.5 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2", color)}>
+          <Icon className={cn("size-4 shrink-0", (status === "running" || status === "stopping") && "animate-spin motion-reduce:animate-none")} aria-hidden="true" />
+          {label}
+        </span>
+      </TooltipTrigger>
+      <TooltipContent className="max-w-72">{description ?? t(help)}</TooltipContent>
+    </Tooltip></TooltipProvider>
   );
 }
 
@@ -429,9 +436,9 @@ export function TokenBurnerPage() {
             {lastError ? (
               <Popover onOpenChange={onOpenChange}>
                 <PopoverTrigger asChild>
-                  <button ref={triggerRef} type="button" className="inline-flex size-5 items-center justify-center rounded-full text-foreground/70 transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" aria-label={t("tokenBurner.errorDetailsTitle")} title={t("tokenBurner.errorDetailsTitle")}>
+                  <Hint content={t("tokenBurner.errorDetailsTitle")}><button ref={triggerRef} type="button" className="inline-flex size-5 items-center justify-center rounded-full text-foreground/70 transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" aria-label={t("tokenBurner.errorDetailsTitle")}>
                     <Info className="size-3.5" aria-hidden="true" />
-                  </button>
+                  </button></Hint>
                 </PopoverTrigger>
                 <PopoverContent align="end" alignOffset={alignOffset} sideOffset={6} className="w-max max-w-[min(20rem,calc(100vw-2rem))]">
                   <p className="whitespace-pre-wrap break-words text-xs text-muted-foreground">{lastError}</p>
@@ -490,7 +497,7 @@ export function TokenBurnerPage() {
             <div className="min-w-0"><p className="text-sm text-muted-foreground">{t("settings.ai.model")}</p><p className="truncate font-medium">{aiSelection.model || t("settings.ai.notSelected")}</p></div>
             <div><p className="text-sm text-muted-foreground">{t("settings.ai.reasoning")}</p><p className="font-medium">{aiSelection.supportsCodexTuning ? aiSelection.reasoning : t("tokenBurner.notApplied")}</p></div>
             <div><p className="text-sm text-muted-foreground">{t("settings.ai.fastMode")}</p><p className="font-medium">{aiSelection.supportsCodexTuning ? t(aiSelection.fastMode ? "tokenBurner.enabled" : "tokenBurner.disabled") : t("tokenBurner.notApplied")}</p></div>
-            <div className="flex items-center justify-between gap-3 sm:col-span-2"><ModelTestingStatus status={aiSelection.ready ? "completed" : "error"} label={t(aiSelection.ready ? "tokenBurner.aiReady" : "tokenBurner.aiSettingsMissing")} /><Button type="button" variant="secondary" size="sm" onClick={openAiSettings}>{t("tokenBurner.changeAiSettings")}</Button></div>
+            <div className="flex items-center justify-between gap-3 sm:col-span-2"><ModelTestingStatus status={aiSelection.ready ? "completed" : "error"} label={t(aiSelection.ready ? "tokenBurner.aiReady" : "tokenBurner.aiSettingsMissing")} description={t(aiSelection.ready ? "tokenBurner.statusHelp.ready" : "tokenBurner.statusHelp.aiMissing")} /><Button type="button" variant="secondary" size="sm" onClick={openAiSettings}>{t("tokenBurner.changeAiSettings")}</Button></div>
           </section>
         </CardContent>
       </Card>
@@ -533,7 +540,7 @@ export function TokenBurnerPage() {
                 : t("tokenBurner.usageUnknown");
             return (
               <div key={iteration.id} className="flex flex-wrap items-center justify-between gap-3 border-t pt-3 text-sm">
-                <span className="flex min-w-0 items-center gap-2"><span role="img" aria-label={statusLabel} title={statusLabel}><Icon className={cn("size-4 shrink-0", interrupted ? "text-warning" : iteration.status === "completed" ? "text-success" : "text-destructive")} aria-hidden="true" /></span><span className="truncate">PR #{iteration.pullRequestId} · {iteration.repositoryName} · {t(PERSPECTIVE_KEYS[iteration.perspective] ?? "tokenBurner.perspectiveUnknown")}</span></span>
+                <span className="flex min-w-0 items-center gap-2"><Hint content={statusLabel}><span role="img" aria-label={statusLabel}><Icon className={cn("size-4 shrink-0", interrupted ? "text-warning" : iteration.status === "completed" ? "text-success" : "text-destructive")} aria-hidden="true" /></span></Hint><span className="truncate">PR #{iteration.pullRequestId} · {iteration.repositoryName} · {t(PERSPECTIVE_KEYS[iteration.perspective] ?? "tokenBurner.perspectiveUnknown")}</span></span>
                 <span className="tabular-nums text-muted-foreground">{usageLabel}</span>
               </div>
             );
@@ -548,7 +555,7 @@ export function TokenBurnerPage() {
             <DialogDescription>{t("tokenBurner.resetDailyProgressDescription")}</DialogDescription>
           </DialogHeader>
           <DialogFooter>
-            <Button type="button" variant="outline" onClick={() => setResetConfirmOpen(false)}>{t("tokenBurner.cancel")}</Button>
+            <Button data-dialog-cancel type="button" variant="outline" onClick={() => setResetConfirmOpen(false)}>{t("tokenBurner.cancel")}</Button>
             <Button type="button" variant="destructive" onClick={() => void resetDailyProgress()} disabled={resetBusy}>
               {resetBusy ? <Loader2 data-icon="inline-start" className="animate-spin" /> : null}{t("tokenBurner.confirmResetDailyProgress")}
             </Button>
@@ -562,7 +569,7 @@ export function TokenBurnerPage() {
           settingsDialogRef.current?.focus();
         }}>
           <DialogHeader className="px-1"><DialogTitle className="text-base leading-tight">{t("tokenBurner.settings")}</DialogTitle></DialogHeader>
-          <DialogBody className="p-1">
+          <DialogBody className="m-0 p-1">
             <div className="space-y-4">
               <div className="flex flex-wrap items-start gap-3">
                 <ManualNumberField id="burner-daily-target" label={t("tokenBurner.dailyTargetField")}
@@ -596,7 +603,7 @@ export function TokenBurnerPage() {
             </div>
           </DialogBody>
           <DialogFooter className="px-1">
-            <Button type="button" variant="outline" onClick={() => setSettingsOpen(false)}>{t("tokenBurner.cancel")}</Button>
+            <Button data-dialog-cancel type="button" variant="outline" onClick={() => setSettingsOpen(false)}>{t("tokenBurner.cancel")}</Button>
             <Button type="button" actionTone="edit" onClick={() => void saveSettings()} disabled={settingsSaving || !settingsChanged || !settingsValid}>{settingsSaving ? <Loader2 data-icon="inline-start" className="animate-spin" /> : null}{t("settings.common.save")}</Button>
           </DialogFooter>
         </DialogContent>

@@ -3,6 +3,8 @@ import { Slot } from "@radix-ui/react-slot"
 import { cva, type VariantProps } from "class-variance-authority"
 
 import { cn } from "@/lib/utils"
+import { directPointerHover } from "@/lib/direct-pointer-hover"
+import { Hint } from "@/components/ui/tooltip"
 
 const buttonVariants = cva(
   "inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0",
@@ -41,25 +43,31 @@ export interface ButtonProps
 }
 
 const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
-  ({ actionTone, className, variant, size, asChild = false, ...props }, ref) => {
+  ({ actionTone, className, variant, size, asChild = false, title, ...props }, ref) => {
     const Comp = asChild ? Slot : "button"
     const isAction = props.role !== "combobox" && props["aria-pressed"] === undefined && !("data-day" in props)
+    const isPicker = props.role === "combobox" && variant === "outline"
+    const variantClasses = buttonVariants({ variant, size })
     return (
-      <Comp
-        className={cn(
-          buttonVariants({ variant, size }),
-          size === "icon" && "app-icon-button",
-          size !== "icon" && isAction && (variant !== "link" || actionTone) && "app-action-text",
-          (actionTone === "success" || actionTone === "add") && "hover:text-success focus-visible:text-success",
-          actionTone === "warning" && "hover:text-warning focus-visible:text-warning",
-          actionTone === "delete" && "hover:text-destructive focus-visible:text-destructive",
-          className,
-        )}
-        data-action-tone={actionTone}
-        data-button-variant={variant ?? "default"}
-        ref={ref}
-        {...props}
-      />
+      <Hint content={title}>
+        <Comp
+          className={cn(
+            isPicker ? variantClasses.split(" ").filter((value) => !value.startsWith("hover:")).join(" ") : variantClasses,
+            isPicker && "data-[pointer-hover=true]:bg-accent data-[pointer-hover=true]:text-primary",
+            size === "icon" && "app-icon-button",
+            size !== "icon" && isAction && (variant !== "link" || actionTone) && "app-action-text",
+            (actionTone === "success" || actionTone === "add") && "hover:text-success focus-visible:text-success",
+            actionTone === "warning" && "hover:text-warning focus-visible:text-warning",
+            actionTone === "delete" && "hover:text-destructive focus-visible:text-destructive",
+            className,
+          )}
+          data-action-tone={actionTone}
+          data-button-variant={variant ?? "default"}
+          ref={ref}
+          {...props}
+          {...(isPicker ? directPointerHover<HTMLButtonElement>(props) : {})}
+        />
+      </Hint>
     )
   }
 )

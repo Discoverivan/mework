@@ -39,7 +39,7 @@ it("chooses custom instructions per action and switches back to the built-in pro
   expect(dialog.getByLabelText("Your instructions")).toHaveValue(settings.defaultInstructions);
   fireEvent.change(dialog.getByLabelText("Your instructions"), { target: { value: "Focus on API compatibility." } });
   expect(dialog.getByLabelText("Built-in prompt")).toHaveValue(settings.defaultInstructions);
-  fireEvent.click(dialog.getByRole("button", { name: "Save instructions" }));
+  fireEvent.click(dialog.getByRole("button", { name: "Save" }));
   await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
   expect(savePromptSettings).toHaveBeenLastCalledWith("pullRequestReview", "Focus on API compatibility.");
   expect(mode).toHaveTextContent("Custom");

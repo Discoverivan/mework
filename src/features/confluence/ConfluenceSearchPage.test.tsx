@@ -69,15 +69,15 @@ describe("ConfluenceSearchPage smoke test", () => {
       target: { value: "release notes" },
     });
     const searchButton = screen.getByRole("button", { name: "Search" });
-    expect(searchButton).toHaveAttribute("title", "Search");
-    expect(searchButton).not.toHaveTextContent("Search");
+    expect(searchButton).toHaveAttribute("data-tooltip", "Search");
+    expect(searchButton).toHaveTextContent("Search");
     fireEvent.click(searchButton);
 
     await waitFor(() => expect(searchConfluenceMock).toHaveBeenCalledWith("confluence-1", "release notes", 20, "DOCS"));
     expect(await screen.findByText("Example release notes")).toBeInTheDocument();
     expect(screen.getByText("A synthetic search result.")).toBeInTheDocument();
     const openPageButton = screen.getByRole("button", { name: "Open page" });
-    expect(openPageButton).toHaveAttribute("title", "Open page");
+    expect(openPageButton).toHaveAttribute("data-tooltip", "Open page");
     expect(openPageButton).not.toHaveTextContent("Open page");
     fireEvent.click(openPageButton);
     expect(openUrl).toHaveBeenCalledWith("https://confluence.example.invalid/pages/viewpage.action?pageId=10001");

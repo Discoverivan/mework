@@ -126,6 +126,8 @@ describe("SettingsPage integrations smoke tests", () => {
     expect(screen.getByRole("textbox", { name: "Base URL" })).toBeInTheDocument();
     expect(screen.getByLabelText("Personal access token")).toBeInTheDocument();
     expect(screen.queryByLabelText("Account key")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
 
   it("saves a new integration without returning the secret to the UI", async () => {
@@ -139,7 +141,7 @@ describe("SettingsPage integrations smoke tests", () => {
     fireEvent.change(screen.getByLabelText("Personal access token"), {
       target: { value: "test-jira-token" },
     });
-    fireEvent.click(screen.getByRole("button", { name: "Save integration" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
 
     await waitFor(() => {
       expect(saveIntegrationMock).toHaveBeenCalledWith({
@@ -197,7 +199,9 @@ describe("SettingsPage integrations smoke tests", () => {
     fireEvent.click(card.getByRole("button", { name: "Edit Jira integration" }));
 
     expect(screen.getByRole("textbox", { name: "Base URL" })).toHaveValue("https://jira.example.com");
-    expect(screen.getByRole("button", { name: "Save integration" })).toBeInTheDocument();
+    expect(screen.getByLabelText("Personal access token")).toHaveValue("");
+    expect(screen.getByLabelText("Personal access token")).toHaveAttribute("placeholder", "••••••••");
+    expect(screen.getByRole("button", { name: "Save" })).toBeInTheDocument();
   });
 
   it("saves an edit to a synthetic integration in mock mode", async () => {
@@ -209,7 +213,7 @@ describe("SettingsPage integrations smoke tests", () => {
     const card = within(await screen.findByRole("group", { name: "Jira integration" }));
     fireEvent.click(card.getByRole("button", { name: "Edit Jira integration" }));
     fireEvent.click(screen.getByRole("checkbox", { name: "Allow insecure TLS connection" }));
-    fireEvent.click(screen.getByRole("button", { name: "Save integration" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
 
     await waitFor(() => expect(saveIntegrationMock).toHaveBeenCalledWith(expect.objectContaining({
       id: "mock-jira",
@@ -236,7 +240,7 @@ describe("SettingsPage integrations smoke tests", () => {
     const defaults = defaultAiSettings();
     expect(defaults.getByRole("textbox", { name: "Retries" })).toHaveValue("0");
     const retriesHeading = defaults.getByText("Retries", { selector: "span" });
-    expect(retriesHeading).toHaveAttribute("title", "Additional attempts after temporary provider errors (0–10).");
+    expect(retriesHeading).toHaveAttribute("data-tooltip", "Additional attempts after temporary provider errors (0–10).");
     fireEvent.click(retriesHeading);
     expect(defaults.getByRole("textbox", { name: "Retries" })).not.toHaveFocus();
     for (const action of ["Task creation", "Pull request review"]) {
@@ -688,7 +692,7 @@ describe("SettingsPage integrations smoke tests", () => {
     const unavailable = screen.getByRole("menuitem", { name: "Codex CLI: Codex CLI was not found on this computer." });
     expect(available).toBeEnabled();
     expect(unavailable).toHaveAttribute("aria-disabled", "true");
-    expect(unavailable.parentElement).toHaveAttribute("title", "Codex CLI was not found on this computer.");
+    expect(unavailable.parentElement).toHaveAttribute("data-tooltip", "Codex CLI was not found on this computer.");
     expect(unavailable.compareDocumentPosition(available) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     codexAvailable = true;
     fireEvent.click(screen.getByRole("menuitem", { name: "Check again: Codex CLI" }));

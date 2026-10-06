@@ -37,7 +37,7 @@ const DialogContent = forwardRef<
     <DialogPrimitive.Content
       ref={ref}
       className={cn(
-        "fixed left-1/2 top-1/2 z-50 grid w-[calc(100%-2rem)] max-w-lg -translate-x-1/2 -translate-y-1/2 gap-4 border bg-background p-6 shadow-lg duration-200 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[state=closed]:slide-out-to-left-1/2 data-[state=closed]:slide-out-to-top-[48%] data-[state=open]:slide-in-from-left-1/2 data-[state=open]:slide-in-from-top-[48%] sm:rounded-lg",
+        "app-dialog-content fixed left-1/2 top-1/2 z-50 grid w-[calc(100%-2rem)] max-w-lg -translate-x-1/2 -translate-y-1/2 gap-4 border bg-background p-6 shadow-lg duration-200 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[state=closed]:slide-out-to-left-1/2 data-[state=closed]:slide-out-to-top-[48%] data-[state=open]:slide-in-from-left-1/2 data-[state=open]:slide-in-from-top-[48%] sm:rounded-lg",
         className,
       )}
       {...props}
@@ -57,7 +57,7 @@ function DialogHeader({ className, ...props }: React.HTMLAttributes<HTMLDivEleme
 }
 
 function DialogFooter({ className, ...props }: React.HTMLAttributes<HTMLDivElement>) {
-  return <div className={cn("app-dialog-actions flex flex-col-reverse gap-2 sm:flex-row sm:justify-end", className)} {...props} />;
+  return <div className={cn("app-dialog-actions flex flex-wrap items-center justify-end gap-2 [&>[data-dialog-cancel]]:order-first [&>[data-dialog-cancel]]:mr-auto", className)} {...props} />;
 }
 
 const DialogTitle = forwardRef<
@@ -76,10 +76,10 @@ const DialogDescription = forwardRef<
 ));
 DialogDescription.displayName = DialogPrimitive.Description.displayName;
 
-type DialogBodyProps = { children: ReactNode; className?: string };
+type DialogBodyProps = { children: ReactNode; className?: string; layout?: "sections" };
 
-function DialogBody({ className, children }: DialogBodyProps) {
-  return <div className={cn("max-h-[70vh] overflow-y-auto", className)}>{children}</div>;
+function DialogBody({ className, children, layout }: DialogBodyProps) {
+  return <div className={cn("-m-1 max-h-[70vh] overflow-y-auto p-1", layout === "sections" && "app-dialog-sections flex flex-col", className)}>{children}</div>;
 }
 
 export {
