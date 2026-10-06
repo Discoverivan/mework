@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useState, type ComponentProps } from "react";
 import { Bar, BarChart, CartesianGrid, XAxis, YAxis } from "recharts";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -106,12 +106,32 @@ function buildChartPoints(data: AiUsageStatistics, period: AiUsagePeriod, series
   return [...points.values()];
 }
 
+function UsageTooltipContent({ onPositioned, ...props }: ComponentProps<typeof ChartTooltipContent> & {
+  onPositioned: (positioned: boolean) => void;
+}) {
+  const visible = Boolean(props.active && props.payload?.length);
+
+  useLayoutEffect(() => {
+    onPositioned(false);
+    if (!visible) return;
+
+    // Paint the initial position and measured size before enabling movement.
+    let frame = requestAnimationFrame(() => {
+      frame = requestAnimationFrame(() => onPositioned(true));
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [visible, onPositioned]);
+
+  return <ChartTooltipContent {...props} />;
+}
+
 function UsageChart({ data, period, locale, description }: {
   data: AiUsageStatistics;
   period: AiUsagePeriod;
   locale: string;
   description: string;
 }) {
+  const [tooltipPositioned, setTooltipPositioned] = useState(false);
   const series = useMemo(() => buildSeries(data), [data]);
   const points = useMemo(() => buildChartPoints(data, period, series), [data, period, series]);
   const chartConfig = useMemo<ChartConfig>(
@@ -148,8 +168,10 @@ function UsageChart({ data, period, locale, description }: {
         />
         <ChartTooltip
           cursor={false}
+          isAnimationActive={tooltipPositioned ? "auto" : false}
           content={(
-            <ChartTooltipContent
+            <UsageTooltipContent
+              onPositioned={setTooltipPositioned}
               labelFormatter={(value) => shortDateLabel(String(value), locale)}
               formatter={(value, name) => (
                 <div className="flex w-full items-center justify-between gap-4">

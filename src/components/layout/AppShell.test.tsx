@@ -78,7 +78,8 @@ describe("AppShell product navigation", () => {
       name: "Update 0.2.0 available. Open About mework",
     });
     expect(versionButton).toHaveTextContent("v0.1.9");
-    expect(versionButton.querySelector(".sidebar-update-badge")).toHaveTextContent("Update");
+    expect(versionButton.querySelector("svg.sidebar-update-badge")).toBeInTheDocument();
+    expect(versionButton).toHaveTextContent(/^v0\.1\.9$/);
     fireEvent.click(versionButton);
     expect(onOpenApplicationInfo).toHaveBeenCalledOnce();
   });

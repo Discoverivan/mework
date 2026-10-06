@@ -20,6 +20,7 @@ export const APP_EVENT = {
   taskTrackerUpdated: "task-tracker:updated",
   taskTrackerReadStateChanged: "task-tracker:read-state-changed",
   updateAvailabilityChanged: "updates:availability-changed",
+  updateNoticeDismissalChanged: "updates:notice-dismissal-changed",
   tokenBurnerChanged: "token-burner:changed",
   extraFunctionsEnabledChanged: "settings:extra-functions-enabled-changed",
 } as const;
@@ -37,6 +38,7 @@ interface AppEventMap {
   [APP_EVENT.taskTrackerUpdated]: TaskTrackerMonitor[];
   [APP_EVENT.taskTrackerReadStateChanged]: TaskTrackerReadStateChanged;
   [APP_EVENT.updateAvailabilityChanged]: UpdateAvailabilitySnapshot;
+  [APP_EVENT.updateNoticeDismissalChanged]: string | null;
   [APP_EVENT.tokenBurnerChanged]: TokenBurnerSnapshot;
   [APP_EVENT.extraFunctionsEnabledChanged]: boolean;
 }

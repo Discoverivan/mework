@@ -296,6 +296,44 @@ fn requested_language(value: &str) -> &'static str {
     }
 }
 
+fn releases_between(
+    releases: Vec<GithubRelease>,
+    current_version: &str,
+    target_version: &str,
+) -> Result<Vec<(Version, GithubRelease)>, String> {
+    let current = Version::parse(current_version).map_err(|_| "invalid installed version")?;
+    Ok(releases_through(releases, target_version)?
+        .into_iter()
+        .filter(|(version, _)| *version > current)
+        .collect())
+}
+
+pub async fn load_available_update_notes<R: Runtime>(
+    app: &AppHandle<R>,
+    request_state: &ReleaseNotesRequestState,
+    target_version: &str,
+    language: &str,
+) -> Result<Vec<ReleaseNote>, String> {
+    let _guard = request_state.0.lock().await;
+    let current_version = app.package_info().version.to_string();
+    let target = Version::parse(target_version).map_err(|_| "invalid release version")?;
+    let app_data = app_data_dir(app)?;
+    let client = http_client()?;
+    let selected = releases_between(
+        catalog(&app_data, &client, Some(target_version)).await?,
+        &current_version,
+        target_version,
+    )?;
+    if selected.first().map(|(version, _)| version) != Some(&target) {
+        return Err("release notes are unavailable".to_owned());
+    }
+    let mut notes = Vec::with_capacity(selected.len());
+    for (version, release) in selected {
+        notes.push(note_for_release(&app_data, &client, &release, &version, language).await?);
+    }
+    Ok(notes)
+}
+
 fn fresh_cached_note(app_data: &Path, version: &str, language: &str) -> Option<ReleaseNote> {
     read_json::<Vec<CachedContent>>(
         &app_data.join("release-notes-content.json"),
@@ -591,6 +629,14 @@ mod tests {
                 assets: Vec::new(),
             })
             .collect();
+        let upcoming = super::releases_between(releases.clone(), "0.1.0", "0.3.0").unwrap();
+        assert_eq!(
+            upcoming
+                .iter()
+                .map(|(version, _)| version.to_string())
+                .collect::<Vec<_>>(),
+            ["0.3.0", "0.2.0"]
+        );
         super::write_json(
             &directory.path().join("release-notes-catalog.json"),
             &super::CachedCatalog {

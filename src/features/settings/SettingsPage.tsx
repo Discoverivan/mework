@@ -1033,7 +1033,7 @@ export function SettingsPage({ section = "integrations", focusActivity, mockMode
                 {selectedAiGroup === "cli" ? (
                   <DropdownMenu open={addAiMenuOpen} onOpenChange={handleCliMenuOpenChange}>
                     <DropdownMenuTrigger asChild>
-                      <CreateButton type="button" variant="ghost" className="ml-auto h-9" aria-label={t("settings.aiProviders.addCli")} title={t("settings.aiProviders.addCli")} disabled={allCliAdded || addingAi} />
+                      <CreateButton iconOnly type="button" variant="ghost" className="ml-auto size-9" aria-label={t("settings.aiProviders.addCli")} title={t("settings.aiProviders.addCli")} disabled={allCliAdded || addingAi} />
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="end" className="w-max min-w-0">
                       {cliMenuOptions.map(({ id, name, ready, reason, checking }) => (
@@ -1056,7 +1056,7 @@ export function SettingsPage({ section = "integrations", focusActivity, mockMode
                     </DropdownMenuContent>
                   </DropdownMenu>
                 ) : (
-                  <CreateButton type="button" variant="ghost" className="ml-auto h-9" aria-label={t("settings.aiProviders.addApi")} title={t("settings.aiProviders.addApi")} onClick={() => openOpenAiCompatibleDialog()} />
+                  <CreateButton iconOnly type="button" variant="ghost" className="ml-auto size-9" aria-label={t("settings.aiProviders.addApi")} title={t("settings.aiProviders.addApi")} onClick={() => openOpenAiCompatibleDialog()} />
                 )}
               </div>
               <Card className="min-w-0">

@@ -1,7 +1,7 @@
 import type { Update } from "@tauri-apps/plugin-updater";
 import { invoke } from "@tauri-apps/api/core";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import { ArrowUpCircle, Download, ExternalLink, FolderOpen, NotebookText, RefreshCw } from "lucide-react";
+import { ArrowUpCircle, Clock3, Download, ExternalLink, FolderOpen, NotebookText, RefreshCw } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { APP_EVENT, emitAppEvent } from "@/app/app-events";
 import { Button } from "@/components/ui/button";
@@ -12,9 +12,10 @@ import { StatusToast } from "@/components/shared/StatusToast";
 import { ReleaseNotesDialog } from "@/components/shared/ReleaseNotesDialog";
 import { beginUpdateCheck, checkForAvailableUpdate, recordUpdateCheckResult } from "@/components/shared/update-check";
 import { installAvailableUpdate } from "@/components/shared/update-install";
+import { clearDismissedUpdateNotice, dismissUpdateNotice, useDismissedUpdateVersion } from "@/components/shared/update-notice";
 import { useI18n } from "@/i18n/context";
 import { EMPTY_UPDATE_AVAILABILITY, type UpdateAvailabilitySnapshot } from "@/shared/contracts/updates";
-import { listReleaseNotesVersions, loadReleaseNoteVersion, prefetchOlderReleaseNotes, type ReleaseNote } from "@/release-notes";
+import { listReleaseNotesVersions, loadAvailableUpdateReleaseNotes, loadReleaseNoteVersion, prefetchOlderReleaseNotes, type ReleaseNote } from "@/release-notes";
 import { mockReleaseNotes } from "@/release-notes/mock";
 
 const GITHUB_URL = "https://github.com/Discoverivan/mework";
@@ -43,9 +44,11 @@ export function ApplicationInfoPage({
   const [localAvailableUpdate, setLocalAvailableUpdate] = useState<Update | null>(null);
   const [installingUpdate, setInstallingUpdate] = useState(false);
   const [updateInstallError, setUpdateInstallError] = useState<string | null>(null);
+  const dismissedUpdateVersion = useDismissedUpdateVersion();
   const [releaseNotesOpen, setReleaseNotesOpen] = useState(false);
   const [releaseNotesVersions, setReleaseNotesVersions] = useState<string[]>([]);
   const [selectedReleaseNote, setSelectedReleaseNote] = useState<ReleaseNote | null>(null);
+  const [upcomingReleaseNotes, setUpcomingReleaseNotes] = useState<ReleaseNote[] | null>(null);
   const [loadingReleaseNotes, setLoadingReleaseNotes] = useState(false);
   const [releaseNotesError, setReleaseNotesError] = useState(false);
   const handledUpdateCheckRequestRef = useRef(updateCheckRequest);
@@ -65,6 +68,7 @@ export function ApplicationInfoPage({
     const previousAvailability = updateAvailability;
     publishUpdateAvailability({
       ...previousAvailability,
+      checkSource: "manual",
       status: "checking",
       revision: previousAvailability.revision + 1,
     });
@@ -84,6 +88,7 @@ export function ApplicationInfoPage({
       } else {
         publishUpdateAvailability({
           ...previousAvailability,
+          checkSource: "manual",
           lastCheckedAt: Date.now(),
           status: "error",
           revision: Math.max(previousAvailability.revision, ticket?.snapshot.revision ?? 0) + 1,
@@ -109,6 +114,7 @@ export function ApplicationInfoPage({
       }
     } else {
       publishUpdateAvailability({
+        checkSource: "manual",
         availableVersion: update?.version ?? null,
         lastCheckedAt: Date.now(),
         status: update ? "available" : "current",
@@ -123,6 +129,7 @@ export function ApplicationInfoPage({
   const handleCheckForUpdates = useCallback(async () => {
     if (checkingUpdatesRef.current) return;
     checkingUpdatesRef.current = true;
+    clearDismissedUpdateNotice();
     setCheckingUpdates(true);
     setUpdateInstallError(null);
     try {
@@ -150,6 +157,10 @@ export function ApplicationInfoPage({
   }
 
   async function handleInstallUpdate() {
+    if (import.meta.env.DEV || mockMode || version === "dev") {
+      setUpdateInstallError(t("update.developmentInstallBlocked"));
+      return;
+    }
     setInstallingUpdate(true);
     setUpdateInstallError(null);
     try {
@@ -164,6 +175,7 @@ export function ApplicationInfoPage({
   }
 
   async function handleOpenReleaseNotes() {
+    setUpcomingReleaseNotes(null);
     setLoadingReleaseNotes(true);
     setReleaseNotesError(false);
     try {
@@ -179,6 +191,24 @@ export function ApplicationInfoPage({
         setSelectedReleaseNote(note);
         prefetchOlderReleaseNotes(versions, note.version, noteLanguage);
       }
+      setReleaseNotesOpen(true);
+    } catch {
+      setReleaseNotesError(true);
+    } finally {
+      setLoadingReleaseNotes(false);
+    }
+  }
+
+  async function handleOpenUpdateReleaseNotes() {
+    if (!availableUpdateVersion) return;
+    setLoadingReleaseNotes(true);
+    setReleaseNotesError(false);
+    try {
+      const notes = import.meta.env.DEV && mockMode
+        ? mockReleaseNotes(noteLanguage)
+        : await loadAvailableUpdateReleaseNotes(availableUpdateVersion, noteLanguage);
+      if (notes.length === 0) throw new Error("No release notes");
+      setUpcomingReleaseNotes(notes);
       setReleaseNotesOpen(true);
     } catch {
       setReleaseNotesError(true);
@@ -205,7 +235,7 @@ export function ApplicationInfoPage({
   }
 
   const selectedNoteIndex = selectedReleaseNote ? releaseNotesVersions.indexOf(selectedReleaseNote.version) : -1;
-  const displayedVersion = mockMode || version === "dev" ? "0.0.0" : version;
+  const displayedVersion = mockMode || version === "dev" ? "dev" : version;
   const currentLocale = language === "russian" ? "ru-RU" : "en-US";
   const isUpdateChecking = checkingUpdates || updateAvailability.status === "checking";
   const statusLabel = isUpdateChecking
@@ -263,20 +293,24 @@ export function ApplicationInfoPage({
             </Button>
           </div>
         </div>
-        {availableUpdateVersion ? (
+        {availableUpdateVersion && updateAvailability.checkSource === "manual" && dismissedUpdateVersion !== availableUpdateVersion ? (
           <div className="application-update-banner">
             <ArrowUpCircle className="application-update-icon" aria-hidden="true" />
             <div className="application-update-copy">
-              <p className="application-update-title">{t("applicationInfo.newVersionAvailable", { version: availableUpdateVersion ?? "" })}</p>
-              <Button type="button" variant="link" size="sm" className="h-auto justify-start p-0" onClick={() => void handleOpenReleaseNotes()}
-                disabled={loadingReleaseNotes}>
-                {t("applicationInfo.viewReleaseNotes")}
+              <p className="application-update-title">{t("update.available", { version: availableUpdateVersion })}</p>
+            </div>
+            <div className="application-update-install flex flex-wrap gap-2">
+              <Button type="button" variant="ghost" size="sm" disabled={installingUpdate} onClick={() => {
+                dismissUpdateNotice(availableUpdateVersion);
+              }}><Clock3 data-icon="inline-start" aria-hidden="true" />{t("update.later")}</Button>
+              <Button type="button" actionTone="edit" size="sm" onClick={() => void handleInstallUpdate()} disabled={isUpdateChecking || installingUpdate}>
+                {installingUpdate ? <RefreshCw data-icon="inline-start" className="animate-spin" aria-hidden="true" /> : <Download data-icon="inline-start" aria-hidden="true" />}
+                {installingUpdate ? t("general.updating", { version: availableUpdateVersion ?? "" }) : t("update.now")}
+              </Button>
+              <Button type="button" variant="secondary" size="sm" onClick={() => void handleOpenUpdateReleaseNotes()} disabled={loadingReleaseNotes}>
+                <NotebookText data-icon="inline-start" aria-hidden="true" />{t("releaseNotes.open")}
               </Button>
             </div>
-            <Button type="button" actionTone="edit" className="application-update-install" onClick={() => void handleInstallUpdate()} disabled={isUpdateChecking || installingUpdate}>
-              {installingUpdate ? <RefreshCw data-icon="inline-start" className="animate-spin" aria-hidden="true" /> : <Download data-icon="inline-start" aria-hidden="true" />}
-              {installingUpdate ? t("general.updating", { version: availableUpdateVersion ?? "" }) : t("applicationInfo.downloadInstall")}
-            </Button>
           </div>
         ) : null}
       </Card>
@@ -290,8 +324,8 @@ export function ApplicationInfoPage({
         </Button>
       </Card>
       <ReleaseNotesDialog open={releaseNotesOpen} onOpenChange={setReleaseNotesOpen}
-        releases={selectedReleaseNote ? [selectedReleaseNote] : []} mode="history"
-        navigation={{
+        releases={upcomingReleaseNotes ?? (selectedReleaseNote ? [selectedReleaseNote] : [])} mode={upcomingReleaseNotes ? "update" : "history"}
+        navigation={upcomingReleaseNotes ? undefined : {
           newerVersion: selectedNoteIndex > 0 ? releaseNotesVersions[selectedNoteIndex - 1] : undefined,
           olderVersion: releaseNotesVersions[selectedNoteIndex + 1],
           loading: loadingReleaseNotes,

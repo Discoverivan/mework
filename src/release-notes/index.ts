@@ -31,6 +31,10 @@ export function loadReleaseNoteVersion(version: string, language: "en" | "ru"): 
   return invoke("load_release_note_version", { version, language });
 }
 
+export function loadAvailableUpdateReleaseNotes(targetVersion: string, language: "en" | "ru"): Promise<ReleaseNote[]> {
+  return invoke("load_available_update_release_notes", { targetVersion, language });
+}
+
 export function prefetchOlderReleaseNotes(versions: string[], selectedVersion: string, language: "en" | "ru"): void {
   const index = versions.indexOf(selectedVersion);
   if (index < 0) return;

@@ -604,6 +604,9 @@ describe("SettingsPage integrations smoke tests", () => {
 
     expect(await screen.findByRole("heading", { name: "No AI providers yet" })).toBeInTheDocument();
     selectAiProviderGroup("API");
+    const addProvider = screen.getByRole("button", { name: "Add API provider" });
+    expect(addProvider).toHaveTextContent(/^$/);
+    expect(addProvider.querySelector("svg.lucide-plus")).toBeInTheDocument();
     for (const url of [first.baseUrl, second.baseUrl]) {
       fireEvent.click(screen.getByRole("button", { name: "Add API provider" }));
       fireEvent.change(screen.getByLabelText("API URL"), { target: { value: url } });
