@@ -656,6 +656,7 @@ export const en = {
   "tokenBurner.resume": "Resume",
   "tokenBurner.stop": "Stop",
   "tokenBurner.retry": "Retry",
+  "tokenBurner.errorDetailsTitle": "Model-testing error details",
   "tokenBurner.statusIdle": "Idle",
   "tokenBurner.statusRunning": "Running",
   "tokenBurner.statusPaused": "Paused",

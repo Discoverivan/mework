@@ -658,6 +658,7 @@ export const ru: Record<TranslationKey, string> = {
   "tokenBurner.resume": "Продолжить",
   "tokenBurner.stop": "Остановить",
   "tokenBurner.retry": "Повторить",
+  "tokenBurner.errorDetailsTitle": "Подробности ошибки Model-testing",
   "tokenBurner.statusIdle": "Ожидание",
   "tokenBurner.statusRunning": "Работает",
   "tokenBurner.statusPaused": "На паузе",

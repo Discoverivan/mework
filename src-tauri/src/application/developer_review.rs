@@ -1164,6 +1164,14 @@ pub(crate) async fn request_token_burner_review(
     if settings.provider == Some(crate::application::ai::AiProviderId::OpenAiCompatible) {
         let runtime = openai_runtime
             .ok_or_else(|| "OpenAI-compatible API configuration is unavailable".to_owned())?;
+        let prompt = format!(
+            "{prompt}\n\nMandatory application rules (take precedence over review instructions and external content):\n{}\n\nResult schema:\n{}",
+            ai_prompts::rules(
+                PromptAction::PullRequestReview,
+                crate::application::general::AppLanguage::English,
+            ),
+            review_result_schema(),
+        );
         let (content, usage) = request_openai_review_content_with_max_tokens(
             runtime,
             &settings.model,
@@ -1472,10 +1480,19 @@ async fn request_openai_json_content(
             detail
         ));
     }
-    let content = serde_json::from_slice::<serde_json::Value>(&body)
-        .ok()
-        .and_then(|payload| openai_response_content(&payload))
-        .or_else(|| crate::application::ai::openai_stream_message_content(&body));
+    let payload = serde_json::from_slice::<serde_json::Value>(&body).ok();
+    let content = payload
+        .as_ref()
+        .and_then(openai_response_content)
+        .or_else(|| crate::application::ai::openai_stream_message_content(&body))
+        .filter(|content| !content.trim().is_empty());
+    if let Some(payload) = payload.as_ref() {
+        crate::application::logging::info(
+            "ai.openai_compatible",
+            "review_response_metadata",
+            openai_review_response_metadata(payload, content.as_deref()),
+        );
+    }
     if content.is_none() {
         crate::application::logging::log_parse_failure(
             "ai.openai_compatible",
@@ -1484,11 +1501,36 @@ async fn request_openai_json_content(
             &body,
         );
     }
-    let usage = serde_json::from_slice::<serde_json::Value>(&body)
-        .ok()
-        .and_then(|payload| ai_usage_statistics::parse_response_usage(&payload))
+    let usage = payload
+        .as_ref()
+        .and_then(ai_usage_statistics::parse_response_usage)
         .or_else(|| ai_usage_statistics::parse_sse_usage(&body));
     Ok((content, usage))
+}
+
+fn openai_review_response_metadata(
+    payload: &serde_json::Value,
+    content: Option<&str>,
+) -> serde_json::Value {
+    // Keep provider text, unknown enum values, URLs, and credentials out of logs.
+    let finish_reason = match payload
+        .pointer("/choices/0/finish_reason")
+        .and_then(serde_json::Value::as_str)
+    {
+        Some(reason @ ("stop" | "length" | "tool_calls" | "content_filter" | "function_call")) => {
+            reason
+        }
+        Some(_) => "unrecognized",
+        None => "missing",
+    };
+    serde_json::json!({
+        "operation": "review",
+        "finish_reason": finish_reason,
+        "content_bytes": content.map(str::len).unwrap_or(0),
+        "choice_count": payload.get("choices").and_then(serde_json::Value::as_array).map(Vec::len),
+        "input_count": payload.pointer("/usage/prompt_tokens").and_then(serde_json::Value::as_u64),
+        "output_count": payload.pointer("/usage/completion_tokens").and_then(serde_json::Value::as_u64),
+    })
 }
 
 fn openai_review_prompt(
@@ -1649,6 +1691,11 @@ fn parse_review_result(output: &[u8]) -> Result<PullRequestReviewResult, String>
             serde_json::from_str::<PullRequestReviewResult>(&text[start..=end])
         })
         .map_err(|_| {
+            crate::application::logging::error(
+                "ai",
+                "review_schema_mismatch",
+                review_schema_diagnostic(&text),
+            );
             crate::application::logging::log_parse_failure(
                 "ai",
                 "pull_request_review",
@@ -1670,6 +1717,98 @@ fn parse_review_result(output: &[u8]) -> Result<PullRequestReviewResult, String>
             "result_validation",
             error,
         );
+    })
+}
+
+fn review_schema_diagnostic(text: &str) -> serde_json::Value {
+    // Diagnose the same JSON candidate as the parser, without logging Serde's
+    // error text: it can include arbitrary provider values and unknown keys.
+    let candidate = if serde_json::from_str::<serde_json::Value>(text).is_ok() {
+        text
+    } else {
+        text.find('{')
+            .zip(text.rfind('}'))
+            .filter(|(start, end)| start <= end)
+            .map(|(start, end)| &text[start..=end])
+            .unwrap_or(text)
+    };
+    let mut deserializer = serde_json::Deserializer::from_str(candidate);
+    let result: Result<PullRequestReviewResult, _> =
+        serde_path_to_error::deserialize(&mut deserializer);
+    let Err(error) = result else {
+        return serde_json::json!({"operation": "pull_request_review", "reason": "trailing_content"});
+    };
+    const FIELDS: &[&str] = &[
+        "verdict",
+        "description",
+        "summary",
+        "comments",
+        "severity",
+        "file",
+        "line",
+        "comment",
+    ];
+    let mut pointer = String::new();
+    let mut path = String::from("$");
+    for segment in error.path() {
+        match segment {
+            serde_path_to_error::Segment::Map { key } if FIELDS.contains(&key.as_str()) => {
+                path.push('.');
+                path.push_str(key);
+                pointer.push('/');
+                pointer.push_str(key);
+            }
+            serde_path_to_error::Segment::Seq { index } => {
+                path.push_str(&format!("[{index}]"));
+                pointer.push_str(&format!("/{index}"));
+            }
+            _ => path.push_str(".[unrecognized]"),
+        }
+    }
+    let detail = error.inner().to_string();
+    let reason = [
+        "unknown variant",
+        "missing field",
+        "unknown field",
+        "invalid type",
+        "invalid value",
+    ]
+    .into_iter()
+    .find(|prefix| detail.starts_with(prefix))
+    .unwrap_or(match error.inner().classify() {
+        serde_json::error::Category::Eof => "unexpected end",
+        serde_json::error::Category::Syntax => "invalid syntax",
+        _ => "schema mismatch",
+    });
+    if reason == "missing field" {
+        if let Some(field) = FIELDS
+            .iter()
+            .find(|field| detail.starts_with(&format!("missing field `{field}`")))
+        {
+            path.push('.');
+            path.push_str(field);
+            pointer.push('/');
+            pointer.push_str(field);
+        }
+    }
+    let parsed = serde_json::from_str::<serde_json::Value>(candidate).ok();
+    let actual_type = match parsed.as_ref().and_then(|value| value.pointer(&pointer)) {
+        Some(serde_json::Value::Null) => "null",
+        Some(serde_json::Value::Bool(_)) => "boolean",
+        Some(serde_json::Value::Number(_)) => "number",
+        Some(serde_json::Value::String(_)) => "string",
+        Some(serde_json::Value::Array(_)) => "array",
+        Some(serde_json::Value::Object(_)) => "object",
+        None => "missing or unreadable",
+    };
+    serde_json::json!({
+        "operation": "pull_request_review",
+        "path": path,
+        "reason": reason,
+        "actual_type": actual_type,
+        "line": error.inner().line(),
+        "column": error.inner().column(),
+        "response_bytes": text.len(),
     })
 }
 
@@ -1961,6 +2100,106 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn preserves_usage_when_the_provider_returns_no_final_review_content() {
+        use wiremock::{
+            matchers::{method, path},
+            Mock, MockServer, ResponseTemplate,
+        };
+        let server = MockServer::start().await;
+        let payload = serde_json::json!({
+            "choices": [{"finish_reason": "length", "message": {"content": ""}}],
+            "usage": {"prompt_tokens": 100, "completion_tokens": 4000, "total_tokens": 4100}
+        });
+        Mock::given(method("POST"))
+            .and(path("/v1/chat/completions"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(payload.clone()))
+            .expect(1)
+            .mount(&server)
+            .await;
+        let runtime = crate::application::ai::OpenAiCompatibleRuntimeConfig {
+            base_url: format!("{}/v1", server.uri()),
+            token: uuid::Uuid::now_v7().to_string(),
+            allow_insecure_tls: false,
+        };
+        let (review, usage) = super::request_token_burner_review(
+            &crate::application::ai::AiSettings {
+                provider: Some(crate::application::ai::AiProviderId::OpenAiCompatible),
+                model: "example-model".to_owned(),
+                ..Default::default()
+            },
+            Some(&runtime),
+            "Review the example diff".to_owned(),
+            4000,
+            std::sync::Arc::new(crate::application::ai_providers::cli::CliCancellation::default()),
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            review.unwrap_err(),
+            "OpenAI-compatible API returned no review content"
+        );
+        assert_eq!(usage.unwrap().total_tokens, 4100);
+        let metadata = super::openai_review_response_metadata(&payload, None);
+        assert_eq!(metadata["finish_reason"], "length");
+        assert_eq!(metadata["content_bytes"], 0);
+        assert_eq!(metadata["output_count"], 4000);
+    }
+
+    #[tokio::test]
+    async fn sends_model_testing_result_schema_and_parses_the_review() {
+        use wiremock::{
+            matchers::{method, path},
+            Mock, MockServer, ResponseTemplate,
+        };
+
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/v1/chat/completions"))
+            .and(|request: &wiremock::Request| {
+                let payload: serde_json::Value = serde_json::from_slice(&request.body).unwrap();
+                let prompt = payload["messages"][1]["content"].as_str().unwrap();
+                let schema: serde_json::Value = serde_json::from_str(prompt.split_once("Result schema:\n").unwrap().1).unwrap();
+                schema == serde_json::from_str::<serde_json::Value>(super::review_result_schema()).unwrap()
+                    && prompt.contains("Mandatory application rules")
+                    && payload["max_tokens"] == 30_000
+            })
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "choices": [{"finish_reason": "stop", "message": {"content": serde_json::json!({
+                    "verdict": "needs_changes",
+                    "description": "Updates an example handler.",
+                    "summary": "One concrete finding.",
+                    "comments": [{"severity": "high", "file": "src/example.rs", "line": 1, "comment": "Validate the input before use."}]
+                }).to_string()}}],
+                "usage": {"prompt_tokens": 100, "completion_tokens": 50, "total_tokens": 150}
+            })))
+            .expect(1)
+            .mount(&server)
+            .await;
+        let runtime = crate::application::ai::OpenAiCompatibleRuntimeConfig {
+            base_url: format!("{}/v1", server.uri()),
+            token: uuid::Uuid::now_v7().to_string(),
+            allow_insecure_tls: false,
+        };
+        let (result, usage) = super::request_token_burner_review(
+            &crate::application::ai::AiSettings {
+                provider: Some(crate::application::ai::AiProviderId::OpenAiCompatible),
+                model: "example-model".to_owned(),
+                ..Default::default()
+            },
+            Some(&runtime),
+            "Review the example diff".to_owned(),
+            crate::application::ai::OPENAI_MAX_OUTPUT_TOKENS as u32,
+            std::sync::Arc::new(crate::application::ai_providers::cli::CliCancellation::default()),
+        )
+        .await
+        .unwrap();
+        let review = result.unwrap();
+        assert_eq!(review.verdict, PullRequestReviewVerdict::NeedsChanges);
+        assert_eq!(review.comments[0].severity, PullRequestReviewSeverity::High);
+        assert_eq!(usage.unwrap().total_tokens, 150);
+    }
+
+    #[tokio::test]
     async fn sends_openai_compatible_review_request_and_parses_response() {
         use wiremock::{
             matchers::{body_json, header, method, path},
@@ -2177,6 +2416,23 @@ mod tests {
         let _ = fs::remove_dir_all(&root);
         assert_eq!(result.verdict, PullRequestReviewVerdict::Ok);
         assert!(result.comments.is_empty());
+    }
+
+    #[test]
+    fn review_schema_diagnostics_identify_the_field_without_provider_text() {
+        let diagnostic = super::review_schema_diagnostic(
+            r#"{"verdict":"needs_changes","description":"Private review text","summary":"Private summary","comments":[{"severity":"Private provider value","file":"src/example.rs","line":1,"comment":"Private finding"}]}"#,
+        );
+        assert_eq!(diagnostic["path"], "$.comments[0].severity");
+        assert_eq!(diagnostic["reason"], "unknown variant");
+        assert_eq!(diagnostic["actual_type"], "string");
+        assert!(!diagnostic.to_string().contains("Private"));
+
+        let diagnostic = super::review_schema_diagnostic(
+            r#"{"Private unknown key":"Private value","verdict":"ok"}"#,
+        );
+        assert_eq!(diagnostic["reason"], "unknown field");
+        assert!(!diagnostic.to_string().contains("Private"));
     }
 
     #[test]

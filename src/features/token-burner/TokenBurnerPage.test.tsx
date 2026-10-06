@@ -1,8 +1,9 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { I18nProvider } from "@/i18n/I18nProvider";
 import type { TokenBurnerSnapshot } from "@/shared/contracts/token-burner";
 import { TokenBurnerPage } from "./TokenBurnerPage";
+import { APP_EVENT, emitAppEvent } from "@/app/app-events";
 
 const { snapshotMock, startMock, resetMock, repositoriesMock, integrationAvailableMock, aiSettingsMock } = vi.hoisted(() => ({
   snapshotMock: vi.fn(),
@@ -82,11 +83,60 @@ describe("TokenBurnerPage", () => {
     expect(await screen.findByText("Finding the next pull request…")).toBeInTheDocument();
   });
 
-  it("surfaces failures persisted by a background session", async () => {
+  it("opens saved errors from the info button and toasts each new failure once", async () => {
     snapshotMock.mockResolvedValue({ ...initialSnapshot, status: "error", error: "Bitbucket credential is missing" });
     render(<I18nProvider><TokenBurnerPage /></I18nProvider>);
 
-    expect(await screen.findByText(/Bitbucket credential is missing/)).toBeInTheDocument();
+    const info = await screen.findByRole("button", { name: "Model-testing error details" });
+    expect(screen.queryByRole("button", { name: "Paused due to errors" })).not.toBeInTheDocument();
+    expect(screen.queryByText(/Bitbucket credential is missing/)).not.toBeInTheDocument();
+    fireEvent.click(info);
+    expect(screen.getByText("Bitbucket credential is missing")).toBeInTheDocument();
+    fireEvent.keyDown(screen.getByRole("dialog"), { key: "Escape" });
+    act(() => emitAppEvent(APP_EVENT.tokenBurnerChanged, { ...initialSnapshot, status: "running", sessionStartedAt: 1 }));
+    const failed = { ...initialSnapshot, status: "error" as const, sessionStartedAt: 1, error: "Example provider failure" };
+    act(() => { emitAppEvent(APP_EVENT.tokenBurnerChanged, failed); emitAppEvent(APP_EVENT.tokenBurnerChanged, failed); });
+    expect(screen.getAllByRole("alert")).toHaveLength(1);
+    expect(screen.getByRole("alert")).toHaveTextContent("Model-testing could not continue: Example provider failure");
+    fireEvent.click(screen.getByRole("button", { name: "Model-testing error details" }));
+    expect(screen.getByText("Example provider failure")).toBeInTheDocument();
+  });
+
+  it("keeps the live failure received while the initial snapshot is loading", async () => {
+    let resolveSnapshot!: (snapshot: TokenBurnerSnapshot) => void;
+    snapshotMock.mockReturnValue(new Promise<TokenBurnerSnapshot>((resolve) => { resolveSnapshot = resolve; }));
+    render(<I18nProvider><TokenBurnerPage /></I18nProvider>);
+
+    const failed = { ...initialSnapshot, status: "error" as const, sessionStartedAt: 1, error: "Example live failure" };
+    await act(async () => {
+      emitAppEvent(APP_EVENT.tokenBurnerChanged, failed);
+      resolveSnapshot(initialSnapshot);
+    });
+
+    expect(screen.getByText("Paused due to errors")).toBeInTheDocument();
+    expect(screen.getByRole("alert")).toHaveTextContent("Example live failure");
+    fireEvent.click(screen.getByRole("button", { name: "Model-testing error details" }));
+    expect(screen.getByText("Example live failure")).toBeInTheDocument();
+  });
+
+  it("revalidates Bitbucket after configuration changes and reopening without retrying AI", async () => {
+    snapshotMock.mockResolvedValue({ ...initialSnapshot, status: "error", error: "Previous provider failure" });
+    integrationAvailableMock.mockResolvedValue(false);
+    const page = render(<I18nProvider><TokenBurnerPage /></I18nProvider>);
+    const retry = await screen.findByRole("button", { name: "Retry" });
+    await waitFor(() => expect(integrationAvailableMock).toHaveBeenCalled());
+    expect(retry).toBeDisabled();
+
+    integrationAvailableMock.mockResolvedValue(true);
+    act(() => { emitAppEvent(APP_EVENT.integrationsChanged); emitAppEvent(APP_EVENT.integrationsChanged); });
+    await waitFor(() => expect(retry).toBeEnabled());
+    expect(repositoriesMock).toHaveBeenCalledOnce();
+    page.unmount();
+    integrationAvailableMock.mockResolvedValue(false);
+    render(<I18nProvider><TokenBurnerPage /></I18nProvider>);
+    await waitFor(() => expect(integrationAvailableMock).toHaveBeenCalledTimes(3));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Retry" })).toBeDisabled());
+    expect(startMock).not.toHaveBeenCalled();
   });
 
   it("resets the displayed daily progress without changing the target", async () => {

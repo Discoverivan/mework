@@ -41,7 +41,6 @@ const KEYRING_SERVICE: &str = if cfg!(debug_assertions) {
 const PAGE_SIZE: u64 = 100;
 const MAX_REPOSITORIES: usize = 500;
 const MAX_DIFF_BYTES: usize = 1_000_000;
-const MAX_OUTPUT_TOKENS_PER_REQUEST: u32 = 4_000;
 
 static SCHEDULER_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
 
@@ -419,11 +418,9 @@ fn make_bitbucket_client(
     token: String,
     allow_insecure_tls: bool,
 ) -> Result<BitbucketDcClient, String> {
-    if allow_insecure_tls {
-        return Err("Model-testing requires a valid Bitbucket TLS certificate".to_owned());
-    }
     let http = reqwest::Client::builder()
         .timeout(Duration::from_secs(30))
+        .danger_accept_invalid_certs(allow_insecure_tls)
         .build()
         .map_err(|_| "Bitbucket transport is unavailable".to_owned())?;
     BitbucketDcClient::with_bearer_token_and_client(base_url, token, http)
@@ -992,7 +989,7 @@ async fn execute_iteration<R: Runtime>(
     );
     update_phase(pool, app, iteration_id, "analyzing_potential_issues").await;
     let retries = ai_settings.retries.for_activity(AiActivity::TokenBurner);
-    let max_output_tokens = MAX_OUTPUT_TOKENS_PER_REQUEST;
+    let max_output_tokens = ai::OPENAI_MAX_OUTPUT_TOKENS as u32;
     // Grow the reservation per attempt; retain estimates only when the provider reports no usage.
     let reserved_per_attempt = (prompt.len() as i64).saturating_add(max_output_tokens as i64);
     let delays = [5_u64, 15, 30, 60];
@@ -1562,16 +1559,38 @@ mod tests {
         assert!(daily_target_reached(0, 1_500, 1_000));
     }
 
-    #[test]
-    fn rejects_bitbucket_integrations_with_insecure_tls_for_model_testing() {
-        let error = make_bitbucket_client(
-            "https://bitbucket.example.invalid",
-            "synthetic-token".to_owned(),
-            true,
-        )
-        .err()
-        .unwrap();
-        assert!(error.contains("valid Bitbucket TLS certificate"));
+    #[tokio::test]
+    async fn loads_bitbucket_repositories_with_insecure_tls_for_model_testing() {
+        use wiremock::{
+            matchers::{method, path},
+            Mock, MockServer, ResponseTemplate,
+        };
+
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/rest/api/1.0/repos"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "size": 1,
+                "limit": 100,
+                "isLastPage": true,
+                "values": [{
+                    "id": 1,
+                    "slug": "sample-repository",
+                    "name": "Sample repository",
+                    "scmId": "git",
+                    "public": false,
+                    "project": {"id": 1, "key": "DEMO", "name": "Example project"}
+                }]
+            })))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        let client =
+            make_bitbucket_client(&server.uri(), Uuid::now_v7().to_string(), true).unwrap();
+        let page = client.list_repositories_page(0, PAGE_SIZE).await.unwrap();
+        assert_eq!(page.values.len(), 1);
+        assert_eq!(page.values[0].slug, "sample-repository");
     }
 
     #[test]

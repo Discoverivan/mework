@@ -4,6 +4,7 @@ import { openUrl } from "@tauri-apps/plugin-opener";
 import { ArrowLeft, ArrowRight, CalendarDays, ChevronDown, Copy, ExternalLink, MoreHorizontal, Plus, Presentation, RefreshCw, Sparkles, Square } from "lucide-react";
 import { PageHeader } from "@/components/shared/PageHeader";
 import { StatusToast } from "@/components/shared/StatusToast";
+import { useInfoPopoverAnchor } from "@/components/shared/use-info-popover-anchor";
 import { useI18n } from "@/i18n/context";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { badgeVariants } from "@/components/ui/badge";
@@ -186,12 +187,14 @@ function TaskStatusMenu({
   onError: (message?: string) => void;
 }) {
   const { t } = useI18n();
+  const { triggerRef, alignOffset, onOpenChange } = useInfoPopoverAnchor();
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [transitions, setTransitions] = useState<DailyIssueTransition[]>([]);
   const [performingId, setPerformingId] = useState<string>();
 
   async function handleOpenChange(nextOpen: boolean) {
+    onOpenChange(nextOpen);
     setOpen(nextOpen);
     if (!nextOpen) return;
     setLoading(true);
@@ -229,6 +232,7 @@ function TaskStatusMenu({
     <DropdownMenu open={open} onOpenChange={(nextOpen) => void handleOpenChange(nextOpen)}>
       <DropdownMenuTrigger asChild>
         <button
+          ref={triggerRef}
           type="button"
           className={cn(
             badgeVariants(),
@@ -241,8 +245,13 @@ function TaskStatusMenu({
           {task.status}
         </button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="start" className="w-max min-w-0 max-w-[var(--radix-dropdown-menu-content-available-width)]">
+      <DropdownMenuContent align="end" alignOffset={alignOffset} collisionPadding={5} className="w-max min-w-0 max-w-[var(--radix-dropdown-menu-content-available-width)]">
         <DropdownMenuGroup>
+          {!loading && !transitions.some((transition) => transition.toStatus === task.status) ? (
+            <DropdownMenuItem disabled aria-current="true" className="bg-primary/10 data-[disabled]:opacity-100">
+              {task.status}
+            </DropdownMenuItem>
+          ) : null}
           {loading ? (
             <DropdownMenuItem disabled>{t("daily.loadingTransitions")}</DropdownMenuItem>
           ) : transitions.length === 0 ? (
@@ -250,6 +259,8 @@ function TaskStatusMenu({
           ) : transitions.map((transition) => (
             <DropdownMenuItem
               key={transition.id}
+              aria-current={transition.toStatus === task.status ? "true" : undefined}
+              className={transition.toStatus === task.status ? "bg-primary/10" : undefined}
               disabled={transition.requiresFields || performingId !== undefined}
               onSelect={() => void selectTransition(transition)}
             >
@@ -669,6 +680,19 @@ export function DailyPage() {
           </Button>
           <Button
             type="button"
+            variant={presenterOpen ? "secondary" : "default"}
+            size="icon"
+            className="h-9 w-9"
+            disabled={!workspace || loadingWorkspace || (!presenterOpen && !selectedMember)}
+            aria-pressed={presenterOpen}
+            aria-label={presenterOpen ? t("daily.presenter.stop") : t("daily.presenter.start")}
+            title={presenterOpen ? t("daily.presenter.stop") : t("daily.presenter.start")}
+            onClick={() => void togglePresenter()}
+          >
+            {presenterOpen ? <Square aria-hidden="true" /> : <Presentation aria-hidden="true" />}
+          </Button>
+          <Button
+            type="button"
             variant="outline"
             size="icon"
             className="h-9 w-9"
@@ -680,19 +704,6 @@ export function DailyPage() {
             }}
           >
             <ExternalLink aria-hidden="true" />
-          </Button>
-          <Button
-            type="button"
-            variant={presenterOpen ? "secondary" : "default"}
-            size="icon"
-            className="h-9 w-9"
-            disabled={!workspace || loadingWorkspace || (!presenterOpen && !selectedMember)}
-            aria-pressed={presenterOpen}
-            aria-label={presenterOpen ? t("daily.presenter.stop") : t("daily.presenter.start")}
-            title={presenterOpen ? t("daily.presenter.stop") : t("daily.presenter.start")}
-            onClick={() => void togglePresenter()}
-          >
-            {presenterOpen ? <Square aria-hidden="true" /> : <Presentation aria-hidden="true" />}
           </Button>
           <Separator orientation="vertical" className="h-6" />
           <Button
@@ -919,7 +930,7 @@ export function DailyPage() {
 
           <section className="daily-tasks-column" aria-label={t("daily.selectedTasks")}>
             {selectedOwner ? (
-              <Card className="daily-selected-member-card">
+              <Card data-info-popover-boundary className="daily-selected-member-card">
                 <CardHeader className="daily-selected-member-header">
                   <div className="flex min-w-0 items-center gap-3">
                     {selectedMember ? <MemberAvatar member={selectedMember} className="h-9 w-9 shrink-0" managedProjectId={workspace.managedProjectId} /> : null}
