@@ -832,7 +832,6 @@ export function CreateTaskPage() {
           titleId="create-task-empty-title"
           title={t("task.empty")}
           description={t("task.emptyDescription")}
-          hint={t("task.emptyHint")}
           icon={<ClipboardList className="size-5" />}
         />
       )}

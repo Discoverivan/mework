@@ -219,20 +219,75 @@ describe("SettingsPage integrations smoke tests", () => {
   });
 
   it("saves independent retry settings for each AI action and defaults", async () => {
+    let completeSave!: (value: Awaited<ReturnType<typeof saveAiSettings>>) => void;
+    saveAiSettingsMock.mockImplementationOnce(() => new Promise((resolve) => { completeSave = resolve; }));
+    const profile = { provider: "codex-cli" as const, model: "gpt-5.5", reasoning: "medium" as const, fastMode: false };
+    getAiSettingsMock.mockResolvedValueOnce({
+      ...codexAiSettings,
+      settings: {
+        ...codexAiSettings.settings,
+        taskCreation: profile,
+        pullRequestReview: profile,
+        retries: { default: 0, actions: { taskCreation: 0, pullRequestReview: 0, tokenBurner: null, sprintSummary: null } },
+      },
+    });
     render(<SettingsPage section="ai" />);
     await screen.findByRole("group", { name: "Codex CLI AI provider" });
     const defaults = defaultAiSettings();
-    expect(defaults.getByRole("spinbutton", { name: "Retries" })).toHaveValue(0);
-    for (const action of ["Task creation", "Pull request review", "Model-testing", "Sprint tasks / AI Summary"]) {
-      expect(within(screen.getByRole("region", { name: action })).getByRole("spinbutton", { name: "Retries" })).toHaveValue(0);
+    expect(defaults.getByRole("textbox", { name: "Retries" })).toHaveValue("0");
+    const retriesHeading = defaults.getByText("Retries", { selector: "span" });
+    expect(retriesHeading).toHaveAttribute("title", "Additional attempts after temporary provider errors (0–10).");
+    fireEvent.click(retriesHeading);
+    expect(defaults.getByRole("textbox", { name: "Retries" })).not.toHaveFocus();
+    for (const action of ["Task creation", "Pull request review"]) {
+      expect(within(screen.getByRole("region", { name: action })).getByRole("textbox", { name: "Retries" })).toHaveValue("0");
+    }
+    for (const action of ["Model-testing", "Sprint tasks / AI Summary"]) {
+      expect(within(screen.getByRole("region", { name: action })).queryByRole("textbox", { name: "Retries" })).not.toBeInTheDocument();
     }
 
     const review = within(screen.getByRole("region", { name: "Pull request review" }));
-    fireEvent.change(review.getByRole("spinbutton", { name: "Retries" }), { target: { value: "2" } });
-    expect(review.getByRole("spinbutton", { name: "Retries" })).toHaveValue(2);
+    review.getByRole("textbox", { name: "Retries" }).focus();
+    fireEvent.change(review.getByRole("textbox", { name: "Retries" }), { target: { value: "11" } });
+    expect(review.getByRole("textbox", { name: "Retries" })).toHaveAttribute("aria-invalid", "true");
+    expect(screen.getByRole("alert")).toHaveTextContent("Retries: the number must be between 0 and 10.");
+    expect(review.getByRole("textbox", { name: "Retries" })).toHaveFocus();
+    expect(saveAiSettingsMock).not.toHaveBeenCalled();
+    fireEvent.change(review.getByRole("textbox", { name: "Retries" }), { target: { value: "2" } });
+    expect(review.getByRole("textbox", { name: "Retries" })).toHaveValue("2");
+    expect(review.getByRole("textbox", { name: "Retries" })).toHaveAttribute("aria-invalid", "false");
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
     await waitFor(() => expect(saveAiSettingsMock).toHaveBeenCalledWith(expect.objectContaining({
       retries: expect.objectContaining({ actions: expect.objectContaining({ pullRequestReview: 2 }) }),
     })), { timeout: 2_000 });
+    expect(review.getByRole("textbox", { name: "Retries" })).toBeDisabled();
+    expect(defaults.getByRole("textbox", { name: "Retries" })).toBeEnabled();
+    expect(defaults.getByRole("combobox", { name: "AI provider" })).toBeEnabled();
+    const taskCreation = within(screen.getByRole("region", { name: "Task creation" }));
+    expect(taskCreation.getByRole("combobox", { name: "AI provider" })).toBeEnabled();
+    fireEvent.change(taskCreation.getByRole("textbox", { name: "Retries" }), { target: { value: "3" } });
+    expect(saveAiSettingsMock).toHaveBeenCalledTimes(1);
+    await act(async () => {
+      completeSave({ ...codexAiSettings, settings: saveAiSettingsMock.mock.calls[0][0] });
+    });
+    expect(taskCreation.getByRole("textbox", { name: "Retries" })).toHaveValue("3");
+    await waitFor(() => expect(saveAiSettingsMock).toHaveBeenLastCalledWith(expect.objectContaining({
+      retries: expect.objectContaining({ actions: expect.objectContaining({ pullRequestReview: 2, taskCreation: 3 }) }),
+    })));
+    expect(saveAiSettingsMock).toHaveBeenCalledTimes(2);
+    await waitFor(() => expect(review.getByRole("textbox", { name: "Retries" })).toBeEnabled());
+    fireEvent.click(review.getByRole("combobox", { name: "AI provider" }));
+    fireEvent.click(screen.getByRole("option", { name: "Use defaults" }));
+    expect(review.queryByRole("textbox", { name: "Retries" })).not.toBeInTheDocument();
+    await waitFor(() => expect(saveAiSettingsMock).toHaveBeenLastCalledWith(expect.objectContaining({
+      pullRequestReview: null,
+      retries: expect.objectContaining({ actions: expect.objectContaining({ pullRequestReview: null, taskCreation: 3 }) }),
+    })));
+    fireEvent.change(defaults.getByRole("textbox", { name: "Retries" }), { target: { value: "4" } });
+    await waitFor(() => expect(saveAiSettingsMock).toHaveBeenLastCalledWith(expect.objectContaining({
+      retries: expect.objectContaining({ default: 4, actions: expect.objectContaining({ pullRequestReview: null, taskCreation: 3 }) }),
+    })));
+    expect(taskCreation.getByRole("textbox", { name: "Retries" })).toHaveValue("3");
   });
 
   it("shows initial AI loading in a toast and immediately displays the cache on re-entry", async () => {

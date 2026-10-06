@@ -647,7 +647,7 @@ export function TaskTrackerPage({ mockMode = false }: { mockMode?: boolean }) {
               <thead className="bg-muted/50 text-xs uppercase text-muted-foreground"><tr><SortableHeader label={t("taskTracker.issue")} sortKey="issue" activeSortKey={sortKey} direction={sortDirection} onSort={handleSort} className="w-40 min-w-40 whitespace-nowrap" /><SortableHeader label={t("taskTracker.summary")} sortKey="summary" activeSortKey={sortKey} direction={sortDirection} onSort={handleSort} /><SortableHeader label={t("taskTracker.status")} sortKey="status" activeSortKey={sortKey} direction={sortDirection} onSort={handleSort} /><SortableHeader label={t("taskTracker.updated")} sortKey="updated" activeSortKey={sortKey} direction={sortDirection} onSort={handleSort} /><SortableHeader label={t("taskTracker.change")} sortKey="change" activeSortKey={sortKey} direction={sortDirection} onSort={handleSort} /></tr></thead>
               <tbody className="divide-y divide-border">
                 {visibleIssues.map((issue) => <IssueRow key={issue.key} issue={issue} now={now} locale={locale} t={t} unread={issue.changed && !changesRead} />)}
-                {visibleIssues.length === 0 ? <tr><td colSpan={5} className="px-4 py-10 text-center text-muted-foreground">{t("taskTracker.noMatchingIssues")}</td></tr> : null}
+                {visibleIssues.length === 0 ? <tr><td colSpan={5} className="px-4 py-3 text-sm text-muted-foreground">{t("taskTracker.noMatchingIssues")}</td></tr> : null}
               </tbody>
             </table>
               </div>

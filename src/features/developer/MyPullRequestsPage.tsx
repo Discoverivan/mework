@@ -774,10 +774,10 @@ export function MyPullRequestsPage() {
         </Alert>
       ) : null}
       {!loading && !error && pullRequests.length === 0 ? (
-        <Card><CardContent className="pt-6"><p>{t("pr.emptyReview")}</p></CardContent></Card>
+        <Card><CardContent className="py-3 text-sm text-muted-foreground"><p>{t("pr.emptyReview")}</p></CardContent></Card>
       ) : null}
       {!loading && !error && pullRequests.length > 0 && visiblePullRequests.length === 0 ? (
-        <Card><CardContent className="pt-6"><p>{t("pr.emptyFiltered")}</p></CardContent></Card>
+        <Card><CardContent className="py-3"><p className="text-sm text-muted-foreground">{t("pr.emptyFiltered")}</p></CardContent></Card>
       ) : null}
 
       <div className={`${displayPreferences.grouping !== "none" ? "space-y-5" : "inbox-list"} pt-1`} aria-live="polite">
