@@ -120,10 +120,13 @@ async fn migration_creates_settings_table() {
         .fetch_all(&pool)
         .await
         .expect("AI token usage columns should exist");
-    assert_eq!(usage_columns.len(), 6);
+    assert_eq!(usage_columns.len(), 7);
     assert!(usage_columns
         .iter()
         .any(|row| row.get::<String, _>("name") == "total_tokens"));
+    assert!(usage_columns
+        .iter()
+        .any(|row| row.get::<String, _>("name") == "request_count"));
 
     let token_burner_columns = sqlx::query("PRAGMA table_info(token_burner_iterations)")
         .fetch_all(&pool)

@@ -20,6 +20,7 @@ import {
   refreshMyPullRequests,
   removePullRequestReviewer,
   savePullRequestReviewSettings,
+  searchBitbucketProjects,
   searchBitbucketRepositories,
   searchBitbucketUsers,
   setPullRequestDecision,
@@ -43,6 +44,7 @@ vi.mock("./api", () => ({
   refreshMyPullRequests: vi.fn(),
   removePullRequestReviewer: vi.fn(),
   savePullRequestReviewSettings: vi.fn(),
+  searchBitbucketProjects: vi.fn(),
   searchBitbucketRepositories: vi.fn(),
   searchBitbucketUsers: vi.fn(),
   setPullRequestDecision: vi.fn(),
@@ -60,6 +62,7 @@ const removeReviewerMock = vi.mocked(removePullRequestReviewer);
 const markAllPullRequestsReadMock = vi.mocked(markAllPullRequestsRead);
 const markPullRequestReadMock = vi.mocked(markPullRequestRead);
 const saveSettingsMock = vi.mocked(savePullRequestReviewSettings);
+const searchProjectsMock = vi.mocked(searchBitbucketProjects);
 const searchRepositoriesMock = vi.mocked(searchBitbucketRepositories);
 const searchUsersMock = vi.mocked(searchBitbucketUsers);
 const setDecisionMock = vi.mocked(setPullRequestDecision);
@@ -67,6 +70,8 @@ const publishCommentMock = vi.mocked(publishPullRequestComment);
 const startReviewMock = vi.mocked(startPullRequestReview);
 
 const emptySettings: PullRequestReviewSettings = {
+  projectBlacklist: [],
+  projectWhitelist: [],
   repositoryBlacklist: [],
   creatorBlacklist: [],
   repositoryWhitelist: [],
@@ -185,7 +190,7 @@ async function renderFlatPage() {
   fireEvent.click(await screen.findByRole("button", { name: "Options" }));
   const dialog = screen.getByRole("dialog", { name: "Options" });
   chooseDisplayOption(dialog, "Group by", "Don't group");
-  fireEvent.click(within(dialog).getByRole("button", { name: "Apply" }));
+  fireEvent.click(within(dialog).getByRole("button", { name: "Save" }));
 }
 
 function chooseDisplayOption(dialog: HTMLElement, label: string, option: string) {
@@ -211,6 +216,7 @@ describe("MyPullRequestsPage", () => {
     publishCommentMock.mockResolvedValue({ commentId: 11 });
     removeReviewerMock.mockResolvedValue(undefined);
     saveSettingsMock.mockImplementation(async (settings) => settings);
+    searchProjectsMock.mockResolvedValue([{ integrationId: "bitbucket-1", projectKey: "DEMO", projectName: "Example Project" }]);
     searchRepositoriesMock.mockResolvedValue([{
       projectKey: "DEMO",
       projectName: "Example Project",
@@ -245,7 +251,7 @@ describe("MyPullRequestsPage", () => {
     chooseDisplayOption(firstDialog, "Sort order", "Recently updated last");
     fireEvent.click(within(firstDialog).getByRole("switch", { name: "Expand groups by default" }));
     chooseDisplayOption(firstDialog, "Group by", "Don't group");
-    fireEvent.click(within(firstDialog).getByRole("button", { name: "Apply" }));
+    fireEvent.click(within(firstDialog).getByRole("button", { name: "Save" }));
     firstRender.unmount();
 
     render(<MyPullRequestsPage />);
@@ -310,6 +316,8 @@ describe("MyPullRequestsPage", () => {
   it("does not count pull requests excluded by permanent filters", async () => {
     getSettingsMock.mockResolvedValueOnce({
       ...emptySettings,
+      projectBlacklist: [],
+      projectWhitelist: [],
       repositoryBlacklist: ["DEMO/sample-repository"],
     });
 
@@ -370,6 +378,7 @@ describe("MyPullRequestsPage", () => {
     fireEvent.click(screen.getByRole("button", { name: "Options" }));
     const displayOptions = screen.getByRole("dialog", { name: "Options" });
     const sortOrder = within(displayOptions).getByRole("combobox", { name: "Sort order" });
+    expect(within(displayOptions).getByRole("button", { name: "Save" })).toBeDisabled();
     const grouping = within(displayOptions).getByRole("combobox", { name: "Group by" });
     const displaySection = sortOrder.closest(".rounded-lg.border");
     expect(displaySection).toBe(grouping.closest(".rounded-lg.border"));
@@ -381,6 +390,7 @@ describe("MyPullRequestsPage", () => {
       "Example documentation change",
     ]);
     chooseDisplayOption(displayOptions, "Sort order", "Recently updated last");
+    expect(within(displayOptions).getByRole("button", { name: "Save" })).toBeEnabled();
     expect(within(demoGroup).getAllByRole("heading", { level: 2 }).map((heading) => heading.textContent)).toEqual([
       "Example pull request",
       "Example documentation change",
@@ -393,14 +403,14 @@ describe("MyPullRequestsPage", () => {
     chooseDisplayOption(displayOptions, "Group by", "Person (PR author)");
     expect(screen.queryByRole("region", { name: "Pull requests by Test Author A" })).not.toBeInTheDocument();
     expect(within(displayOptions).getByRole("switch", { name: "Expand groups by default" })).toBeInTheDocument();
-    fireEvent.click(within(displayOptions).getByRole("button", { name: "Apply" }));
+    fireEvent.click(within(displayOptions).getByRole("button", { name: "Save" }));
     expect(screen.getByRole("region", { name: "Pull requests by Test Author A" })).toBeInTheDocument();
     expect(screen.getByRole("region", { name: "Pull requests by Test Author B" })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Options" }));
     const secondOptions = screen.getByRole("dialog", { name: "Options" });
     chooseDisplayOption(secondOptions, "Group by", "Don't group");
     expect(within(secondOptions).queryByRole("switch", { name: "Expand groups by default" })).not.toBeInTheDocument();
-    fireEvent.click(within(secondOptions).getByRole("button", { name: "Apply" }));
+    fireEvent.click(within(secondOptions).getByRole("button", { name: "Save" }));
 
     expect(screen.queryByRole("region", { name: "DEMO project" })).not.toBeInTheDocument();
     expect(screen.getByText("DEMO/sample-repository", { exact: false })).toBeInTheDocument();
@@ -420,12 +430,17 @@ describe("MyPullRequestsPage", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Filters" }));
     expect(screen.getByRole("dialog", { name: "Filters" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: "Add author filter" }));
     fireEvent.change(screen.getByRole("textbox", { name: "Creator filters" }), { target: { value: "Test Author A" } });
     await waitFor(() => expect(searchUsersMock).toHaveBeenCalledWith("Test Author A"));
     fireEvent.click(screen.getByRole("button", { name: "Test Author A (test-author-a)" }));
-    fireEvent.click(screen.getByRole("button", { name: "Save filters" }));
+    expect(screen.getByRole("button", { name: "Save" })).toBeEnabled();
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
 
     await waitFor(() => expect(saveSettingsMock).toHaveBeenCalledWith({
+      projectBlacklist: [],
+      projectWhitelist: [],
       repositoryBlacklist: [],
       creatorBlacklist: ["Test Author A"],
       repositoryWhitelist: [],
@@ -437,23 +452,37 @@ describe("MyPullRequestsPage", () => {
     expect(screen.queryByRole("heading", { name: "Example pull request" })).not.toBeInTheDocument();
   });
 
-  it("supports separate blacklist and whitelist tabs at the same time", async () => {
+  it("supports separate Deny and Allow filters in minimal style", async () => {
+    document.documentElement.dataset.buttonStyle = "quiet";
     await renderFlatPage();
     await screen.findByRole("heading", { name: "Example pull request" });
 
     fireEvent.click(screen.getByRole("button", { name: "Filters" }));
-    expect(screen.getByRole("tab", { name: "Blacklist" })).toHaveAttribute("aria-selected", "true");
-    expect(screen.getByRole("tab", { name: "Whitelist" })).toHaveAttribute("aria-selected", "false");
+    expect(screen.getByRole("radio", { name: "Deny" })).toBeChecked();
+    expect(screen.getByRole("radio", { name: "Allow" })).not.toBeChecked();
+    fireEvent.click(screen.getByRole("button", { name: "Add author filter" }));
     fireEvent.change(screen.getByRole("textbox", { name: "Creator filters" }), { target: { value: "Test Author A" } });
     await waitFor(() => expect(searchUsersMock).toHaveBeenCalledWith("Test Author A"));
-    fireEvent.click(screen.getByRole("button", { name: "Test Author A (test-author-a)" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Test Author A (test-author-a)" }));
 
-    fireEvent.click(screen.getByRole("tab", { name: "Whitelist" }));
-    expect(screen.getByRole("tab", { name: "Whitelist" })).toHaveAttribute("aria-selected", "true");
+    fireEvent.click(screen.getByRole("radio", { name: "Allow" }));
+    expect(screen.getByRole("radio", { name: "Allow" })).toBeChecked();
+    expect(screen.getByRole("radio", { name: "Deny" })).not.toBeChecked();
     expect(screen.queryByText("Test Author A", { selector: "li span" })).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Save filters" }));
+    fireEvent.click(screen.getByRole("button", { name: "Add project filter" }));
+    fireEvent.change(screen.getByRole("textbox", { name: "Project filters" }), { target: { value: "Example Project" } });
+    fireEvent.click(await screen.findByRole("button", { name: "DEMO (Example Project)" }));
+    fireEvent.click(screen.getByRole("button", { name: "Add repository filter" }));
+    fireEvent.change(screen.getByRole("textbox", { name: "Repository filters" }), { target: { value: "sample-repository" } });
+    await waitFor(() => expect(searchRepositoriesMock).toHaveBeenCalledWith("sample-repository"));
+    fireEvent.click(await screen.findByRole("button", { name: /DEMO\/sample-repository/ }));
+    expect(screen.queryByRole("textbox", { name: "Repository filters" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Remove Allow repository filter DEMO/sample-repository" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
 
     await waitFor(() => expect(saveSettingsMock).toHaveBeenCalledWith({
+      projectBlacklist: [],
+      projectWhitelist: ["DEMO"],
       repositoryBlacklist: [],
       creatorBlacklist: ["Test Author A"],
       repositoryWhitelist: [],
@@ -461,6 +490,7 @@ describe("MyPullRequestsPage", () => {
       autoReviewEnabled: false,
       authoredAutoReviewEnabled: false,
     }));
+    delete document.documentElement.dataset.buttonStyle;
   });
 
   it("persists the AI auto-review toggle from options", async () => {
@@ -471,15 +501,17 @@ describe("MyPullRequestsPage", () => {
     const toggle = screen.getByRole("switch", { name: "AI auto-review" });
     expect(toggle).toHaveClass("h-[22px]", "w-10");
     expect(screen.getByText("AI auto-review", { selector: "label" })).toHaveClass("text-sm", "font-semibold", "leading-tight");
-    expect(screen.getByRole("button", { name: "Apply" })).toHaveClass("app-action-text", "hover:text-success");
+    expect(screen.getByRole("button", { name: "Save" })).toHaveClass("app-action-text", "hover:text-primary");
     expect(screen.getByRole("button", { name: "Cancel" })).toHaveClass("app-action-text", "hover:text-primary");
     expect(toggle).not.toBeChecked();
     fireEvent.click(toggle);
     expect(saveSettingsMock).not.toHaveBeenCalled();
     expect(toggle).toBeChecked();
-    fireEvent.click(screen.getByRole("button", { name: "Apply" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
 
     await waitFor(() => expect(saveSettingsMock).toHaveBeenCalledWith({
+      projectBlacklist: [],
+      projectWhitelist: [],
       repositoryBlacklist: [],
       creatorBlacklist: [],
       repositoryWhitelist: [],
@@ -630,6 +662,8 @@ describe("MyPullRequestsPage", () => {
     fireEvent.pointerDown(within(card).getByRole("button", { name: "More actions" }), { button: 0, ctrlKey: false });
     fireEvent.click(await screen.findByRole("menuitem", { name: "Exclude repository" }));
     await waitFor(() => expect(saveSettingsMock).toHaveBeenCalledWith(expect.objectContaining({
+      projectBlacklist: [],
+      projectWhitelist: [],
       repositoryBlacklist: ["DEMO/sample-repository"],
     })));
     await waitFor(() => expect(screen.queryByRole("heading", { name: "Example pull request" })).not.toBeInTheDocument());

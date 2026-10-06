@@ -65,7 +65,6 @@ describe("CreateTaskPage", () => {
 
     expect(await screen.findByRole("heading", { name: "No tasks yet" })).toBeInTheDocument();
     expect(screen.getByText("Your created Jira tasks will appear here.")).toBeInTheDocument();
-    expect(screen.getByText("Start by describing a task and let AI prepare the draft for you.")).toBeInTheDocument();
     expect(screen.getByRole("status").querySelector("svg.lucide-clipboard-list")).toBeInTheDocument();
     expect(screen.getByRole("status")).not.toContainElement(screen.getByRole("button", { name: "Create task" }));
     fireEvent.click(screen.getByRole("button", { name: "Create task" }));

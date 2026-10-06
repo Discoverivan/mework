@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { CheckCheck, Filter, RefreshCw, Settings2 } from "lucide-react";
+import { CheckCheck, Filter, Plus, RefreshCw, Settings2, Trash2 } from "lucide-react";
 
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
@@ -8,19 +8,21 @@ import {
   Dialog,
   DialogBody,
   DialogContent,
-  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Card, CardContent } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Separator } from "@/components/ui/separator";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import type { AiSettingsPageData } from "@/shared/contracts/settings";
 import { matchesSelectedAiProvider } from "@/shared/contracts/settings";
 import type {
+  BitbucketProject,
   BitbucketRepository,
   BitbucketUser,
   MyPullRequest,
@@ -58,6 +60,7 @@ import {
   removePullRequestReviewer,
   savePullRequestReviewSettings,
   setPullRequestDecision,
+  searchBitbucketProjects,
   searchBitbucketRepositories,
   searchBitbucketUsers,
   startPullRequestReview,
@@ -65,20 +68,25 @@ import {
 
 
 type FilterTab = "blacklist" | "whitelist";
-type FilterKind = "repository" | "creator";
+type FilterKind = "project" | "repository" | "creator";
 type FilterField =
+  | "projectBlacklist"
+  | "projectWhitelist"
   | "repositoryBlacklist"
   | "creatorBlacklist"
   | "repositoryWhitelist"
   | "creatorWhitelist";
 
 function filterField(tab: FilterTab, kind: FilterKind): FilterField {
+  if (kind === "project") return tab === "blacklist" ? "projectBlacklist" : "projectWhitelist";
   if (tab === "blacklist") return kind === "repository" ? "repositoryBlacklist" : "creatorBlacklist";
   return kind === "repository" ? "repositoryWhitelist" : "creatorWhitelist";
 }
 
 
 const emptySettings: PullRequestReviewSettings = {
+  projectBlacklist: [],
+  projectWhitelist: [],
   repositoryBlacklist: [],
   creatorBlacklist: [],
   repositoryWhitelist: [],
@@ -104,9 +112,9 @@ function equalsIgnoreCase(left: string, right: string): boolean {
 }
 
 function matchesSettings(pullRequest: MyPullRequest, settings: PullRequestReviewSettings): boolean {
-  const whitelistValues = [...settings.repositoryWhitelist, ...settings.creatorWhitelist];
+  const whitelistValues = [...settings.projectWhitelist, ...settings.repositoryWhitelist, ...settings.creatorWhitelist];
   const repositoryWhitelistMatches = settings.repositoryWhitelist.some((value) =>
-    [repositoryKey(pullRequest), pullRequest.repositorySlug, pullRequest.repositoryName]
+    [pullRequest.projectKey, repositoryKey(pullRequest), pullRequest.repositorySlug, pullRequest.repositoryName]
       .some((candidate) => equalsIgnoreCase(value, candidate)),
   );
   const creatorWhitelistMatches = settings.creatorWhitelist.some((value) =>
@@ -119,8 +127,10 @@ function matchesSettings(pullRequest: MyPullRequest, settings: PullRequestReview
   const creatorBlacklistMatches = settings.creatorBlacklist.some((value) =>
     equalsIgnoreCase(value, pullRequest.authorDisplayName),
   );
-  const whitelistMatches = repositoryWhitelistMatches || creatorWhitelistMatches;
-  const blacklistMatches = repositoryBlacklistMatches || creatorBlacklistMatches;
+  const projectWhitelistMatches = settings.projectWhitelist.some((value) => equalsIgnoreCase(value, pullRequest.projectKey));
+  const projectBlacklistMatches = settings.projectBlacklist.some((value) => equalsIgnoreCase(value, pullRequest.projectKey));
+  const whitelistMatches = projectWhitelistMatches || repositoryWhitelistMatches || creatorWhitelistMatches;
+  const blacklistMatches = projectBlacklistMatches || repositoryBlacklistMatches || creatorBlacklistMatches;
   if (blacklistMatches) return false;
   if (whitelistValues.length > 0) return whitelistMatches;
   return true;
@@ -165,6 +175,10 @@ export function MyPullRequestsPage() {
   const [aiSettings, setAiSettings] = useState<AiSettingsPageData | null>(null);
   const [settings, setSettings] = useState<PullRequestReviewSettings>(emptySettings);
   const [draftSettings, setDraftSettings] = useState<PullRequestReviewSettings>(emptySettings);
+  const [projectInput, setProjectInput] = useState("");
+  const [projectSearchResults, setProjectSearchResults] = useState<BitbucketProject[]>([]);
+  const [projectSearchLoading, setProjectSearchLoading] = useState(false);
+  const [projectSearchError, setProjectSearchError] = useState<string>();
   const [repositoryInput, setRepositoryInput] = useState("");
   const [repositorySearchResults, setRepositorySearchResults] = useState<BitbucketRepository[]>([]);
   const [repositorySearchLoading, setRepositorySearchLoading] = useState(false);
@@ -174,6 +188,7 @@ export function MyPullRequestsPage() {
   const [creatorSearchLoading, setCreatorSearchLoading] = useState(false);
   const [creatorSearchError, setCreatorSearchError] = useState<string>();
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [filterSearch, setFilterSearch] = useState<FilterKind>();
   const [displayOptionsOpen, setDisplayOptionsOpen] = useState(false);
   const [displayPreferences, updateDisplayPreferences] = usePullRequestDisplayPreferences("reviewer");
   const [filterTab, setFilterTab] = useState<FilterTab>("whitelist");
@@ -306,8 +321,40 @@ export function MyPullRequestsPage() {
   usePullRequestReviewPolling(pullRequests, setPullRequests);
 
   useEffect(() => {
+    const query = projectInput.trim();
+    if (!settingsOpen || filterSearch !== "project" || query.length < 3) {
+      setProjectSearchResults([]);
+      setProjectSearchLoading(false);
+      setProjectSearchError(undefined);
+      return;
+    }
+    let active = true;
+    const timer = window.setTimeout(() => {
+      setProjectSearchLoading(true);
+      setProjectSearchError(undefined);
+      searchBitbucketProjects(query)
+        .then((repositories) => {
+          if (active) setProjectSearchResults(repositories);
+        })
+        .catch((reason) => {
+          if (active) {
+            setProjectSearchResults([]);
+            setProjectSearchError(commandError(reason));
+          }
+        })
+        .finally(() => {
+          if (active) setProjectSearchLoading(false);
+        });
+    }, 300);
+    return () => {
+      active = false;
+      window.clearTimeout(timer);
+    };
+  }, [projectInput, settingsOpen, filterSearch]);
+
+  useEffect(() => {
     const query = repositoryInput.trim();
-    if (!settingsOpen || query.length < 3) {
+    if (!settingsOpen || filterSearch !== "repository" || query.length < 3) {
       setRepositorySearchResults([]);
       setRepositorySearchLoading(false);
       setRepositorySearchError(undefined);
@@ -335,11 +382,11 @@ export function MyPullRequestsPage() {
       active = false;
       window.clearTimeout(timer);
     };
-  }, [repositoryInput, settingsOpen]);
+  }, [repositoryInput, settingsOpen, filterSearch]);
 
   useEffect(() => {
     const query = creatorInput.trim();
-    if (!settingsOpen || query.length < 3) {
+    if (!settingsOpen || filterSearch !== "creator" || query.length < 3) {
       setCreatorSearchResults([]);
       setCreatorSearchLoading(false);
       setCreatorSearchError(undefined);
@@ -367,7 +414,7 @@ export function MyPullRequestsPage() {
       active = false;
       window.clearTimeout(timer);
     };
-  }, [creatorInput, settingsOpen]);
+  }, [creatorInput, settingsOpen, filterSearch]);
 
   const repositorySearchMatch = repositorySearchResults.find((repository) =>
     equalsIgnoreCase(repositoryOptionKey(repository), repositoryInput),
@@ -392,6 +439,8 @@ export function MyPullRequestsPage() {
 
   function openSettings() {
     setDraftSettings({
+      projectBlacklist: [...settings.projectBlacklist],
+      projectWhitelist: [...settings.projectWhitelist],
       repositoryBlacklist: [...settings.repositoryBlacklist],
       creatorBlacklist: [...settings.creatorBlacklist],
       repositoryWhitelist: [...settings.repositoryWhitelist],
@@ -400,6 +449,10 @@ export function MyPullRequestsPage() {
       authoredAutoReviewEnabled: settings.authoredAutoReviewEnabled,
     });
     setFilterTab("blacklist");
+    setFilterSearch(undefined);
+    setProjectInput("");
+    setProjectSearchResults([]);
+    setProjectSearchError(undefined);
     setRepositoryInput("");
     setRepositorySearchResults([]);
     setRepositorySearchError(undefined);
@@ -412,14 +465,16 @@ export function MyPullRequestsPage() {
 
   function addValue(kind: FilterKind, selectedValue?: string) {
     const field = filterField(filterTab, kind);
-    const input = kind === "repository" ? repositoryInput : creatorInput;
+    const input = kind === "creator" ? creatorInput : kind === "project" ? projectInput : repositoryInput;
     const value = (selectedValue ?? input).trim();
     if (!value) return;
+    setFilterSearch(undefined);
     setDraftSettings((current) => {
       if (current[field].some((existing) => equalsIgnoreCase(existing, value))) return current;
       return { ...current, [field]: [...current[field], value] };
     });
-    if (kind === "repository") setRepositoryInput("");
+    if (kind === "project") setProjectInput("");
+    else if (kind === "repository") setRepositoryInput("");
     else {
       setCreatorInput("");
       setCreatorSearchResults([]);
@@ -434,7 +489,12 @@ export function MyPullRequestsPage() {
     }));
   }
 
+  const filtersChanged = (["projectBlacklist", "projectWhitelist", "repositoryBlacklist", "repositoryWhitelist", "creatorBlacklist", "creatorWhitelist"] as const)
+    .some((field) => draftSettings[field].length !== settings[field].length
+      || draftSettings[field].some((value) => !settings[field].some((saved) => equalsIgnoreCase(value, saved))));
+
   async function saveSettings() {
+    if (saving || !filtersChanged) return;
     setSaving(true);
     setSettingsError(undefined);
     try {
@@ -465,12 +525,13 @@ export function MyPullRequestsPage() {
 
   async function blacklistPullRequest(pullRequest: MyPullRequest, scope: "project" | "repository") {
     const value = scope === "project" ? pullRequest.projectKey : repositoryKey(pullRequest);
-    if (settings.repositoryBlacklist.some((entry) => equalsIgnoreCase(entry, value))) return;
+    const field = scope === "project" ? "projectBlacklist" : "repositoryBlacklist";
+    if (settings[field].some((entry) => equalsIgnoreCase(entry, value))) return;
     setError(undefined);
     try {
       const saved = await savePullRequestReviewSettings({
         ...settings,
-        repositoryBlacklist: [...settings.repositoryBlacklist, value],
+        [field]: [...settings[field], value],
       });
       setSettings(saved);
       setDraftSettings(saved);
@@ -597,6 +658,7 @@ export function MyPullRequestsPage() {
     }
   }
 
+  const activeProjectField = filterField(filterTab, "project");
   const activeRepositoryField = filterField(filterTab, "repository");
   const activeCreatorField = filterField(filterTab, "creator");
   const activeTabLabel = t(filterTab === "blacklist" ? "pr.filters.blacklist" : "pr.filters.whitelist");
@@ -717,10 +779,10 @@ export function MyPullRequestsPage() {
         </Alert>
       ) : null}
       {!loading && !error && pullRequests.length === 0 ? (
-        <Card><CardContent className="pt-6"><p>{t("pr.emptyReview")}</p></CardContent></Card>
+        <Card><CardContent className="py-3 text-sm text-muted-foreground"><p>{t("pr.emptyReview")}</p></CardContent></Card>
       ) : null}
       {!loading && !error && pullRequests.length > 0 && visiblePullRequests.length === 0 ? (
-        <Card><CardContent className="pt-6"><p>{t("pr.emptyFiltered")}</p></CardContent></Card>
+        <Card><CardContent className="py-3"><p className="text-sm text-muted-foreground">{t("pr.emptyFiltered")}</p></CardContent></Card>
       ) : null}
 
       <div className={`${displayPreferences.grouping !== "none" ? "space-y-5" : "inbox-list"} pt-1`} aria-live="polite">
@@ -782,130 +844,246 @@ export function MyPullRequestsPage() {
       />
 
       <Dialog open={settingsOpen} onOpenChange={setSettingsOpen}>
-        <DialogContent className="max-w-2xl">
+        <DialogContent className="max-w-2xl" aria-describedby={undefined}>
           <DialogHeader>
             <DialogTitle>{t("pr.filters.title")}</DialogTitle>
-            <DialogDescription>
-              {t("pr.filters.description")}
-            </DialogDescription>
           </DialogHeader>
-          <DialogBody className="space-y-6">
-            <div role="tablist" aria-label={t("pr.filters.lists")} className="grid grid-cols-2 gap-1 rounded-lg bg-muted p-1">
-              <Button
-                type="button"
-                role="tab"
-                variant={filterTab === "blacklist" ? "default" : "ghost"}
-                aria-selected={filterTab === "blacklist"}
-                onClick={() => setFilterTab("blacklist")}
+          <DialogBody className="flex flex-col gap-6">
+            <ToggleGroup
+              type="single"
+              size="sm"
+              role="radiogroup"
+              value={filterTab}
+              onValueChange={(value) => {
+                if (value === "blacklist" || value === "whitelist") {
+                  setFilterSearch(undefined);
+                  setFilterTab(value);
+                }
+              }}
+              aria-label={t("pr.filters.lists")}
+              className="pr-filter-mode grid grid-cols-2 gap-1 rounded-lg bg-muted p-1"
+            >
+              <ToggleGroupItem
+                value="blacklist"
+                title={t("pr.filters.denyHint")}
+                className="pr-filter-mode-option data-[state=on]:bg-background data-[state=on]:text-foreground data-[state=on]:shadow-sm"
               >
                 {t("pr.filters.blacklist")}
-              </Button>
-              <Button
-                type="button"
-                role="tab"
-                variant={filterTab === "whitelist" ? "default" : "ghost"}
-                aria-selected={filterTab === "whitelist"}
-                onClick={() => setFilterTab("whitelist")}
+              </ToggleGroupItem>
+              <ToggleGroupItem
+                value="whitelist"
+                title={t("pr.filters.allowHint")}
+                className="pr-filter-mode-option data-[state=on]:bg-background data-[state=on]:text-foreground data-[state=on]:shadow-sm"
               >
                 {t("pr.filters.whitelist")}
-              </Button>
-            </div>
-            <p className="text-sm text-muted-foreground">
-              {t(filterTab === "blacklist" ? "pr.filters.blacklistDescription" : "pr.filters.whitelistDescription")}
-            </p>
+              </ToggleGroupItem>
+            </ToggleGroup>
 
-            <div className="space-y-3">
-              <Label htmlFor={`${filterTab}-repository-input`}>{t("pr.filters.repositories")}</Label>
-              <p className="text-sm text-muted-foreground">{t("pr.filters.repositoriesDescription")}</p>
-              <div className="flex gap-2">
-                <Input
-                  id={`${filterTab}-repository-input`}
-                  value={repositoryInput}
-                  onChange={(event) => setRepositoryInput(event.target.value)}
-                  onKeyDown={(event) => {
-                    if (event.key === "Enter" && repositorySearchMatch) {
-                      event.preventDefault();
-                      addValue("repository", repositoryOptionKey(repositorySearchMatch));
-                    }
-                  }}
-                  placeholder={t("pr.filters.repositoryPlaceholder")}
-                />
-                <Button type="button" variant="outline" onClick={() => repositorySearchMatch && addValue("repository", repositoryOptionKey(repositorySearchMatch))} disabled={!repositorySearchMatch}>
-                  {t("pr.filters.add")}
-                </Button>
-              </div>
-              {repositorySearchLoading ? <p role="status" className="text-sm text-muted-foreground">{t("pr.filters.searchingRepositories")}</p> : null}
-              {repositorySearchError ? <p role="alert" className="text-sm text-destructive">{repositorySearchError}</p> : null}
-              {repositorySearchResults.length > 0 ? (
-                <ul aria-label={t("pr.filters.repositoryResults")} className="space-y-1">
-                  {repositorySearchResults.map((repository) => (
-                    <li key={repositoryOptionKey(repository)}>
-                      <button type="button" aria-label={repositoryOptionLabel(repository)} className="w-full rounded-md border px-3 py-2 text-left text-sm hover:bg-muted" onClick={() => addValue("repository", repositoryOptionKey(repository))}>
-                        <span className="font-medium">{repositoryOptionKey(repository)}</span>
-                        <span className="ml-2 text-muted-foreground">· {repository.repositoryName} ({repository.projectName})</span>
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-              ) : null}
-              <ul aria-label={t("pr.filters.repositoryList", { list: activeTabLabel })} className="flex flex-wrap gap-2">
-                {draftSettings[activeRepositoryField].map((value) => (
-                  <li key={value} className="flex items-center gap-2 rounded-md border px-2 py-1 text-sm">
-                    <span>{value}</span>
-                    <button type="button" aria-label={t("pr.filters.removeRepository", { list: activeTabLabel, value })} onClick={() => removeValue("repository", value)}>×</button>
-                  </li>
-                ))}
-              </ul>
-            </div>
-
-            <div className="space-y-3">
-              <Label htmlFor={`${filterTab}-creator-input`}>{t("pr.filters.creators")}</Label>
-              <p className="text-sm text-muted-foreground">{t("pr.filters.creatorsDescription")}</p>
-              <div className="flex gap-2">
-                <Input
-                  id={`${filterTab}-creator-input`}
-                  value={creatorInput}
-                  onChange={(event) => setCreatorInput(event.target.value)}
-                  onKeyDown={(event) => {
-                    if (event.key === "Enter" && creatorSearchMatch?.displayName) {
-                      event.preventDefault();
-                      addValue("creator", creatorSearchMatch.displayName);
-                    }
-                  }}
-                  placeholder={t("pr.filters.creatorPlaceholder")}
-                />
-                <Button type="button" variant="outline" onClick={() => creatorSearchMatch?.displayName && addValue("creator", creatorSearchMatch.displayName)} disabled={!creatorSearchMatch?.displayName}>
-                  {t("pr.filters.add")}
-                </Button>
-              </div>
-              {creatorSearchLoading ? <p role="status" className="text-sm text-muted-foreground">{t("pr.filters.searchingCreators")}</p> : null}
-              {creatorSearchError ? <p role="alert" className="text-sm text-destructive">{creatorSearchError}</p> : null}
-              {creatorSearchResults.length > 0 ? (
-                <ul aria-label={t("pr.filters.creatorResults")} className="space-y-1">
-                  {creatorSearchResults.map((user) => {
-                    const displayName = user.displayName ?? user.name ?? user.slug;
-                    if (!displayName) return null;
-                    const account = user.name ?? user.slug;
-                    return (
-                      <li key={`${user.name ?? ""}:${user.slug ?? ""}:${displayName}`}>
-                        <button type="button" aria-label={`${displayName}${account ? ` (${account})` : ""}`} className="w-full rounded-md border px-3 py-2 text-left text-sm hover:bg-muted" onClick={() => addValue("creator", displayName)}>
-                          <span className="font-medium">{displayName}</span>
-                          {account ? <span className="ml-2 text-muted-foreground">({account})</span> : null}
-                        </button>
+            <Card className="pr-filter-group overflow-hidden shadow-none">
+              <CardHeader className="bg-muted px-3 py-1">
+                <div className="flex items-center justify-between gap-3">
+                  <CardTitle className="min-w-0 flex-1 text-[15px] font-normal leading-normal">{t("pr.filters.projects")}</CardTitle>
+                  <div className="flex w-11 shrink-0 items-center justify-end">
+                    <Popover modal open={settingsOpen && filterSearch === "project"} onOpenChange={(open) => {
+                      setFilterSearch((current) => open ? "project" : current === "project" ? undefined : current);
+                      if (open) setProjectInput("");
+                    }}>
+                      <PopoverTrigger asChild>
+                        <Button type="button" variant="outline" size="icon" actionTone="add" className="size-7 shrink-0" aria-label={t("pr.filters.addProject")} title={t("pr.filters.addProject")}>
+                          <Plus aria-hidden="true" />
+                        </Button>
+                      </PopoverTrigger>
+                      <PopoverContent align="end" aria-label={t("pr.filters.addProject")} className="flex w-[min(24rem,calc(100vw-2rem))] flex-col gap-3">
+                        <Label htmlFor={`${filterTab}-project-input`}>{t("pr.filters.projects")}</Label>
+                        <Input
+                          id={`${filterTab}-project-input`}
+                          value={projectInput}
+                          onChange={(event) => setProjectInput(event.target.value)}
+                          placeholder={t("pr.filters.projectPlaceholder")}
+                        />
+                        {projectSearchLoading ? <p role="status" className="text-sm text-muted-foreground">{t("pr.filters.searchingProjects")}</p> : null}
+                        {projectSearchError ? <p role="alert" className="text-sm text-destructive">{projectSearchError}</p> : null}
+                        {projectSearchResults.length > 0 ? (
+                          <ul aria-label={t("pr.filters.projectResults")} className="flex max-h-[min(18rem,40vh)] flex-col gap-1 overflow-y-auto overscroll-contain pr-1">
+                            {projectSearchResults.map((project) => (
+                              <li key={`${project.integrationId}:${project.projectKey}`}>
+                                <button type="button" aria-label={`${project.projectKey} (${project.projectName})`} className="w-full cursor-pointer rounded-md border px-3 py-2 text-left text-sm hover:text-primary focus-visible:text-primary" onClick={() => addValue("project", project.projectKey)}>
+                                  <span className="font-medium">{project.projectKey}</span>
+                                  <span className="ml-2 opacity-70">{project.projectName}</span>
+                                </button>
+                              </li>
+                            ))}
+                          </ul>
+                        ) : null}
+                      </PopoverContent>
+                    </Popover>
+                  </div>
+                </div>
+              </CardHeader>
+              {draftSettings[activeProjectField].length > 0 ? (
+                <CardContent className="px-3 pb-0">
+                  <ul aria-label={t("pr.filters.projectList", { list: activeTabLabel })} className="flex flex-col">
+                    {draftSettings[activeProjectField].map((value) => (
+                      <li key={value} className="flex min-h-10 min-w-0 items-center justify-between gap-3 border-b py-1.5 text-[13px] last:border-b-0">
+                        <span className="min-w-0 break-words">{value}</span>
+                        <div className="flex w-11 shrink-0 items-center justify-end">
+                          <Button type="button" size="icon" variant="ghost" actionTone="delete" className="size-7 shrink-0 text-muted-foreground hover:bg-transparent hover:text-destructive" aria-label={t("pr.filters.removeProject", { list: activeTabLabel, value })} title={t("pr.filters.removeProject", { list: activeTabLabel, value })} onClick={() => removeValue("project", value)}>
+                            <Trash2 aria-hidden="true" />
+                          </Button>
+                        </div>
                       </li>
-                    );
-                  })}
-                </ul>
-              ) : null}
-              <ul aria-label={t("pr.filters.creatorList", { list: activeTabLabel })} className="flex flex-wrap gap-2">
-                {draftSettings[activeCreatorField].map((value) => (
-                  <li key={value} className="flex items-center gap-2 rounded-md border px-2 py-1 text-sm">
-                    <span>{value}</span>
-                    <button type="button" aria-label={t("pr.filters.removeCreator", { list: activeTabLabel, value })} onClick={() => removeValue("creator", value)}>×</button>
-                  </li>
-                ))}
-              </ul>
-            </div>
+                    ))}
+                  </ul>
+                </CardContent>
+              ) : (
+                <CardContent className="px-3 pb-2 pt-2">
+                  <p className="text-[13px] text-muted-foreground">{t(filterTab === "whitelist" ? "pr.filters.emptyAllow" : "pr.filters.emptyDeny")}</p>
+                </CardContent>
+              )}
+            </Card>
+
+            <Card className="pr-filter-group overflow-hidden shadow-none">
+              <CardHeader className="bg-muted px-3 py-1">
+                <div className="flex items-center justify-between gap-3">
+                  <CardTitle className="min-w-0 flex-1 text-[15px] font-normal leading-normal">{t("pr.filters.repositories")}</CardTitle>
+                  <div className="flex w-11 shrink-0 items-center justify-end">
+                    <Popover modal open={settingsOpen && filterSearch === "repository"} onOpenChange={(open) => {
+                      setFilterSearch((current) => open ? "repository" : current === "repository" ? undefined : current);
+                      if (open) setRepositoryInput("");
+                    }}>
+                      <PopoverTrigger asChild>
+                        <Button type="button" variant="outline" size="icon" actionTone="add" className="size-7 shrink-0" aria-label={t("pr.filters.addRepository")} title={t("pr.filters.addRepository")}>
+                          <Plus aria-hidden="true" />
+                        </Button>
+                      </PopoverTrigger>
+                      <PopoverContent align="end" aria-label={t("pr.filters.addRepository")} className="flex w-[min(24rem,calc(100vw-2rem))] flex-col gap-3">
+                        <Label htmlFor={`${filterTab}-repository-input`}>{t("pr.filters.repositories")}</Label>
+                        <Input
+                          id={`${filterTab}-repository-input`}
+                          value={repositoryInput}
+                          onChange={(event) => setRepositoryInput(event.target.value)}
+                          onKeyDown={(event) => {
+                            if (event.key === "Enter" && repositorySearchMatch) {
+                              event.preventDefault();
+                              addValue("repository", repositoryOptionKey(repositorySearchMatch));
+                            }
+                          }}
+                          placeholder={t("pr.filters.repositoryPlaceholder")}
+                        />
+                        {repositorySearchLoading ? <p role="status" className="text-sm text-muted-foreground">{t("pr.filters.searchingRepositories")}</p> : null}
+                        {repositorySearchError ? <p role="alert" className="text-sm text-destructive">{repositorySearchError}</p> : null}
+                        {repositorySearchResults.length > 0 ? (
+                          <ul aria-label={t("pr.filters.repositoryResults")} className="flex max-h-[min(18rem,40vh)] flex-col gap-1 overflow-y-auto overscroll-contain pr-1">
+                            {repositorySearchResults.map((repository) => (
+                              <li key={repositoryOptionKey(repository)}>
+                                <button type="button" aria-label={repositoryOptionLabel(repository)} className="w-full cursor-pointer rounded-md border px-3 py-2 text-left text-sm hover:text-primary focus-visible:text-primary" onClick={() => addValue("repository", repositoryOptionKey(repository))}>
+                                  <span className="font-medium">{repositoryOptionKey(repository)}</span>
+                                  <span className="ml-2 opacity-70">· {repository.repositoryName} ({repository.projectName})</span>
+                                </button>
+                              </li>
+                            ))}
+                          </ul>
+                        ) : null}
+                      </PopoverContent>
+                    </Popover>
+                  </div>
+                </div>
+              </CardHeader>
+              {draftSettings[activeRepositoryField].length > 0 ? (
+                <CardContent className="px-3 pb-0">
+                  <ul aria-label={t("pr.filters.repositoryList", { list: activeTabLabel })} className="flex flex-col">
+                    {draftSettings[activeRepositoryField].map((value) => (
+                      <li key={value} className="flex min-h-10 min-w-0 items-center justify-between gap-3 border-b py-1.5 text-[13px] last:border-b-0">
+                        <span className="min-w-0 break-words">{value}</span>
+                        <div className="flex w-11 shrink-0 items-center justify-end">
+                          <Button type="button" size="icon" variant="ghost" actionTone="delete" className="size-7 shrink-0 text-muted-foreground hover:bg-transparent hover:text-destructive" aria-label={t("pr.filters.removeRepository", { list: activeTabLabel, value })} title={t("pr.filters.removeRepository", { list: activeTabLabel, value })} onClick={() => removeValue("repository", value)}>
+                            <Trash2 aria-hidden="true" />
+                          </Button>
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                </CardContent>
+              ) : (
+                <CardContent className="px-3 pb-2 pt-2">
+                  <p className="text-[13px] text-muted-foreground">{t(filterTab === "whitelist" ? "pr.filters.emptyAllow" : "pr.filters.emptyDeny")}</p>
+                </CardContent>
+              )}
+            </Card>
+
+            <Card className="pr-filter-group overflow-hidden shadow-none">
+              <CardHeader className="bg-muted px-3 py-1">
+                <div className="flex items-center justify-between gap-3">
+                  <CardTitle className="min-w-0 flex-1 text-[15px] font-normal leading-normal">{t("pr.filters.creators")}</CardTitle>
+                  <div className="flex w-11 shrink-0 items-center justify-end">
+                    <Popover modal open={settingsOpen && filterSearch === "creator"} onOpenChange={(open) => {
+                      setFilterSearch((current) => open ? "creator" : current === "creator" ? undefined : current);
+                      if (open) setCreatorInput("");
+                    }}>
+                      <PopoverTrigger asChild>
+                        <Button type="button" variant="outline" size="icon" actionTone="add" className="size-7 shrink-0" aria-label={t("pr.filters.addCreator")} title={t("pr.filters.addCreator")}>
+                          <Plus aria-hidden="true" />
+                        </Button>
+                      </PopoverTrigger>
+                      <PopoverContent align="end" aria-label={t("pr.filters.addCreator")} className="flex w-[min(24rem,calc(100vw-2rem))] flex-col gap-3">
+                        <Label htmlFor={`${filterTab}-creator-input`}>{t("pr.filters.creators")}</Label>
+                        <Input
+                          id={`${filterTab}-creator-input`}
+                          value={creatorInput}
+                          onChange={(event) => setCreatorInput(event.target.value)}
+                          onKeyDown={(event) => {
+                            if (event.key === "Enter" && creatorSearchMatch?.displayName) {
+                              event.preventDefault();
+                              addValue("creator", creatorSearchMatch.displayName);
+                            }
+                          }}
+                          placeholder={t("pr.filters.creatorPlaceholder")}
+                        />
+                        {creatorSearchLoading ? <p role="status" className="text-sm text-muted-foreground">{t("pr.filters.searchingCreators")}</p> : null}
+                        {creatorSearchError ? <p role="alert" className="text-sm text-destructive">{creatorSearchError}</p> : null}
+                        {creatorSearchResults.length > 0 ? (
+                          <ul aria-label={t("pr.filters.creatorResults")} className="flex max-h-[min(18rem,40vh)] flex-col gap-1 overflow-y-auto overscroll-contain pr-1">
+                            {creatorSearchResults.map((user) => {
+                              const displayName = user.displayName ?? user.name ?? user.slug;
+                              if (!displayName) return null;
+                              const account = user.name ?? user.slug;
+                              return (
+                                <li key={`${user.name ?? ""}:${user.slug ?? ""}:${displayName}`}>
+                                  <button type="button" aria-label={`${displayName}${account ? ` (${account})` : ""}`} className="w-full cursor-pointer rounded-md border px-3 py-2 text-left text-sm hover:text-primary focus-visible:text-primary" onClick={() => addValue("creator", displayName)}>
+                                    <span className="font-medium">{displayName}</span>
+                                    {account ? <span className="ml-2 opacity-70">({account})</span> : null}
+                                  </button>
+                                </li>
+                              );
+                            })}
+                          </ul>
+                        ) : null}
+                      </PopoverContent>
+                    </Popover>
+                  </div>
+                </div>
+              </CardHeader>
+              {draftSettings[activeCreatorField].length > 0 ? (
+                <CardContent className="px-3 pb-0">
+                  <ul aria-label={t("pr.filters.creatorList", { list: activeTabLabel })} className="flex flex-col">
+                    {draftSettings[activeCreatorField].map((value) => (
+                      <li key={value} className="flex min-h-10 min-w-0 items-center justify-between gap-3 border-b py-1.5 text-[13px] last:border-b-0">
+                        <span className="min-w-0 break-words">{value}</span>
+                        <div className="flex w-11 shrink-0 items-center justify-end">
+                          <Button type="button" size="icon" variant="ghost" actionTone="delete" className="size-7 shrink-0 text-muted-foreground hover:bg-transparent hover:text-destructive" aria-label={t("pr.filters.removeCreator", { list: activeTabLabel, value })} title={t("pr.filters.removeCreator", { list: activeTabLabel, value })} onClick={() => removeValue("creator", value)}>
+                            <Trash2 aria-hidden="true" />
+                          </Button>
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                </CardContent>
+              ) : (
+                <CardContent className="px-3 pb-2 pt-2">
+                  <p className="text-[13px] text-muted-foreground">{t(filterTab === "whitelist" ? "pr.filters.emptyAllow" : "pr.filters.emptyDeny")}</p>
+                </CardContent>
+              )}
+            </Card>
             {settingsError ? (
               <Alert variant="destructive" role="alert">
                 <AlertTitle>{t("pr.filters.saveError")}</AlertTitle>
@@ -915,7 +1093,7 @@ export function MyPullRequestsPage() {
           </DialogBody>
           <DialogFooter>
             <Button type="button" variant="outline" onClick={() => setSettingsOpen(false)} disabled={saving}>{t("settings.common.cancel")}</Button>
-            <Button type="button" onClick={() => void saveSettings()} disabled={saving}>{saving ? t("settings.common.saving") : t("pr.filters.save")}</Button>
+            <Button type="button" onClick={() => void saveSettings()} disabled={saving || !filtersChanged}>{saving ? t("settings.common.saving") : t("settings.common.save")}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

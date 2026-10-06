@@ -88,6 +88,7 @@ pub struct TokenBurnerIteration {
     pub status: String,
     pub phase: String,
     pub total_tokens: i64,
+    pub usage_known: bool,
     pub started_at: Option<i64>,
     pub finished_at: Option<i64>,
 }
@@ -178,7 +179,7 @@ fn validate_settings(settings: &TokenBurnerSettings) -> Result<(), String> {
 }
 
 async fn clear_previous_day_history(pool: &SqlitePool) -> Result<(), String> {
-    sqlx::query("DELETE FROM token_burner_sessions WHERE date(started_at, 'localtime') < date('now', 'localtime') AND status NOT IN ('running', 'stopping')")
+    sqlx::query("DELETE FROM token_burner_sessions WHERE date(started_at, 'localtime') < date('now', 'localtime') AND status NOT IN ('running', 'paused', 'stopping')")
         .execute(pool)
         .await
         .map_err(|_| "failed to clear previous-day Model-testing history".to_owned())?;
@@ -307,7 +308,7 @@ pub async fn snapshot(pool: &SqlitePool) -> Result<TokenBurnerSnapshot, String> 
 
     let (active_iterations, completed_iterations) = if let Some(session_id) = session_id {
         let rows = sqlx::query(
-            "SELECT id, pull_request_id, pull_request_title, repository_name, project_key, repository_slug, pull_request_url, perspective, status, phase, total_tokens, CAST(strftime('%s', started_at) AS INTEGER) * 1000 AS started_ms, CASE WHEN finished_at IS NULL THEN NULL ELSE CAST(strftime('%s', finished_at) AS INTEGER) * 1000 END AS finished_ms FROM token_burner_iterations WHERE session_id = ? ORDER BY started_at DESC LIMIT 100",
+            "SELECT id, pull_request_id, pull_request_title, repository_name, project_key, repository_slug, pull_request_url, perspective, status, phase, total_tokens, reserved_tokens, CAST(strftime('%s', started_at) AS INTEGER) * 1000 AS started_ms, CASE WHEN finished_at IS NULL THEN NULL ELSE CAST(strftime('%s', finished_at) AS INTEGER) * 1000 END AS finished_ms FROM token_burner_iterations WHERE session_id = ? ORDER BY started_at DESC LIMIT 100",
         )
         .bind(session_id)
         .fetch_all(pool)
@@ -334,6 +335,10 @@ pub async fn snapshot(pool: &SqlitePool) -> Result<TokenBurnerSnapshot, String> 
                 status: row.try_get("status").map_err(db_read_error)?,
                 phase: row.try_get("phase").map_err(db_read_error)?,
                 total_tokens: row.try_get("total_tokens").map_err(db_read_error)?,
+                usage_known: row
+                    .try_get::<i64, _>("reserved_tokens")
+                    .map_err(db_read_error)?
+                    == 0,
                 started_at: row.try_get("started_ms").map_err(db_read_error)?,
                 finished_at: row.try_get("finished_ms").map_err(db_read_error)?,
             };
@@ -499,10 +504,16 @@ pub async fn resume<R: Runtime>(
     app: AppHandle<R>,
     runtime: Arc<TokenBurnerRuntime>,
 ) -> Result<TokenBurnerSnapshot, String> {
+    let state_guard = runtime.state_lock.lock().await;
     let session: Option<(String, String)> = sqlx::query_as("SELECT id, settings_json FROM token_burner_sessions WHERE status = 'paused' ORDER BY started_at DESC LIMIT 1").fetch_optional(&pool).await.map_err(|_| "failed to load paused Token Burner session".to_owned())?;
     let Some((session_id, settings_json)) = session else {
         return Err("No paused Token Burner session is available".to_owned());
     };
+    if resume_active_worker(&pool, &runtime, &session_id).await? {
+        drop(state_guard);
+        emit_snapshot(&pool, &app).await?;
+        return snapshot(&pool).await;
+    }
     let settings: TokenBurnerSettings = serde_json::from_str(&settings_json)
         .map_err(|_| "Saved Token Burner session settings are invalid".to_owned())?;
     let ai_settings = ai::settings_for_activity(&pool, AiActivity::TokenBurner).await?;
@@ -517,7 +528,6 @@ pub async fn resume<R: Runtime>(
     } else {
         None
     };
-    let state_guard = runtime.state_lock.lock().await;
     if runtime
         .running
         .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
@@ -525,20 +535,9 @@ pub async fn resume<R: Runtime>(
     {
         return Err("Token Burner is already running".to_owned());
     }
-    let resumed = sqlx::query("UPDATE token_burner_sessions SET status = 'running', started_at = strftime('%Y-%m-%dT%H:%M:%fZ','now'), paused_at = NULL, error = NULL WHERE id = ? AND status = 'paused'")
-        .bind(&session_id)
-        .execute(&pool)
-        .await;
-    match resumed {
-        Ok(result) if result.rows_affected() == 1 => {}
-        Ok(_) => {
-            runtime.running.store(false, Ordering::Release);
-            return Err("No paused Token Burner session is available".to_owned());
-        }
-        Err(_) => {
-            runtime.running.store(false, Ordering::Release);
-            return Err("failed to resume Token Burner".to_owned());
-        }
+    if let Err(error) = mark_session_resumed(&pool, &session_id).await {
+        runtime.running.store(false, Ordering::Release);
+        return Err(error);
     }
     drop(state_guard);
     let worker_pool = pool.clone();
@@ -559,6 +558,31 @@ pub async fn resume<R: Runtime>(
     });
     emit_snapshot(&pool, &app).await?;
     snapshot(&pool).await
+}
+
+// Called with state_lock held so worker shutdown and resume cannot claim the same session.
+async fn resume_active_worker(
+    pool: &SqlitePool,
+    runtime: &TokenBurnerRuntime,
+    session_id: &str,
+) -> Result<bool, String> {
+    if !runtime.running.load(Ordering::Acquire) {
+        return Ok(false);
+    }
+    mark_session_resumed(pool, session_id).await?;
+    Ok(true)
+}
+
+async fn mark_session_resumed(pool: &SqlitePool, session_id: &str) -> Result<(), String> {
+    let resumed = sqlx::query("UPDATE token_burner_sessions SET status = 'running', started_at = strftime('%Y-%m-%dT%H:%M:%fZ','now'), paused_at = NULL, error = NULL WHERE id = ? AND status = 'paused'")
+        .bind(session_id)
+        .execute(pool)
+        .await
+        .map_err(|_| "failed to resume Token Burner".to_owned())?;
+    if resumed.rows_affected() != 1 {
+        return Err("No paused Token Burner session is available".to_owned());
+    }
+    Ok(())
 }
 
 fn paused_stop_status(worker_running: bool) -> &'static str {
@@ -586,15 +610,20 @@ pub async fn stop<R: Runtime>(
     snapshot(pool).await
 }
 
-async fn session_is_running(pool: &SqlitePool, session_id: &str) -> bool {
-    sqlx::query_scalar::<_, String>("SELECT status FROM token_burner_sessions WHERE id = ?")
+async fn wait_until_running(pool: &SqlitePool, session_id: &str) -> bool {
+    loop {
+        let status = sqlx::query_scalar::<_, String>(
+            "SELECT status FROM token_burner_sessions WHERE id = ?",
+        )
         .bind(session_id)
         .fetch_optional(pool)
-        .await
-        .ok()
-        .flatten()
-        .as_deref()
-        == Some("running")
+        .await;
+        match status.ok().flatten().as_deref() {
+            Some("running") => return true,
+            Some("paused") => tokio::time::sleep(Duration::from_millis(250)).await,
+            _ => return false,
+        }
+    }
 }
 
 async fn wait_until_stopping(pool: &SqlitePool, session_id: &str) {
@@ -611,6 +640,13 @@ async fn wait_until_stopping(pool: &SqlitePool, session_id: &str) {
             }
         }
         tokio::time::sleep(Duration::from_millis(250)).await;
+    }
+}
+
+async fn wait_between_iterations(pool: &SqlitePool, session_id: &str, delay: Duration) -> bool {
+    tokio::select! {
+        _ = tokio::time::sleep(delay) => true,
+        _ = wait_until_stopping(pool, session_id) => false,
     }
 }
 
@@ -664,20 +700,13 @@ async fn worker_loop<R: Runtime>(
         if !runtime.running.load(Ordering::Acquire) {
             return;
         }
-        let session_status: Option<String> =
-            sqlx::query_scalar("SELECT status FROM token_burner_sessions WHERE id = ?")
-                .bind(&session_id)
-                .fetch_optional(&pool)
-                .await
-                .ok()
-                .flatten();
-        if session_status.as_deref() != Some("running") {
+        if !wait_until_running(&pool, &session_id).await {
             return;
         }
         let (used_today, reserved_today) = match daily_usage_and_reservations(&pool).await {
             Ok(usage) => usage,
             Err(error) => {
-                let _ = sqlx::query("UPDATE token_burner_sessions SET status = 'error', error = ?, finished_at = strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id = ? AND status = 'running'")
+                let _ = sqlx::query("UPDATE token_burner_sessions SET status = 'error', error = ?, finished_at = strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id = ? AND status IN ('running', 'paused')")
                     .bind(safe_error(&error)).bind(&session_id).execute(&pool).await;
                 let _ = emit_snapshot(&pool, &app).await;
                 return;
@@ -688,7 +717,7 @@ async fn worker_loop<R: Runtime>(
             .map(|current| current.daily_target)
             .unwrap_or(settings.daily_target);
         if daily_target_reached(used_today, reserved_today, current_target) {
-            let _ = sqlx::query("UPDATE token_burner_sessions SET status = 'target_reached', finished_at = strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id = ? AND status = 'running'")
+            let _ = sqlx::query("UPDATE token_burner_sessions SET status = 'target_reached', finished_at = strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id = ? AND status IN ('running', 'paused')")
                 .bind(&session_id).execute(&pool).await;
             let _ = emit_snapshot(&pool, &app).await;
             return;
@@ -706,20 +735,20 @@ async fn worker_loop<R: Runtime>(
                     .await
                     .is_err()
                 {
-                    let _ = sqlx::query("UPDATE token_burner_sessions SET status = 'error', error = 'Failed to save empty pull-request result', finished_at = strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id = ? AND status = 'running'")
+                    let _ = sqlx::query("UPDATE token_burner_sessions SET status = 'error', error = 'Failed to save empty pull-request result', finished_at = strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id = ? AND status IN ('running', 'paused')")
                         .bind(&session_id).execute(&pool).await;
                 }
                 let _ = emit_snapshot(&pool, &app).await;
                 return;
             }
             Err(error) => {
-                let _ = sqlx::query("UPDATE token_burner_sessions SET status = 'error', error = ?, finished_at = strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id = ? AND status = 'running'")
+                let _ = sqlx::query("UPDATE token_burner_sessions SET status = 'error', error = ?, finished_at = strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id = ? AND status IN ('running', 'paused')")
                     .bind(safe_error(&error)).bind(&session_id).execute(&pool).await;
                 let _ = emit_snapshot(&pool, &app).await;
                 return;
             }
         };
-        if !session_is_running(&pool, &session_id).await {
+        if !wait_until_running(&pool, &session_id).await {
             return;
         }
         let perspective = choose_perspective();
@@ -728,6 +757,7 @@ async fn worker_loop<R: Runtime>(
             .bind(&iteration_id).bind(&session_id).bind(&candidate.integration_id).bind(&candidate.project_key).bind(&candidate.repository_slug).bind(&candidate.repository_name).bind(&candidate.id).bind(&candidate.title).bind(&candidate.url).bind(1_u8).bind(perspective.name).bind(&model).bind(&session_id).execute(&pool).await;
         match insertion {
             Ok(result) if result.rows_affected() == 1 => {}
+            Ok(_) => continue,
             _ => return,
         }
         drop(_guard);
@@ -785,26 +815,24 @@ async fn worker_loop<R: Runtime>(
                 let _ = sqlx::query("UPDATE token_burner_iterations SET status = 'failed', phase = 'failed', finished_at = strftime('%Y-%m-%dT%H:%M:%fZ','now'), error = ? WHERE id = ?")
                     .bind(safe_error(&error)).bind(&iteration_id).execute(&pool).await;
             }
-            let _ = sqlx::query("UPDATE token_burner_sessions SET status = 'error', error = ?, finished_at = strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id = ? AND status = 'running'")
+            let _ = sqlx::query("UPDATE token_burner_sessions SET status = 'error', error = ?, finished_at = strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id = ? AND status IN ('running', 'paused')")
                 .bind(safe_error(&error)).bind(&session_id).execute(&pool).await;
             let _ = emit_snapshot(&pool, &app).await;
             return;
         }
         let _ = emit_snapshot(&pool, &app).await;
-        let status: Option<String> =
-            sqlx::query_scalar("SELECT status FROM token_burner_sessions WHERE id = ?")
-                .bind(&session_id)
-                .fetch_optional(&pool)
-                .await
-                .ok()
-                .flatten();
-        if status.as_deref() != Some("running") {
+        if !wait_until_running(&pool, &session_id).await {
             return;
         }
-        tokio::time::sleep(Duration::from_secs(
-            settings.delay_between_requests_seconds as u64,
-        ))
-        .await;
+        if !wait_between_iterations(
+            &pool,
+            &session_id,
+            Duration::from_secs(settings.delay_between_requests_seconds as u64),
+        )
+        .await
+        {
+            return;
+        }
     }
 }
 
@@ -866,7 +894,7 @@ async fn mark_session_without_pull_requests(
     pool: &SqlitePool,
     session_id: &str,
 ) -> Result<(), String> {
-    sqlx::query("UPDATE token_burner_sessions SET status = 'completed', ended_without_pull_requests = 1, finished_at = strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id = ? AND status = 'running'")
+    sqlx::query("UPDATE token_burner_sessions SET status = 'completed', ended_without_pull_requests = 1, finished_at = strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id = ? AND status IN ('running', 'paused')")
         .bind(session_id)
         .execute(pool)
         .await
@@ -996,42 +1024,19 @@ async fn execute_iteration<R: Runtime>(
     let mut response = None;
     for attempt in 0..=retries.min(crate::application::ai::MAX_AI_RETRIES) as usize {
         if attempt > 0 {
-            let current_status: Option<String> =
-                sqlx::query_scalar("SELECT status FROM token_burner_sessions WHERE id = ?")
-                    .bind(session_id)
-                    .fetch_optional(pool)
-                    .await
-                    .ok()
-                    .flatten();
-            if current_status.as_deref() != Some("running") {
-                set_request_reservation(
-                    pool,
-                    iteration_id,
-                    reserved_per_attempt.saturating_mul(attempt as i64),
-                )
-                .await?;
-                return Err("Retry skipped because Token Burner is paused or stopping".to_owned());
-            }
             tokio::time::sleep(Duration::from_secs(
                 delays[(attempt - 1).min(delays.len() - 1)],
             ))
             .await;
-            let current_status: Option<String> =
-                sqlx::query_scalar("SELECT status FROM token_burner_sessions WHERE id = ?")
-                    .bind(session_id)
-                    .fetch_optional(pool)
-                    .await
-                    .ok()
-                    .flatten();
-            if current_status.as_deref() != Some("running") {
-                set_request_reservation(
-                    pool,
-                    iteration_id,
-                    reserved_per_attempt.saturating_mul(attempt as i64),
-                )
-                .await?;
-                return Err("Retry skipped because Token Burner is paused or stopping".to_owned());
-            }
+        }
+        if !wait_until_running(pool, session_id).await {
+            set_request_reservation(
+                pool,
+                iteration_id,
+                reserved_per_attempt.saturating_mul(attempt as i64),
+            )
+            .await?;
+            return Err("AI request skipped because Token Burner is stopping".to_owned());
         }
         set_request_reservation(
             pool,
@@ -1306,6 +1311,11 @@ mod tests {
         .unwrap();
         assert_eq!(status, "failed");
         assert_eq!(reserved_tokens, 1_500);
+        let snapshot = snapshot(&pool).await.unwrap();
+        let interrupted = &snapshot.completed_iterations[0];
+        assert_eq!(interrupted.phase, "interrupted");
+        assert_eq!(interrupted.total_tokens, 0);
+        assert!(!interrupted.usage_known);
         assert_eq!(
             daily_usage_and_reservations(&pool).await.unwrap(),
             (0, 1_500)
@@ -1344,40 +1354,43 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn paused_session_does_not_start_a_new_pull_request_iteration() {
+    async fn resumes_a_paused_session_using_its_existing_worker() {
         let directory = tempfile::tempdir().unwrap();
-        let pool = crate::infrastructure::db::open_database(&directory.path().join("pause.sqlite"))
-            .await
-            .unwrap();
+        let pool =
+            crate::infrastructure::db::open_database(&directory.path().join("pause-resume.sqlite"))
+                .await
+                .unwrap();
         let session_id = Uuid::now_v7().to_string();
-        sqlx::query("INSERT INTO token_burner_sessions (id, status, started_at, settings_json) VALUES (?, 'paused', strftime('%Y-%m-%dT%H:%M:%fZ','now'), '{}')")
-            .bind(&session_id)
-            .execute(&pool)
-            .await
-            .unwrap();
-
-        assert!(!session_is_running(&pool, &session_id).await);
-        assert_eq!(paused_stop_status(false), "completed");
-        assert_eq!(paused_stop_status(true), "stopping");
-
+        sqlx::query("INSERT INTO token_burner_sessions (id, status, started_at, paused_at, settings_json) VALUES (?, 'paused', strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now'), '{}')")
+            .bind(&session_id).execute(&pool).await.unwrap();
+        let runtime = TokenBurnerRuntime::default();
+        runtime.running.store(true, Ordering::Release);
         let worker_pool = pool.clone();
         let worker_session = session_id.clone();
-        let watcher = tokio::spawn(async move {
-            wait_until_stopping(&worker_pool, &worker_session).await;
-        });
-        sqlx::query("UPDATE token_burner_sessions SET status = 'completed' WHERE id = ?")
-            .bind(&session_id)
-            .execute(&pool)
+        let worker =
+            tokio::spawn(async move { wait_until_running(&worker_pool, &worker_session).await });
+        tokio::task::yield_now().await;
+        assert!(!worker.is_finished());
+        let _guard = runtime.state_lock.lock().await;
+        assert!(resume_active_worker(&pool, &runtime, &session_id)
             .await
-            .unwrap();
-        tokio::time::timeout(Duration::from_secs(1), watcher)
+            .unwrap());
+        assert!(tokio::time::timeout(Duration::from_secs(1), worker)
             .await
             .unwrap()
+            .unwrap());
+        assert!(runtime.running.load(Ordering::Acquire));
+        let current = snapshot(&pool).await.unwrap();
+        assert_eq!(current.status, "running");
+        let session_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM token_burner_sessions")
+            .fetch_one(&pool)
+            .await
             .unwrap();
+        assert_eq!(session_count, 1);
     }
 
     #[tokio::test]
-    async fn active_worker_observes_a_stop_request() {
+    async fn stop_interrupts_the_delay_between_iterations() {
         let directory = tempfile::tempdir().unwrap();
         let pool = crate::infrastructure::db::open_database(&directory.path().join("stop.sqlite"))
             .await
@@ -1392,17 +1405,17 @@ mod tests {
         let worker_pool = pool.clone();
         let worker_session = session_id.clone();
         let watcher = tokio::spawn(async move {
-            wait_until_stopping(&worker_pool, &worker_session).await;
+            wait_between_iterations(&worker_pool, &worker_session, Duration::from_secs(3600)).await
         });
         sqlx::query("UPDATE token_burner_sessions SET status = 'stopping' WHERE id = ?")
             .bind(&session_id)
             .execute(&pool)
             .await
             .unwrap();
-        tokio::time::timeout(Duration::from_secs(1), watcher)
+        assert!(!tokio::time::timeout(Duration::from_secs(1), watcher)
             .await
             .unwrap()
-            .unwrap();
+            .unwrap());
     }
 
     #[tokio::test]
@@ -1482,21 +1495,26 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn previous_day_cleanup_deletes_history_but_keeps_current_day_runs() {
+    async fn previous_day_cleanup_keeps_current_day_and_paused_runs() {
         let directory = tempfile::tempdir().unwrap();
         let pool =
             crate::infrastructure::db::open_database(&directory.path().join("cleanup.sqlite"))
                 .await
                 .unwrap();
-        for (session_id, offset) in [("yesterday", "-2 days"), ("today", "+0 seconds")] {
+        for (session_id, offset, status) in [
+            ("yesterday", "-2 days", "completed"),
+            ("today", "+0 seconds", "completed"),
+            ("paused", "-2 days", "paused"),
+        ] {
             let started_at: String =
                 sqlx::query_scalar("SELECT strftime('%Y-%m-%dT%H:%M:%fZ','now', ?)")
                     .bind(offset)
                     .fetch_one(&pool)
                     .await
                     .unwrap();
-            sqlx::query("INSERT INTO token_burner_sessions (id, status, started_at, settings_json) VALUES (?, 'completed', ?, '{}')")
+            sqlx::query("INSERT INTO token_burner_sessions (id, status, started_at, settings_json) VALUES (?, ?, ?, '{}')")
                 .bind(session_id)
+                .bind(status)
                 .bind(started_at)
                 .execute(&pool)
                 .await
@@ -1515,13 +1533,13 @@ mod tests {
                 .fetch_all(&pool)
                 .await
                 .unwrap();
-        assert_eq!(sessions, vec!["today"]);
+        assert_eq!(sessions, vec!["paused", "today"]);
         let iteration_count: i64 =
             sqlx::query_scalar("SELECT COUNT(*) FROM token_burner_iterations")
                 .fetch_one(&pool)
                 .await
                 .unwrap();
-        assert_eq!(iteration_count, 1);
+        assert_eq!(iteration_count, 2);
     }
 
     #[tokio::test]

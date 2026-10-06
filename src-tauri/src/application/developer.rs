@@ -30,7 +30,7 @@ const KEYRING_SERVICE: &str = if cfg!(debug_assertions) {
     PRODUCTION_KEYRING_SERVICE
 };
 const REVIEW_FILTERS_SETTING_KEY: &str = "developer.pull_request_review_filters";
-const REVIEW_FILTERS_SCHEMA_VERSION: i64 = 3;
+const REVIEW_FILTERS_SCHEMA_VERSION: i64 = 4;
 const PULL_REQUEST_ACTIVITY_SETTING_KEY: &str = "developer.pull_request_activity";
 const PULL_REQUEST_ACTIVITY_SCHEMA_VERSION: i64 = 1;
 const PULL_REQUEST_CACHE_SETTING_KEY: &str = "developer.pull_request_cache";
@@ -47,6 +47,10 @@ pub(crate) fn pull_request_state_lock() -> &'static tokio::sync::Mutex<()> {
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct PullRequestReviewSettings {
+    #[serde(default)]
+    pub project_blacklist: Vec<String>,
+    #[serde(default)]
+    pub project_whitelist: Vec<String>,
     #[serde(default)]
     pub repository_blacklist: Vec<String>,
     #[serde(default)]
@@ -83,7 +87,56 @@ pub async fn get_pull_request_review_settings(
             false,
         )
     })?;
-    normalize_settings(settings)
+    let mut settings = normalize_settings(settings)?;
+    // Older versions stored project exclusions alongside repository filters.
+    // Use provider-backed cached identities instead of guessing from spelling.
+    if let Ok(cache) = load_pull_request_cache(pool).await {
+        if relocate_legacy_project_filters(&mut settings, &cache.values) {
+            return save_pull_request_review_settings(pool, settings).await;
+        }
+    }
+    Ok(settings)
+}
+
+fn relocate_legacy_project_filters(
+    settings: &mut PullRequestReviewSettings,
+    pull_requests: &[MyPullRequestDto],
+) -> bool {
+    let mut changed = false;
+    for (repositories, projects) in [
+        (
+            &mut settings.repository_blacklist,
+            &mut settings.project_blacklist,
+        ),
+        (
+            &mut settings.repository_whitelist,
+            &mut settings.project_whitelist,
+        ),
+    ] {
+        repositories.retain(|value| {
+            let known_project = pull_requests
+                .iter()
+                .find(|item| item.project_key.eq_ignore_ascii_case(value));
+            let also_repository = pull_requests.iter().any(|item| {
+                item.repository_slug.eq_ignore_ascii_case(value)
+                    || item.repository_name.eq_ignore_ascii_case(value)
+            });
+            if let Some(project) = known_project.filter(|_| !also_repository) {
+                let already_present = projects
+                    .iter()
+                    .any(|entry| entry.eq_ignore_ascii_case(value));
+                if already_present || projects.len() < MAX_REVIEW_FILTER_ENTRIES {
+                    if !already_present {
+                        projects.push(project.project_key.clone());
+                    }
+                    changed = true;
+                    return false;
+                }
+            }
+            true
+        });
+    }
+    changed
 }
 
 pub async fn save_pull_request_review_settings(
@@ -119,6 +172,14 @@ fn normalize_settings(
     settings: PullRequestReviewSettings,
 ) -> Result<PullRequestReviewSettings, DeveloperCommandError> {
     Ok(PullRequestReviewSettings {
+        project_blacklist: normalize_filter_values(
+            settings.project_blacklist,
+            "project blacklist",
+        )?,
+        project_whitelist: normalize_filter_values(
+            settings.project_whitelist,
+            "project whitelist",
+        )?,
         repository_blacklist: normalize_filter_values(
             settings.repository_blacklist,
             "repository blacklist",
@@ -325,11 +386,91 @@ pub struct BitbucketUserDto {
 
 #[derive(Debug, Clone, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
+pub struct BitbucketProjectDto {
+    pub integration_id: String,
+    pub project_key: String,
+    pub project_name: String,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
 pub struct BitbucketRepositoryDto {
     pub project_key: String,
     pub project_name: String,
     pub repository_slug: String,
     pub repository_name: String,
+}
+
+pub async fn search_bitbucket_projects(
+    pool: &SqlitePool,
+    query: &str,
+) -> Result<Vec<BitbucketProjectDto>, DeveloperCommandError> {
+    let query = query.trim();
+    if query.chars().count() < 3 {
+        return Err(command_error(
+            "invalid_input",
+            "Enter at least 3 characters to search Bitbucket projects",
+            false,
+        ));
+    }
+    let integrations = repositories::list_integrations(pool).await.map_err(|_| {
+        command_error(
+            "database",
+            "Bitbucket integration database operation failed",
+            false,
+        )
+    })?;
+    let keyring = integration_credential_store(KEYRING_SERVICE);
+    let mut result = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+
+    for integration in integrations.into_iter().filter(|value| {
+        value.kind == IntegrationKind::Bitbucket
+            && value.enabled
+            && value.health_status == IntegrationHealthStatus::Working
+    }) {
+        let secret = keyring.load(&integration.credential_ref).map_err(|_| {
+            command_error(
+                "missing_credential",
+                "Bitbucket credential is missing",
+                false,
+            )
+        })?;
+        if secret.trim().is_empty() {
+            return Err(command_error(
+                "missing_credential",
+                "Bitbucket credential is missing",
+                false,
+            ));
+        }
+        let mut builder = Client::builder().timeout(Duration::from_secs(30));
+        if integration.allow_insecure_tls {
+            builder = builder.danger_accept_invalid_certs(true);
+        }
+        let http = builder.build().map_err(|_| {
+            command_error(
+                "transport_unavailable",
+                "Bitbucket transport is unavailable",
+                true,
+            )
+        })?;
+        let client =
+            BitbucketDcClient::with_bearer_token_and_client(&integration.base_url, secret, http)
+                .map_err(map_error)?;
+        let page = client.search_projects(query, 20).await.map_err(|error| {
+            map_error_at(error, "search_projects", "GET", "/rest/api/1.0/projects")
+        })?;
+        for project in page.values {
+            if seen.insert((integration.id.clone(), project.key.clone())) {
+                result.push(BitbucketProjectDto {
+                    integration_id: integration.id.clone(),
+                    project_key: project.key,
+                    project_name: project.name,
+                });
+            }
+        }
+    }
+    Ok(result)
 }
 
 pub async fn search_bitbucket_repositories(
@@ -2148,6 +2289,14 @@ fn matches_review_settings(
             .iter()
             .any(|candidate| candidate.eq_ignore_ascii_case(value.trim()))
     });
+    let project_whitelist_matches = settings
+        .project_whitelist
+        .iter()
+        .any(|value| pull_request.project_key.eq_ignore_ascii_case(value.trim()));
+    let project_blacklist_matches = settings
+        .project_blacklist
+        .iter()
+        .any(|value| pull_request.project_key.eq_ignore_ascii_case(value.trim()));
     let creator_whitelist_matches = settings.creator_whitelist.iter().any(|value| {
         pull_request
             .author_display_name
@@ -2163,12 +2312,13 @@ fn matches_review_settings(
             .author_display_name
             .eq_ignore_ascii_case(value.trim())
     });
-    let whitelist_configured =
-        !settings.repository_whitelist.is_empty() || !settings.creator_whitelist.is_empty();
-    if repository_blacklist_matches || creator_blacklist_matches {
+    let whitelist_configured = !settings.project_whitelist.is_empty()
+        || !settings.repository_whitelist.is_empty()
+        || !settings.creator_whitelist.is_empty();
+    if project_blacklist_matches || repository_blacklist_matches || creator_blacklist_matches {
         false
     } else if whitelist_configured {
-        repository_whitelist_matches || creator_whitelist_matches
+        project_whitelist_matches || repository_whitelist_matches || creator_whitelist_matches
     } else {
         true
     }
@@ -2834,6 +2984,8 @@ mod tests {
         let saved = save_pull_request_review_settings(
             &pool,
             PullRequestReviewSettings {
+                project_blacklist: vec!["SAMPLE".into()],
+                project_whitelist: vec!["DEMO".into()],
                 repository_blacklist: vec!["SAMPLE/legacy".into()],
                 creator_blacklist: vec!["Test Author Blocked".into()],
                 repository_whitelist: vec![
@@ -2848,6 +3000,8 @@ mod tests {
         .await
         .unwrap();
 
+        assert_eq!(saved.project_blacklist, vec!["SAMPLE"]);
+        assert_eq!(saved.project_whitelist, vec!["DEMO"]);
         assert_eq!(
             saved.repository_whitelist,
             vec!["DEMO/sample-repository".to_owned()]
@@ -2858,8 +3012,8 @@ mod tests {
         );
     }
 
-    #[test]
-    fn blacklist_excludes_matching_pull_requests() {
+    #[tokio::test]
+    async fn blacklist_excludes_matching_pull_requests() {
         let pull_request = MyPullRequestDto {
             integration_id: "bitbucket-1".into(),
             pull_request_id: "7".into(),
@@ -2883,7 +3037,10 @@ mod tests {
         };
         assert!(matches_review_settings(
             &pull_request,
-            &PullRequestReviewSettings::default()
+            &PullRequestReviewSettings {
+                project_whitelist: vec!["DEMO".into()],
+                ..Default::default()
+            }
         ));
         assert!(!matches_review_settings(
             &pull_request,
@@ -2914,6 +3071,37 @@ mod tests {
                 ..Default::default()
             }
         ));
+        let directory = tempfile::tempdir().unwrap();
+        let pool = open_database(&directory.path().join("mework.sqlite"))
+            .await
+            .unwrap();
+        super::save_pull_request_cache(
+            &pool,
+            &super::PullRequestCache {
+                values: vec![pull_request.clone()],
+                last_updated_at: Some(1),
+            },
+        )
+        .await
+        .unwrap();
+        let legacy = PullRequestReviewSettings {
+            repository_blacklist: vec!["DEMO".into(), "DEMO/sample-repository".into()],
+            ..Default::default()
+        };
+        save_pull_request_review_settings(&pool, legacy)
+            .await
+            .unwrap();
+        let migrated = get_pull_request_review_settings(&pool).await.unwrap();
+        assert_eq!(migrated.project_blacklist, vec!["DEMO"]);
+        assert_eq!(
+            migrated.repository_blacklist,
+            vec!["DEMO/sample-repository"]
+        );
+        assert_eq!(
+            get_pull_request_review_settings(&pool).await.unwrap(),
+            migrated
+        );
+        assert!(!matches_review_settings(&pull_request, &migrated));
     }
 
     #[test]

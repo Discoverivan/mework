@@ -135,7 +135,7 @@ export function ConfluenceSearchPage() {
         <div className="space-y-3" aria-live="polite">
           <h2 className="text-lg font-semibold">{t("confluence.results")}</h2>
           {results.length === 0 ? (
-            <Card><CardContent className="pt-6 text-sm text-muted-foreground">{t("confluence.noResults")}</CardContent></Card>
+            <Card><CardContent className="py-3 text-sm text-muted-foreground">{t("confluence.noResults")}</CardContent></Card>
           ) : results.map((result) => (
             <Card key={`${result.id}:${result.url ?? "no-url"}`}>
               <CardHeader className="gap-2 pb-3">

@@ -166,6 +166,13 @@
     cursor: pointer;
   }
 
+  /* Keep sidebar geometry stable when switching the action appearance. */
+  :root[data-button-style="quiet"] .app-icon-button:not(:where(.app-shell aside *)) {
+    max-width: 2rem;
+    max-height: 2rem;
+    padding: 0.25rem;
+  }
+
   :root[data-button-style="quiet"] .app-icon-button {
     border-color: transparent;
     background: transparent;
@@ -209,13 +216,107 @@
     height: 17px;
   }
 
+  :root .app-icon-button.daily-assignee-board-button svg {
+    width: 14px;
+    height: 14px;
+  }
+
+  :root[data-button-style="quiet"] .app-action-text:not(:where(.app-shell aside *)) {
+    height: auto;
+    min-height: 2rem;
+    padding: 0.25rem 0.375rem;
+  }
+
   :root[data-button-style="quiet"] .app-action-text {
     border-color: transparent;
     background: transparent;
+  }
+
+  :root[data-button-style="quiet"] .app-action-text:not(.sidebar-navigation *) {
     color: var(--muted-foreground);
+  }
+
+  :root[data-button-style="quiet"] .app-dialog-actions {
+    gap: 0.5rem;
+  }
+
+  :root[data-button-style="quiet"] .app-dialog-actions .app-action-text {
+    padding: 0.25rem 0.75rem;
   }
 
   :root[data-button-style="quiet"] .app-action-text:not(:disabled):is(:hover, :focus-visible) {
     background: transparent;
     color: var(--app-action-color);
+  }
+
+  :root[data-button-style="filled"] .app-action-text:not(:where(.app-shell aside *)):not([data-button-variant="link"]) {
+    border-width: 1px;
+    border-style: solid;
+    border-color: var(--input);
+    background: var(--background);
+    color: var(--foreground);
+  }
+
+  :root[data-button-style="filled"] .app-action-text:not(:where(.app-shell aside *)):not([data-button-variant="link"]):not(:disabled):is(:hover, :focus-visible) {
+    border-color: var(--app-action-color);
+    background: var(--app-action-color);
+    color: var(--primary-foreground);
+  }
+
+  :root[data-button-style="filled"] .app-action-text:is([data-action-tone="add"], [data-action-tone="success"], [data-action-tone="warning"]):not(:disabled):is(:hover, :focus-visible) {
+    color: var(--overlay);
+  }
+
+  :root[data-button-style="filled"] .app-action-text:is([data-action-tone="delete"], [data-button-variant="destructive"]):not(:disabled):is(:hover, :focus-visible) {
+    color: var(--destructive-foreground);
+  }
+
+  :root[data-button-style="quiet"] .pr-filter-mode,
+  :root[data-button-style="quiet"] .pr-filter-mode-option {
+    background: transparent;
+    box-shadow: none;
+  }
+
+  :root[data-button-style="quiet"] .pr-filter-mode {
+    padding-block: 0;
+  }
+
+  :root[data-button-style="quiet"] .pr-filter-mode-option {
+    color: var(--muted-foreground);
+  }
+
+  :root[data-button-style="quiet"] .pr-filter-mode-option:is(:hover, :focus-visible, [data-state="on"]) {
+    color: var(--primary);
+  }
+
+  :root[data-button-style="quiet"] .pr-filter-mode-option[data-state="on"] {
+    font-weight: 600;
+  }
+
+  :root[data-button-style="filled"] .pr-filter-mode,
+  :root[data-button-style="filled"] .pr-filter-mode-option {
+    background: transparent;
+    box-shadow: none;
+  }
+
+  :root[data-button-style="filled"] .pr-filter-mode {
+    padding-block: 0;
+  }
+
+  :root[data-button-style="filled"] .pr-filter-mode-option[data-state="on"] {
+    background: var(--secondary);
+    color: var(--secondary-foreground);
+  }
+
+  :root[data-button-style] .pr-filter-group .app-icon-button svg {
+    width: 16px;
+    height: 16px;
+  }
+
+  :root[data-button-style="filled"] .pr-filter-group .app-icon-button[data-action-tone="add"] {
+    background: var(--card);
+  }
+
+  :root[data-button-style="filled"] .pr-filter-group .app-icon-button[data-action-tone="add"]:not(:disabled):is(:hover, :focus-visible) {
+    background: color-mix(in srgb, var(--app-action-color) 14%, var(--card));
   }

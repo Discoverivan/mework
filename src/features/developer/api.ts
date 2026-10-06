@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { APP_EVENT, emitAppEvent } from "@/app/app-events";
 import type {
+  BitbucketProject,
   BitbucketRepository,
   BitbucketUser,
   MyPullRequest,
@@ -159,6 +160,9 @@ export const removePullRequestReviewer = (pullRequest: MyPullRequest, idempotenc
 
 export const searchBitbucketUsers = (query: string) =>
   invoke<BitbucketUser[]>("bitbucket_search_users", { query });
+
+export const searchBitbucketProjects = (query: string) =>
+  invoke<BitbucketProject[]>("bitbucket_search_projects", { query });
 
 export const searchBitbucketRepositories = (query: string) =>
   invoke<BitbucketRepository[]>("bitbucket_search_repositories", { query });

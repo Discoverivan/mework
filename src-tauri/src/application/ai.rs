@@ -18,7 +18,7 @@ use crate::infrastructure::{
 };
 
 const AI_SETTINGS_KEY: &str = "ai.settings";
-const AI_SETTINGS_SCHEMA_VERSION: i64 = 2;
+const AI_SETTINGS_SCHEMA_VERSION: i64 = 3;
 pub const MAX_AI_RETRIES: u8 = 10;
 const OPENAI_COMPATIBLE_SETTINGS_KEY: &str = "ai.openai-compatible";
 const OPENAI_COMPATIBLE_SETTINGS_SCHEMA_VERSION: i64 = 1;
@@ -164,6 +164,34 @@ pub struct AiSettingsProfile {
     pub fast_mode: bool,
 }
 
+impl AiSettings {
+    fn normalize_action_retries(&mut self) -> bool {
+        let previous = self.retries.clone();
+        let default = self.retries.default;
+        for (profile, retries) in [
+            (
+                self.task_creation.as_ref(),
+                &mut self.retries.actions.task_creation,
+            ),
+            (
+                self.pull_request_review.as_ref(),
+                &mut self.retries.actions.pull_request_review,
+            ),
+            (
+                self.token_burner.as_ref(),
+                &mut self.retries.actions.token_burner,
+            ),
+            (
+                self.sprint_summary.as_ref(),
+                &mut self.retries.actions.sprint_summary,
+            ),
+        ] {
+            *retries = profile.map(|_| retries.unwrap_or(default));
+        }
+        self.retries != previous
+    }
+}
+
 impl AiSettingsProfile {
     fn apply_to(&self, settings: &mut AiSettings) {
         settings.provider = Some(self.provider);
@@ -292,14 +320,15 @@ pub async fn load(pool: &SqlitePool) -> Result<AiSettings, String> {
         .and_then(|raw| serde_json::from_str::<Value>(raw).ok())
         .and_then(|value| value.get("retries").cloned())
         .is_some();
-    if !has_retry_settings {
-        if stored.is_some() {
-            let legacy_attempts = crate::application::general::load(pool)
-                .await?
-                .ai_review_attempts;
-            settings.retries.actions.pull_request_review =
-                Some(legacy_attempts.saturating_sub(1).min(MAX_AI_RETRIES));
-        }
+    if !has_retry_settings && stored.is_some() {
+        let legacy_attempts = crate::application::general::load(pool)
+            .await?
+            .ai_review_attempts;
+        settings.retries.actions.pull_request_review =
+            Some(legacy_attempts.saturating_sub(1).min(MAX_AI_RETRIES));
+    }
+    let normalized = settings.normalize_action_retries();
+    if !has_retry_settings || normalized {
         let value = serde_json::to_string(&settings)
             .map_err(|_| "failed to migrate AI retry settings".to_owned())?;
         repositories::upsert_setting(pool, AI_SETTINGS_KEY, &value, AI_SETTINGS_SCHEMA_VERSION)
@@ -309,7 +338,8 @@ pub async fn load(pool: &SqlitePool) -> Result<AiSettings, String> {
     Ok(settings)
 }
 
-pub async fn save(pool: &SqlitePool, settings: AiSettings) -> Result<(), String> {
+pub async fn save(pool: &SqlitePool, mut settings: AiSettings) -> Result<(), String> {
+    settings.normalize_action_retries();
     validate_settings(pool, &settings).await?;
     let value = serde_json::to_string(&settings)
         .map_err(|_| "failed to serialize AI settings".to_owned())?;
@@ -1533,6 +1563,50 @@ mod tests {
             loaded.retries.for_activity(AiActivity::PullRequestReview),
             0
         );
+        let mut stored = loaded;
+        stored.retries.default = 2;
+        stored.retries.actions.task_creation = Some(7);
+        stored.pull_request_review = Some(super::AiSettingsProfile {
+            provider: AiProviderId::CodexCli,
+            provider_instance_id: None,
+            model: "example-model".to_owned(),
+            reasoning: AiReasoning::Medium,
+            fast_mode: false,
+        });
+        crate::infrastructure::db::repositories::upsert_setting(
+            &pool,
+            AI_SETTINGS_KEY,
+            &serde_json::to_string(&stored).unwrap(),
+            2,
+        )
+        .await
+        .unwrap();
+        let mut migrated = load(&pool).await.unwrap();
+        assert_eq!(migrated.retries.actions.task_creation, None);
+        assert_eq!(migrated.retries.actions.pull_request_review, Some(2));
+        let persisted: AiSettings = serde_json::from_str(
+            &crate::infrastructure::db::repositories::get_setting(&pool, AI_SETTINGS_KEY)
+                .await
+                .unwrap()
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(persisted.retries, migrated.retries);
+        migrated.retries.default = 4;
+        crate::infrastructure::db::repositories::upsert_setting(
+            &pool,
+            AI_SETTINGS_KEY,
+            &serde_json::to_string(&migrated).unwrap(),
+            3,
+        )
+        .await
+        .unwrap();
+        let updated = load(&pool).await.unwrap();
+        assert_eq!(updated.retries.for_activity(AiActivity::TaskCreation), 4);
+        assert_eq!(
+            updated.retries.for_activity(AiActivity::PullRequestReview),
+            2
+        );
     }
 
     #[tokio::test]
@@ -1554,7 +1628,7 @@ mod tests {
         crate::infrastructure::db::repositories::upsert_setting(
             &pool,
             AI_SETTINGS_KEY,
-            r#"{"provider":"codex-cli","model":"example-model","reasoning":"medium","fastMode":false}"#,
+            r#"{"provider":"codex-cli","model":"example-model","reasoning":"medium","fastMode":false,"pullRequestReview":{"provider":"codex-cli","model":"example-model","reasoning":"medium","fastMode":false}}"#,
             1,
         )
         .await
@@ -1586,7 +1660,7 @@ mod tests {
         crate::infrastructure::db::repositories::upsert_setting(
             &pool,
             AI_SETTINGS_KEY,
-            r#"{"provider":"codex-cli","model":"example-model","reasoning":"medium","fastMode":false}"#,
+            r#"{"provider":"codex-cli","model":"example-model","reasoning":"medium","fastMode":false,"pullRequestReview":{"provider":"codex-cli","model":"example-model","reasoning":"medium","fastMode":false}}"#,
             1,
         )
         .await

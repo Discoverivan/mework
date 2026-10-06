@@ -10,14 +10,14 @@ interface EmptyStateProps {
 
 export function EmptyState({ titleId, title, description, hint, icon }: EmptyStateProps) {
   return (
-    <div role="status" aria-labelledby={titleId} className="grid place-items-center rounded-xl border border-dashed border-border bg-card px-6 py-8 text-center">
-      <div className="flex max-w-md flex-col items-center gap-3">
-        <div className="flex size-10 items-center justify-center rounded-xl bg-primary/10 text-primary" aria-hidden="true">
-          {icon}
-        </div>
-        <h2 id={titleId} className="text-[17px] font-medium text-foreground">{title}</h2>
+    <div role="status" aria-labelledby={titleId} className="flex items-center gap-3 rounded-lg border border-dashed border-border bg-card px-6 py-3">
+      <div className="min-w-0 flex-1 space-y-1">
+        <h2 id={titleId} className="text-sm font-medium text-foreground">{title}</h2>
         <p className="text-sm text-muted-foreground">{description}</p>
         {hint ? <p className="text-sm text-muted-foreground">{hint}</p> : null}
+      </div>
+      <div className="flex size-8 shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary" aria-hidden="true">
+        {icon}
       </div>
     </div>
   );

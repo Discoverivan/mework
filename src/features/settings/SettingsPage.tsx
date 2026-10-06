@@ -8,10 +8,10 @@ import {
 import { StatusToast } from "@/components/shared/StatusToast";
 import { PageHeader } from "@/components/shared/PageHeader";
 import { ActionSettingsSection } from "./prompts/ActionSettingsSection";
+import { AiRetriesField } from "./AiRetriesField";
 import { Card, CardContent, CardDescription, CardHeader } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Field, FieldLabel } from "@/components/ui/field";
 import { Label } from "@/components/ui/label";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Separator } from "@/components/ui/separator";
@@ -366,6 +366,7 @@ export function SettingsPage({ section = "integrations", focusActivity, mockMode
   const [aiData, setAiData] = useState<AiSettingsPageData>(() => getCachedAiSettings() ?? INITIAL_AI_DATA);
   const [aiDraft, setAiDraft] = useState<AiSettings>(() => getCachedAiSettings()?.settings ?? DEFAULT_AI_SETTINGS);
   const [aiSaving, setAiSaving] = useState(false);
+  const [aiSavingScopes, setAiSavingScopes] = useState<AiSettingsScope[]>([]);
   const [aiError, setAiError] = useState<string | null>(null);
   const [aiSaveNotice, setAiSaveNotice] = useState<{ key: TranslationKey; revision: number } | null>(null);
   const [instructionsSaving, setInstructionsSaving] = useState(false);
@@ -380,6 +381,7 @@ export function SettingsPage({ section = "integrations", focusActivity, mockMode
   }, []);
   const [aiStatusScope, setAiStatusScope] = useState<AiSettingsScope>("default");
   const aiSaveRevisionRef = useRef(0);
+  const aiFailedDraftRef = useRef<AiSettings | null>(null);
   const [openAiDialogOpen, setOpenAiDialogOpen] = useState(false);
   const [addAiMenuOpen, setAddAiMenuOpen] = useState(false);
   const [selectedAiGroup, setSelectedAiGroup] = useState<"cli" | "api">("cli");
@@ -608,6 +610,8 @@ export function SettingsPage({ section = "integrations", focusActivity, mockMode
   const hasJiraIntegration = integrations.some((integration) => integration.kind === "jira");
 
   useEffect(() => {
+    // Save complete snapshots sequentially while other action drafts remain editable.
+    if (aiSaving || aiFailedDraftRef.current === aiDraft) return;
     const revision = aiSaveRevisionRef.current + 1;
     aiSaveRevisionRef.current = revision;
     const unchanged = aiDraft.provider === aiData.settings.provider
@@ -642,28 +646,42 @@ export function SettingsPage({ section = "integrations", focusActivity, mockMode
     if (unchanged || !canSave || aiDeleting) return;
 
     const timer = window.setTimeout(() => {
+      const savingScopes: AiSettingsScope[] = [];
+      if (!defaultSettingsUnchanged || aiDraft.retries.default !== aiData.settings.retries.default) savingScopes.push("default");
+      for (const scope of ["taskCreation", "pullRequestReview", "tokenBurner", "sprintSummary"] as const) {
+        if (JSON.stringify(aiDraft[scope] ?? null) !== JSON.stringify(aiData.settings[scope] ?? null)
+          || aiDraft.retries.actions[scope] !== aiData.settings.retries.actions[scope]) savingScopes.push(scope);
+      }
+      setAiSavingScopes(savingScopes);
       setAiSaving(true);
       setAiSaveNotice(null);
       setAiError(null);
       void saveAiSettings(aiDraft).then((saved) => {
         if (aiSaveRevisionRef.current !== revision) return;
         setAiData(saved);
-        setAiDraft(saved.settings);
+        setAiDraft((current) => current === aiDraft ? saved.settings : current);
         emitAppEvent(APP_EVENT.aiSettingsChanged, saved);
         showAiSaveNotice("settings.ai.saved");
-        setAiSaving(false);
       }).catch((saveError) => {
         if (aiSaveRevisionRef.current !== revision) return;
+        aiFailedDraftRef.current = aiDraft;
         if (aiStatusScope !== "default" && !aiDraft[aiStatusScope] && aiData.settings[aiStatusScope]) {
-          setAiDraft((current) => ({ ...current, [aiStatusScope]: aiData.settings[aiStatusScope] }));
+          setAiDraft((current) => ({
+            ...current,
+            [aiStatusScope]: aiData.settings[aiStatusScope],
+            retries: { ...current.retries, actions: { ...current.retries.actions, [aiStatusScope]: aiData.settings.retries.actions[aiStatusScope] } },
+          }));
         }
         setAiError(t("settings.error.saveAi", { error: errorMessage(saveError, t("common.unknownError")) }));
+        setAiStatusScope(aiStatusScope);
+      }).finally(() => {
         setAiSaving(false);
+        setAiSavingScopes([]);
       });
     }, 250);
 
     return () => window.clearTimeout(timer);
-  }, [aiData.settings, aiDraft, aiReady, aiDeleting, aiStatusScope, t, showAiSaveNotice]);
+  }, [aiData.settings, aiDraft, aiReady, aiDeleting, aiStatusScope, aiSaving, t, showAiSaveNotice]);
 
   function renderRetries(action: "default" | AiActivity) {
     const inheritedRetries = aiDraft.retries.default;
@@ -671,23 +689,17 @@ export function SettingsPage({ section = "integrations", focusActivity, mockMode
       ? inheritedRetries
       : aiDraft.retries.actions[action] ?? inheritedRetries;
     const id = `ai-retries-${action}`;
-    return <Field className="w-44 gap-2.5" data-disabled={aiLoading || aiSaving}>
-      <FieldLabel className="whitespace-nowrap pl-1 leading-none" htmlFor={id}>{t("settings.ai.retries")}</FieldLabel>
-      <Input id={id} type="number" min={0} max={10} step={1} value={value} disabled={aiLoading || aiSaving} aria-describedby={`${id}-help`}
-        onChange={(event) => {
-          const retries = event.currentTarget.valueAsNumber;
-          if (!Number.isInteger(retries) || retries < 0 || retries > 10) return;
+    return <AiRetriesField id={id} value={value} disabled={aiLoading || aiSavingScopes.includes(action)}
+        onChange={(retries) => {
           setAiDraft((current) => ({
             ...current,
             retries: action === "default"
               ? { ...current.retries, default: retries }
-              : { ...current.retries, actions: { ...current.retries.actions, [action]: retries === current.retries.default ? null : retries } },
+              : { ...current.retries, actions: { ...current.retries.actions, [action]: retries } },
           }));
           setAiStatusScope(action === "default" ? "default" : action);
           setAiError(null);
-        }} />
-      <p id={`${id}-help`} className="max-w-44 text-xs text-muted-foreground">{t("settings.ai.retriesDescription")}</p>
-    </Field>;
+        }} />;
   }
 
   function renderActionModelSettings(action: AiActivity) {
@@ -703,9 +715,9 @@ export function SettingsPage({ section = "integrations", focusActivity, mockMode
         noModelsLabel={t("settings.ai.noModels", { provider: t("settings.ai.selectedProvider") })}
         unavailableLabel={t("settings.ai.unavailableSuffix")}
         onChange={(profile) => updateAiProfile(action, profile)}
-        disabled={aiLoading || aiSaving}
+        disabled={aiLoading || aiSavingScopes.includes(action)}
       />
-      {renderRetries(action)}
+      {aiDraft[action] ? renderRetries(action) : null}
       {renderAiStatus(action)}
     </div>;
   }
@@ -775,7 +787,16 @@ export function SettingsPage({ section = "integrations", focusActivity, mockMode
   }
 
   function updateAiProfile(field: AiActivity, profile: AiSettingsProfile | null) {
-    updateAiSetting(field, profile);
+    setAiDraft((current) => ({
+      ...current,
+      [field]: profile,
+      retries: {
+        ...current.retries,
+        actions: { ...current.retries.actions, [field]: profile ? current.retries.actions[field] ?? current.retries.default : null },
+      },
+    }));
+    setAiStatusScope(field);
+    setAiError(null);
   }
 
   function updateAiProvider(value: string) {
@@ -1144,14 +1165,14 @@ export function SettingsPage({ section = "integrations", focusActivity, mockMode
                 <CardContent className="px-4 pb-0 pt-0">
                   {aiData.providers.length === 0 && !loading ? (
                     <div role="status" aria-labelledby="ai-providers-empty-title" className="flex min-h-14 items-center gap-3 py-2">
-                      <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary" aria-hidden="true"><Sparkles className="size-4" /></span>
-                      <div className="min-w-0">
+                      <div className="min-w-0 flex-1">
                         <h4 id="ai-providers-empty-title" className="text-[15px] font-medium">{t("settings.aiProviders.empty")}</h4>
                         <p className="text-[13px] text-muted-foreground">{t("settings.aiProviders.emptyDescription")}</p>
                       </div>
+                      <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary" aria-hidden="true"><Sparkles className="size-4" /></span>
                     </div>
                   ) : visibleAiProviders.length === 0 ? (
-                    <p className="flex min-h-14 items-center text-[15px] text-muted-foreground">{t(selectedAiGroup === "cli" ? "settings.aiProviders.emptyCli" : "settings.aiProviders.emptyApi")}</p>
+                    <p className="flex items-center py-3 text-sm text-muted-foreground">{t(selectedAiGroup === "cli" ? "settings.aiProviders.emptyCli" : "settings.aiProviders.emptyApi")}</p>
                   ) : (
                     <div>
                       {visibleAiProviders.map((candidate, index) => (
@@ -1204,7 +1225,7 @@ export function SettingsPage({ section = "integrations", focusActivity, mockMode
               <div className="flex flex-wrap items-end gap-4">
                 <div className="grid min-w-0 max-w-full gap-2.5">
                   <Label className="translate-x-1" id="ai-provider-label">{t("settings.ai.provider")}</Label>
-                  <Select value={selectedAiProvider?.instanceId ?? aiDraft.provider ?? "__none__"} onValueChange={updateAiProvider} disabled={aiData === null || aiLoading || aiSaving}>
+                  <Select value={selectedAiProvider?.instanceId ?? aiDraft.provider ?? "__none__"} onValueChange={updateAiProvider} disabled={aiData === null || aiLoading || aiSavingScopes.includes("default")}>
                     <SelectTrigger id="ai-provider" aria-labelledby="ai-provider-label" className="h-9">
                       <SelectValue />
                     </SelectTrigger>
@@ -1236,7 +1257,7 @@ export function SettingsPage({ section = "integrations", focusActivity, mockMode
                 </div>
                 <div className="grid min-w-0 max-w-full gap-2.5">
                   <Label className="translate-x-1" id="ai-model-label">{t("settings.ai.model")}</Label>
-                  <Select value={aiDraft.model} onValueChange={(value) => updateAiSetting("model", value)} disabled={!aiDraft.provider || !selectedAiProvider || aiSaving || (selectedAiProvider.models.length === 0)}>
+                  <Select value={aiDraft.model} onValueChange={(value) => updateAiSetting("model", value)} disabled={!aiDraft.provider || !selectedAiProvider || aiSavingScopes.includes("default") || (selectedAiProvider.models.length === 0)}>
                     <SelectTrigger id="ai-model" aria-labelledby="ai-model-label" className="h-9">
                       <SelectValue placeholder={t("settings.ai.noModels", { provider: selectedAiProvider?.name ?? t("settings.ai.selectedProvider") })} />
                     </SelectTrigger>
@@ -1247,14 +1268,14 @@ export function SettingsPage({ section = "integrations", focusActivity, mockMode
                 </div>
                 {aiDraft.provider === "codex-cli" ? <div className="grid min-w-0 max-w-full gap-2.5">
                   <Label className="translate-x-1" id="ai-reasoning-label">{t("settings.ai.reasoning")}</Label>
-                  <Select value={aiDraft.reasoning} onValueChange={updateAiReasoning} disabled={!aiDraft.provider || aiSaving}>
+                  <Select value={aiDraft.reasoning} onValueChange={updateAiReasoning} disabled={!aiDraft.provider || aiSavingScopes.includes("default")}>
                     <SelectTrigger id="ai-reasoning" aria-labelledby="ai-reasoning-label" className="h-9"><SelectValue /></SelectTrigger>
                     <SelectContent>
                       {AI_REASONING_OPTIONS.map((reasoning) => <SelectItem key={reasoning} value={reasoning}>{reasoning}</SelectItem>)}
                     </SelectContent>
                   </Select>
                 </div> : null}
-                {aiDraft.provider === "codex-cli" ? <AiModeSelect id="ai-mode" fastMode={aiDraft.fastMode} onChange={(fastMode) => updateAiSetting("fastMode", fastMode)} disabled={!aiDraft.provider || aiSaving} /> : null}
+                {aiDraft.provider === "codex-cli" ? <AiModeSelect id="ai-mode" fastMode={aiDraft.fastMode} onChange={(fastMode) => updateAiSetting("fastMode", fastMode)} disabled={!aiDraft.provider || aiSavingScopes.includes("default")} /> : null}
                 {renderRetries("default")}
               </div>
               {renderAiStatus("default")}
@@ -1394,7 +1415,7 @@ export function SettingsPage({ section = "integrations", focusActivity, mockMode
         <div aria-label={t("settings.data.aria")} className="flex w-full flex-col gap-3">
           {!loading && integrations.length === 0 ? (
             <Card className="w-full">
-              <CardContent className="flex min-h-14 items-center px-4 py-3 text-sm text-muted-foreground">{t("settings.data.empty")}</CardContent>
+              <CardContent className="flex items-center px-4 py-3 text-sm text-muted-foreground">{t("settings.data.empty")}</CardContent>
             </Card>
           ) : null}
           {PROVIDERS.filter((candidate) => integrations.some((integration) => integration.kind === candidate.kind)).map((candidate) => {

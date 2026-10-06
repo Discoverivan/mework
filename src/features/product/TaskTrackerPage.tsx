@@ -363,7 +363,13 @@ export function TaskTrackerPage({ mockMode = false }: { mockMode?: boolean }) {
     setFiltersOpen(true);
   }
 
+  const filtersChanged = filterDraftSearch.trim() !== search.trim()
+    || filterDraftStatus !== statusFilter
+    || filterDraftChange !== changeFilter
+    || filterDraftOnlyChanged !== onlyChanged;
+
   function applyFilters() {
+    if (!filtersChanged) return;
     setSearch(filterDraftSearch);
     setStatusFilter(filterDraftStatus);
     setChangeFilter(filterDraftChange);
@@ -624,7 +630,7 @@ export function TaskTrackerPage({ mockMode = false }: { mockMode?: boolean }) {
                   <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={filterDraftOnlyChanged} onChange={(event) => setFilterDraftOnlyChanged(event.target.checked)} />{t("taskTracker.onlyChanged")}</label>
                 </div>
               </DialogBody>
-              <DialogFooter className="sm:justify-between"><Button type="button" variant="outline" onClick={clearFilterDraft} disabled={!filterDraftSearch.trim() && filterDraftStatus === "all" && filterDraftChange === "all" && !filterDraftOnlyChanged}>{t("taskTracker.clearFilters")}</Button><Button type="button" onClick={applyFilters}>{t("taskTracker.apply")}</Button></DialogFooter>
+              <DialogFooter className="sm:justify-between"><Button type="button" variant="outline" onClick={clearFilterDraft} disabled={!filterDraftSearch.trim() && filterDraftStatus === "all" && filterDraftChange === "all" && !filterDraftOnlyChanged}>{t("taskTracker.clearFilters")}</Button><Button type="button" onClick={applyFilters} disabled={!filtersChanged}>{t("settings.common.save")}</Button></DialogFooter>
             </DialogContent>
           </Dialog>
 
@@ -647,7 +653,7 @@ export function TaskTrackerPage({ mockMode = false }: { mockMode?: boolean }) {
               <thead className="bg-muted/50 text-xs uppercase text-muted-foreground"><tr><SortableHeader label={t("taskTracker.issue")} sortKey="issue" activeSortKey={sortKey} direction={sortDirection} onSort={handleSort} className="w-40 min-w-40 whitespace-nowrap" /><SortableHeader label={t("taskTracker.summary")} sortKey="summary" activeSortKey={sortKey} direction={sortDirection} onSort={handleSort} /><SortableHeader label={t("taskTracker.status")} sortKey="status" activeSortKey={sortKey} direction={sortDirection} onSort={handleSort} /><SortableHeader label={t("taskTracker.updated")} sortKey="updated" activeSortKey={sortKey} direction={sortDirection} onSort={handleSort} /><SortableHeader label={t("taskTracker.change")} sortKey="change" activeSortKey={sortKey} direction={sortDirection} onSort={handleSort} /></tr></thead>
               <tbody className="divide-y divide-border">
                 {visibleIssues.map((issue) => <IssueRow key={issue.key} issue={issue} now={now} locale={locale} t={t} unread={issue.changed && !changesRead} />)}
-                {visibleIssues.length === 0 ? <tr><td colSpan={5} className="px-4 py-10 text-center text-muted-foreground">{t("taskTracker.noMatchingIssues")}</td></tr> : null}
+                {visibleIssues.length === 0 ? <tr><td colSpan={5} className="px-4 py-3 text-sm text-muted-foreground">{t("taskTracker.noMatchingIssues")}</td></tr> : null}
               </tbody>
             </table>
               </div>
@@ -747,7 +753,7 @@ function MonitorDialog({ t, open, editing, draft, saving, validating, validation
           </div>
           <div className="ml-auto flex items-center gap-2">
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>{t("taskTracker.cancel")}</Button>
-            <Button type="button" disabled={saving} onClick={onSave}>{saving ? t("taskTracker.saving") : editing ? t("taskTracker.saveChanges") : t("taskTracker.create")}</Button>
+            <Button type="button" actionTone={editing ? "edit" : "add"} disabled={saving} onClick={onSave}>{saving ? t("taskTracker.saving") : editing ? t("taskTracker.saveChanges") : t("taskTracker.create")}</Button>
           </div>
         </DialogFooter>
       </DialogContent>

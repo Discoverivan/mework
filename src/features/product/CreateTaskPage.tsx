@@ -760,7 +760,7 @@ export function CreateTaskPage() {
                 <Trash2 className="mr-2 h-4 w-4" aria-hidden="true" />
                 {t("task.delete")}
               </Button>
-              <Button type="button" disabled={!card.teamId || card.status === "creating" || !card.summary.trim() || !card.description.trim()} onClick={() => void createTask(card)}>
+              <Button type="button" actionTone="add" disabled={!card.teamId || card.status === "creating" || !card.summary.trim() || !card.description.trim()} onClick={() => void createTask(card)}>
                 {card.status === "creating" ? t("task.creating") : t("task.create")}
               </Button>
             </>
@@ -832,7 +832,6 @@ export function CreateTaskPage() {
           titleId="create-task-empty-title"
           title={t("task.empty")}
           description={t("task.emptyDescription")}
-          hint={t("task.emptyHint")}
           icon={<ClipboardList className="size-5" />}
         />
       )}

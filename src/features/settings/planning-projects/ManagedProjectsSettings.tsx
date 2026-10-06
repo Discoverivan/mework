@@ -889,7 +889,7 @@ export function ManagedProjectsSettings({
 
       {!loading && !loadError && projects.length === 0 ? (
         <Card>
-          <CardContent className="pt-6">
+          <CardContent className="py-3 text-sm text-muted-foreground">
             <p>{t("teams.empty")}</p>
           </CardContent>
         </Card>
@@ -1249,7 +1249,7 @@ export function ManagedProjectsSettings({
 
             <div className="flex items-center justify-between gap-3">
               <h3 className="font-semibold">{t("teams.members")}</h3>
-              <Button type="button" size="sm" onClick={openAddMemberDialog} disabled={controlsDisabled}>{t("teams.addMember")}</Button>
+              <Button type="button" size="sm" actionTone="add" onClick={openAddMemberDialog} disabled={controlsDisabled}>{t("teams.addMember")}</Button>
             </div>
             <Dialog open={memberDialogOpen} onOpenChange={(open) => { if (open) setMemberDialogOpen(true); else closeMemberDialog(); }}>
               <DialogContent>
@@ -1338,7 +1338,7 @@ export function ManagedProjectsSettings({
                   />
                 </div>
                 <div className="flex flex-wrap gap-2">
-                  <Button type="button" onClick={() => void handleSaveMemberDialog()} disabled={!memberRole || controlsDisabled}>
+                  <Button type="button" actionTone={editingMemberAccountId ? "edit" : "add"} onClick={() => void handleSaveMemberDialog()} disabled={!memberRole || controlsDisabled}>
                     {teamSaving ? t("settings.common.saving") : editingMemberAccountId ? t("settings.common.save") : t("teams.addMemberAction")}
                   </Button>
                   <Button

@@ -4,10 +4,11 @@ use tauri::{AppHandle, State};
 
 use crate::application::authored_pull_requests;
 use crate::application::developer::{
-    self, BitbucketRepositoryDto, BitbucketUserDto, DeveloperCommandError, MyPullRequestsPageDto,
-    PullRequestActivity, PullRequestActivityStatus, PullRequestCommentRequest,
-    PullRequestCommentStatus, PullRequestDecisionRequest, PullRequestDecisionStatus,
-    PullRequestReadAllStatus, PullRequestRemoveReviewerRequest, PullRequestReviewSettings,
+    self, BitbucketProjectDto, BitbucketRepositoryDto, BitbucketUserDto, DeveloperCommandError,
+    MyPullRequestsPageDto, PullRequestActivity, PullRequestActivityStatus,
+    PullRequestCommentRequest, PullRequestCommentStatus, PullRequestDecisionRequest,
+    PullRequestDecisionStatus, PullRequestReadAllStatus, PullRequestRemoveReviewerRequest,
+    PullRequestReviewSettings,
 };
 use crate::application::developer_review::{
     self, PullRequestReviewDto, PullRequestReviewRequest, PullRequestReviewStateRequest,
@@ -237,6 +238,14 @@ pub async fn bitbucket_search_users(
     query: String,
 ) -> Result<Vec<BitbucketUserDto>, DeveloperCommandError> {
     developer::search_bitbucket_users(&state, &query).await
+}
+
+#[tauri::command]
+pub async fn bitbucket_search_projects(
+    state: State<'_, SqlitePool>,
+    query: String,
+) -> Result<Vec<BitbucketProjectDto>, DeveloperCommandError> {
+    developer::search_bitbucket_projects(&state, &query).await
 }
 
 #[tauri::command]

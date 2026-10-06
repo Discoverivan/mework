@@ -59,7 +59,13 @@ export function PullRequestDisplayOptionsDialog({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
+  const hasChanges = draftGrouping !== grouping
+    || draftExpand !== expandProjectsByDefault
+    || draftSort !== sortOrder
+    || draftAutoReview !== autoReviewEnabled;
+
   function apply() {
+    if (!hasChanges) return;
     onApply({
       grouping: draftGrouping,
       expandProjectsByDefault: draftExpand,
@@ -133,7 +139,7 @@ export function PullRequestDisplayOptionsDialog({
         </DialogBody>
         <DialogFooter>
           <Button type="button" variant="outline" actionTone="neutral" onClick={() => onOpenChange(false)}>{t("settings.common.cancel")}</Button>
-          <Button type="button" variant="outline" actionTone="success" className="text-foreground" onClick={apply}>{t("pr.options.apply")}</Button>
+          <Button type="button" variant="outline" onClick={apply} disabled={!hasChanges}>{t("settings.common.save")}</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

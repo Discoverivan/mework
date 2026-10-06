@@ -8,6 +8,7 @@ import type { ManagedProject, PlanningSprint, PlanningWorkspace as Workspace, Te
 import { listManagedProjects, listPlanningTeamMembers, listPlanningTeamPresets, listTargetSprints, loadPlanningWorkspace } from "./api";
 import { PlanningWorkspace } from "./PlanningWorkspace";
 import { useI18n } from "@/i18n/context";
+import { cn } from "@/lib/utils";
 
 function commandError(error: unknown): string {
   if (error instanceof Error) return error.message;
@@ -103,10 +104,10 @@ export function PlanningPage() {
             description={t("planning.description")}
           />
           <Card>
-            <CardContent className="grid max-w-2xl gap-4 pt-6 sm:grid-cols-2">
+            <CardContent className={cn("grid max-w-2xl gap-4 sm:grid-cols-2", !loadingProjects && !error && projects.length === 0 ? "py-3" : "pt-6")}>
               {loadingProjects ? <p role="status" className="sm:col-span-2">{t("planning.loadingProjects")}</p> : null}
               {error === "projects" ? <Alert variant="destructive" role="alert" className="sm:col-span-2"><AlertDescription>{t("planning.projectsError")}</AlertDescription></Alert> : null}
-              {!loadingProjects && !error && projects.length === 0 ? <p className="sm:col-span-2">{t("planning.noProjects")}</p> : null}
+              {!loadingProjects && !error && projects.length === 0 ? <p className="text-sm text-muted-foreground sm:col-span-2">{t("planning.noProjects")}</p> : null}
               {!loadingProjects && projects.length > 0 ? (
                 <div className="space-y-2">
                   <Label htmlFor="managed-project">{t("planning.project")}</Label>
