@@ -7,11 +7,11 @@ import {
 } from "@/components/ui/alert";
 import { StatusToast } from "@/components/shared/StatusToast";
 import { PageHeader } from "@/components/shared/PageHeader";
-import { ReviewAttemptsSetting } from "./ReviewAttemptsSetting";
 import { ActionSettingsSection } from "./prompts/ActionSettingsSection";
 import { Card, CardContent, CardDescription, CardHeader } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Field, FieldLabel } from "@/components/ui/field";
 import { Label } from "@/components/ui/label";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Separator } from "@/components/ui/separator";
@@ -188,6 +188,7 @@ const DEFAULT_AI_SETTINGS: AiSettings = {
   fastMode: false,
   tokenBurner: null,
   sprintSummary: null,
+  retries: { default: 0, actions: { taskCreation: null, pullRequestReview: null, tokenBurner: null, sprintSummary: null } },
 };
 
 const INITIAL_AI_DATA: AiSettingsPageData = { settings: DEFAULT_AI_SETTINGS, providers: [] };
@@ -369,12 +370,6 @@ export function SettingsPage({ section = "integrations", focusActivity, mockMode
   const [aiSaveNotice, setAiSaveNotice] = useState<{ key: TranslationKey; revision: number } | null>(null);
   const [instructionsSaving, setInstructionsSaving] = useState(false);
   const [instructionsLoading, setInstructionsLoading] = useState(false);
-  const [reviewAttemptsLoading, setReviewAttemptsLoading] = useState(false);
-  const [reviewAttemptsSaving, setReviewAttemptsSaving] = useState(false);
-  const handleReviewAttemptsSaving = useCallback((saving: boolean) => {
-    setReviewAttemptsSaving(saving);
-    if (saving) setAiSaveNotice(null);
-  }, []);
   const handleInstructionsSaving = useCallback((saving: boolean) => {
     setInstructionsSaving(saving);
     if (saving) setAiSaveNotice(null);
@@ -623,7 +618,8 @@ export function SettingsPage({ section = "integrations", focusActivity, mockMode
       && JSON.stringify(aiDraft.taskCreation ?? null) === JSON.stringify(aiData.settings.taskCreation ?? null)
       && JSON.stringify(aiDraft.pullRequestReview ?? null) === JSON.stringify(aiData.settings.pullRequestReview ?? null)
       && JSON.stringify(aiDraft.tokenBurner ?? null) === JSON.stringify(aiData.settings.tokenBurner ?? null)
-      && JSON.stringify(aiDraft.sprintSummary ?? null) === JSON.stringify(aiData.settings.sprintSummary ?? null);
+      && JSON.stringify(aiDraft.sprintSummary ?? null) === JSON.stringify(aiData.settings.sprintSummary ?? null)
+      && JSON.stringify(aiDraft.retries) === JSON.stringify(aiData.settings.retries);
     const defaultSettingsUnchanged = aiDraft.provider === aiData.settings.provider
       && (aiDraft.providerInstanceId ?? null) === (aiData.settings.providerInstanceId ?? null)
       && aiDraft.model === aiData.settings.model
@@ -635,9 +631,7 @@ export function SettingsPage({ section = "integrations", focusActivity, mockMode
       [aiDraft.tokenBurner, aiData.settings.tokenBurner],
       [aiDraft.sprintSummary, aiData.settings.sprintSummary],
     ] as const;
-    const changedProfilesReady = profileChanges.some(([draft, saved]) =>
-      JSON.stringify(draft ?? null) !== JSON.stringify(saved ?? null))
-      && profileChanges.every(([draft, saved]) => {
+    const changedProfilesReady = profileChanges.every(([draft, saved]) => {
         if (JSON.stringify(draft ?? null) === JSON.stringify(saved ?? null) || !draft) return true;
         const provider = aiData.providers.find((candidate) => candidate.id === draft.provider
           && (candidate.id !== "openai-compatible" || (candidate.instanceId ?? "legacy") === (draft.providerInstanceId ?? "legacy")));
@@ -671,8 +665,33 @@ export function SettingsPage({ section = "integrations", focusActivity, mockMode
     return () => window.clearTimeout(timer);
   }, [aiData.settings, aiDraft, aiReady, aiDeleting, aiStatusScope, t, showAiSaveNotice]);
 
+  function renderRetries(action: "default" | AiActivity) {
+    const inheritedRetries = aiDraft.retries.default;
+    const value = action === "default"
+      ? inheritedRetries
+      : aiDraft.retries.actions[action] ?? inheritedRetries;
+    const id = `ai-retries-${action}`;
+    return <Field className="w-44 gap-2.5" data-disabled={aiLoading || aiSaving}>
+      <FieldLabel className="whitespace-nowrap pl-1 leading-none" htmlFor={id}>{t("settings.ai.retries")}</FieldLabel>
+      <Input id={id} type="number" min={0} max={10} step={1} value={value} disabled={aiLoading || aiSaving} aria-describedby={`${id}-help`}
+        onChange={(event) => {
+          const retries = event.currentTarget.valueAsNumber;
+          if (!Number.isInteger(retries) || retries < 0 || retries > 10) return;
+          setAiDraft((current) => ({
+            ...current,
+            retries: action === "default"
+              ? { ...current.retries, default: retries }
+              : { ...current.retries, actions: { ...current.retries.actions, [action]: retries === current.retries.default ? null : retries } },
+          }));
+          setAiStatusScope(action === "default" ? "default" : action);
+          setAiError(null);
+        }} />
+      <p id={`${id}-help`} className="max-w-44 text-xs text-muted-foreground">{t("settings.ai.retriesDescription")}</p>
+    </Field>;
+  }
+
   function renderActionModelSettings(action: AiActivity) {
-    return <div className="space-y-2">
+    return <div className="flex flex-wrap items-start gap-4">
       <AiOverrideEditor
         idPrefix={AI_ACTION_PREFIXES[action]}
         profile={aiDraft[action]}
@@ -686,6 +705,7 @@ export function SettingsPage({ section = "integrations", focusActivity, mockMode
         onChange={(profile) => updateAiProfile(action, profile)}
         disabled={aiLoading || aiSaving}
       />
+      {renderRetries(action)}
       {renderAiStatus(action)}
     </div>;
   }
@@ -1235,15 +1255,11 @@ export function SettingsPage({ section = "integrations", focusActivity, mockMode
                   </Select>
                 </div> : null}
                 {aiDraft.provider === "codex-cli" ? <AiModeSelect id="ai-mode" fastMode={aiDraft.fastMode} onChange={(fastMode) => updateAiSetting("fastMode", fastMode)} disabled={!aiDraft.provider || aiSaving} /> : null}
+                {renderRetries("default")}
               </div>
               {renderAiStatus("default")}
             </section>}
             renderModelSettings={renderActionModelSettings}
-            renderActionOptions={(action) => action === "pullRequestReview" ? <ReviewAttemptsSetting
-              onSaved={() => showAiSaveNotice("settings.ai.saved")}
-              onSavingChange={handleReviewAttemptsSaving}
-              onLoadingChange={setReviewAttemptsLoading}
-            /> : null}
             extraAction={<section id="ai-token-burner-action" className="flex flex-col gap-4" aria-label={t("settings.ai.tokenBurner")}>
               <h3 className="text-base font-medium">{t("settings.ai.tokenBurner")}</h3>
               {renderActionModelSettings("tokenBurner")}
@@ -1652,9 +1668,9 @@ export function SettingsPage({ section = "integrations", focusActivity, mockMode
           </>
         )
       ) : null}
-      {section === "ai" && (loading || instructionsLoading || reviewAttemptsLoading)
+      {section === "ai" && (loading || instructionsLoading)
         ? <StatusToast key="loading" message={t("settings.ai.loading")} variant="loading" />
-        : section === "ai" && (aiSaving || instructionsSaving || reviewAttemptsSaving)
+        : section === "ai" && (aiSaving || instructionsSaving)
         ? <StatusToast key="saving" message={t("settings.common.saving")} variant="loading" />
         : section === "ai" && aiSaveNotice ? <StatusToast key={aiSaveNotice.revision} message={t(aiSaveNotice.key)} onDismiss={() => setAiSaveNotice(null)} /> : null}
     </main>
