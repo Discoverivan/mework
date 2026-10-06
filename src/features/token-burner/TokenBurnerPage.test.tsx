@@ -260,7 +260,7 @@ describe("TokenBurnerPage", () => {
     await waitFor(() => expect(screen.queryByRole("dialog", { name: "Settings" })).not.toBeInTheDocument());
   });
 
-  it("uses the selected Codex CLI model and starts a background review session", async () => {
+  it("saves shared AI configuration with status notices and starts a background review session", async () => {
     render(<I18nProvider><TokenBurnerPage /></I18nProvider>);
 
     expect(await screen.findByRole("heading", { name: "Model-testing" })).toBeInTheDocument();
@@ -308,9 +308,33 @@ describe("TokenBurnerPage", () => {
     await act(async () => completeAiSave());
     expect(screen.getByRole("status")).toHaveTextContent("AI settings saved. They apply to new runs.");
     await waitFor(() => expect(screen.queryByText("AI settings saved. They apply to new runs.")).not.toBeInTheDocument(), { timeout: 3500 });
+
+    // A provider refresh carries persisted settings, including a freshly decoded profile.
+    const savedAi = saveAiSettingsMock.mock.calls[0][0];
+    fireEvent.click(screen.getByRole("combobox", { name: "Mode" }));
+    fireEvent.click(screen.getByRole("option", { name: "Normal" }));
+    act(() => emitAppEvent(APP_EVENT.aiSettingsChanged, {
+      settings: { ...savedAi, tokenBurner: { ...savedAi.tokenBurner }, retries: { ...savedAi.retries, default: 1 } },
+      providers: [{ id: "codex-cli", name: "Codex CLI", status: "connected", available: true, models: ["example-codex-model"] }],
+    }));
+    expect(screen.getByRole("combobox", { name: "Mode" })).toHaveTextContent("Normal");
+    await waitFor(() => expect(saveAiSettingsMock).toHaveBeenCalledTimes(2));
+    expect(saveAiSettingsMock.mock.calls[1][0]).toMatchObject({ tokenBurner: { fastMode: false }, retries: { default: 1 } });
+    await act(async () => completeAiSave());
+
+    // Retain the draft after a transient save failure and let the user retry it directly.
+    saveAiSettingsMock.mockRejectedValueOnce(new Error("Example save failure"));
+    fireEvent.click(screen.getByRole("combobox", { name: "AI provider" }));
+    fireEvent.click(screen.getByRole("option", { name: "Use defaults" }));
+    const retrySave = await screen.findByRole("button", { name: "Retry saving" });
+    expect(screen.getByRole("button", { name: "Start" })).toBeDisabled();
+    saveAiSettingsMock.mockImplementation(async (settings) => ({ ...(await aiSettingsMock()), settings }));
+    fireEvent.click(retrySave);
+    await waitFor(() => expect(saveAiSettingsMock).toHaveBeenCalledTimes(4));
+    expect(saveAiSettingsMock.mock.calls[3][0]).toMatchObject({ tokenBurner: null, retries: { default: 1, actions: { tokenBurner: null } } });
     await waitFor(() => expect(screen.getByRole("button", { name: "Start" })).toBeEnabled());
     fireEvent.click(screen.getByRole("button", { name: "Start" }));
 
     await waitFor(() => expect(startMock).toHaveBeenCalledOnce());
-  });
+  }, 10_000);
 });

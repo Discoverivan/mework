@@ -226,8 +226,6 @@ function aiProviderReady(provider: AiProvider | undefined, model: string): boole
     && provider.models.includes(model);
 }
 
-
-
 export type SettingsSection = "general" | "ai" | "integrations" | "projects";
 type AiSettingsScope = "default" | "taskCreation" | "pullRequestReview" | "tokenBurner" | "sprintSummary";
 type AiActivity = Exclude<AiSettingsScope, "default">;

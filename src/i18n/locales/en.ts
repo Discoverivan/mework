@@ -628,6 +628,7 @@ export const en = {
   "settings.ai.modeNormal": "Normal",
   "settings.ai.modeFast": "Fast",
   "settings.ai.saved": "AI settings saved. They apply to new runs.",
+  "settings.ai.retrySave": "Retry saving",
   "settings.ai.noModelSelected": "No available model selected.",
   "settings.ai.notConnected": "Selected provider is not connected.",
   "settings.ai.save": "Save",

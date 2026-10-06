@@ -1,20 +1,27 @@
 import { useEffect, useRef, useState } from "react";
 import { APP_EVENT, emitAppEvent } from "@/app/app-events";
 import { StatusToast } from "@/components/shared/StatusToast";
+import { Button } from "@/components/ui/button";
 import { AiOverrideEditor } from "@/features/settings/AiOverrideEditor";
 import { AiRetriesField } from "@/features/settings/AiRetriesField";
 import { saveAiSettings } from "@/features/settings/api";
 import { useI18n } from "@/i18n/context";
-import type { AiSettingsPageData, AiSettingsProfile } from "@/shared/contracts/settings";
+import type { AiSettings, AiSettingsPageData, AiSettingsProfile } from "@/shared/contracts/settings";
+
+function modelTestingDraft(settings: AiSettings) {
+  return { profile: settings.tokenBurner ?? null, retries: settings.retries.actions.tokenBurner };
+}
 
 export function ModelTestingAiSettings({ data, disabled, onPendingChange }: { data: AiSettingsPageData; disabled: boolean; onPendingChange: (pending: boolean) => void }) {
   const { t } = useI18n();
-  const [profile, setProfile] = useState(data.settings.tokenBurner ?? null);
-  const [retries, setRetries] = useState(data.settings.retries.actions.tokenBurner);
+  const [draft, setDraft] = useState(() => modelTestingDraft(data.settings));
+  const { profile, retries } = draft;
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
-  const failedDraft = useRef<string | null>(null);
+  const [failedDraft, setFailedDraft] = useState<string | null>(null);
+  const savedKey = JSON.stringify(modelTestingDraft(data.settings));
+  const previousSavedKey = useRef(savedKey);
   const mounted = useRef(true);
 
   useEffect(() => {
@@ -23,15 +30,16 @@ export function ModelTestingAiSettings({ data, disabled, onPendingChange }: { da
   }, []);
 
   useEffect(() => {
-    setProfile(data.settings.tokenBurner ?? null);
-    setRetries(data.settings.retries.actions.tokenBurner);
-  }, [data.settings.tokenBurner, data.settings.retries.actions.tokenBurner]);
+    const previous = previousSavedKey.current;
+    previousSavedKey.current = savedKey;
+    // Provider refreshes must not discard edits waiting for autosave.
+    setDraft((current) => JSON.stringify(current) === previous ? modelTestingDraft(data.settings) : current);
+  }, [data.settings, savedKey]);
 
   const selected = data.providers.find((provider) => provider.id === profile?.provider
     && (provider.id !== "openai-compatible" || (provider.instanceId ?? "legacy") === (profile?.providerInstanceId ?? "legacy")));
   const ready = !profile || (selected?.available === true && selected.status === "connected" && selected.models.includes(profile.model));
-  const draftKey = JSON.stringify([profile, retries]);
-  const savedKey = JSON.stringify([data.settings.tokenBurner ?? null, data.settings.retries.actions.tokenBurner]);
+  const draftKey = JSON.stringify(draft);
   const loading = data.providers.some((provider) => provider.status === "loading");
 
   useEffect(() => {
@@ -40,7 +48,7 @@ export function ModelTestingAiSettings({ data, disabled, onPendingChange }: { da
   }, [draftKey, onPendingChange, savedKey, saving]);
 
   useEffect(() => {
-    if (disabled || loading || saving || !ready || draftKey === savedKey || failedDraft.current === draftKey) return;
+    if (disabled || loading || saving || !ready || draftKey === savedKey || failedDraft === draftKey) return;
     const timer = window.setTimeout(() => {
       setSaving(true);
       setSaved(false);
@@ -51,21 +59,25 @@ export function ModelTestingAiSettings({ data, disabled, onPendingChange }: { da
         retries: { ...data.settings.retries, actions: { ...data.settings.retries.actions, tokenBurner: retries } },
       }).then((next) => {
         emitAppEvent(APP_EVENT.aiSettingsChanged, next);
-        if (mounted.current) setSaved(true);
+        if (mounted.current) {
+          setDraft(modelTestingDraft(next.settings));
+          setSaved(true);
+        }
       }).catch((failure: unknown) => {
-        failedDraft.current = draftKey;
-        if (mounted.current) setError(t("settings.error.saveAi", { error: failure instanceof Error ? failure.message : String(failure) }));
+        if (mounted.current) {
+          setFailedDraft(draftKey);
+          setError(t("settings.error.saveAi", { error: failure instanceof Error ? failure.message : String(failure) }));
+        }
       }).finally(() => { if (mounted.current) setSaving(false); });
     }, 250);
     return () => window.clearTimeout(timer);
-  }, [data.settings, disabled, draftKey, loading, profile, ready, retries, savedKey, saving, t]);
+  }, [data.settings, disabled, draftKey, failedDraft, loading, profile, ready, retries, savedKey, saving, t]);
 
   function changeProfile(next: AiSettingsProfile | null) {
-    setProfile(next);
-    setRetries(next ? retries ?? data.settings.retries.default : null);
+    setDraft({ profile: next, retries: next ? retries ?? data.settings.retries.default : null });
     setError(null);
     setSaved(false);
-    failedDraft.current = null;
+    setFailedDraft(null);
   }
 
   return <section className="flex flex-col gap-4" aria-label={t("tokenBurner.aiConfiguration")}>
@@ -84,15 +96,21 @@ export function ModelTestingAiSettings({ data, disabled, onPendingChange }: { da
         disabled={disabled || loading || saving}
       />
       {profile ? <AiRetriesField id="model-testing-ai-retries" value={retries ?? data.settings.retries.default} disabled={disabled || loading || saving} onChange={(value) => {
-        setRetries(value);
+        setDraft((current) => ({ ...current, retries: value }));
         setError(null);
         setSaved(false);
-        failedDraft.current = null;
+        setFailedDraft(null);
       }} /> : null}
     </div>
-    {error || !ready ? <p className={error ? "text-sm text-destructive" : "text-sm text-warning"} aria-live="polite">
-      {error ?? t(selected?.status === "connected" ? "settings.ai.noModelSelected" : "settings.ai.notConnected")}
-    </p> : null}
+    {error || !ready ? <div className="flex flex-wrap items-center gap-3">
+      <p className={error ? "text-sm text-destructive" : "text-sm text-warning"} aria-live="polite">
+        {error ?? t(selected?.status === "connected" ? "settings.ai.noModelSelected" : "settings.ai.notConnected")}
+      </p>
+      {error ? <Button type="button" variant="outline" size="sm" disabled={disabled || loading || saving || !ready} onClick={() => {
+        setFailedDraft(null);
+        setError(null);
+      }}>{t("settings.ai.retrySave")}</Button> : null}
+    </div> : null}
     {saving ? <StatusToast key="saving" variant="loading" message={t("settings.common.saving")} />
       : saved ? <StatusToast key="saved" message={t("settings.ai.saved")} onDismiss={() => setSaved(false)} /> : null}
   </section>;
