@@ -24,7 +24,7 @@ const bitbucket = {
 };
 
 const connectedAi = {
-  settings: { provider: "codex-cli" as const, model: "sample-model", reasoning: "medium" as const, fastMode: false },
+  settings: { provider: "codex-cli" as const, model: "sample-model", reasoning: "medium" as const, fastMode: false, retries: { default: 0, actions: { taskCreation: null, pullRequestReview: null, tokenBurner: null, sprintSummary: null } } },
   providers: [{ id: "codex-cli" as const, name: "Codex CLI", status: "connected" as const, available: true, models: ["sample-model"] }],
 };
 
@@ -60,7 +60,7 @@ describe("IntegrationDependencyGate smoke test", () => {
   it("shows both settings links when integration and AI are unavailable", async () => {
     listIntegrationsMock.mockResolvedValue([{ ...bitbucket, healthStatus: "unavailable" as const }]);
     getAiSettingsMock.mockResolvedValue({
-      settings: { provider: null, model: "", reasoning: "medium", fastMode: false },
+      settings: { provider: null, model: "", reasoning: "medium", fastMode: false, retries: { default: 0, actions: { taskCreation: null, pullRequestReview: null, tokenBurner: null, sprintSummary: null } } },
       providers: [],
     });
 

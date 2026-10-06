@@ -22,6 +22,13 @@ export interface AiSettingsProfile {
   fastMode: boolean;
 }
 
+export type AiActivity = "taskCreation" | "pullRequestReview" | "tokenBurner" | "sprintSummary";
+
+export interface AiRetrySettings {
+  default: number;
+  actions: Record<AiActivity, number | null>;
+}
+
 export interface AiSettings {
   provider: AiProviderId | null;
   providerInstanceId?: string | null;
@@ -32,6 +39,7 @@ export interface AiSettings {
   pullRequestReview?: AiSettingsProfile | null;
   tokenBurner?: AiSettingsProfile | null;
   sprintSummary?: AiSettingsProfile | null;
+  retries: AiRetrySettings;
 }
 
 export interface AiProvider {

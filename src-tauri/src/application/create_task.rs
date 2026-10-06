@@ -124,6 +124,7 @@ pub async fn generate_draft(
     );
     let enriched_prompt = enrich_task_prompt(&prompt, &sources);
     let settings = ai::settings_for_activity(pool, ai::AiActivity::TaskCreation).await?;
+    let retries = settings.retries.for_activity(ai::AiActivity::TaskCreation);
     let instructions = ai_prompts::load(pool, PromptAction::TaskCreation).await?;
     let general_settings = general::load(pool).await?;
     let output_language = general_settings
@@ -147,13 +148,15 @@ pub async fn generate_draft(
     });
     let model = settings.model.clone();
     let (draft, usage) = tauri::async_runtime::spawn_blocking(move || {
-        execute_draft_with_usage(
-            &settings,
-            openai_runtime,
-            &enriched_prompt,
-            output_language,
-            &instructions,
-        )
+        ai::retry_provider_operation(retries, || {
+            execute_draft_with_usage(
+                &settings,
+                openai_runtime.clone(),
+                &enriched_prompt,
+                output_language,
+                &instructions,
+            )
+        })
     })
     .await
     .map_err(|_| "AI task generation failed".to_owned())??;
@@ -1334,7 +1337,7 @@ fn execute_openai_task_draft_with_usage(
         let status = response.status();
         let body = response.bytes().await.map_err(|error| {
             ai::log_openai_transport_error("task_generation_response_body", &error.to_string());
-            "OpenAI-compatible API returned an invalid task response".to_owned()
+            "OpenAI-compatible API task request could not be completed".to_owned()
         })?;
         ai::log_openai_chat_response("task_generation", status.as_u16(), &body);
         if status == reqwest::StatusCode::UNAUTHORIZED || status == reqwest::StatusCode::FORBIDDEN {
@@ -1498,6 +1501,7 @@ mod tests {
             pull_request_review: None,
             token_burner: None,
             sprint_summary: None,
+            retries: crate::application::ai::AiRetrySettings::default(),
         };
 
         let (draft, usage) = super::execute_draft_in_workspace_with_usage(
@@ -1561,6 +1565,7 @@ mod tests {
             pull_request_review: None,
             token_burner: None,
             sprint_summary: None,
+            retries: crate::application::ai::AiRetrySettings::default(),
         };
         let (draft, usage) = super::execute_draft_in_workspace_with_usage(
             &settings,

@@ -140,6 +140,7 @@ const aiSettingsConnected: AiSettingsPageData = {
     model: "gpt-5.5",
     reasoning: "medium",
     fastMode: false,
+    retries: { default: 0, actions: { taskCreation: null, pullRequestReview: null, tokenBurner: null, sprintSummary: null } },
   },
   providers: [{
     id: "codex-cli",

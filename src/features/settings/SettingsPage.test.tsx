@@ -2,7 +2,6 @@ import { act, fireEvent, render, screen, waitFor, within } from "@testing-librar
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { addAiCliProvider, deleteAiProvider, deleteIntegration, getAiSettings, getCachedAiSettings, inspectAiCliProvider, listIntegrations, refreshAiSettings, saveAiSettings, saveIntegration, saveOpenAiCompatibleProvider } from "./api";
-import { saveAiReviewAttempts } from "./general/api";
 import { SettingsPage } from "./SettingsPage";
 
 vi.mock("./api", () => ({
@@ -18,12 +17,6 @@ vi.mock("./api", () => ({
   saveAiSettings: vi.fn(),
   saveIntegration: vi.fn(),
   saveOpenAiCompatibleProvider: vi.fn(),
-}));
-
-vi.mock("./general/api", () => ({
-  getCachedAiReviewAttempts: vi.fn().mockReturnValue(3),
-  getAiReviewAttempts: vi.fn().mockResolvedValue(3),
-  saveAiReviewAttempts: vi.fn().mockImplementation(async (attempts) => attempts),
 }));
 
 vi.mock("./prompts/api", () => ({
@@ -89,6 +82,7 @@ const codexAiSettings = {
     model: "gpt-5.5",
     reasoning: "medium" as const,
     fastMode: false,
+    retries: { default: 0, actions: { taskCreation: null, pullRequestReview: null, tokenBurner: null, sprintSummary: null } },
   },
   providers: [{
     id: "codex-cli" as const,
@@ -224,29 +218,21 @@ describe("SettingsPage integrations smoke tests", () => {
     })));
   });
 
-  it("saves review attempts under the pull request review action", async () => {
+  it("saves independent retry settings for each AI action and defaults", async () => {
     render(<SettingsPage section="ai" />);
+    await screen.findByRole("group", { name: "Codex CLI AI provider" });
+    const defaults = defaultAiSettings();
+    expect(defaults.getByRole("spinbutton", { name: "Retries" })).toHaveValue(0);
+    for (const action of ["Task creation", "Pull request review", "Model-testing", "Sprint tasks / AI Summary"]) {
+      expect(within(screen.getByRole("region", { name: action })).getByRole("spinbutton", { name: "Retries" })).toHaveValue(0);
+    }
+
     const review = within(screen.getByRole("region", { name: "Pull request review" }));
-    const attempts = review.getByRole("textbox", { name: "Attempts" });
-    expect(attempts).toHaveValue("3");
-    attempts.focus();
-    fireEvent.change(attempts, { target: { value: "11" } });
-    expect(attempts).toHaveAttribute("aria-invalid", "true");
-    const validation = screen.getByRole("alert");
-    expect(validation).toHaveTextContent("Enter a whole number from 1 to 10.");
-    expect(validation).toBeVisible();
-    expect(review.getByRole("textbox", { name: "Attempts" }).closest("section")).not.toContainElement(validation);
-    expect(attempts).toHaveFocus();
-    fireEvent.blur(attempts);
-    expect(saveAiReviewAttempts).not.toHaveBeenCalled();
-    fireEvent.change(attempts, { target: { value: "" } });
-    expect(attempts).toHaveValue("");
-    fireEvent.change(attempts, { target: { value: "4" } });
-    expect(attempts).toHaveAttribute("aria-invalid", "false");
-    fireEvent.blur(attempts);
-    await waitFor(() => expect(saveAiReviewAttempts).toHaveBeenCalledWith(4));
-    expect(attempts).toHaveValue("4");
-    expect(await screen.findByText("AI settings saved. They apply to new runs.")).toBeVisible();
+    fireEvent.change(review.getByRole("spinbutton", { name: "Retries" }), { target: { value: "2" } });
+    expect(review.getByRole("spinbutton", { name: "Retries" })).toHaveValue(2);
+    await waitFor(() => expect(saveAiSettingsMock).toHaveBeenCalledWith(expect.objectContaining({
+      retries: expect.objectContaining({ actions: expect.objectContaining({ pullRequestReview: 2 }) }),
+    })), { timeout: 2_000 });
   });
 
   it("shows initial AI loading in a toast and immediately displays the cache on re-entry", async () => {
@@ -303,6 +289,7 @@ describe("SettingsPage integrations smoke tests", () => {
       model: "gpt-5.5",
       reasoning: "high",
       fastMode: true,
+      retries: codexAiSettings.settings.retries,
     }));
     const savingNotice = await screen.findByRole("status");
     expect(savingNotice).toHaveTextContent("Saving");
@@ -430,6 +417,7 @@ describe("SettingsPage integrations smoke tests", () => {
         model: "",
         reasoning: "medium",
         fastMode: false,
+        retries: { default: 0, actions: { taskCreation: null, pullRequestReview: null, tokenBurner: null, sprintSummary: null } },
       },
       providers: [
         codexAiSettings.providers[0],
@@ -460,6 +448,7 @@ describe("SettingsPage integrations smoke tests", () => {
       model: "example-model",
       reasoning: "medium",
       fastMode: false,
+      retries: codexAiSettings.settings.retries,
     }));
   });
 
@@ -491,6 +480,7 @@ describe("SettingsPage integrations smoke tests", () => {
       model: "sonnet",
       reasoning: "medium",
       fastMode: false,
+      retries: codexAiSettings.settings.retries,
     }));
   });
 
@@ -573,6 +563,7 @@ describe("SettingsPage integrations smoke tests", () => {
       model: "example-model",
       reasoning: "medium",
       fastMode: false,
+      retries: codexAiSettings.settings.retries,
     }));
   });
 
@@ -592,6 +583,7 @@ describe("SettingsPage integrations smoke tests", () => {
       model: "example-model",
       reasoning: "medium" as const,
       fastMode: false,
+      retries: { default: 0, actions: { taskCreation: null, pullRequestReview: null, tokenBurner: null, sprintSummary: null } },
     };
     getAiSettingsMock.mockResolvedValue({ settings, providers: [provider] });
     saveOpenAiCompatibleProviderMock.mockResolvedValue({ settings, providers: [{ ...provider, name: "Team API", baseUrl: "https://new.example.invalid/v1" }] });
@@ -623,7 +615,7 @@ describe("SettingsPage integrations smoke tests", () => {
   });
 
   it("keeps CLI providers in product order and explains unavailable ones", async () => {
-    const cleared = { provider: null, model: "", reasoning: "medium" as const, fastMode: false };
+    const cleared = { provider: null, model: "", reasoning: "medium" as const, fastMode: false, retries: { default: 0, actions: { taskCreation: null, pullRequestReview: null, tokenBurner: null, sprintSummary: null } } };
     deleteAiProviderMock.mockResolvedValue({ settings: cleared, providers: [] });
     let codexAvailable = false;
     inspectAiCliProviderMock.mockImplementation(async (id) => id === "claude-code-cli" || (id === "codex-cli" && codexAvailable)
@@ -660,6 +652,7 @@ describe("SettingsPage integrations smoke tests", () => {
       taskCreation: null,
       pullRequestReview: null,
       tokenBurner: null,
+      retries: { default: 0, actions: { taskCreation: null, pullRequestReview: null, tokenBurner: null, sprintSummary: null } },
     };
     getAiSettingsMock.mockResolvedValue({
       settings,

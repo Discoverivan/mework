@@ -1,7 +1,7 @@
 use super::ai_providers::cli;
 pub use cli::{ai_cli_candidate_diagnostics, AiCliCandidateDiagnostic};
 
-use std::time::Duration;
+use std::{future::Future, time::Duration};
 
 use serde::{Deserialize, Serialize};
 
@@ -18,7 +18,8 @@ use crate::infrastructure::{
 };
 
 const AI_SETTINGS_KEY: &str = "ai.settings";
-const AI_SETTINGS_SCHEMA_VERSION: i64 = 1;
+const AI_SETTINGS_SCHEMA_VERSION: i64 = 2;
+pub const MAX_AI_RETRIES: u8 = 10;
 const OPENAI_COMPATIBLE_SETTINGS_KEY: &str = "ai.openai-compatible";
 const OPENAI_COMPATIBLE_SETTINGS_SCHEMA_VERSION: i64 = 1;
 const OPENAI_COMPATIBLE_CREDENTIAL_REF: &str = "ai-openai-compatible";
@@ -114,6 +115,42 @@ pub struct AiSettings {
     pub token_burner: Option<AiSettingsProfile>,
     #[serde(default)]
     pub sprint_summary: Option<AiSettingsProfile>,
+    #[serde(default)]
+    pub retries: AiRetrySettings,
+}
+
+#[derive(Debug, Clone, Default, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct AiRetrySettings {
+    #[serde(default)]
+    pub default: u8,
+    #[serde(default)]
+    pub actions: AiActionRetries,
+}
+
+#[derive(Debug, Clone, Default, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct AiActionRetries {
+    #[serde(default)]
+    pub task_creation: Option<u8>,
+    #[serde(default)]
+    pub pull_request_review: Option<u8>,
+    #[serde(default)]
+    pub token_burner: Option<u8>,
+    #[serde(default)]
+    pub sprint_summary: Option<u8>,
+}
+
+impl AiRetrySettings {
+    pub fn for_activity(&self, activity: AiActivity) -> u8 {
+        let override_value = match activity {
+            AiActivity::TaskCreation => self.actions.task_creation,
+            AiActivity::PullRequestReview => self.actions.pull_request_review,
+            AiActivity::TokenBurner => self.actions.token_burner,
+            AiActivity::SprintSummary => self.actions.sprint_summary,
+        };
+        override_value.unwrap_or(self.default)
+    }
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
@@ -149,6 +186,7 @@ impl Default for AiSettings {
             pull_request_review: None,
             token_burner: None,
             sprint_summary: None,
+            retries: AiRetrySettings::default(),
         }
     }
 }
@@ -242,12 +280,33 @@ fn default_mock_ai_settings(providers: &[AiProviderDto]) -> AiSettings {
 }
 
 pub async fn load(pool: &SqlitePool) -> Result<AiSettings, String> {
-    let value = repositories::get_setting(pool, AI_SETTINGS_KEY)
+    let stored = repositories::get_setting(pool, AI_SETTINGS_KEY)
         .await
         .map_err(|_| "failed to load AI settings".to_owned())?;
-    Ok(value
-        .and_then(|raw| serde_json::from_str::<AiSettings>(&raw).ok())
-        .unwrap_or_default())
+    let mut settings = stored
+        .as_deref()
+        .and_then(|raw| serde_json::from_str::<AiSettings>(raw).ok())
+        .unwrap_or_default();
+    let has_retry_settings = stored
+        .as_deref()
+        .and_then(|raw| serde_json::from_str::<Value>(raw).ok())
+        .and_then(|value| value.get("retries").cloned())
+        .is_some();
+    if !has_retry_settings {
+        if stored.is_some() {
+            let legacy_attempts = crate::application::general::load(pool)
+                .await?
+                .ai_review_attempts;
+            settings.retries.actions.pull_request_review =
+                Some(legacy_attempts.saturating_sub(1).min(MAX_AI_RETRIES));
+        }
+        let value = serde_json::to_string(&settings)
+            .map_err(|_| "failed to migrate AI retry settings".to_owned())?;
+        repositories::upsert_setting(pool, AI_SETTINGS_KEY, &value, AI_SETTINGS_SCHEMA_VERSION)
+            .await
+            .map_err(|_| "failed to migrate AI retry settings".to_owned())?;
+    }
+    Ok(settings)
 }
 
 pub async fn save(pool: &SqlitePool, settings: AiSettings) -> Result<(), String> {
@@ -620,6 +679,52 @@ pub async fn settings_for_activity(
     Ok(settings)
 }
 
+pub fn is_retryable_provider_error(error: &str) -> bool {
+    if error.contains("could not be completed") {
+        return true;
+    }
+    error
+        .split("HTTP ")
+        .nth(1)
+        .and_then(|status| status.split_whitespace().next())
+        .and_then(|status| status.parse::<u16>().ok())
+        .is_some_and(|status| status == 408 || status == 429 || (500..=599).contains(&status))
+}
+
+pub fn retry_provider_operation<T>(
+    retries: u8,
+    mut operation: impl FnMut() -> Result<T, String>,
+) -> Result<T, String> {
+    let retries = retries.min(MAX_AI_RETRIES);
+    for retry in 0..=retries {
+        match operation() {
+            Ok(value) => return Ok(value),
+            Err(error) if retry < retries && is_retryable_provider_error(&error) => {}
+            Err(error) => return Err(error),
+        }
+    }
+    Err("AI provider is unavailable".to_owned())
+}
+
+pub async fn retry_provider_operation_async<T, F, Fut>(
+    retries: u8,
+    mut operation: F,
+) -> Result<T, String>
+where
+    F: FnMut() -> Fut,
+    Fut: Future<Output = Result<T, String>>,
+{
+    let retries = retries.min(MAX_AI_RETRIES);
+    for retry in 0..=retries {
+        match operation().await {
+            Ok(value) => return Ok(value),
+            Err(error) if retry < retries && is_retryable_provider_error(&error) => {}
+            Err(error) => return Err(error),
+        }
+    }
+    Err("AI provider is unavailable".to_owned())
+}
+
 fn effective_settings(mut settings: AiSettings, activity: AiActivity) -> AiSettings {
     let profile = match activity {
         AiActivity::TaskCreation => settings.task_creation.clone(),
@@ -681,6 +786,20 @@ fn validate_selected_settings(
 }
 
 async fn validate_settings(pool: &SqlitePool, settings: &AiSettings) -> Result<(), String> {
+    let retry_values = [
+        Some(settings.retries.default),
+        settings.retries.actions.task_creation,
+        settings.retries.actions.pull_request_review,
+        settings.retries.actions.token_burner,
+        settings.retries.actions.sprint_summary,
+    ];
+    if retry_values
+        .into_iter()
+        .flatten()
+        .any(|retries| retries > MAX_AI_RETRIES)
+    {
+        return Err(format!("AI retries must be between 0 and {MAX_AI_RETRIES}"));
+    }
     let providers = dto(pool).await?.providers;
     if settings.provider.is_some() {
         validate_provider_selection(
@@ -1298,9 +1417,10 @@ mod tests {
     use super::cli;
     use super::{
         default_mock_ai_settings, delete_provider, load, load_openai_models,
-        normalize_openai_base_url, parse_openai_model_list_response, safe_openai_error_detail,
-        AiProviderDto, AiProviderId, AiProviderStatus, AiReasoning, AiSettings,
-        OpenAiCompatibleProviderConfig, ADDED_CLI_PROVIDERS_KEY, AI_SETTINGS_KEY,
+        normalize_openai_base_url, parse_openai_model_list_response, retry_provider_operation,
+        safe_openai_error_detail, AiActivity, AiProviderDto, AiProviderId, AiProviderStatus,
+        AiReasoning, AiSettings, OpenAiCompatibleProviderConfig, ADDED_CLI_PROVIDERS_KEY,
+        AI_SETTINGS_KEY,
     };
     #[cfg(unix)]
     use crate::application::ai_providers::cli::codex::{
@@ -1346,6 +1466,137 @@ mod tests {
         assert_eq!(settings.model, "");
         assert_eq!(settings.reasoning, AiReasoning::Medium);
         assert!(!settings.fast_mode);
+        assert_eq!(settings.retries.default, 0);
+        assert_eq!(settings.retries.for_activity(AiActivity::TaskCreation), 0);
+    }
+
+    #[test]
+    fn retries_only_transient_provider_errors_and_treats_value_as_additional_retries() {
+        let mut calls = 0;
+        let result = retry_provider_operation(2, || {
+            calls += 1;
+            if calls < 3 {
+                Err("OpenAI-compatible API review returned HTTP 503".to_owned())
+            } else {
+                Ok("complete")
+            }
+        });
+        assert_eq!(result.unwrap(), "complete");
+        assert_eq!(calls, 3);
+
+        calls = 0;
+        let result = retry_provider_operation(4, || {
+            calls += 1;
+            Err::<(), _>("AI provider returned invalid task JSON".to_owned())
+        });
+        assert!(result.is_err());
+        assert_eq!(calls, 1);
+    }
+
+    #[tokio::test]
+    async fn async_retry_helper_retries_transient_transport_failures() {
+        let mut calls = 0;
+        let result = super::retry_provider_operation_async(1, || {
+            calls += 1;
+            async move {
+                if calls == 1 {
+                    Err("AI summary request could not be completed".to_owned())
+                } else {
+                    Ok("summary")
+                }
+            }
+        })
+        .await;
+
+        assert_eq!(result.unwrap(), "summary");
+        assert_eq!(calls, 2);
+    }
+
+    #[tokio::test]
+    async fn fresh_ai_settings_leave_all_actions_inheriting_the_default_retry_count() {
+        let directory = tempfile::tempdir().unwrap();
+        let pool =
+            crate::infrastructure::db::open_database(&directory.path().join("ai-retries.sqlite"))
+                .await
+                .unwrap();
+        crate::application::general::initialize_if_missing(
+            &pool,
+            crate::application::general::AppLanguage::English,
+        )
+        .await
+        .unwrap();
+
+        let loaded = load(&pool).await.unwrap();
+        assert_eq!(loaded.retries.default, 0);
+        assert_eq!(loaded.retries.actions.pull_request_review, None);
+        assert_eq!(
+            loaded.retries.for_activity(AiActivity::PullRequestReview),
+            0
+        );
+    }
+
+    #[tokio::test]
+    async fn migrates_legacy_review_attempts_to_per_action_retries() {
+        let directory = tempfile::tempdir().unwrap();
+        let pool =
+            crate::infrastructure::db::open_database(&directory.path().join("ai-retries.sqlite"))
+                .await
+                .unwrap();
+        crate::application::general::initialize_if_missing(
+            &pool,
+            crate::application::general::AppLanguage::English,
+        )
+        .await
+        .unwrap();
+        crate::application::general::save_ai_review_attempts(&pool, 4)
+            .await
+            .unwrap();
+        crate::infrastructure::db::repositories::upsert_setting(
+            &pool,
+            AI_SETTINGS_KEY,
+            r#"{"provider":"codex-cli","model":"example-model","reasoning":"medium","fastMode":false}"#,
+            1,
+        )
+        .await
+        .unwrap();
+
+        let loaded = load(&pool).await.unwrap();
+        assert_eq!(loaded.retries.default, 0);
+        assert_eq!(loaded.retries.actions.pull_request_review, Some(3));
+        assert_eq!(loaded.retries.for_activity(AiActivity::TaskCreation), 0);
+        assert_eq!(
+            loaded.retries.for_activity(AiActivity::PullRequestReview),
+            3
+        );
+
+        let mut legacy_general =
+            serde_json::to_value(crate::application::general::load(&pool).await.unwrap()).unwrap();
+        legacy_general
+            .as_object_mut()
+            .unwrap()
+            .remove("aiReviewAttempts");
+        crate::infrastructure::db::repositories::upsert_setting(
+            &pool,
+            "general.settings",
+            &legacy_general.to_string(),
+            6,
+        )
+        .await
+        .unwrap();
+        crate::infrastructure::db::repositories::upsert_setting(
+            &pool,
+            AI_SETTINGS_KEY,
+            r#"{"provider":"codex-cli","model":"example-model","reasoning":"medium","fastMode":false}"#,
+            1,
+        )
+        .await
+        .unwrap();
+
+        let missing_legacy_field = load(&pool).await.unwrap();
+        assert_eq!(
+            missing_legacy_field.retries.actions.pull_request_review,
+            Some(2)
+        );
     }
 
     #[tokio::test]
@@ -1367,6 +1618,7 @@ mod tests {
             pull_request_review: None,
             token_burner: None,
             sprint_summary: None,
+            retries: super::AiRetrySettings::default(),
         };
         crate::infrastructure::db::repositories::upsert_setting(
             &pool,
@@ -1503,6 +1755,13 @@ mod tests {
                 reasoning: AiReasoning::Low,
                 fast_mode: false,
             }),
+            retries: super::AiRetrySettings {
+                default: 1,
+                actions: super::AiActionRetries {
+                    pull_request_review: Some(2),
+                    ..super::AiActionRetries::default()
+                },
+            },
         };
         let stored = serde_json::to_value(&settings).unwrap();
         assert_eq!(stored["sprintSummary"]["model"], "example-summary-model");
@@ -1540,6 +1799,7 @@ mod tests {
             pull_request_review: None,
             token_burner: None,
             sprint_summary: None,
+            retries: super::AiRetrySettings::default(),
         };
         let value = serde_json::to_value(settings).unwrap();
         assert_eq!(value["provider"], "codex-cli");

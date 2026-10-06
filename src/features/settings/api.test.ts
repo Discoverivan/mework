@@ -35,7 +35,7 @@ describe("settings integration API smoke test", () => {
 
   it("rechecks a missing selected CLI and publishes its recovery", async () => {
     vi.useFakeTimers();
-    const settings = { provider: "codex-cli" as const, model: "sample-model", reasoning: "medium" as const, fastMode: false };
+    const settings = { provider: "codex-cli" as const, model: "sample-model", reasoning: "medium" as const, fastMode: false, retries: { default: 0, actions: { taskCreation: null, pullRequestReview: null, tokenBurner: null, sprintSummary: null } } };
     const missing = {
       settings,
       providers: [{ id: "codex-cli" as const, name: "Codex CLI", status: "not_found" as const, available: false, models: [] }],
@@ -60,7 +60,7 @@ describe("settings integration API smoke test", () => {
   });
 
   it("refreshes AI settings while an older request is still running", async () => {
-    const oldSettings = { settings: { provider: null, model: "", reasoning: "medium", fastMode: false }, providers: [] };
+    const oldSettings = { settings: { provider: null, model: "", reasoning: "medium", fastMode: false, retries: { default: 0, actions: { taskCreation: null, pullRequestReview: null, tokenBurner: null, sprintSummary: null } } }, providers: [] };
     const newSettings = { ...oldSettings, providers: [{ id: "codex-cli", name: "Codex CLI", status: "connected", available: true, models: ["example-model"] }] };
     let resolveOld!: (value: typeof oldSettings) => void;
     let resolveNew!: (value: typeof newSettings) => void;
@@ -83,7 +83,7 @@ describe("settings integration API smoke test", () => {
 
   it("reuses session settings across reads and updates them after saving", async () => {
     vi.useFakeTimers();
-    const initial = { settings: { provider: null, model: "", reasoning: "medium" as const, fastMode: false }, providers: [] };
+    const initial = { settings: { provider: null, model: "", reasoning: "medium" as const, fastMode: false, retries: { default: 0, actions: { taskCreation: null, pullRequestReview: null, tokenBurner: null, sprintSummary: null } } }, providers: [] };
     const saved = { ...initial, settings: { ...initial.settings, model: "example-model" } };
     invokeMock.mockReset();
     invokeMock.mockResolvedValueOnce(initial).mockResolvedValueOnce(saved);
@@ -99,7 +99,7 @@ describe("settings integration API smoke test", () => {
   });
 
   it("keeps a saved AI setting after an older read finishes", async () => {
-    const oldSettings = { settings: { provider: null, model: "", reasoning: "medium" as const, fastMode: false }, providers: [] };
+    const oldSettings = { settings: { provider: null, model: "", reasoning: "medium" as const, fastMode: false, retries: { default: 0, actions: { taskCreation: null, pullRequestReview: null, tokenBurner: null, sprintSummary: null } } }, providers: [] };
     const savedSettings = { settings: { ...oldSettings.settings, model: "example-model" }, providers: [] };
     let resolveOld!: (value: typeof oldSettings) => void;
     invokeMock.mockReset();

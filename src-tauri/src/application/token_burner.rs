@@ -988,12 +988,13 @@ async fn execute_iteration<R: Runtime>(
         pr.project_key, pr.repository_slug, pr.id, pr.title, truncate(&pr.description, 4_000), pr.author, pr.source_branch, pr.target_branch, perspective.name, perspective.instructions, changed_files_from_diff(&diff).join(", "), diff
     );
     update_phase(pool, app, iteration_id, "analyzing_potential_issues").await;
+    let retries = ai_settings.retries.for_activity(AiActivity::TokenBurner);
     let max_output_tokens = ai::OPENAI_MAX_OUTPUT_TOKENS as u32;
     // Grow the reservation per attempt; retain estimates only when the provider reports no usage.
     let reserved_per_attempt = (prompt.len() as i64).saturating_add(max_output_tokens as i64);
     let delays = [5_u64, 15, 30, 60];
     let mut response = None;
-    for attempt in 0..=delays.len() {
+    for attempt in 0..=retries.min(crate::application::ai::MAX_AI_RETRIES) as usize {
         if attempt > 0 {
             let current_status: Option<String> =
                 sqlx::query_scalar("SELECT status FROM token_burner_sessions WHERE id = ?")
@@ -1011,7 +1012,10 @@ async fn execute_iteration<R: Runtime>(
                 .await?;
                 return Err("Retry skipped because Token Burner is paused or stopping".to_owned());
             }
-            tokio::time::sleep(Duration::from_secs(delays[attempt - 1])).await;
+            tokio::time::sleep(Duration::from_secs(
+                delays[(attempt - 1).min(delays.len() - 1)],
+            ))
+            .await;
             let current_status: Option<String> =
                 sqlx::query_scalar("SELECT status FROM token_burner_sessions WHERE id = ?")
                     .bind(session_id)
@@ -1056,7 +1060,7 @@ async fn execute_iteration<R: Runtime>(
                 break;
             }
             Err(error) => {
-                let retryable = retryable_provider_error(&error);
+                let retryable = ai::is_retryable_provider_error(&error);
                 let unknown_attempts = attempt + 1;
                 set_request_reservation(
                     pool,
@@ -1064,25 +1068,15 @@ async fn execute_iteration<R: Runtime>(
                     reserved_per_attempt.saturating_mul(unknown_attempts as i64),
                 )
                 .await?;
-                if attempt == delays.len() || !retryable {
+                if attempt == retries.min(crate::application::ai::MAX_AI_RETRIES) as usize
+                    || !retryable
+                {
                     return Err(error);
                 }
             }
         }
     }
     response.ok_or_else(|| "AI provider is unavailable".to_owned())
-}
-
-fn retryable_provider_error(error: &str) -> bool {
-    if error.contains("could not be completed") {
-        return true;
-    }
-    error
-        .split("HTTP ")
-        .nth(1)
-        .and_then(|status| status.split_whitespace().next())
-        .and_then(|status| status.parse::<u16>().ok())
-        .is_some_and(|status| status == 408 || status == 429 || (500..=599).contains(&status))
 }
 
 fn changed_files_from_diff(diff: &str) -> Vec<String> {

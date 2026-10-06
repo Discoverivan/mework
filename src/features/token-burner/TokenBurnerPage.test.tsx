@@ -47,7 +47,7 @@ describe("TokenBurnerPage", () => {
     repositoriesMock.mockResolvedValue([{ key: "integration-id/DEMO/example-repo", name: "Example Project / Example Repository" }]);
     integrationAvailableMock.mockResolvedValue(true);
     aiSettingsMock.mockResolvedValue({
-      settings: { provider: "codex-cli", providerInstanceId: null, model: "example-codex-model", reasoning: "medium", fastMode: false, tokenBurner: null },
+      settings: { provider: "codex-cli", providerInstanceId: null, model: "example-codex-model", reasoning: "medium", fastMode: false, tokenBurner: null, retries: { default: 0, actions: { taskCreation: null, pullRequestReview: null, tokenBurner: null, sprintSummary: null } } },
       providers: [{ id: "codex-cli", instanceId: null, name: "Codex CLI", status: "connected", available: true, models: ["example-codex-model"] }],
     });
     snapshotMock.mockResolvedValue(initialSnapshot);

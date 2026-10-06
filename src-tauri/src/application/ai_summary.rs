@@ -19,6 +19,7 @@ pub async fn generate(pool: &SqlitePool, prompt: String) -> Result<AiSummaryResp
         return Err("AI summary prompt is empty or too long".to_owned());
     }
     let settings = ai::settings_for_activity(pool, ai::AiActivity::SprintSummary).await?;
+    let retries = settings.retries.for_activity(ai::AiActivity::SprintSummary);
     let general_settings = general::load(pool).await?;
     let language = general_settings
         .ai_response_language
@@ -45,7 +46,9 @@ pub async fn generate(pool: &SqlitePool, prompt: String) -> Result<AiSummaryResp
         ai::AiProviderId::OpenAiCompatible => "openai-compatible",
     });
     let (text, usage) = tauri::async_runtime::spawn_blocking(move || {
-        generate_blocking(&settings, runtime, &prompt, language)
+        ai::retry_provider_operation(retries, || {
+            generate_blocking(&settings, runtime.clone(), &prompt, language)
+        })
     })
     .await
     .map_err(|_| "AI summary generation failed".to_owned())??;
@@ -88,10 +91,10 @@ fn generate_blocking(
                 .await
                 .map_err(|_| "AI summary request could not be completed".to_owned())?;
             let status = response.status();
-            let body = response
-                .bytes()
-                .await
-                .map_err(|_| "AI summary response was invalid".to_owned())?;
+            let body = response.bytes().await.map_err(|error| {
+                ai::log_openai_transport_error("sprint_summary_response_body", &error.to_string());
+                "AI summary request could not be completed".to_owned()
+            })?;
             ai::log_openai_chat_response("sprint_summary", status.as_u16(), &body);
             if !status.is_success() {
                 return Err(format!(
