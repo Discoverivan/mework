@@ -22,6 +22,7 @@ import type { TokenBurnerSettings, TokenBurnerSnapshot } from "@/shared/contract
 import type { TranslationKey } from "@/i18n/locales/en";
 import { useI18n } from "@/i18n/context";
 import { cn } from "@/lib/utils";
+import { scaleWholeNumber } from "@/lib/scaled-number";
 import { subscribeModelTestingIntegrations } from "./integration-resource";
 import {
   getTokenBurnerSnapshot,
@@ -300,8 +301,8 @@ export function TokenBurnerPage() {
   const settingsChanged = settingsDraft.dailyTarget !== settings.dailyTarget
     || settingsDraft.delayBetweenRequestsSeconds !== settings.delayBetweenRequestsSeconds
     || settingsDraft.repository !== settings.repository;
-  const delaySeconds = delayAmount * DELAY_UNITS[delayUnit];
-  const targetTokens = targetAmount * TOKEN_UNITS[targetUnit];
+  const delaySeconds = scaleWholeNumber(delayAmount, DELAY_UNITS[delayUnit]);
+  const targetTokens = scaleWholeNumber(targetAmount, TOKEN_UNITS[targetUnit]);
   const settingsValid = dailyTargetValid && delayValid
     && Number.isSafeInteger(targetTokens) && targetTokens >= 1000 && targetTokens <= 100_000_000
     && Number.isSafeInteger(delaySeconds) && delaySeconds >= 0 && delaySeconds <= 3600;
@@ -324,7 +325,7 @@ export function TokenBurnerPage() {
   function changeTarget(amount: number, unit: TokenUnit) {
     setTargetAmount(amount);
     setTargetUnit(unit);
-    const tokens = amount * TOKEN_UNITS[unit];
+    const tokens = scaleWholeNumber(amount, TOKEN_UNITS[unit]);
     if (Number.isSafeInteger(tokens) && tokens >= 1000 && tokens <= 100_000_000) {
       setSettingsDraft((current) => ({ ...current, dailyTarget: tokens }));
     }
@@ -333,7 +334,7 @@ export function TokenBurnerPage() {
   function changeDelay(amount: number, unit: DelayUnit) {
     setDelayAmount(amount);
     setDelayUnit(unit);
-    const seconds = amount * DELAY_UNITS[unit];
+    const seconds = scaleWholeNumber(amount, DELAY_UNITS[unit]);
     if (Number.isSafeInteger(seconds) && seconds >= 0 && seconds <= 3600) {
       setSettingsDraft((current) => ({ ...current, delayBetweenRequestsSeconds: seconds }));
     }

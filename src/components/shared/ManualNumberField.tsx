@@ -4,6 +4,7 @@ import { CircleAlert } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Popover, PopoverAnchor, PopoverContent } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
+import { scaleWholeNumber } from "@/lib/scaled-number";
 
 interface ManualNumberFieldProps {
   id: string;
@@ -31,7 +32,7 @@ export function ManualNumberField({ id, label, description, value, min, max, sca
     if (!pattern.test(raw.trim())) return errors.number;
     const number = Number(raw.trim().replace(",", ".")) * scale;
     if (!Number.isFinite(number) || number < min || number > max) return errors.range;
-    return Number.isSafeInteger(number) ? null : errors.whole ?? errors.number;
+    return Number.isSafeInteger(scaleWholeNumber(raw, scale)) ? null : errors.whole ?? errors.number;
   }
 
   useEffect(() => {

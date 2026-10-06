@@ -39,11 +39,11 @@ it("applies the minimal action style to form and confirmation buttons", () => {
       const button = screen.getByText(name);
       expect(getComputedStyle(button).backgroundColor).toBe("rgba(0, 0, 0, 0)");
       expect(getComputedStyle(button).borderColor).toBe("rgba(0, 0, 0, 0)");
-      expect(getComputedStyle(button).paddingLeft).toBe("6px");
+      expect(getComputedStyle(button).paddingLeft).toBe(button.closest(".app-dialog-actions") ? "12px" : "6px");
       expect(getComputedStyle(button).minHeight).toBe("32px");
     }
     expect(getComputedStyle(screen.getByText("Remove item")).getPropertyValue("--app-action-color")).toBe("var(--destructive)");
-    expect(getComputedStyle(screen.getByText("Keep item").closest(".app-dialog-actions")!).gap).toBe("1.25rem");
+    expect(getComputedStyle(screen.getByText("Keep item").closest(".app-dialog-actions")!).gap).toBe("0.5rem");
     const selector = screen.getByText("Select sprint");
     const navigation = screen.getByText("Example section");
     expect(getComputedStyle(navigation).height).toBe("36px");

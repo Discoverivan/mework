@@ -199,7 +199,7 @@ describe("TokenBurnerPage", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Settings" }));
     fireEvent.click(screen.getByRole("combobox", { name: "Scale" }));
     fireEvent.click(screen.getByRole("option", { name: "Thousands" }));
-    fireEvent.change(screen.getByLabelText("Daily target (tokens)"), { target: { value: "2500" } });
+    fireEvent.change(screen.getByLabelText("Daily target (tokens)"), { target: { value: "1.001" } });
     const delay = screen.getByRole("textbox", { name: "Delay between reviews" });
     fireEvent.change(delay, { target: { value: "oops" } });
     expect(delay).toHaveAttribute("aria-invalid", "true");
@@ -208,7 +208,7 @@ describe("TokenBurnerPage", () => {
     fireEvent.click(screen.getByRole("combobox", { name: "Unit" }));
     fireEvent.click(screen.getByRole("option", { name: "Minutes" }));
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
-    await waitFor(() => expect(saveSettingsMock).toHaveBeenCalledWith({ ...initialSnapshot.settings, dailyTarget: 2_500_000, delayBetweenRequestsSeconds: 180 }));
+    await waitFor(() => expect(saveSettingsMock).toHaveBeenCalledWith({ ...initialSnapshot.settings, dailyTarget: 1001, delayBetweenRequestsSeconds: 180 }));
     await waitFor(() => expect(screen.queryByRole("dialog", { name: "Settings" })).not.toBeInTheDocument());
   });
 
