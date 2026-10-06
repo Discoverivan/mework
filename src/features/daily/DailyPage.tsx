@@ -658,6 +658,20 @@ export function DailyPage() {
             </PopoverContent>
           </Popover>
         ) : null}
+        <Button
+          type="button"
+          variant="outline"
+          size="icon"
+          className="h-9 w-9"
+          aria-label={t("daily.openSprintBoard")}
+          title={t("daily.openSprintBoard")}
+          disabled={!workspace || loadingWorkspace}
+          onClick={() => {
+            if (workspace) void openJiraIssue(workspace.sprintBoardUrl);
+          }}
+        >
+          <ExternalLink aria-hidden="true" />
+        </Button>
         <div className="ml-auto flex items-center gap-2">
           <Button
             type="button"
@@ -690,20 +704,6 @@ export function DailyPage() {
             onClick={() => void togglePresenter()}
           >
             {presenterOpen ? <Square aria-hidden="true" /> : <Presentation aria-hidden="true" />}
-          </Button>
-          <Button
-            type="button"
-            variant="outline"
-            size="icon"
-            className="h-9 w-9"
-            aria-label={t("daily.openSprintBoard")}
-            title={t("daily.openSprintBoard")}
-            disabled={!workspace || loadingWorkspace}
-            onClick={() => {
-              if (workspace) void openJiraIssue(workspace.sprintBoardUrl);
-            }}
-          >
-            <ExternalLink aria-hidden="true" />
           </Button>
           <Separator orientation="vertical" className="h-6" />
           <Button
@@ -935,28 +935,30 @@ export function DailyPage() {
                   <div className="flex min-w-0 items-center gap-3">
                     {selectedMember ? <MemberAvatar member={selectedMember} className="h-9 w-9 shrink-0" managedProjectId={workspace.managedProjectId} /> : null}
                     <div className="min-w-0">
-                      <CardTitle className="truncate text-[17px] font-medium">{selectedOwner.label}</CardTitle>
+                      <div className="flex min-w-0 items-center gap-2">
+                        <CardTitle className="truncate text-[17px] font-medium">{selectedOwner.label}</CardTitle>
+                        {selectedMember ? (
+                          <span className="shrink-0" title={selectedAssigneeBoardUrl ? t("daily.openAssigneeSprintBoard") : t("daily.assigneeBoardUnavailable")}>
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="icon"
+                              className="daily-assignee-board-button size-6"
+                              aria-label={t("daily.openAssigneeSprintBoard")}
+                              disabled={!selectedAssigneeBoardUrl}
+                              onClick={() => { if (selectedAssigneeBoardUrl) void openJiraIssue(selectedAssigneeBoardUrl); }}
+                            >
+                              <ExternalLink aria-hidden="true" />
+                            </Button>
+                          </span>
+                        ) : null}
+                      </div>
                       <CardDescription>
                         {t("daily.summary", selectedMemberSummary)}
                       </CardDescription>
                     </div>
                   </div>
                   <div className="flex shrink-0 items-center gap-1">
-                    {selectedMember ? (
-                      <span className="mr-1" title={selectedAssigneeBoardUrl ? t("daily.openAssigneeSprintBoard", { assignee: selectedOwner.label }) : t("daily.assigneeBoardUnavailable")}>
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="icon"
-                          className="size-9"
-                          aria-label={t("daily.openAssigneeSprintBoard", { assignee: selectedOwner.label })}
-                          disabled={!selectedAssigneeBoardUrl}
-                          onClick={() => { if (selectedAssigneeBoardUrl) void openJiraIssue(selectedAssigneeBoardUrl); }}
-                        >
-                          <ExternalLink aria-hidden="true" />
-                        </Button>
-                      </span>
-                    ) : null}
                     <Button
                       type="button"
                       variant="outline"

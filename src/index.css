@@ -209,6 +209,11 @@
     height: 17px;
   }
 
+  :root .app-icon-button.daily-assignee-board-button svg {
+    width: 14px;
+    height: 14px;
+  }
+
   :root[data-button-style="quiet"] .app-action-text {
     border-color: transparent;
     background: transparent;

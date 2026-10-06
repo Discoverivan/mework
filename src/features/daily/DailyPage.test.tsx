@@ -201,7 +201,7 @@ describe("DailyPage smoke test", () => {
     expect(aiSummaryButton).not.toHaveTextContent("AI Summary");
     const refreshButton = screen.getByRole("button", { name: "Refresh" });
     const sprintBoardButton = screen.getByRole("button", { name: "Open sprint board in Jira" });
-    const assigneeBoardButton = screen.getByRole("button", { name: "Open sprint board for Test Author A in Jira" });
+    const assigneeBoardButton = screen.getByRole("button", { name: "Open sprint board for this assignee in Jira" });
     const presenterButton = screen.getByRole("button", { name: "Presenter view" });
     const createTaskButton = screen.getByRole("button", { name: "Create task for this sprint" });
     expect(createTaskButton.querySelector("svg.lucide-plus")).toBeInTheDocument();
@@ -209,7 +209,9 @@ describe("DailyPage smoke test", () => {
     await waitFor(() => expect(openUrlMock).toHaveBeenCalledWith(workspace.sprintBoardUrl));
     fireEvent.click(assigneeBoardButton);
     await waitFor(() => expect(openUrlMock).toHaveBeenCalledWith(workspace.sprintBoardUrlsByAssignee["test-user-a"]));
-    expect(assigneeBoardButton.parentElement?.parentElement).toBe(screen.getByRole("button", { name: "Previous team member" }).parentElement);
+    expect(screen.getByRole("combobox", { name: "Sprint" }).nextElementSibling).toBe(sprintBoardButton);
+    expect(screen.getByRole("heading", { name: "Test Author A" }).nextElementSibling).toBe(assigneeBoardButton.parentElement);
+    expect(assigneeBoardButton.parentElement).toHaveAttribute("title", "Open sprint board for this assignee in Jira");
     fireEvent.click(createTaskButton);
     expect(window.location.hash).toBe("#product/create-task?team=managed-1&sprint=sprint-1");
     expect(refreshButton).toHaveClass("h-9", "w-9");
@@ -231,7 +233,6 @@ describe("DailyPage smoke test", () => {
     expect(actionItems).toEqual([
       aiSummaryButton,
       presenterButton,
-      sprintBoardButton,
       actionSeparator,
       refreshButton,
       createTaskButton,
@@ -294,8 +295,8 @@ describe("DailyPage smoke test", () => {
     expect(screen.queryByRole("option", { name: "Sprint 42 (Active)" })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("option", { name: "Sprint 41 (Closed)" }));
     await waitFor(() => expect(loadDailyWorkspaceMock).toHaveBeenLastCalledWith("managed-1", "sprint-0"));
-    await waitFor(() => expect(screen.getByRole("button", { name: "Open sprint board for Test Author A in Jira" })).toBeDisabled());
-    expect(screen.getByRole("button", { name: "Open sprint board for Test Author A in Jira" }).parentElement).toHaveAttribute("title", "No Jira assignee quick filter is available for this person.");
+    await waitFor(() => expect(screen.getByRole("button", { name: "Open sprint board for this assignee in Jira" })).toBeDisabled());
+    expect(screen.getByRole("button", { name: "Open sprint board for this assignee in Jira" }).parentElement).toHaveAttribute("title", "No Jira assignee quick filter is available for this person.");
     fireEvent.click(sprintBoardButton);
     await waitFor(() => expect(openUrlMock).toHaveBeenLastCalledWith("https://jira.example.invalid/secure/RapidBoard.jspa?rapidView=42&projectKey=DEMO&sprint=sprint-0"));
 

@@ -322,7 +322,7 @@ export const en = {
   "daily.sprintState.future": "Future",
   "daily.refresh": "Refresh",
   "daily.openSprintBoard": "Open sprint board in Jira",
-  "daily.openAssigneeSprintBoard": "Open sprint board for {assignee} in Jira",
+  "daily.openAssigneeSprintBoard": "Open sprint board for this assignee in Jira",
   "daily.assigneeBoardUnavailable": "No Jira assignee quick filter is available for this person.",
   "daily.createTask": "Create task for this sprint",
   "daily.refreshing": "Refreshing…",
