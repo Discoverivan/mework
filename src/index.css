@@ -258,16 +258,20 @@
   }
 
   :root[data-button-style="filled"] .app-action-text:not(:where(.app-shell aside *)):not([data-button-variant="link"]):not(:disabled):is(:hover, :focus-visible) {
+    color: var(--app-action-color);
+  }
+
+  :root[data-button-style="filled"] .app-action-text:not(:where(.app-shell aside *)):not([data-button-variant="link"]):is([data-action-tone="edit"], [data-action-tone="add"], [data-action-tone="success"], [data-action-tone="warning"], [data-action-tone="delete"], [data-button-variant="destructive"]):not(:disabled):is(:hover, :focus-visible) {
     border-color: var(--app-action-color);
     background: var(--app-action-color);
     color: var(--primary-foreground);
   }
 
-  :root[data-button-style="filled"] .app-action-text:is([data-action-tone="add"], [data-action-tone="success"], [data-action-tone="warning"]):not(:disabled):is(:hover, :focus-visible) {
+  :root[data-button-style="filled"] .app-action-text:not(:where(.app-shell aside *)):not([data-button-variant="link"]):is([data-action-tone="add"], [data-action-tone="success"], [data-action-tone="warning"]):not(:disabled):is(:hover, :focus-visible) {
     color: var(--overlay);
   }
 
-  :root[data-button-style="filled"] .app-action-text:is([data-action-tone="delete"], [data-button-variant="destructive"]):not(:disabled):is(:hover, :focus-visible) {
+  :root[data-button-style="filled"] .app-action-text:not(:where(.app-shell aside *)):not([data-button-variant="link"]):is([data-action-tone="delete"], [data-button-variant="destructive"]):not(:disabled):is(:hover, :focus-visible) {
     color: var(--destructive-foreground);
   }
 

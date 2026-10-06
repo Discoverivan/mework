@@ -95,13 +95,13 @@ export function TeamPresetRail({
                 <Badge variant="outline" className="ml-auto">{preset.memberAccountIds.length}</Badge>
               </Button>
               <Button type="button" variant="ghost" size="sm" aria-label={t("planning.renameTeam", { team: preset.name })} onClick={() => { setRenameId(preset.id); setRenameValue(preset.name); }}>{t("planning.rename")}</Button>
-              <Button type="button" variant="ghost" size="sm" aria-label={t("planning.deleteTeam", { team: preset.name })} onClick={() => { setLocalPresets((current) => current.filter((candidate) => candidate.id !== preset.id)); void onDelete(preset.id); }}>{t("teams.delete")}</Button>
+              <Button type="button" variant="ghost" size="sm" actionTone="delete" aria-label={t("planning.deleteTeam", { team: preset.name })} onClick={() => { setLocalPresets((current) => current.filter((candidate) => candidate.id !== preset.id)); void onDelete(preset.id); }}>{t("teams.delete")}</Button>
             </div>
             {renameId === preset.id ? (
               <div className="flex gap-1 pl-2">
                 <Label className="sr-only" htmlFor={`rename-team-${preset.id}`}>{t("teams.name")}</Label>
                 <Input id={`rename-team-${preset.id}`} value={renameValue} onChange={(event: ChangeEvent<HTMLInputElement>) => setRenameValue(event.target.value)} />
-                <Button type="button" size="sm" onClick={() => void renamePreset(preset)}>{t("planning.saveName")}</Button>
+                <Button type="button" size="sm" actionTone="edit" onClick={() => void renamePreset(preset)}>{t("planning.saveName")}</Button>
               </div>
             ) : null}
             </div>

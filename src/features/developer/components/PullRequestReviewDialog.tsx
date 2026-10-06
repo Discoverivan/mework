@@ -520,6 +520,7 @@ export function PullRequestReviewDialog({
             </Button>
             <Button
               type="button"
+              actionTone="add"
               onClick={() => {
                 if (editingComment) void publishComment(editingComment.comment, editingComment.index, commentDraft, editingComment.parentCommentId);
               }}

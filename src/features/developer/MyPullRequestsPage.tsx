@@ -1093,7 +1093,7 @@ export function MyPullRequestsPage() {
           </DialogBody>
           <DialogFooter>
             <Button type="button" variant="outline" onClick={() => setSettingsOpen(false)} disabled={saving}>{t("settings.common.cancel")}</Button>
-            <Button type="button" onClick={() => void saveSettings()} disabled={saving || !filtersChanged}>{saving ? t("settings.common.saving") : t("settings.common.save")}</Button>
+            <Button type="button" actionTone="edit" onClick={() => void saveSettings()} disabled={saving || !filtersChanged}>{saving ? t("settings.common.saving") : t("settings.common.save")}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

@@ -1125,7 +1125,7 @@ export function ManagedProjectsSettings({
                         {t("teams.back")}
                       </Button>
                     ) : null}
-                    <Button type="submit" disabled={controlsDisabled || errors.length > 0}>
+                    <Button type="submit" actionTone="edit" disabled={controlsDisabled || errors.length > 0}>
                       {action === "save" ? t("settings.common.saving") : t("teams.save")}
                     </Button>
                     <Button type="button" variant="ghost" onClick={() => setForm(null)} disabled={controlsDisabled}>
@@ -1216,7 +1216,7 @@ export function ManagedProjectsSettings({
                 </Alert>
               ) : null}
               <div>
-                <Button type="button" onClick={() => void handleSaveTaskCreationSettings()} disabled={controlsDisabled}>
+                <Button type="button" actionTone="edit" onClick={() => void handleSaveTaskCreationSettings()} disabled={controlsDisabled}>
                   {teamSaving ? t("settings.common.saving") : t("teams.saveTaskSettings")}
                 </Button>
               </div>

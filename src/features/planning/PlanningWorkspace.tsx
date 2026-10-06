@@ -176,7 +176,7 @@ export function PlanningWorkspace({
         )}
         actions={(
           <>
-            {!locked ? <Button type="button" variant="outline" onClick={() => void saveDrafts()} disabled={saveState === "saving"}>{saveState === "saving" ? t("settings.common.saving") : t("planning.saveDraft")}</Button> : null}
+            {!locked ? <Button type="button" variant="outline" actionTone="edit" onClick={() => void saveDrafts()} disabled={saveState === "saving"}>{saveState === "saving" ? t("settings.common.saving") : t("planning.saveDraft")}</Button> : null}
             {!locked ? <Button type="button" onClick={() => setApplyState("confirm")} disabled={applyState === "applying"}>{t("planning.applyLock")}</Button> : <Badge variant="secondary">{t("planning.locked")}</Badge>}
           </>
         )}
@@ -188,7 +188,7 @@ export function PlanningWorkspace({
         <Alert role="dialog" aria-label={t("planning.confirmApply")}>
           <AlertDescription className="flex flex-wrap items-center gap-2">
             {t("planning.confirmDescription")}
-            <Button type="button" onClick={() => void confirmApply()}>{t("planning.confirmApply")}</Button>
+            <Button type="button" actionTone="edit" onClick={() => void confirmApply()}>{t("planning.confirmApply")}</Button>
             <Button type="button" variant="ghost" onClick={() => setApplyState("idle")}>{t("settings.common.cancel")}</Button>
           </AlertDescription>
         </Alert>

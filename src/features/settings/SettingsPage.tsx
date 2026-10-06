@@ -1399,7 +1399,7 @@ export function SettingsPage({ section = "integrations", focusActivity, mockMode
               >
                 {t("settings.common.cancel")}
               </Button>
-              <Button type="submit" form="openai-compatible-settings-form" disabled={openAiSaving}>
+              <Button type="submit" form="openai-compatible-settings-form" actionTone="edit" disabled={openAiSaving}>
                 {openAiSaving ? t("settings.common.checking") : t("settings.common.save")}
               </Button>
             </DialogFooter>
@@ -1585,7 +1585,7 @@ export function SettingsPage({ section = "integrations", focusActivity, mockMode
                 </form>
               </DialogBody>
               <DialogFooter>
-                <Button type="submit" form="integration-settings-form" disabled={controlsDisabled}>
+                <Button type="submit" form="integration-settings-form" actionTone="edit" disabled={controlsDisabled}>
                   {action === "save" ? t("settings.common.saving") : t("settings.integration.save")}
                 </Button>
               </DialogFooter>
@@ -1650,7 +1650,7 @@ export function SettingsPage({ section = "integrations", focusActivity, mockMode
                   {healthConfirmation.saveInput ? t("settings.common.cancel") : t("settings.common.close")}
                 </Button>
                 {healthConfirmation.saveInput ? (
-                  <Button type="button" onClick={() => void handleHealthConfirmationSave()}>
+                  <Button type="button" actionTone="edit" onClick={() => void handleHealthConfirmationSave()}>
                     {action === "save" ? t("settings.common.saving") : t("settings.integration.saveAnyway")}
                   </Button>
                 ) : null}

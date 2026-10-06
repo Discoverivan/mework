@@ -630,7 +630,7 @@ export function TaskTrackerPage({ mockMode = false }: { mockMode?: boolean }) {
                   <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={filterDraftOnlyChanged} onChange={(event) => setFilterDraftOnlyChanged(event.target.checked)} />{t("taskTracker.onlyChanged")}</label>
                 </div>
               </DialogBody>
-              <DialogFooter className="sm:justify-between"><Button type="button" variant="outline" onClick={clearFilterDraft} disabled={!filterDraftSearch.trim() && filterDraftStatus === "all" && filterDraftChange === "all" && !filterDraftOnlyChanged}>{t("taskTracker.clearFilters")}</Button><Button type="button" onClick={applyFilters} disabled={!filtersChanged}>{t("settings.common.save")}</Button></DialogFooter>
+              <DialogFooter className="sm:justify-between"><Button type="button" variant="outline" onClick={clearFilterDraft} disabled={!filterDraftSearch.trim() && filterDraftStatus === "all" && filterDraftChange === "all" && !filterDraftOnlyChanged}>{t("taskTracker.clearFilters")}</Button><Button type="button" actionTone="edit" onClick={applyFilters} disabled={!filtersChanged}>{t("settings.common.save")}</Button></DialogFooter>
             </DialogContent>
           </Dialog>
 

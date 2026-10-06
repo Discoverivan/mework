@@ -273,7 +273,7 @@ export function ApplicationInfoPage({
                 {t("applicationInfo.viewReleaseNotes")}
               </Button>
             </div>
-            <Button type="button" className="application-update-install" onClick={() => void handleInstallUpdate()} disabled={isUpdateChecking || installingUpdate}>
+            <Button type="button" actionTone="edit" className="application-update-install" onClick={() => void handleInstallUpdate()} disabled={isUpdateChecking || installingUpdate}>
               {installingUpdate ? <RefreshCw data-icon="inline-start" className="animate-spin" aria-hidden="true" /> : <Download data-icon="inline-start" aria-hidden="true" />}
               {installingUpdate ? t("general.updating", { version: availableUpdateVersion ?? "" }) : t("applicationInfo.downloadInstall")}
             </Button>

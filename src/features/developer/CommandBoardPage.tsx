@@ -370,7 +370,7 @@ export function CommandBoardPage() {
           </form>
           <DialogFooter>
             <Button type="button" variant="ghost" onClick={() => setDialogOpen(false)}>{t("settings.common.cancel")}</Button>
-            <Button type="submit" form="command-board-form" disabled={saving}>{saving ? t("settings.common.saving") : t("settings.common.save")}</Button>
+            <Button type="submit" form="command-board-form" actionTone="edit" disabled={saving}>{saving ? t("settings.common.saving") : t("settings.common.save")}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

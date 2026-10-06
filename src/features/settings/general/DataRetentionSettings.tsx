@@ -65,7 +65,7 @@ export function DataRetentionSettings() {
             onValidityChange={validityHandlers[field]}
             errors={{ required: t("forms.numberRequired"), number: t("forms.numberInvalid"), range: t("forms.numberRange", { min: 0, max: 3650 }), whole: t("forms.numberInvalid") }} />)}
         </div>
-        <div className="flex justify-end"><Button type="button" size="sm" onClick={() => void save()} disabled={!changed || saving || Object.values(valid).includes(false)}>
+        <div className="flex justify-end"><Button type="button" size="sm" actionTone="edit" onClick={() => void save()} disabled={!changed || saving || Object.values(valid).includes(false)}>
           {saving ? <Loader2 className="animate-spin" aria-hidden="true" /> : null}{t("settings.common.save")}
         </Button></div>
       </> : loading ? <Loader2 className="size-4 animate-spin text-muted-foreground" aria-label={t("dataRetention.loading")} /> : <Button type="button" variant="outline" size="sm" className="w-fit" onClick={() => { setNotice(null); setLoadRevision((value) => value + 1); }}>{t("tokenBurner.retry")}</Button>}

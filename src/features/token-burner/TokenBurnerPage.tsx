@@ -504,8 +504,8 @@ export function TokenBurnerPage() {
             </div>
             <div className="flex shrink-0 items-center">
               {state === "running" ? <div className="flex gap-2"><Button variant="secondary" size="sm" actionTone="warning" onClick={() => void runAction("pause")} disabled={actionBusy}><Pause data-icon="inline-start" />{t("tokenBurner.pause")}</Button><Button variant="secondary" size="sm" actionTone="delete" onClick={() => void runAction("stop")} disabled={actionBusy}><Square data-icon="inline-start" />{t("tokenBurner.stop")}</Button></div>
-                : state === "paused" ? <div className="flex gap-2"><Button variant="secondary" size="sm" onClick={() => void runAction("resume")} disabled={actionBusy}><Play data-icon="inline-start" />{t("tokenBurner.resume")}</Button><Button variant="secondary" size="sm" actionTone="delete" onClick={() => void runAction("stop")} disabled={actionBusy}><Square data-icon="inline-start" />{t("tokenBurner.stop")}</Button></div>
-                  : <Button variant="secondary" size="sm" onClick={() => void runAction("start")} disabled={actionBusy || !integrationAvailable || !aiSelection.ready || state === "stopping"}>{state === "error" || state === "interrupted" ? <RotateCcw data-icon="inline-start" /> : <Play data-icon="inline-start" />}{t(state === "error" || state === "interrupted" ? "tokenBurner.retry" : "tokenBurner.start")}</Button>}
+                : state === "paused" ? <div className="flex gap-2"><Button variant="secondary" size="sm" actionTone="edit" onClick={() => void runAction("resume")} disabled={actionBusy}><Play data-icon="inline-start" />{t("tokenBurner.resume")}</Button><Button variant="secondary" size="sm" actionTone="delete" onClick={() => void runAction("stop")} disabled={actionBusy}><Square data-icon="inline-start" />{t("tokenBurner.stop")}</Button></div>
+                  : <Button variant="secondary" size="sm" actionTone="edit" onClick={() => void runAction("start")} disabled={actionBusy || !integrationAvailable || !aiSelection.ready || state === "stopping"}>{state === "error" || state === "interrupted" ? <RotateCcw data-icon="inline-start" /> : <Play data-icon="inline-start" />}{t(state === "error" || state === "interrupted" ? "tokenBurner.retry" : "tokenBurner.start")}</Button>}
             </div>
           </div>
           {selectedRepository ? <CardDescription>{selectedRepository.name}</CardDescription> : null}
@@ -597,7 +597,7 @@ export function TokenBurnerPage() {
           </DialogBody>
           <DialogFooter className="px-1">
             <Button type="button" variant="outline" onClick={() => setSettingsOpen(false)}>{t("tokenBurner.cancel")}</Button>
-            <Button type="button" onClick={() => void saveSettings()} disabled={settingsSaving || !settingsChanged || !settingsValid}>{settingsSaving ? <Loader2 data-icon="inline-start" className="animate-spin" /> : null}{t("settings.common.save")}</Button>
+            <Button type="button" actionTone="edit" onClick={() => void saveSettings()} disabled={settingsSaving || !settingsChanged || !settingsValid}>{settingsSaving ? <Loader2 data-icon="inline-start" className="animate-spin" /> : null}{t("settings.common.save")}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
