@@ -1138,19 +1138,21 @@ export function SettingsPage({ section = "integrations", focusActivity, mockMode
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="end" className="w-max min-w-0">
                       {cliMenuOptions.map(({ id, name, ready, reason, checking }) => (
-                        <Hint key={id} content={ready ? undefined : reason ?? undefined}><div className="flex items-center gap-1">
-                          <DropdownMenuItem
-                            className={cn(ADD_MENU_ITEM_CLASS, "min-w-0 flex-1", !ready && "cursor-help text-muted-foreground")}
-                            aria-label={reason && !ready ? `${name}: ${reason}` : name}
-                            disabled={!ready || addingAi}
-                            onSelect={() => void handleAddAiProvider(id)}
-                          >
-                            {name}
-                          </DropdownMenuItem>
+                        <div key={id} className="flex items-center gap-1">
+                          <Hint content={ready ? undefined : reason ?? undefined}><div className="min-w-0 flex-1">
+                            <DropdownMenuItem
+                              className={cn(ADD_MENU_ITEM_CLASS, "min-w-0 flex-1", !ready && "cursor-help text-muted-foreground")}
+                              aria-label={reason && !ready ? `${name}: ${reason}` : name}
+                              disabled={!ready || addingAi}
+                              onSelect={() => void handleAddAiProvider(id)}
+                            >
+                              {name}
+                            </DropdownMenuItem>
+                          </div></Hint>
                           <DropdownMenuItem className="size-7 shrink-0 justify-center p-0 [&_svg]:!size-3.5" aria-label={`${t("settings.aiProviders.retryCheck")}: ${name}`} title={`${t("settings.aiProviders.retryCheck")}: ${name}`} disabled={checking || addingAi} onSelect={(event) => { event.preventDefault(); void checkCliProvider(id); }}>
                             {checking ? <Loader2 className="animate-spin" aria-hidden="true" /> : <RefreshCw aria-hidden="true" />}
                           </DropdownMenuItem>
-                        </div></Hint>
+                        </div>
                       ))}
                     </DropdownMenuContent>
                   </DropdownMenu>

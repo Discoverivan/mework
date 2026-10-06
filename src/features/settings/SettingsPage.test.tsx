@@ -694,8 +694,11 @@ describe("SettingsPage integrations smoke tests", () => {
     expect(unavailable).toHaveAttribute("aria-disabled", "true");
     expect(unavailable.parentElement).toHaveAttribute("data-tooltip", "Codex CLI was not found on this computer.");
     expect(unavailable.compareDocumentPosition(available) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    const retry = screen.getByRole("menuitem", { name: "Check again: Codex CLI" });
+    fireEvent.focus(retry);
+    expect(await screen.findByRole("tooltip")).toHaveTextContent("Check again: Codex CLI");
     codexAvailable = true;
-    fireEvent.click(screen.getByRole("menuitem", { name: "Check again: Codex CLI" }));
+    fireEvent.click(retry);
     const refreshed = await screen.findByRole("menuitem", { name: "Codex CLI" });
     expect(refreshed).toBeEnabled();
     fireEvent.click(refreshed);
