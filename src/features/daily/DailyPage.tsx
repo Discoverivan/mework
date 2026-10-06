@@ -938,7 +938,7 @@ export function DailyPage() {
                       <div className="flex min-w-0 items-center gap-2">
                         <CardTitle className="truncate text-[17px] font-medium">{selectedOwner.label}</CardTitle>
                         {selectedMember ? (
-                          <span className="shrink-0" title={selectedAssigneeBoardUrl ? t("daily.openAssigneeSprintBoard") : t("daily.assigneeBoardUnavailable")}>
+                          <span className="flex h-[17px] shrink-0 items-center" title={selectedAssigneeBoardUrl ? t("daily.openAssigneeSprintBoard") : t("daily.assigneeBoardUnavailable")}>
                             <Button
                               type="button"
                               variant="outline"
