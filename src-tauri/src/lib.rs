@@ -426,6 +426,7 @@ pub fn run() {
             commands::developer::pull_request_review_set_decision,
             commands::developer::pull_request_review_remove_reviewer,
             commands::developer::bitbucket_search_users,
+            commands::developer::bitbucket_search_projects,
             commands::developer::bitbucket_search_repositories,
             commands::developer::pull_request_review_settings,
             commands::developer::save_pull_request_review_settings,

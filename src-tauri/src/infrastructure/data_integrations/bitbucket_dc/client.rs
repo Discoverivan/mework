@@ -9,8 +9,8 @@ const MAX_PULL_REQUEST_DIFF_BYTES: usize = 2_000_000;
 
 use super::models::{
     BitbucketBuildStatus, BitbucketComment, BitbucketDashboardPullRequest, BitbucketDiffResponse,
-    BitbucketPage, BitbucketParticipant, BitbucketPullRequest, BitbucketPullRequestActivity,
-    BitbucketRepository, BitbucketUser,
+    BitbucketPage, BitbucketParticipant, BitbucketProject, BitbucketPullRequest,
+    BitbucketPullRequestActivity, BitbucketRepository, BitbucketUser,
 };
 
 enum Authentication {
@@ -232,29 +232,28 @@ impl BitbucketDcClient {
         if filter.trim().chars().count() < 3 {
             return Err(BitbucketDcError::InvalidRequest);
         }
-        let (by_name, by_project) = tokio::join!(
-            self.search_repositories_by("name", filter.trim(), limit),
-            self.search_repositories_by("projectname", filter.trim(), limit),
-        );
-        let mut values = Vec::new();
-        let mut seen = std::collections::HashSet::new();
-        for page in [by_name?, by_project?] {
-            for repository in page.values {
-                let key = format!("{}/{}", repository.project.key, repository.slug);
-                if seen.insert(key) {
-                    values.push(repository);
-                }
-            }
+        self.search_repositories_by("name", filter.trim(), limit)
+            .await
+    }
+
+    pub async fn search_projects(
+        &self,
+        filter: &str,
+        limit: u64,
+    ) -> Result<BitbucketPage<BitbucketProject>, BitbucketDcError> {
+        validate_limit(limit)?;
+        if filter.trim().chars().count() < 3 {
+            return Err(BitbucketDcError::InvalidRequest);
         }
-        Ok(BitbucketPage {
-            size: Some(values.len() as u64),
-            total: None,
-            limit: Some(limit),
-            start: Some(0),
-            is_last_page: true,
-            next_page_start: None,
-            values,
-        })
+        self.fetch_page(
+            &["rest", "api", "1.0", "projects"],
+            &[
+                ("name", filter.trim().to_owned()),
+                ("limit", limit.to_string()),
+                ("start", "0".to_owned()),
+            ],
+        )
+        .await
     }
 
     async fn search_repositories_by(

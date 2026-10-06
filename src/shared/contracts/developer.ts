@@ -49,6 +49,12 @@ export interface DailyPresenterState {
   selectedMemberId: string;
 }
 
+export interface BitbucketProject {
+  integrationId: string;
+  projectKey: string;
+  projectName: string;
+}
+
 export interface BitbucketRepository {
   projectKey: string;
   projectName: string;
@@ -63,6 +69,8 @@ export interface BitbucketUser {
 }
 
 export interface PullRequestReviewSettings {
+  projectBlacklist: string[];
+  projectWhitelist: string[];
   repositoryBlacklist: string[];
   creatorBlacklist: string[];
   repositoryWhitelist: string[];

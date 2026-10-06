@@ -20,6 +20,7 @@ import {
   refreshMyPullRequests,
   removePullRequestReviewer,
   savePullRequestReviewSettings,
+  searchBitbucketProjects,
   searchBitbucketRepositories,
   searchBitbucketUsers,
   setPullRequestDecision,
@@ -43,6 +44,7 @@ vi.mock("./api", () => ({
   refreshMyPullRequests: vi.fn(),
   removePullRequestReviewer: vi.fn(),
   savePullRequestReviewSettings: vi.fn(),
+  searchBitbucketProjects: vi.fn(),
   searchBitbucketRepositories: vi.fn(),
   searchBitbucketUsers: vi.fn(),
   setPullRequestDecision: vi.fn(),
@@ -60,6 +62,7 @@ const removeReviewerMock = vi.mocked(removePullRequestReviewer);
 const markAllPullRequestsReadMock = vi.mocked(markAllPullRequestsRead);
 const markPullRequestReadMock = vi.mocked(markPullRequestRead);
 const saveSettingsMock = vi.mocked(savePullRequestReviewSettings);
+const searchProjectsMock = vi.mocked(searchBitbucketProjects);
 const searchRepositoriesMock = vi.mocked(searchBitbucketRepositories);
 const searchUsersMock = vi.mocked(searchBitbucketUsers);
 const setDecisionMock = vi.mocked(setPullRequestDecision);
@@ -67,6 +70,8 @@ const publishCommentMock = vi.mocked(publishPullRequestComment);
 const startReviewMock = vi.mocked(startPullRequestReview);
 
 const emptySettings: PullRequestReviewSettings = {
+  projectBlacklist: [],
+  projectWhitelist: [],
   repositoryBlacklist: [],
   creatorBlacklist: [],
   repositoryWhitelist: [],
@@ -211,6 +216,7 @@ describe("MyPullRequestsPage", () => {
     publishCommentMock.mockResolvedValue({ commentId: 11 });
     removeReviewerMock.mockResolvedValue(undefined);
     saveSettingsMock.mockImplementation(async (settings) => settings);
+    searchProjectsMock.mockResolvedValue([{ integrationId: "bitbucket-1", projectKey: "DEMO", projectName: "Example Project" }]);
     searchRepositoriesMock.mockResolvedValue([{
       projectKey: "DEMO",
       projectName: "Example Project",
@@ -310,6 +316,8 @@ describe("MyPullRequestsPage", () => {
   it("does not count pull requests excluded by permanent filters", async () => {
     getSettingsMock.mockResolvedValueOnce({
       ...emptySettings,
+      projectBlacklist: [],
+      projectWhitelist: [],
       repositoryBlacklist: ["DEMO/sample-repository"],
     });
 
@@ -420,12 +428,15 @@ describe("MyPullRequestsPage", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Filters" }));
     expect(screen.getByRole("dialog", { name: "Filters" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Add author filter" }));
     fireEvent.change(screen.getByRole("textbox", { name: "Creator filters" }), { target: { value: "Test Author A" } });
     await waitFor(() => expect(searchUsersMock).toHaveBeenCalledWith("Test Author A"));
     fireEvent.click(screen.getByRole("button", { name: "Test Author A (test-author-a)" }));
-    fireEvent.click(screen.getByRole("button", { name: "Save filters" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
 
     await waitFor(() => expect(saveSettingsMock).toHaveBeenCalledWith({
+      projectBlacklist: [],
+      projectWhitelist: [],
       repositoryBlacklist: [],
       creatorBlacklist: ["Test Author A"],
       repositoryWhitelist: [],
@@ -437,23 +448,37 @@ describe("MyPullRequestsPage", () => {
     expect(screen.queryByRole("heading", { name: "Example pull request" })).not.toBeInTheDocument();
   });
 
-  it("supports separate blacklist and whitelist tabs at the same time", async () => {
+  it("supports separate Deny and Allow filters in minimal style", async () => {
+    document.documentElement.dataset.buttonStyle = "quiet";
     await renderFlatPage();
     await screen.findByRole("heading", { name: "Example pull request" });
 
     fireEvent.click(screen.getByRole("button", { name: "Filters" }));
-    expect(screen.getByRole("tab", { name: "Blacklist" })).toHaveAttribute("aria-selected", "true");
-    expect(screen.getByRole("tab", { name: "Whitelist" })).toHaveAttribute("aria-selected", "false");
+    expect(screen.getByRole("radio", { name: "Deny" })).toBeChecked();
+    expect(screen.getByRole("radio", { name: "Allow" })).not.toBeChecked();
+    fireEvent.click(screen.getByRole("button", { name: "Add author filter" }));
     fireEvent.change(screen.getByRole("textbox", { name: "Creator filters" }), { target: { value: "Test Author A" } });
     await waitFor(() => expect(searchUsersMock).toHaveBeenCalledWith("Test Author A"));
-    fireEvent.click(screen.getByRole("button", { name: "Test Author A (test-author-a)" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Test Author A (test-author-a)" }));
 
-    fireEvent.click(screen.getByRole("tab", { name: "Whitelist" }));
-    expect(screen.getByRole("tab", { name: "Whitelist" })).toHaveAttribute("aria-selected", "true");
+    fireEvent.click(screen.getByRole("radio", { name: "Allow" }));
+    expect(screen.getByRole("radio", { name: "Allow" })).toBeChecked();
+    expect(screen.getByRole("radio", { name: "Deny" })).not.toBeChecked();
     expect(screen.queryByText("Test Author A", { selector: "li span" })).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Save filters" }));
+    fireEvent.click(screen.getByRole("button", { name: "Add project filter" }));
+    fireEvent.change(screen.getByRole("textbox", { name: "Project filters" }), { target: { value: "Example Project" } });
+    fireEvent.click(await screen.findByRole("button", { name: "DEMO (Example Project)" }));
+    fireEvent.click(screen.getByRole("button", { name: "Add repository filter" }));
+    fireEvent.change(screen.getByRole("textbox", { name: "Repository filters" }), { target: { value: "sample-repository" } });
+    await waitFor(() => expect(searchRepositoriesMock).toHaveBeenCalledWith("sample-repository"));
+    fireEvent.click(await screen.findByRole("button", { name: /DEMO\/sample-repository/ }));
+    expect(screen.queryByRole("textbox", { name: "Repository filters" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Remove Allow repository filter DEMO/sample-repository" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
 
     await waitFor(() => expect(saveSettingsMock).toHaveBeenCalledWith({
+      projectBlacklist: [],
+      projectWhitelist: ["DEMO"],
       repositoryBlacklist: [],
       creatorBlacklist: ["Test Author A"],
       repositoryWhitelist: [],
@@ -461,6 +486,7 @@ describe("MyPullRequestsPage", () => {
       autoReviewEnabled: false,
       authoredAutoReviewEnabled: false,
     }));
+    delete document.documentElement.dataset.buttonStyle;
   });
 
   it("persists the AI auto-review toggle from options", async () => {
@@ -480,6 +506,8 @@ describe("MyPullRequestsPage", () => {
     fireEvent.click(screen.getByRole("button", { name: "Apply" }));
 
     await waitFor(() => expect(saveSettingsMock).toHaveBeenCalledWith({
+      projectBlacklist: [],
+      projectWhitelist: [],
       repositoryBlacklist: [],
       creatorBlacklist: [],
       repositoryWhitelist: [],
@@ -630,6 +658,8 @@ describe("MyPullRequestsPage", () => {
     fireEvent.pointerDown(within(card).getByRole("button", { name: "More actions" }), { button: 0, ctrlKey: false });
     fireEvent.click(await screen.findByRole("menuitem", { name: "Exclude repository" }));
     await waitFor(() => expect(saveSettingsMock).toHaveBeenCalledWith(expect.objectContaining({
+      projectBlacklist: [],
+      projectWhitelist: [],
       repositoryBlacklist: ["DEMO/sample-repository"],
     })));
     await waitFor(() => expect(screen.queryByRole("heading", { name: "Example pull request" })).not.toBeInTheDocument());

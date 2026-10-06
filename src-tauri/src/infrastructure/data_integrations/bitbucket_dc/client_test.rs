@@ -315,7 +315,7 @@ async fn reads_pull_request_details_for_commit_validation() {
 }
 
 #[tokio::test]
-async fn searches_bitbucket_repositories_by_name_and_project_name() {
+async fn searches_bitbucket_projects_and_repositories_by_name() {
     let server = MockServer::start().await;
     Mock::given(method("GET"))
         .and(path("/rest/api/1.0/repos"))
@@ -340,16 +340,15 @@ async fn searches_bitbucket_repositories_by_name_and_project_name() {
         .mount(&server)
         .await;
     Mock::given(method("GET"))
-        .and(path("/rest/api/1.0/repos"))
-        .and(header("authorization", "Bearer test-token"))
-        .and(query_param("projectname", "COR"))
+        .and(path("/rest/api/1.0/projects"))
+        .and(query_param("name", "Example"))
         .and(query_param("limit", "20"))
         .and(query_param("start", "0"))
         .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
-            "size": 0,
+            "size": 1,
             "limit": 20,
             "isLastPage": true,
-            "values": []
+            "values": [{"key": "DEMO", "id": 3, "name": "Example Project", "public": false, "type": "NORMAL"}]
         })))
         .expect(1)
         .mount(&server)
@@ -360,6 +359,9 @@ async fn searches_bitbucket_repositories_by_name_and_project_name() {
 
     assert_eq!(page.values[0].project.key, "DEMO");
     assert_eq!(page.values[0].slug, "docs");
+    let projects = client.search_projects("Example", 20).await.unwrap();
+    assert_eq!(projects.values[0].key, "DEMO");
+    assert_eq!(projects.values[0].name, "Example Project");
 }
 
 #[tokio::test]

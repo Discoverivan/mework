@@ -577,6 +577,8 @@ describe("mework application shell", () => {
     const { savePullRequestReviewSettings } = await vi.importActual<typeof import("../features/developer/api")>("../features/developer/api");
     const core = await import("@tauri-apps/api/core");
     const savedFilters = {
+      projectBlacklist: [],
+      projectWhitelist: [],
       repositoryBlacklist: ["DEMO/sample-repository"], creatorBlacklist: [],
       repositoryWhitelist: [], creatorWhitelist: [],
       autoReviewEnabled: false, authoredAutoReviewEnabled: false,

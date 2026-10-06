@@ -224,3 +224,53 @@
     background: transparent;
     color: var(--app-action-color);
   }
+
+  :root[data-button-style="quiet"] .pr-filter-mode,
+  :root[data-button-style="quiet"] .pr-filter-mode-option {
+    background: transparent;
+    box-shadow: none;
+  }
+
+  :root[data-button-style="quiet"] .pr-filter-mode {
+    padding-block: 0;
+  }
+
+  :root[data-button-style="quiet"] .pr-filter-mode-option {
+    color: var(--muted-foreground);
+  }
+
+  :root[data-button-style="quiet"] .pr-filter-mode-option:is(:hover, :focus-visible, [data-state="on"]) {
+    color: var(--primary);
+  }
+
+  :root[data-button-style="quiet"] .pr-filter-mode-option[data-state="on"] {
+    font-weight: 600;
+  }
+
+  :root[data-button-style="filled"] .pr-filter-mode,
+  :root[data-button-style="filled"] .pr-filter-mode-option {
+    background: transparent;
+    box-shadow: none;
+  }
+
+  :root[data-button-style="filled"] .pr-filter-mode {
+    padding-block: 0;
+  }
+
+  :root[data-button-style="filled"] .pr-filter-mode-option[data-state="on"] {
+    background: var(--secondary);
+    color: var(--secondary-foreground);
+  }
+
+  :root[data-button-style] .pr-filter-group .app-icon-button svg {
+    width: 16px;
+    height: 16px;
+  }
+
+  :root[data-button-style="filled"] .pr-filter-group .app-icon-button[data-action-tone="add"] {
+    background: var(--card);
+  }
+
+  :root[data-button-style="filled"] .pr-filter-group .app-icon-button[data-action-tone="add"]:not(:disabled):is(:hover, :focus-visible) {
+    background: color-mix(in srgb, var(--app-action-color) 14%, var(--card));
+  }
