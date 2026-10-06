@@ -204,7 +204,7 @@ export function PlanningWorkspace({
                 <span><strong>{issue.key}</strong> · {issue.summary}</span>
               </label>
             ))}
-            <Button type="button" variant="outline" onClick={addSelectedToTarget} disabled={selectedSource.length === 0}>{t("planning.addSelected")}</Button>
+            <Button type="button" variant="outline" actionTone="add" onClick={addSelectedToTarget} disabled={selectedSource.length === 0}>{t("planning.addSelected")}</Button>
           </CardContent>
         </Card>
         <Card>

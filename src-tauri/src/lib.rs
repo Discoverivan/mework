@@ -128,6 +128,9 @@ pub fn run() {
                 );
             }
             app.manage(pool.clone());
+            if !mock_mode_enabled {
+                tauri::async_runtime::spawn(crate::application::data_retention::run_background_cleanup(pool.clone()));
+            }
             app.manage(crate::application::release_notes::ReleaseNotesRequestState::default());
             if !mock_mode_enabled {
                 tauri::async_runtime::spawn(
@@ -439,6 +442,8 @@ pub fn run() {
             commands::dev_overlay::dev_overlay_reset_scenario,
             commands::app_badge::set_app_badge_count,
             commands::general::general_settings,
+            commands::general::data_retention_settings,
+            commands::general::data_retention_settings_save,
             commands::general::general_settings_save,
             commands::general::ai_review_attempts_save,
             commands::general::general_appearance_save,

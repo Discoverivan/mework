@@ -63,7 +63,7 @@ export function IssuePlanCard({
                 onAssign={onAssign ? (accountId) => onAssign(subtask.id, accountId) : undefined}
               />
             ))}
-            {!readOnly ? <Button type="button" size="sm" variant="outline" onClick={onAddSubtask}>{t("planning.addSubtask")}</Button> : null}
+            {!readOnly ? <Button type="button" size="sm" variant="outline" actionTone="add" onClick={onAddSubtask}>{t("planning.addSubtask")}</Button> : null}
           </CardContent>
         ) : null}
       </article>

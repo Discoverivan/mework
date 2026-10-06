@@ -12,6 +12,21 @@ use crate::application::{
 use crate::os::notifications::{self, NotificationPermission};
 
 #[tauri::command]
+pub async fn data_retention_settings(
+    state: State<'_, SqlitePool>,
+) -> Result<crate::application::data_retention::DataRetentionSettings, String> {
+    crate::application::data_retention::settings(&state).await
+}
+
+#[tauri::command]
+pub async fn data_retention_settings_save(
+    state: State<'_, SqlitePool>,
+    settings: crate::application::data_retention::DataRetentionSettings,
+) -> Result<crate::application::data_retention::DataRetentionSettings, String> {
+    crate::application::data_retention::save_settings(&state, settings).await
+}
+
+#[tauri::command]
 pub async fn general_settings(
     app: AppHandle,
     state: State<'_, SqlitePool>,

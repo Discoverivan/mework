@@ -9,6 +9,7 @@ pub mod confluence;
 pub mod create_task;
 pub mod daily;
 pub mod data_integrations;
+pub mod data_retention;
 pub mod dev_overlay;
 pub mod developer;
 pub mod developer_review;

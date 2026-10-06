@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Check, CheckCircle2, ChevronDown, CircleAlert, Info, Loader2, Pause, Play, Settings2, Square, RotateCcw } from "lucide-react";
+import { Check, CheckCircle2, ChevronDown, Circle, CircleAlert, Info, Loader2, Pause, Play, Settings2, Square, RotateCcw } from "lucide-react";
 import "./model-testing.css";
 
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -78,17 +78,27 @@ const PERSPECTIVE_KEYS: Record<string, TranslationKey> = {
   "Independent regression check": "tokenBurner.perspectiveIndependentRegression",
 };
 
-const STATUS_VARIANTS = {
-  idle: "secondary",
-  running: "default",
-  paused: "secondary",
-  stopping: "secondary",
-  target_reached: "outline",
-  no_prs: "outline",
-  completed: "outline",
-  error: "destructive",
-  interrupted: "outline",
+const STATUS_PRESENTATION = {
+  idle: { icon: Circle, color: "border-input bg-input/40 text-foreground" },
+  running: { icon: Loader2, color: "border-primary/30 bg-primary/10 text-primary" },
+  paused: { icon: Pause, color: "border-warning/30 bg-warning/10 text-warning" },
+  stopping: { icon: Loader2, color: "border-warning/30 bg-warning/10 text-warning" },
+  target_reached: { icon: CheckCircle2, color: "border-success/30 bg-success/10 text-success" },
+  no_prs: { icon: Circle, color: "border-border bg-muted/50 text-muted-foreground" },
+  completed: { icon: CheckCircle2, color: "border-success/30 bg-success/10 text-success" },
+  error: { icon: CircleAlert, color: "border-destructive/30 bg-destructive/10 text-destructive" },
+  interrupted: { icon: Square, color: "border-warning/30 bg-warning/10 text-warning" },
 } as const;
+
+function ModelTestingStatus({ status, label }: { status: keyof typeof STATUS_PRESENTATION; label: string }) {
+  const { icon: Icon, color } = STATUS_PRESENTATION[status];
+  return (
+    <Badge variant="outline" className={cn("model-testing-status min-h-9 gap-2 rounded-full px-3 text-sm font-medium", color)}>
+      <Icon className={cn("size-4 shrink-0", (status === "running" || status === "stopping") && "animate-spin motion-reduce:animate-none")} aria-hidden="true" />
+      {label}
+    </Badge>
+  );
+}
 
 function formatTokens(value: number, compact = false): string {
   return new Intl.NumberFormat(undefined, compact
@@ -248,7 +258,6 @@ export function TokenBurnerPage() {
   const percent = target > 0 ? Math.min(100, Math.round((tokensToday / target) * 100)) : 0;
   const activeFor = (snapshot?.activeForMs ?? 0) + (state === "running" ? Math.max(0, now - snapshotReceivedAt) : 0);
   const statusKey = STATUS_KEYS[state as keyof typeof STATUS_KEYS] ?? STATUS_KEYS.idle;
-  const statusVariant = STATUS_VARIANTS[state as keyof typeof STATUS_VARIANTS] ?? STATUS_VARIANTS.idle;
   const activeMinutes = Math.floor(Math.max(0, activeFor) / 60_000);
   const activeHours = Math.floor(activeMinutes / 60);
   const remainingMinutes = activeMinutes % 60;
@@ -416,7 +425,7 @@ export function TokenBurnerPage() {
         <Card className="text-sm" data-info-popover-boundary>
           <CardHeader className="px-4 pb-2 pt-3.5"><CardTitle className="text-base font-semibold leading-tight">{t("tokenBurner.activeFor")}</CardTitle><p className="text-base font-medium leading-snug tabular-nums">{activeForLabel}</p></CardHeader>
           <CardContent className="flex items-center gap-1.5 px-4 pb-3.5">
-            <Badge variant={statusVariant}>{t(statusKey)}</Badge>
+            <ModelTestingStatus status={state} label={t(statusKey)} />
             {lastError ? (
               <Popover onOpenChange={onOpenChange}>
                 <PopoverTrigger asChild>
@@ -481,7 +490,7 @@ export function TokenBurnerPage() {
             <div className="min-w-0"><p className="text-sm text-muted-foreground">{t("settings.ai.model")}</p><p className="truncate font-medium">{aiSelection.model || t("settings.ai.notSelected")}</p></div>
             <div><p className="text-sm text-muted-foreground">{t("settings.ai.reasoning")}</p><p className="font-medium">{aiSelection.supportsCodexTuning ? aiSelection.reasoning : t("tokenBurner.notApplied")}</p></div>
             <div><p className="text-sm text-muted-foreground">{t("settings.ai.fastMode")}</p><p className="font-medium">{aiSelection.supportsCodexTuning ? t(aiSelection.fastMode ? "tokenBurner.enabled" : "tokenBurner.disabled") : t("tokenBurner.notApplied")}</p></div>
-            <div className="flex items-center justify-between gap-3 sm:col-span-2"><Badge variant={aiSelection.ready ? "outline" : "destructive"} className={cn("model-testing-ai-status min-h-9 gap-2 rounded-md px-3 text-sm font-medium", aiSelection.ready && "border-success/30 bg-success/10 text-success")}>{aiSelection.ready ? <CheckCircle2 className="size-4 shrink-0" aria-hidden="true" /> : <CircleAlert className="size-4 shrink-0" aria-hidden="true" />}{t(aiSelection.ready ? "tokenBurner.aiReady" : "tokenBurner.aiSettingsMissing")}</Badge><Button type="button" variant="secondary" size="sm" className="model-testing-neutral-action" onClick={openAiSettings}>{t("tokenBurner.changeAiSettings")}</Button></div>
+            <div className="flex items-center justify-between gap-3 sm:col-span-2"><ModelTestingStatus status={aiSelection.ready ? "completed" : "error"} label={t(aiSelection.ready ? "tokenBurner.aiReady" : "tokenBurner.aiSettingsMissing")} /><Button type="button" variant="secondary" size="sm" onClick={openAiSettings}>{t("tokenBurner.changeAiSettings")}</Button></div>
           </section>
         </CardContent>
       </Card>
@@ -494,9 +503,9 @@ export function TokenBurnerPage() {
               <CardDescription className="leading-snug">{t("tokenBurner.activityDescription")}</CardDescription>
             </div>
             <div className="flex shrink-0 items-center">
-              {state === "running" ? <div className="flex gap-2"><Button variant="secondary" size="sm" actionTone="warning" className="model-testing-neutral-action" onClick={() => void runAction("pause")} disabled={actionBusy}><Pause data-icon="inline-start" />{t("tokenBurner.pause")}</Button><Button variant="secondary" size="sm" actionTone="delete" className="model-testing-neutral-action" onClick={() => void runAction("stop")} disabled={actionBusy}><Square data-icon="inline-start" />{t("tokenBurner.stop")}</Button></div>
-                : state === "paused" ? <div className="flex gap-2"><Button variant="secondary" size="sm" className="model-testing-neutral-action" onClick={() => void runAction("resume")} disabled={actionBusy}><Play data-icon="inline-start" />{t("tokenBurner.resume")}</Button><Button variant="secondary" size="sm" actionTone="delete" className="model-testing-neutral-action" onClick={() => void runAction("stop")} disabled={actionBusy}><Square data-icon="inline-start" />{t("tokenBurner.stop")}</Button></div>
-                  : <Button variant="secondary" size="sm" className="model-testing-neutral-action" onClick={() => void runAction("start")} disabled={actionBusy || !integrationAvailable || !aiSelection.ready || state === "stopping"}>{state === "error" || state === "interrupted" ? <RotateCcw data-icon="inline-start" /> : <Play data-icon="inline-start" />}{t(state === "error" || state === "interrupted" ? "tokenBurner.retry" : "tokenBurner.start")}</Button>}
+              {state === "running" ? <div className="flex gap-2"><Button variant="secondary" size="sm" actionTone="warning" onClick={() => void runAction("pause")} disabled={actionBusy}><Pause data-icon="inline-start" />{t("tokenBurner.pause")}</Button><Button variant="secondary" size="sm" actionTone="delete" onClick={() => void runAction("stop")} disabled={actionBusy}><Square data-icon="inline-start" />{t("tokenBurner.stop")}</Button></div>
+                : state === "paused" ? <div className="flex gap-2"><Button variant="secondary" size="sm" onClick={() => void runAction("resume")} disabled={actionBusy}><Play data-icon="inline-start" />{t("tokenBurner.resume")}</Button><Button variant="secondary" size="sm" actionTone="delete" onClick={() => void runAction("stop")} disabled={actionBusy}><Square data-icon="inline-start" />{t("tokenBurner.stop")}</Button></div>
+                  : <Button variant="secondary" size="sm" onClick={() => void runAction("start")} disabled={actionBusy || !integrationAvailable || !aiSelection.ready || state === "stopping"}>{state === "error" || state === "interrupted" ? <RotateCcw data-icon="inline-start" /> : <Play data-icon="inline-start" />}{t(state === "error" || state === "interrupted" ? "tokenBurner.retry" : "tokenBurner.start")}</Button>}
             </div>
           </div>
           {selectedRepository ? <CardDescription>{selectedRepository.name}</CardDescription> : null}
@@ -507,18 +516,28 @@ export function TokenBurnerPage() {
             <div key={iteration.id} className="flex flex-col gap-3 rounded-md border p-4">
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div className="min-w-0"><p className="font-medium">PR #{iteration.pullRequestId} — {iteration.repositoryName}</p><p className="truncate text-sm text-muted-foreground">{iteration.pullRequestTitle}</p></div>
-                <Badge variant="outline" className="model-testing-running-status border-primary/30 bg-primary/10 text-primary">{t("tokenBurner.runningNow")}</Badge>
+                <ModelTestingStatus status="running" label={t("tokenBurner.statusRunning")} />
               </div>
-              <div className="flex items-center gap-2 text-sm"><Loader2 className="size-4 animate-spin text-primary" aria-hidden="true" /><span>{t("tokenBurner.currentReview")}: {t(PERSPECTIVE_KEYS[iteration.perspective] ?? "tokenBurner.perspectiveUnknown")}</span></div>
+              <p className="text-sm">{t("tokenBurner.currentReview")}: {t(PERSPECTIVE_KEYS[iteration.perspective] ?? "tokenBurner.perspectiveUnknown")}</p>
               <p className="text-sm text-muted-foreground">{t(PHASE_KEYS[iteration.phase] ?? "tokenBurner.phaseAnalyzing")}</p>
             </div>
           ))}
-          {completedIterations.map((iteration) => (
-            <div key={iteration.id} className="flex flex-wrap items-center justify-between gap-3 border-t pt-3 text-sm">
-              <span className="min-w-0 truncate">✓ PR #{iteration.pullRequestId} · {iteration.repositoryName} · {t(PERSPECTIVE_KEYS[iteration.perspective] ?? "tokenBurner.perspectiveUnknown")}</span>
-              <span className="tabular-nums text-muted-foreground">{t("tokenBurner.tokens", { count: formatTokens(iteration.totalTokens) })}</span>
-            </div>
-          ))}
+          {completedIterations.map((iteration) => {
+            const interrupted = iteration.phase === "interrupted";
+            const Icon = interrupted ? Square : iteration.status === "completed" ? CheckCircle2 : CircleAlert;
+            const statusLabel = t(interrupted ? "tokenBurner.iterationInterrupted" : iteration.status === "completed" ? "tokenBurner.phaseCompleted" : "tokenBurner.phaseFailed");
+            const usageLabel = iteration.usageKnown
+              ? t("tokenBurner.tokens", { count: formatTokens(iteration.totalTokens) })
+              : iteration.totalTokens > 0
+                ? t("tokenBurner.tokensAtLeast", { count: formatTokens(iteration.totalTokens) })
+                : t("tokenBurner.usageUnknown");
+            return (
+              <div key={iteration.id} className="flex flex-wrap items-center justify-between gap-3 border-t pt-3 text-sm">
+                <span className="flex min-w-0 items-center gap-2"><span role="img" aria-label={statusLabel} title={statusLabel}><Icon className={cn("size-4 shrink-0", interrupted ? "text-warning" : iteration.status === "completed" ? "text-success" : "text-destructive")} aria-hidden="true" /></span><span className="truncate">PR #{iteration.pullRequestId} · {iteration.repositoryName} · {t(PERSPECTIVE_KEYS[iteration.perspective] ?? "tokenBurner.perspectiveUnknown")}</span></span>
+                <span className="tabular-nums text-muted-foreground">{usageLabel}</span>
+              </div>
+            );
+          })}
         </CardContent>
       </Card>
 

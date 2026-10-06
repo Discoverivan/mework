@@ -75,7 +75,7 @@ export function TeamPresetRail({
           <div className="space-y-2">
             <Label htmlFor="new-team-name">{t("teams.name")}</Label>
             <Input id="new-team-name" value={name} onChange={(event: ChangeEvent<HTMLInputElement>) => setName(event.target.value)} placeholder={t("planning.teamPlaceholder")} />
-            <Button type="button" size="sm" onClick={() => void createPreset()} disabled={!name.trim()}>{t("planning.createTeam")}</Button>
+            <Button type="button" size="sm" actionTone="add" onClick={() => void createPreset()} disabled={!name.trim()}>{t("planning.createTeam")}</Button>
           </div>
         ) : null}
         {localPresets.length === 0 ? <p className="text-sm text-muted-foreground">{t("planning.noPresets")}</p> : null}

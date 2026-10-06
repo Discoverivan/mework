@@ -25,6 +25,7 @@ import {
 } from "./api";
 import { useI18n } from "@/i18n/context";
 import { AppLanguage } from "@/i18n/types";
+import { DataRetentionSettings } from "./DataRetentionSettings";
 import { APP_EVENT, emitAppEvent } from "@/app/app-events";
 
 function errorMessage(error: unknown, fallback: string): string {
@@ -523,6 +524,8 @@ export function GeneralSettingsPage() {
           {testedNotification ? t("general.testSent") : ""}
         </span>
       </Card>
+
+      <DataRetentionSettings />
 
       <Card>
         <CardHeader className="space-y-4 px-4 py-3.5">

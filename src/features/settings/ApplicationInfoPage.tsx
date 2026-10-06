@@ -247,14 +247,14 @@ export function ApplicationInfoPage({
             </div>
           </div>
           <div className="application-info-actions">
-            <Button type="button" variant="ghost" size="sm" className="h-8 px-2 text-xs text-muted-foreground" onClick={() => void handleOpenReleaseNotes()}
+            <Button type="button" variant="secondary" size="sm" onClick={() => void handleOpenReleaseNotes()}
               disabled={loadingReleaseNotes}>
               <NotebookText data-icon="inline-start" aria-hidden="true" />{t("releaseNotes.open")}
             </Button>
-            <Button type="button" variant="ghost" size="sm" className="h-8 px-2 text-xs text-muted-foreground" onClick={() => void openUrl(GITHUB_URL)}>
+            <Button type="button" variant="secondary" size="sm" onClick={() => void openUrl(GITHUB_URL)}>
               <ExternalLink data-icon="inline-start" aria-hidden="true" />{t("applicationInfo.viewOnGitHub")}
             </Button>
-            <Button type="button" variant="ghost" size="sm" className="h-8 px-2 text-xs text-muted-foreground"
+            <Button type="button" variant="secondary" size="sm"
               onClick={() => void handleCheckForUpdates()} disabled={isUpdateChecking || installingUpdate}
               aria-label={isUpdateChecking ? t("general.checking") : t("general.checkUpdates")}
               title={isUpdateChecking ? t("general.checking") : t("general.checkUpdates")}>

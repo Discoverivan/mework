@@ -249,6 +249,28 @@
     color: var(--app-action-color);
   }
 
+  :root[data-button-style="filled"] .app-action-text:not(:where(.app-shell aside *)):not([data-button-variant="link"]) {
+    border-width: 1px;
+    border-style: solid;
+    border-color: var(--input);
+    background: var(--background);
+    color: var(--foreground);
+  }
+
+  :root[data-button-style="filled"] .app-action-text:not(:where(.app-shell aside *)):not([data-button-variant="link"]):not(:disabled):is(:hover, :focus-visible) {
+    border-color: var(--app-action-color);
+    background: var(--app-action-color);
+    color: var(--primary-foreground);
+  }
+
+  :root[data-button-style="filled"] .app-action-text[data-action-tone="warning"]:not(:disabled):is(:hover, :focus-visible) {
+    color: var(--overlay);
+  }
+
+  :root[data-button-style="filled"] .app-action-text:is([data-action-tone="delete"], [data-button-variant="destructive"]):not(:disabled):is(:hover, :focus-visible) {
+    color: var(--destructive-foreground);
+  }
+
   :root[data-button-style="quiet"] .pr-filter-mode,
   :root[data-button-style="quiet"] .pr-filter-mode-option {
     background: transparent;

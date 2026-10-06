@@ -20,7 +20,11 @@ it("applies the minimal action style to form and confirmation buttons", () => {
   try {
     render(<>
       <Button onClick={() => { applied = true; }}>Apply</Button>
+      <Button>Save</Button>
       <Button variant="outline">Cancel</Button>
+      <Button variant="outline" actionTone="add">Add item</Button>
+      <Button variant="outline" actionTone="delete">Delete item</Button>
+      <Button variant="default" aria-pressed="true">Selected filter</Button>
       <Button variant="outline" role="combobox" className="example-selector">Select sprint</Button>
       <div className="app-shell"><aside><nav className="sidebar-navigation"><Button asChild variant="ghost" className="example-navigation"><a href="#example">Example section</a></Button></nav></aside></div>
       <AlertDialog defaultOpen>
@@ -58,7 +62,17 @@ it("applies the minimal action style to form and confirmation buttons", () => {
     expect(getComputedStyle(navigation).height).toBe("36px");
     expect(getComputedStyle(navigation).paddingLeft).toBe("12px");
     expect(getComputedStyle(navigation).color).toBe("rgb(255, 255, 255)");
-    expect(getComputedStyle(screen.getByRole("button", { name: "Apply" })).borderColor).not.toBe("rgba(0, 0, 0, 0)");
+    expect(getComputedStyle(screen.getByRole("button", { name: "Apply" })).borderWidth).toBe("1px");
+    const apply = screen.getByRole("button", { name: "Apply" });
+    const save = screen.getByRole("button", { name: "Save" });
+    const cancel = screen.getByRole("button", { name: "Cancel" });
+    expect(getComputedStyle(save).backgroundColor).toBe(getComputedStyle(cancel).backgroundColor);
+    expect(getComputedStyle(save).color).toBe(getComputedStyle(cancel).color);
+    expect(getComputedStyle(screen.getByRole("button", { name: "Add item" })).getPropertyValue("--app-action-color")).toBe("var(--success)");
+    expect(getComputedStyle(screen.getByRole("button", { name: "Delete item" })).getPropertyValue("--app-action-color")).toBe("var(--destructive)");
+    expect(screen.getByRole("button", { name: "Selected filter" })).not.toHaveClass("app-action-text");
+    apply.focus();
+    expect(getComputedStyle(apply).color).toBe("var(--primary-foreground)");
   } finally {
     style.remove();
     if (previousStyle === undefined) delete document.documentElement.dataset.buttonStyle;

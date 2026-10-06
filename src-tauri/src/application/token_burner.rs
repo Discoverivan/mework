@@ -88,6 +88,7 @@ pub struct TokenBurnerIteration {
     pub status: String,
     pub phase: String,
     pub total_tokens: i64,
+    pub usage_known: bool,
     pub started_at: Option<i64>,
     pub finished_at: Option<i64>,
 }
@@ -307,7 +308,7 @@ pub async fn snapshot(pool: &SqlitePool) -> Result<TokenBurnerSnapshot, String> 
 
     let (active_iterations, completed_iterations) = if let Some(session_id) = session_id {
         let rows = sqlx::query(
-            "SELECT id, pull_request_id, pull_request_title, repository_name, project_key, repository_slug, pull_request_url, perspective, status, phase, total_tokens, CAST(strftime('%s', started_at) AS INTEGER) * 1000 AS started_ms, CASE WHEN finished_at IS NULL THEN NULL ELSE CAST(strftime('%s', finished_at) AS INTEGER) * 1000 END AS finished_ms FROM token_burner_iterations WHERE session_id = ? ORDER BY started_at DESC LIMIT 100",
+            "SELECT id, pull_request_id, pull_request_title, repository_name, project_key, repository_slug, pull_request_url, perspective, status, phase, total_tokens, reserved_tokens, CAST(strftime('%s', started_at) AS INTEGER) * 1000 AS started_ms, CASE WHEN finished_at IS NULL THEN NULL ELSE CAST(strftime('%s', finished_at) AS INTEGER) * 1000 END AS finished_ms FROM token_burner_iterations WHERE session_id = ? ORDER BY started_at DESC LIMIT 100",
         )
         .bind(session_id)
         .fetch_all(pool)
@@ -334,6 +335,10 @@ pub async fn snapshot(pool: &SqlitePool) -> Result<TokenBurnerSnapshot, String> 
                 status: row.try_get("status").map_err(db_read_error)?,
                 phase: row.try_get("phase").map_err(db_read_error)?,
                 total_tokens: row.try_get("total_tokens").map_err(db_read_error)?,
+                usage_known: row
+                    .try_get::<i64, _>("reserved_tokens")
+                    .map_err(db_read_error)?
+                    == 0,
                 started_at: row.try_get("started_ms").map_err(db_read_error)?,
                 finished_at: row.try_get("finished_ms").map_err(db_read_error)?,
             };
@@ -1306,6 +1311,11 @@ mod tests {
         .unwrap();
         assert_eq!(status, "failed");
         assert_eq!(reserved_tokens, 1_500);
+        let snapshot = snapshot(&pool).await.unwrap();
+        let interrupted = &snapshot.completed_iterations[0];
+        assert_eq!(interrupted.phase, "interrupted");
+        assert_eq!(interrupted.total_tokens, 0);
+        assert!(!interrupted.usage_known);
         assert_eq!(
             daily_usage_and_reservations(&pool).await.unwrap(),
             (0, 1_500)

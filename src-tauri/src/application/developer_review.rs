@@ -12,7 +12,7 @@ use sqlx::SqlitePool;
 use tauri::{AppHandle, Emitter, Runtime};
 use uuid::Uuid;
 
-use super::developer::MyPullRequestDto;
+use super::developer::{self, MyPullRequestDto};
 use crate::application::ai_usage_statistics;
 use crate::application::logging::HttpRequestBuilderExt;
 use crate::infrastructure::db::repositories;
@@ -686,6 +686,57 @@ fn deactivate_review_run(run_id: &str) {
 pub async fn initialize_review_state(pool: &SqlitePool) -> Result<(), String> {
     let _guard = review_state_lock().lock().await;
     load_state(pool).await?;
+    Ok(())
+}
+
+pub(crate) async fn prune_old_reviews(pool: &SqlitePool, days: u32) -> Result<(), String> {
+    if days == 0 {
+        return Ok(());
+    }
+    // Cache refreshes take these locks in the same order. Do not prune from a partial refresh.
+    let _cache_guard = developer::pull_request_state_lock().lock().await;
+    let _review_guard = review_state_lock().lock().await;
+    let mut protected = std::collections::HashSet::new();
+    for cache_key in [
+        "developer.pull_request_cache",
+        "developer.authored_pull_request_cache",
+    ] {
+        if let Some(raw) = repositories::get_setting(pool, cache_key)
+            .await
+            .map_err(|_| "failed to load protected PR cache".to_owned())?
+        {
+            let cache: serde_json::Value =
+                serde_json::from_str(&raw).map_err(|_| "invalid protected PR cache".to_owned())?;
+            let values = cache
+                .get("values")
+                .and_then(|v| v.as_array())
+                .ok_or_else(|| "invalid protected PR cache".to_owned())?;
+            for pr in values {
+                let get = |key| {
+                    pr.get(key)
+                        .and_then(|v| v.as_str())
+                        .ok_or_else(|| "invalid protected PR identity".to_owned())
+                };
+                protected.insert(pull_request_review_key(
+                    get("integrationId")?,
+                    get("projectKey")?,
+                    get("repositorySlug")?,
+                    get("pullRequestId")?,
+                ));
+            }
+        }
+    }
+    let cutoff = developer::current_unix_millis().saturating_sub(i64::from(days) * 86_400_000);
+    let mut state = load_state(pool).await?;
+    let previous_count = state.reviews.len();
+    state.reviews.retain(|key, review| {
+        review.status == PullRequestReviewStatus::Running
+            || protected.contains(key)
+            || review.finished_at.unwrap_or(review.started_at) >= cutoff
+    });
+    if previous_count != state.reviews.len() {
+        save_state(pool, &state).await?;
+    }
     Ok(())
 }
 

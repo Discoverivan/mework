@@ -42,6 +42,7 @@ import type { ManagedProject, TeamMember } from "@/shared/contracts/planning";
 import { closePresenterView, generateSprintSummary, loadDailyIssueTransitions, loadJiraAvatarData, openPresenterView, publishPresenterState, refreshDailyWorkspace, subscribePresenterState, transitionDailyIssue } from "./api";
 import { readDailyWorkspaceCache, readManagedProjectsCache, refreshDailyWorkspaceCache, refreshManagedProjectsCache, writeDailyWorkspaceCache } from "./cache";
 import { dailyStatusTone } from "./status";
+import "./daily.css";
 
 function commandError(error: unknown): string {
   if (error instanceof Error) return error.message;
@@ -236,9 +237,9 @@ function TaskStatusMenu({
           ref={triggerRef}
           type="button"
           className={cn(
-            badgeVariants(),
+            badgeVariants({ variant: "outline" }),
             issueStatusBadgeClass(task.status),
-            "daily-status-trigger h-8 gap-1.5 rounded-md px-3 text-[13px] leading-4 focus:ring-0 focus:ring-offset-0 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-wait",
+            "daily-status-trigger h-8 gap-1.5 px-3 text-[13px] leading-4 focus:ring-0 focus:ring-offset-0 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-wait",
           )}
           disabled={performingId !== undefined}
           aria-busy={performingId !== undefined}

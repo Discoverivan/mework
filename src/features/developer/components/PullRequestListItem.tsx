@@ -116,7 +116,7 @@ export function AiVerdictBadge({ verdict, review }: { verdict: "ok" | "needs_cha
   return (
     <Badge
       variant="outline"
-      className={cn("h-7 gap-1.5 rounded-md px-2.5 py-0", review && "pr-1.5", approved ? "text-success" : "text-warning")}
+      className={cn("h-7 gap-1.5 px-2.5 py-0", review && "pr-1.5", approved ? "text-success" : "text-warning")}
       aria-label={t("pr.aiVerdict", { verdict: label })}
     >
       <Sparkles className="size-3" aria-hidden="true" />
@@ -251,14 +251,14 @@ export function PullRequestListItem({
         </div>
         <div className="flex shrink-0 flex-col items-end gap-2">
           {reviewRunning ? (
-            <Badge variant="outline" className="h-7 gap-1.5 rounded-md px-2.5 py-0 text-primary" role="status" aria-live="polite">
+            <Badge variant="outline" className="h-7 gap-1.5 px-2.5 py-0 text-primary" role="status" aria-live="polite">
               <Loader2 className="size-3.5 animate-spin" aria-hidden="true" />
               {t("pr.aiReviewInProgress")}
             </Badge>
           ) : null}
           {!reviewRunning && reviewCompleted && review?.result ? <AiVerdictBadge verdict={review.result.verdict} review={review} /> : null}
           {!reviewRunning && reviewFailed ? (
-            <Badge variant="outline" className="h-7 gap-1.5 rounded-md py-0 pl-2.5 pr-1.5 text-destructive">
+            <Badge variant="outline" className="h-7 gap-1.5 py-0 pl-2.5 pr-1.5 text-destructive">
               <Sparkles className="size-3" aria-hidden="true" />
               {t("pr.aiReviewError")}
               <Separator orientation="vertical" className="h-4" />

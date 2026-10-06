@@ -5,9 +5,10 @@ import type { TokenBurnerSnapshot } from "@/shared/contracts/token-burner";
 import { TokenBurnerPage } from "./TokenBurnerPage";
 import { APP_EVENT, emitAppEvent } from "@/app/app-events";
 
-const { snapshotMock, startMock, resetMock, repositoriesMock, integrationAvailableMock, aiSettingsMock, saveSettingsMock } = vi.hoisted(() => ({
+const { snapshotMock, startMock, stopMock, resetMock, repositoriesMock, integrationAvailableMock, aiSettingsMock, saveSettingsMock } = vi.hoisted(() => ({
   snapshotMock: vi.fn(),
   startMock: vi.fn(),
+  stopMock: vi.fn(),
   resetMock: vi.fn(),
   repositoriesMock: vi.fn(),
   integrationAvailableMock: vi.fn(),
@@ -24,7 +25,7 @@ vi.mock("./api", () => ({
   startTokenBurner: startMock,
   pauseTokenBurner: vi.fn(),
   resumeTokenBurner: vi.fn(),
-  stopTokenBurner: vi.fn(),
+  stopTokenBurner: stopMock,
   resetTokenBurnerDailyTarget: resetMock,
 }));
 
@@ -92,6 +93,44 @@ describe("TokenBurnerPage", () => {
     render(<I18nProvider><TokenBurnerPage /></I18nProvider>);
 
     expect(await screen.findByText("Finding the next pull request…")).toBeInTheDocument();
+    act(() => emitAppEvent(APP_EVENT.tokenBurnerChanged, {
+      ...initialSnapshot,
+      status: "running",
+      activeIterations: [{
+        id: "active-review",
+        pullRequestId: "8",
+        pullRequestTitle: "Example review",
+        repositoryName: "Example Repository",
+        repositoryKey: "DEMO/example-repo",
+        perspective: "Correctness & regressions",
+        status: "running",
+        phase: "reviewing_code",
+        totalTokens: 0,
+        usageKnown: false,
+      }],
+    }));
+    const runningStatuses = screen.getAllByText("Running");
+    expect(runningStatuses).toHaveLength(2);
+    for (const running of runningStatuses) {
+      expect(running).toHaveClass("model-testing-status", "text-primary");
+      expect(running.querySelector("svg")).toHaveClass("size-4", "animate-spin");
+    }
+    expect(screen.getByText("Ready")).toHaveClass("model-testing-status");
+  });
+
+  it("shows unknown usage and an interrupted review after Stop", async () => {
+    const iteration = {
+      id: "stopped-review", pullRequestId: "8", pullRequestTitle: "Example review",
+      repositoryName: "Example Repository", repositoryKey: "DEMO/example-repo",
+      perspective: "Correctness & regressions", totalTokens: 0, usageKnown: false,
+    };
+    snapshotMock.mockResolvedValue({ ...initialSnapshot, status: "running", activeIterations: [{ ...iteration, status: "running", phase: "reviewing_code" }] });
+    stopMock.mockResolvedValue({ ...initialSnapshot, completedIterations: [{ ...iteration, status: "failed", phase: "interrupted" }] });
+    render(<I18nProvider><TokenBurnerPage /></I18nProvider>);
+    fireEvent.click(await screen.findByRole("button", { name: "Stop" }));
+    expect(await screen.findByText("Usage unknown")).toBeInTheDocument();
+    expect(screen.getByRole("img", { name: "Review interrupted" })).toBeInTheDocument();
+    expect(stopMock).toHaveBeenCalledOnce();
   });
 
   it("opens saved errors from the info button and toasts each new failure once", async () => {
@@ -165,6 +204,7 @@ describe("TokenBurnerPage", () => {
         status: "completed",
         phase: "completed",
         totalTokens: 500,
+        usageKnown: true,
       }],
     });
     render(<I18nProvider><TokenBurnerPage /></I18nProvider>);

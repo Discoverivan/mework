@@ -753,7 +753,7 @@ function MonitorDialog({ t, open, editing, draft, saving, validating, validation
           </div>
           <div className="ml-auto flex items-center gap-2">
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>{t("taskTracker.cancel")}</Button>
-            <Button type="button" disabled={saving} onClick={onSave}>{saving ? t("taskTracker.saving") : editing ? t("taskTracker.saveChanges") : t("taskTracker.create")}</Button>
+            <Button type="button" actionTone={editing ? "edit" : "add"} disabled={saving} onClick={onSave}>{saving ? t("taskTracker.saving") : editing ? t("taskTracker.saveChanges") : t("taskTracker.create")}</Button>
           </div>
         </DialogFooter>
       </DialogContent>

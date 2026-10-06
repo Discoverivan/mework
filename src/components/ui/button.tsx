@@ -43,20 +43,16 @@ export interface ButtonProps
 const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
   ({ actionTone, className, variant, size, asChild = false, ...props }, ref) => {
     const Comp = asChild ? Slot : "button"
-    const supportsToneText = variant === "outline" || variant === "ghost" || variant === "secondary" || variant === "link"
-    const toneText = supportsToneText && size !== "icon"
+    const isAction = props.role !== "combobox" && props["aria-pressed"] === undefined && !("data-day" in props)
     return (
       <Comp
         className={cn(
           buttonVariants({ variant, size }),
           size === "icon" && "app-icon-button",
-          size !== "icon" && props.role !== "combobox" && (variant !== "link" || actionTone) && "app-action-text",
-          supportsToneText && (actionTone === "success" || actionTone === "add") && "hover:text-success focus-visible:text-success",
-          supportsToneText && actionTone === "warning" && "hover:text-warning focus-visible:text-warning",
-          supportsToneText && actionTone === "delete" && "hover:text-destructive focus-visible:text-destructive",
-          toneText && (actionTone === "success" || actionTone === "add") && "text-success",
-          toneText && actionTone === "warning" && "text-warning",
-          toneText && actionTone === "delete" && "text-destructive",
+          size !== "icon" && isAction && (variant !== "link" || actionTone) && "app-action-text",
+          (actionTone === "success" || actionTone === "add") && "hover:text-success focus-visible:text-success",
+          actionTone === "warning" && "hover:text-warning focus-visible:text-warning",
+          actionTone === "delete" && "hover:text-destructive focus-visible:text-destructive",
           className,
         )}
         data-action-tone={actionTone}

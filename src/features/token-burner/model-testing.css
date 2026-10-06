@@ -1,35 +1,6 @@
-:root[data-button-style="quiet"] .model-testing-ai-status {
+:root[data-button-style="quiet"] .model-testing-status {
   background: transparent;
   border-color: transparent;
   min-height: 2rem;
   padding: 0.25rem 0.375rem;
-}
-
-:root[data-button-style="quiet"] .model-testing-ai-status.bg-destructive {
-  color: var(--destructive);
-}
-
-:root[data-button-style="quiet"] .model-testing-running-status {
-  background: transparent;
-  border-color: transparent;
-}
-
-:root[data-button-style="filled"] .model-testing-neutral-action {
-  border: 1px solid var(--input);
-  background: var(--background);
-  color: var(--foreground);
-}
-
-:root[data-button-style="filled"] .model-testing-neutral-action:not(:disabled):is(:hover, :focus-visible) {
-  border-color: var(--app-action-color);
-  background: var(--app-action-color);
-  color: var(--primary-foreground);
-}
-
-:root[data-button-style="filled"] .model-testing-neutral-action[data-action-tone="warning"]:not(:disabled):is(:hover, :focus-visible) {
-  color: var(--overlay);
-}
-
-:root[data-button-style="filled"] .model-testing-neutral-action[data-action-tone="delete"]:not(:disabled):is(:hover, :focus-visible) {
-  color: var(--destructive-foreground);
 }

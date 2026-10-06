@@ -501,7 +501,7 @@ describe("MyPullRequestsPage", () => {
     const toggle = screen.getByRole("switch", { name: "AI auto-review" });
     expect(toggle).toHaveClass("h-[22px]", "w-10");
     expect(screen.getByText("AI auto-review", { selector: "label" })).toHaveClass("text-sm", "font-semibold", "leading-tight");
-    expect(screen.getByRole("button", { name: "Save" })).toHaveClass("app-action-text", "hover:text-success");
+    expect(screen.getByRole("button", { name: "Save" })).toHaveClass("app-action-text", "hover:text-primary");
     expect(screen.getByRole("button", { name: "Cancel" })).toHaveClass("app-action-text", "hover:text-primary");
     expect(toggle).not.toBeChecked();
     fireEvent.click(toggle);

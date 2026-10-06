@@ -32,6 +32,7 @@ export interface TokenBurnerIteration {
   status: TokenBurnerIterationStatus;
   phase: string;
   totalTokens: number;
+  usageKnown: boolean;
   startedAt?: number;
   finishedAt?: number;
 }
