@@ -1,3 +1,4 @@
+import { Hint } from "@/components/ui/tooltip";
 import { useEffect, useState } from "react";
 import { CircleAlert } from "lucide-react";
 
@@ -54,7 +55,7 @@ export function ManualNumberField({ id, label, description, value, min, max, sca
   }
 
   return <div role="group" className="grid w-fit gap-2.5" data-disabled={disabled}>
-    <span id={`${id}-label`} className="whitespace-nowrap px-1 text-sm font-medium leading-none" title={description}>{label}</span>
+    <Hint content={description}><span id={`${id}-label`} className="whitespace-nowrap px-1 text-sm font-medium leading-none">{label}</span></Hint>
     <Popover open={!disabled && showError && Boolean(error)} onOpenChange={setShowError}>
       <PopoverAnchor asChild><Input
         id={id}

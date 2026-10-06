@@ -79,11 +79,10 @@ describe("CreateTaskPage", () => {
     expect(screen.getByRole("heading", { name: "Create task" })).toBeInTheDocument();
     expect(screen.getByText("Create Jira tasks with AI-assisted drafts for the selected team and sprint.")).toBeInTheDocument();
     const createTaskButton = screen.getByRole("button", { name: "Create task" });
-    expect(createTaskButton).toHaveClass("h-9", "w-9");
-    expect(createTaskButton).toHaveClass("bg-primary");
+    expect(createTaskButton).toHaveClass("h-9", "bg-background");
     expect(createTaskButton.className).not.toContain("shadow-");
     expect(createTaskButton.querySelector("svg.lucide-plus")).not.toBeNull();
-    expect(createTaskButton).not.toHaveTextContent("Create task");
+    expect(createTaskButton).toHaveTextContent("Create");
     const teamSelect = await screen.findByLabelText("Team");
     expect(teamSelect).toBeInTheDocument();
     expect(teamSelect.querySelector("svg.lucide-chevron-down")).toHaveClass("-mr-1");
@@ -232,7 +231,7 @@ describe("CreateTaskPage", () => {
   });
 
   it("uses the team and sprint passed from Sprint tasks", async () => {
-    window.location.hash = "#product/create-task?team=team-2&sprint=sprint-2";
+    window.location.hash = "#product/create-task?team=team-2&sprint=sprint-2&new=1";
     listTeamsMock.mockResolvedValue([
       {
         id: "team-1",
@@ -254,9 +253,10 @@ describe("CreateTaskPage", () => {
     expect(screen.queryByLabelText("Sprint for new tasks")).not.toBeInTheDocument();
     expect(listMembersMock).toHaveBeenCalledWith("team-2");
     expect(listSprintsMock).toHaveBeenCalledWith("team-2");
+    expect(screen.getByRole("dialog", { name: "Describe your task" })).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByLabelText("Sprint")).toHaveTextContent("Payments Sprint"));
 
     generateMock.mockResolvedValue({ summary: "Route-aware task", description: "Route-selected sprint" });
-    fireEvent.click(screen.getByRole("button", { name: "Create task" }));
     fireEvent.change(screen.getByPlaceholderText("Describe your task"), { target: { value: "Create a route-aware task" } });
     fireEvent.click(screen.getByRole("button", { name: "Create" }));
     expect(await screen.findByLabelText("Sprint")).toHaveTextContent("Payments Sprint");

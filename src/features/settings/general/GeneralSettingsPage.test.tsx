@@ -179,14 +179,14 @@ describe("GeneralSettingsPage", () => {
     await waitFor(() => expect(openNotificationSettingsMock).toHaveBeenCalledOnce());
 
     const reviewTestButton = screen.getByRole("button", { name: "Test review notification" });
-    expect(reviewTestButton).toHaveAttribute("title", "Test review notification");
+    expect(reviewTestButton).toHaveAttribute("data-tooltip", "Test review notification");
     expect(reviewTestButton).not.toHaveTextContent("Test review notification");
     expect(reviewTestButton.querySelector("svg.lucide-bell-ring")).not.toBeNull();
     fireEvent.click(reviewTestButton);
     await waitFor(() => expect(sendNotificationTestMock).toHaveBeenCalledWith("review"));
 
     const authoredTestButton = screen.getByRole("button", { name: "Test authored pull request notification" });
-    expect(authoredTestButton).toHaveAttribute("title", "Test authored pull request notification");
+    expect(authoredTestButton).toHaveAttribute("data-tooltip", "Test authored pull request notification");
     expect(authoredTestButton.querySelector("svg.lucide-bell-ring")).not.toBeNull();
     fireEvent.click(authoredTestButton);
     await waitFor(() => expect(sendNotificationTestMock).toHaveBeenLastCalledWith("authored"));
@@ -224,7 +224,7 @@ describe("GeneralSettingsPage", () => {
     );
 
     const testButton = await screen.findByRole("button", { name: "Test Task tracker notification" });
-    expect(testButton).toHaveAttribute("title", "Test Task tracker notification");
+    expect(testButton).toHaveAttribute("data-tooltip", "Test Task tracker notification");
     expect(testButton.querySelector("svg.lucide-bell-ring")).not.toBeNull();
     fireEvent.click(testButton);
 

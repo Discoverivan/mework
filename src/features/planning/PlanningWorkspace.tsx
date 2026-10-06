@@ -4,6 +4,7 @@ import { PageHeader } from "../../components/shared/PageHeader";
 import { Alert, AlertDescription } from "../../components/ui/alert";
 import { Badge } from "../../components/ui/badge";
 import { Button } from "../../components/ui/button";
+import { DialogFooter } from "@/components/ui/dialog";
 import { Card, CardContent, CardHeader, CardTitle } from "../../components/ui/card";
 import { IssuePlanCard } from "./IssuePlanCard";
 import { TeamPresetRail } from "./TeamPresetRail";
@@ -176,7 +177,7 @@ export function PlanningWorkspace({
         )}
         actions={(
           <>
-            {!locked ? <Button type="button" variant="outline" onClick={() => void saveDrafts()} disabled={saveState === "saving"}>{saveState === "saving" ? t("settings.common.saving") : t("planning.saveDraft")}</Button> : null}
+            {!locked ? <Button type="button" variant="outline" actionTone="edit" onClick={() => void saveDrafts()} disabled={saveState === "saving"}>{saveState === "saving" ? t("settings.common.saving") : t("planning.saveDraft")}</Button> : null}
             {!locked ? <Button type="button" onClick={() => setApplyState("confirm")} disabled={applyState === "applying"}>{t("planning.applyLock")}</Button> : <Badge variant="secondary">{t("planning.locked")}</Badge>}
           </>
         )}
@@ -186,10 +187,12 @@ export function PlanningWorkspace({
       {applyState === "error" ? <Alert variant="destructive"><AlertDescription>{t("planning.applyError")}</AlertDescription></Alert> : null}
       {applyState === "confirm" ? (
         <Alert role="dialog" aria-label={t("planning.confirmApply")}>
-          <AlertDescription className="flex flex-wrap items-center gap-2">
-            {t("planning.confirmDescription")}
-            <Button type="button" onClick={() => void confirmApply()}>{t("planning.confirmApply")}</Button>
-            <Button type="button" variant="ghost" onClick={() => setApplyState("idle")}>{t("settings.common.cancel")}</Button>
+          <AlertDescription className="space-y-3">
+            <p>{t("planning.confirmDescription")}</p>
+            <DialogFooter>
+              <Button data-dialog-cancel type="button" variant="ghost" onClick={() => setApplyState("idle")}>{t("settings.common.cancel")}</Button>
+              <Button type="button" actionTone="edit" onClick={() => void confirmApply()}>{t("planning.confirmApply")}</Button>
+            </DialogFooter>
           </AlertDescription>
         </Alert>
       ) : null}

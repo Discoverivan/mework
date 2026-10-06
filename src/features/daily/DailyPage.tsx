@@ -1,13 +1,15 @@
+import { Hint } from "@/components/ui/tooltip";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import { ArrowLeft, ArrowRight, CalendarDays, ChevronDown, Copy, ExternalLink, MoreHorizontal, Plus, Presentation, RefreshCw, Sparkles, Square } from "lucide-react";
+import { ArrowLeft, ArrowRight, CalendarDays, ChevronDown, Copy, ExternalLink, MoreHorizontal, Presentation, RefreshCw, Sparkles, Square } from "lucide-react";
 import { PageHeader } from "@/components/shared/PageHeader";
 import { StatusToast } from "@/components/shared/StatusToast";
 import { useInfoPopoverAnchor } from "@/components/shared/use-info-popover-anchor";
 import { useI18n } from "@/i18n/context";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { badgeVariants } from "@/components/ui/badge";
+import { CreateButton } from "@/components/shared/CreateButton";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -233,7 +235,7 @@ function TaskStatusMenu({
   return (
     <DropdownMenu open={open} onOpenChange={(nextOpen) => void handleOpenChange(nextOpen)}>
       <DropdownMenuTrigger asChild>
-        <button
+        <Hint content={t("daily.changeStatusHint")}><button
           ref={triggerRef}
           type="button"
           className={cn(
@@ -244,12 +246,11 @@ function TaskStatusMenu({
           disabled={performingId !== undefined}
           aria-busy={performingId !== undefined}
           aria-label={t("daily.changeStatus", { key: task.key, status: task.status })}
-          title={performingId ? t("daily.savingStatus") : t("daily.changeStatus", { key: task.key, status: task.status })}
         >
           {performingId ? <RefreshCw className="size-3.5 shrink-0 animate-spin" aria-hidden="true" /> : null}
           {task.status}
           {performingId ? <span className="sr-only">{t("daily.savingStatus")}</span> : null}
-        </button>
+        </button></Hint>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" alignOffset={alignOffset} collisionPadding={5} className="w-max min-w-0 max-w-[var(--radix-dropdown-menu-content-available-width)]">
         <DropdownMenuGroup>
@@ -747,21 +748,18 @@ export function DailyPage() {
           >
             <RefreshCw aria-hidden="true" className={loadingWorkspace || refreshingStatuses ? "animate-spin" : undefined} />
           </Button>
-          <Button
+          <CreateButton
+            iconOnly
             type="button"
-            size="icon"
-            actionTone="add"
             className="h-9 w-9"
             aria-label={t("daily.createTask")}
             title={t("daily.createTask")}
             disabled={!selectedProjectId || !workspace}
             onClick={() => {
               if (!selectedProjectId || !workspace) return;
-              window.location.hash = `#product/create-task?team=${encodeURIComponent(selectedProjectId)}&sprint=${encodeURIComponent(workspace.selectedSprintId)}`;
+              window.location.hash = `#product/create-task?team=${encodeURIComponent(selectedProjectId)}&sprint=${encodeURIComponent(workspace.selectedSprintId)}&new=1`;
             }}
-          >
-            <Plus aria-hidden="true" />
-          </Button>
+          />
         </div>
       </div>
 
@@ -856,7 +854,7 @@ export function DailyPage() {
             ) : null}
           </div>
           <DialogFooter>
-            <Button type="button" variant="outline" disabled={aiBusy} onClick={() => setAiSummaryOpen(false)}>{t("settings.common.cancel")}</Button>
+            <Button data-dialog-cancel type="button" variant="outline" disabled={aiBusy} onClick={() => setAiSummaryOpen(false)}>{t("settings.common.cancel")}</Button>
             {aiResult ? (
               <Button type="button" className="bg-gradient-to-r from-chart-5 to-primary text-primary-foreground hover:brightness-110" onClick={() => void copyTaskValue(aiResult, t("daily.aiCopied"))}>
                 <Copy data-icon="inline-start" aria-hidden="true" />{t("daily.copy")}
@@ -964,7 +962,7 @@ export function DailyPage() {
                       <div className="flex min-w-0 items-center gap-2">
                         <CardTitle className="truncate text-[17px] font-medium">{selectedOwner.label}</CardTitle>
                         {selectedMember ? (
-                          <span className="flex h-[17px] shrink-0 items-center" title={selectedAssigneeBoardUrl ? t("daily.openAssigneeSprintBoard") : t("daily.assigneeBoardUnavailable")}>
+                          <Hint content={selectedAssigneeBoardUrl ? t("daily.openAssigneeSprintBoard") : t("daily.assigneeBoardUnavailable")}><span className="flex h-[17px] shrink-0 items-center">
                             <Button
                               type="button"
                               variant="outline"
@@ -976,7 +974,7 @@ export function DailyPage() {
                             >
                               <ExternalLink aria-hidden="true" />
                             </Button>
-                          </span>
+                          </span></Hint>
                         ) : null}
                       </div>
                       <CardDescription>
@@ -1017,14 +1015,13 @@ export function DailyPage() {
                     <div className="daily-task-list" aria-live="polite">
                       {selectedSubtasks.map((subtask) => (
                         <article key={subtask.id} className="daily-task-row">
-                          <button
+                          <Hint content={t("daily.openInJira")}><button
                             type="button"
                             className="daily-task-key daily-task-link"
-                            title={t("daily.openInJira")}
                             onClick={() => void openJiraIssue(subtask.url)}
                           >
                             {subtask.key}
-                          </button>
+                          </button></Hint>
                           <span className="daily-task-summary">
                             <strong>{subtask.summary}</strong>
                             <small>

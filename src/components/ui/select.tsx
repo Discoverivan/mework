@@ -5,8 +5,12 @@ import * as SelectPrimitive from "@radix-ui/react-select"
 import { ChevronDown, ChevronUp } from "lucide-react"
 
 import { cn } from "@/lib/utils"
+import { directPointerHover } from "@/lib/direct-pointer-hover"
+import { Hint } from "@/components/ui/tooltip"
 
-const Select = SelectPrimitive.Root
+const Select = ({ autoComplete = "off", ...props }: React.ComponentProps<typeof SelectPrimitive.Root>) => (
+  <SelectPrimitive.Root autoComplete={autoComplete} {...props} />
+)
 
 const SelectGroup = SelectPrimitive.Group
 
@@ -15,20 +19,23 @@ const SelectValue = SelectPrimitive.Value
 const SelectTrigger = React.forwardRef<
   React.ElementRef<typeof SelectPrimitive.Trigger>,
   React.ComponentPropsWithoutRef<typeof SelectPrimitive.Trigger>
->(({ className, children, ...props }, ref) => (
-  <SelectPrimitive.Trigger
-    ref={ref}
-    className={cn(
-      "flex h-10 w-fit max-w-full items-center justify-between gap-3 rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background transition-colors data-[placeholder]:text-muted-foreground data-[state=closed]:enabled:hover:border-primary focus:outline-none focus:ring-0 focus:ring-offset-0 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 [&>span]:line-clamp-1",
-      className
-    )}
-    {...props}
-  >
-    {children}
-    <SelectPrimitive.Icon asChild>
-      <ChevronDown className="-mr-1 h-4 w-4 opacity-50" />
-    </SelectPrimitive.Icon>
-  </SelectPrimitive.Trigger>
+>(({ className, children, title, ...props }, ref) => (
+  <Hint content={title}>
+    <SelectPrimitive.Trigger
+      ref={ref}
+      className={cn(
+        "flex h-10 w-fit max-w-full items-center justify-between gap-3 rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background transition-colors data-[placeholder]:text-muted-foreground data-[pointer-hover=true]:data-[state=closed]:enabled:border-primary focus:outline-none focus:ring-0 focus:ring-offset-0 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 [&>span]:line-clamp-1",
+        className
+      )}
+      {...props}
+      {...directPointerHover<HTMLButtonElement>(props)}
+    >
+      {children}
+      <SelectPrimitive.Icon asChild>
+        <ChevronDown className="-mr-1 h-4 w-4 opacity-50" />
+      </SelectPrimitive.Icon>
+    </SelectPrimitive.Trigger>
+  </Hint>
 ))
 SelectTrigger.displayName = SelectPrimitive.Trigger.displayName
 

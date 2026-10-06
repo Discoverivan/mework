@@ -1,9 +1,11 @@
-import { ChevronDown, GripVertical, LoaderCircle, Pencil, Plus, Trash2 } from "lucide-react";
+import { Hint } from "@/components/ui/tooltip";
+import { ChevronDown, GripVertical, LoaderCircle, Pencil, Trash2 } from "lucide-react";
 import { createPortal } from "react-dom";
 import { Fragment, useEffect, useRef, useState, type FormEvent } from "react";
 import { PageHeader } from "@/components/shared/PageHeader";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
+import { CreateButton } from "@/components/shared/CreateButton";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -13,6 +15,7 @@ import {
   Dialog,
   DialogContent,
   DialogDescription,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
@@ -393,7 +396,16 @@ export function ManagedProjectsSettings({
 
   const errors = form ? formErrors(form, t) : [];
   const addDetailsErrors = form ? addTeamDetailsErrors(form, t) : [];
-  const controlsDisabled = action !== null || teamSaving || boardsLoading;
+  const controlsDisabled = action !== null || teamSaving;
+  const formSession = useRef(0);
+  const dismissDisabled = action !== null || teamSaving;
+
+  function closeTeamForm() {
+    if (dismissDisabled) return;
+    formSession.current += 1;
+    setForm(null);
+    setBoardsLoading(false);
+  }
 
   function updateForm(field: keyof ManagedProjectForm, nextValue: string) {
     setForm((current) => {
@@ -403,8 +415,7 @@ export function ManagedProjectsSettings({
         : { ...current, [field]: nextValue };
     });
     if (field === "jiraProjectKey") {
-      setBoards([]);
-      setBoardsError(null);
+      resetBoards();
       setValidatedProject(null);
     }
     if (field === "confluenceInput") {
@@ -414,6 +425,8 @@ export function ManagedProjectsSettings({
   }
 
   function resetBoards() {
+    formSession.current += 1;
+    setBoardsLoading(false);
     setBoards([]);
     setBoardsError(null);
   }
@@ -473,6 +486,7 @@ export function ManagedProjectsSettings({
 
   async function handleLoadBoards() {
     if (!form || boardsLoading || !value(form.integrationId) || !value(form.jiraProjectKey)) return;
+    const session = formSession.current;
     setBoardsLoading(true);
     setBoardsError(null);
     setSaveError(null);
@@ -481,21 +495,17 @@ export function ManagedProjectsSettings({
         integrationId: value(form.integrationId),
         projectKey: value(form.jiraProjectKey),
       });
+      if (session !== formSession.current) return;
       const nextBoards = Array.isArray(loaded) ? loaded : [];
       setBoards(nextBoards);
-      setForm((current) => current
-        ? {
-            ...current,
-            boardId: nextBoards.some((board) => board.id === current.boardId) ? current.boardId : "",
-          }
-        : current);
       if (nextBoards.length === 0) {
         setBoardsError(t("teams.noBoards"));
       }
     } catch (error) {
+      if (session !== formSession.current) return;
       setBoardsError(t("teams.loadBoardsError", { error: commandError(error) }));
     } finally {
-      setBoardsLoading(false);
+      if (session === formSession.current) setBoardsLoading(false);
     }
   }
 
@@ -635,6 +645,8 @@ export function ManagedProjectsSettings({
       };
       const saved = await saveManagedProject(request);
       setProjects((current) => replaceProject(current, saved));
+      formSession.current += 1;
+      setBoardsLoading(false);
       setForm(null);
       setDetailProject(saved);
     } catch (error) {
@@ -852,6 +864,8 @@ export function ManagedProjectsSettings({
   }
 
   const isCreatingTeam = form !== null && !form.id;
+  const savedBoardProject = form ? projects.find((project) => project.id === form.id
+    && project.projectKey === value(form.jiraProjectKey) && project.boardId === form.boardId) : undefined;
 
   return (
     <section className="space-y-4" aria-labelledby="settings-title">
@@ -860,18 +874,14 @@ export function ManagedProjectsSettings({
         titleId="settings-title"
         description={t("settings.projects.description")}
         actions={(
-          <Button
+          <CreateButton
             type="button"
-            size="icon"
-            actionTone="add"
-            className="h-9 w-9"
+            className="h-9"
             onClick={startAdd}
             disabled={controlsDisabled}
             aria-label={t("teams.add")}
             title={t("teams.add")}
-          >
-            <Plus className="size-4" aria-hidden="true" />
-          </Button>
+          />
         )}
       />
 
@@ -904,17 +914,7 @@ export function ManagedProjectsSettings({
                   <CardHeader className="space-y-0 px-4 pb-4 pt-3.5">
                     <div className="flex flex-wrap items-center justify-between gap-3">
                       <div className="grid min-w-0 flex-1 gap-2">
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          className="h-auto justify-start p-0 text-left text-[15px] font-medium leading-tight"
-                          onClick={() => detailProject?.id === project.id ? setDetailProject(null) : openDetail(project)}
-                          disabled={controlsDisabled}
-                          aria-label={t("teams.openDetails", { team: project.projectName })}
-                        >
-                          <ChevronDown className={`mr-1 inline-block h-4 w-4 transition-transform ${detailProject?.id === project.id ? "rotate-180" : ""}`} aria-hidden="true" />
-                          {project.projectName}
-                        </Button>
+                        <h3 className="text-[15px] font-medium leading-tight">{project.projectName}</h3>
                         <CardDescription className="text-[13px] leading-snug">
                           <span aria-label={t("teams.projectKeyFor", { team: project.projectName })}>{project.projectKey}</span>
                           {` · ${boardNames[project.id] ?? project.boardId ?? t("teams.jiraBoard")}`}
@@ -922,6 +922,19 @@ export function ManagedProjectsSettings({
                         </CardDescription>
                       </div>
                       <div className="ml-auto flex items-center gap-2">
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          className="size-8 [&_svg]:size-[18px]"
+                          onClick={() => detailProject?.id === project.id ? setDetailProject(null) : openDetail(project)}
+                          disabled={controlsDisabled}
+                          aria-expanded={detailProject?.id === project.id}
+                          aria-label={t(detailProject?.id === project.id ? "teams.closeDetails" : "teams.openDetails", { team: project.projectName })}
+                          title={t(detailProject?.id === project.id ? "teams.closeDetails" : "teams.openDetails", { team: project.projectName })}
+                        >
+                          <ChevronDown className={`transition-transform ${detailProject?.id === project.id ? "rotate-180" : ""}`} aria-hidden="true" />
+                        </Button>
                         <Button
                           type="button"
                           variant="ghost"
@@ -962,7 +975,7 @@ export function ManagedProjectsSettings({
       ) : null}
 
       {form ? (
-        <Dialog open onOpenChange={(open) => { if (!open && !controlsDisabled) setForm(null); }}>
+        <Dialog open onOpenChange={(open) => { if (!open) closeTeamForm(); }}>
           <DialogContent>
             <DialogHeader>
               <DialogTitle>{form.id ? t("teams.editTitle") : t("teams.addTitle")}</DialogTitle>
@@ -974,7 +987,7 @@ export function ManagedProjectsSettings({
             </DialogHeader>
             <div className="grid gap-4">
               {isCreatingTeam && addTeamStep === "details" ? (
-                <form
+                <form autoComplete="off"
                   className="grid gap-4"
                   onSubmit={(event) => {
                     event.preventDefault();
@@ -1018,17 +1031,17 @@ export function ManagedProjectsSettings({
                       <AlertDescription>{saveError}</AlertDescription>
                     </Alert>
                   ) : null}
-                  <div className="flex flex-wrap gap-2 pt-2">
+                  <DialogFooter className="pt-2">
+                    <Button type="button" variant="ghost" data-dialog-cancel onClick={closeTeamForm} disabled={dismissDisabled}>
+                      {t("settings.common.cancel")}
+                    </Button>
                     <Button type="submit" disabled={controlsDisabled || addDetailsErrors.length > 0}>
                       {action === "next" ? t("settings.common.checking") : t("teams.next")}
                     </Button>
-                    <Button type="button" variant="ghost" onClick={() => setForm(null)} disabled={controlsDisabled}>
-                      {t("settings.common.cancel")}
-                    </Button>
-                  </div>
+                  </DialogFooter>
                 </form>
               ) : (
-                <form className="grid gap-4" onSubmit={(event) => void handleSave(event)} aria-busy={controlsDisabled}>
+                <form autoComplete="off" className="grid gap-4" onSubmit={(event) => void handleSave(event)} aria-busy={controlsDisabled}>
                   {isCreatingTeam ? (
                     <div className="grid gap-3 rounded-md border bg-muted/20 p-3 text-sm">
                       <div>
@@ -1053,7 +1066,6 @@ export function ManagedProjectsSettings({
                         value={form.jiraProjectKey}
                         onChange={(next) => updateForm("jiraProjectKey", next)}
                         disabled={controlsDisabled}
-                        onBlur={() => void handleLoadBoards()}
                       />
                       <TextField
                         label={t("teams.confluenceSpace")}
@@ -1075,6 +1087,9 @@ export function ManagedProjectsSettings({
                           <SelectTrigger id="jira-board" aria-label={t("teams.jiraBoard")}><SelectValue /></SelectTrigger>
                           <SelectContent>
                             <SelectItem value={NO_SELECTION}>{boardsLoading ? t("teams.loadingBoards") : t("teams.chooseBoard")}</SelectItem>
+                            {form.boardId && !boards.some((board) => board.id === form.boardId) ? <SelectItem value={form.boardId}>
+                              {(savedBoardProject && boardNames[savedBoardProject.id]) || form.boardId}
+                            </SelectItem> : null}
                             {boards.map((board) => <SelectItem key={board.id} value={board.id}>{board.name} ({board.id})</SelectItem>)}
                           </SelectContent>
                         </Select>
@@ -1107,7 +1122,10 @@ export function ManagedProjectsSettings({
                       <AlertDescription>{saveError}</AlertDescription>
                     </Alert>
                   ) : null}
-                  <div className="flex flex-wrap gap-2 pt-2">
+                  <DialogFooter className="pt-2">
+                    <Button type="button" variant="ghost" data-dialog-cancel onClick={closeTeamForm} disabled={dismissDisabled}>
+                      {t("settings.common.cancel")}
+                    </Button>
                     {isCreatingTeam ? (
                       <Button
                         type="button"
@@ -1125,13 +1143,10 @@ export function ManagedProjectsSettings({
                         {t("teams.back")}
                       </Button>
                     ) : null}
-                    <Button type="submit" disabled={controlsDisabled || errors.length > 0}>
+                    <Button type="submit" actionTone="edit" disabled={controlsDisabled || errors.length > 0}>
                       {action === "save" ? t("settings.common.saving") : t("teams.save")}
                     </Button>
-                    <Button type="button" variant="ghost" onClick={() => setForm(null)} disabled={controlsDisabled}>
-                      {t("settings.common.cancel")}
-                    </Button>
-                  </div>
+                  </DialogFooter>
                 </form>
               )}
             </div>
@@ -1216,7 +1231,7 @@ export function ManagedProjectsSettings({
                 </Alert>
               ) : null}
               <div>
-                <Button type="button" onClick={() => void handleSaveTaskCreationSettings()} disabled={controlsDisabled}>
+                <Button type="button" actionTone="edit" onClick={() => void handleSaveTaskCreationSettings()} disabled={controlsDisabled}>
                   {teamSaving ? t("settings.common.saving") : t("teams.saveTaskSettings")}
                 </Button>
               </div>
@@ -1337,19 +1352,20 @@ export function ManagedProjectsSettings({
                     disabled={controlsDisabled}
                   />
                 </div>
-                <div className="flex flex-wrap gap-2">
-                  <Button type="button" actionTone={editingMemberAccountId ? "edit" : "add"} onClick={() => void handleSaveMemberDialog()} disabled={!memberRole || controlsDisabled}>
-                    {teamSaving ? t("settings.common.saving") : editingMemberAccountId ? t("settings.common.save") : t("teams.addMemberAction")}
-                  </Button>
+                <DialogFooter>
                   <Button
                     type="button"
                     variant="ghost"
+                    data-dialog-cancel
                     onClick={closeMemberDialog}
                     disabled={controlsDisabled}
                   >
                     {t("settings.common.cancel")}
                   </Button>
-                </div>
+                  <Button type="button" actionTone={editingMemberAccountId ? "edit" : "add"} onClick={() => void handleSaveMemberDialog()} disabled={!memberRole || controlsDisabled}>
+                    {teamSaving ? t("settings.common.saving") : editingMemberAccountId ? t("settings.common.save") : t("teams.addMemberAction")}
+                  </Button>
+                </DialogFooter>
               </div>
             ) : null}
               </DialogContent>
@@ -1368,10 +1384,9 @@ export function ManagedProjectsSettings({
                         data-team-member-id={member.accountId}
                         className={`flex flex-wrap items-center gap-2 rounded-md border p-2 transition ${draggingMemberAccountId === member.accountId ? "opacity-60" : ""}`}
                       >
-                      <span
+                      <Hint content={t("teams.dragToReorder")}><span
                         className="cursor-grab touch-none text-muted-foreground active:cursor-grabbing"
                         aria-label={t("teams.dragMember", { member: label })}
-                        title={t("teams.dragToReorder")}
                         onPointerDown={(event) => {
                           if (controlsDisabled || event.button !== 0) return;
                           event.preventDefault();
@@ -1401,7 +1416,7 @@ export function ManagedProjectsSettings({
                         }}
                       >
                         <GripVertical aria-hidden="true" />
-                      </span>
+                      </span></Hint>
                       <MemberAvatar member={member} managedProjectId={detailProject.id} />
                       <div className="min-w-48 flex-1">
                         <div className="flex min-h-5 items-center gap-2">

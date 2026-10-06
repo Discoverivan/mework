@@ -19,6 +19,7 @@ const todayStats: AiUsageStatistics = {
 
 describe("StatisticsPage", () => {
   beforeEach(() => {
+    Element.prototype.scrollIntoView = vi.fn();
     getAiUsageStatisticsMock.mockReset();
     getAiUsageStatisticsMock.mockResolvedValue(todayStats);
   });
@@ -42,13 +43,7 @@ describe("StatisticsPage", () => {
     render(<StatisticsPage />);
 
     expect(await screen.findByRole("heading", { name: "Statistics" })).toBeInTheDocument();
-    expect(screen.getByRole("radiogroup", { name: "Reporting period" })).toBeInTheDocument();
-    const today = screen.getByRole("radio", { name: "Today" });
-    expect(today).toHaveAttribute("aria-checked", "true");
-    fireEvent.click(today);
-    expect(today).toHaveAttribute("aria-checked", "true");
-    expect(screen.getByRole("radio", { name: "Last 7 days" })).toBeInTheDocument();
-    expect(screen.getByRole("radio", { name: "This month" })).toBeInTheDocument();
+    expect(screen.getByRole("combobox", { name: "Reporting period" })).toHaveTextContent("Today");
     expect(screen.getByRole("img", { name: "Daily total tokens by provider and model" })).toBeInTheDocument();
     const table = screen.getByRole("table");
     expect(within(table).getByText("gpt-5.5")).toBeInTheDocument();
@@ -61,7 +56,10 @@ describe("StatisticsPage", () => {
     expect(within(table).getAllByText("300")).toHaveLength(2);
     expect(within(table).getAllByText("1,800").length).toBeGreaterThan(0);
 
-    fireEvent.click(screen.getByRole("radio", { name: "Last 7 days" }));
+    fireEvent.click(screen.getByRole("combobox", { name: "Reporting period" }));
+    expect(screen.getByRole("option", { name: "This month" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("option", { name: "Last 7 days" }));
+    expect(screen.getByRole("combobox", { name: "Reporting period" })).toHaveTextContent("Last 7 days");
     await waitFor(() => expect(getAiUsageStatisticsMock).toHaveBeenLastCalledWith("seven_days"));
   });
 });

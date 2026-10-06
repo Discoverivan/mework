@@ -46,6 +46,7 @@ const aiSettings: AiSettingsPageData = {
 };
 
 const reviewSettings: PullRequestReviewSettings = {
+  filterMode: "deny",
   projectBlacklist: [],
   projectWhitelist: [],
   repositoryBlacklist: [],

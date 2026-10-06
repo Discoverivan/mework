@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { CheckCheck, Filter, Plus, RefreshCw, Settings2, Trash2 } from "lucide-react";
+import { CheckCheck, Filter, RefreshCw, Settings2, Trash2 } from "lucide-react";
 
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
+import { CreateButton } from "@/components/shared/CreateButton";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -85,6 +86,7 @@ function filterField(tab: FilterTab, kind: FilterKind): FilterField {
 
 
 const emptySettings: PullRequestReviewSettings = {
+  filterMode: "deny",
   projectBlacklist: [],
   projectWhitelist: [],
   repositoryBlacklist: [],
@@ -112,7 +114,6 @@ function equalsIgnoreCase(left: string, right: string): boolean {
 }
 
 function matchesSettings(pullRequest: MyPullRequest, settings: PullRequestReviewSettings): boolean {
-  const whitelistValues = [...settings.projectWhitelist, ...settings.repositoryWhitelist, ...settings.creatorWhitelist];
   const repositoryWhitelistMatches = settings.repositoryWhitelist.some((value) =>
     [pullRequest.projectKey, repositoryKey(pullRequest), pullRequest.repositorySlug, pullRequest.repositoryName]
       .some((candidate) => equalsIgnoreCase(value, candidate)),
@@ -131,9 +132,7 @@ function matchesSettings(pullRequest: MyPullRequest, settings: PullRequestReview
   const projectBlacklistMatches = settings.projectBlacklist.some((value) => equalsIgnoreCase(value, pullRequest.projectKey));
   const whitelistMatches = projectWhitelistMatches || repositoryWhitelistMatches || creatorWhitelistMatches;
   const blacklistMatches = projectBlacklistMatches || repositoryBlacklistMatches || creatorBlacklistMatches;
-  if (blacklistMatches) return false;
-  if (whitelistValues.length > 0) return whitelistMatches;
-  return true;
+  return settings.filterMode === "allow" ? whitelistMatches : !blacklistMatches;
 }
 
 function commandError(error: unknown): string {
@@ -191,7 +190,7 @@ export function MyPullRequestsPage() {
   const [filterSearch, setFilterSearch] = useState<FilterKind>();
   const [displayOptionsOpen, setDisplayOptionsOpen] = useState(false);
   const [displayPreferences, updateDisplayPreferences] = usePullRequestDisplayPreferences("reviewer");
-  const [filterTab, setFilterTab] = useState<FilterTab>("whitelist");
+  const [filterTab, setFilterTab] = useState<FilterTab>("blacklist");
   const [quickFilter, setQuickFilter] = usePullRequestQuickFilter("reviewer");
   const [saving, setSaving] = useState(false);
   const [autoReviewSaving, setAutoReviewSaving] = useState(false);
@@ -439,6 +438,7 @@ export function MyPullRequestsPage() {
 
   function openSettings() {
     setDraftSettings({
+      filterMode: settings.filterMode,
       projectBlacklist: [...settings.projectBlacklist],
       projectWhitelist: [...settings.projectWhitelist],
       repositoryBlacklist: [...settings.repositoryBlacklist],
@@ -448,7 +448,7 @@ export function MyPullRequestsPage() {
       autoReviewEnabled: settings.autoReviewEnabled,
       authoredAutoReviewEnabled: settings.authoredAutoReviewEnabled,
     });
-    setFilterTab("blacklist");
+    setFilterTab(settings.filterMode === "allow" ? "whitelist" : "blacklist");
     setFilterSearch(undefined);
     setProjectInput("");
     setProjectSearchResults([]);
@@ -489,16 +489,18 @@ export function MyPullRequestsPage() {
     }));
   }
 
-  const filtersChanged = (["projectBlacklist", "projectWhitelist", "repositoryBlacklist", "repositoryWhitelist", "creatorBlacklist", "creatorWhitelist"] as const)
+  const filterRulesChanged = (["projectBlacklist", "projectWhitelist", "repositoryBlacklist", "repositoryWhitelist", "creatorBlacklist", "creatorWhitelist"] as const)
     .some((field) => draftSettings[field].length !== settings[field].length
       || draftSettings[field].some((value) => !settings[field].some((saved) => equalsIgnoreCase(value, saved))));
+  const selectedFilterMode = filterTab === "whitelist" ? "allow" : "deny";
+  const filtersChanged = filterRulesChanged || selectedFilterMode !== settings.filterMode;
 
   async function saveSettings() {
     if (saving || !filtersChanged) return;
     setSaving(true);
     setSettingsError(undefined);
     try {
-      const saved = await savePullRequestReviewSettings(draftSettings);
+      const saved = await savePullRequestReviewSettings({ ...draftSettings, filterMode: selectedFilterMode });
       setSettings(saved);
       setSettingsOpen(false);
       await syncPullRequests();
@@ -526,12 +528,14 @@ export function MyPullRequestsPage() {
   async function blacklistPullRequest(pullRequest: MyPullRequest, scope: "project" | "repository") {
     const value = scope === "project" ? pullRequest.projectKey : repositoryKey(pullRequest);
     const field = scope === "project" ? "projectBlacklist" : "repositoryBlacklist";
-    if (settings[field].some((entry) => equalsIgnoreCase(entry, value))) return;
+    const alreadyExcluded = settings[field].some((entry) => equalsIgnoreCase(entry, value));
+    if (alreadyExcluded && settings.filterMode === "deny") return;
     setError(undefined);
     try {
       const saved = await savePullRequestReviewSettings({
         ...settings,
-        [field]: [...settings[field], value],
+        filterMode: "deny",
+        [field]: alreadyExcluded ? settings[field] : [...settings[field], value],
       });
       setSettings(saved);
       setDraftSettings(saved);
@@ -698,7 +702,10 @@ export function MyPullRequestsPage() {
           <PullRequestStatus
             kind="review"
             count={filteredPullRequests.length}
-            activeFilterCount={settings.repositoryBlacklist.length + settings.creatorBlacklist.length + settings.repositoryWhitelist.length + settings.creatorWhitelist.length}
+            filterMode={settings.filterMode}
+            activeFilterCount={settings.filterMode === "allow"
+              ? settings.projectWhitelist.length + settings.repositoryWhitelist.length + settings.creatorWhitelist.length
+              : settings.projectBlacklist.length + settings.repositoryBlacklist.length + settings.creatorBlacklist.length}
             sortOrder={displayPreferences.sortOrder}
             lastSyncAt={lastSyncAt}
             now={now}
@@ -848,7 +855,7 @@ export function MyPullRequestsPage() {
           <DialogHeader>
             <DialogTitle>{t("pr.filters.title")}</DialogTitle>
           </DialogHeader>
-          <DialogBody className="flex flex-col gap-6">
+          <DialogBody layout="sections">
             <ToggleGroup
               type="single"
               size="sm"
@@ -889,9 +896,7 @@ export function MyPullRequestsPage() {
                       if (open) setProjectInput("");
                     }}>
                       <PopoverTrigger asChild>
-                        <Button type="button" variant="outline" size="icon" actionTone="add" className="size-7 shrink-0" aria-label={t("pr.filters.addProject")} title={t("pr.filters.addProject")}>
-                          <Plus aria-hidden="true" />
-                        </Button>
+                        <CreateButton type="button" variant="outline" className="h-7" aria-label={t("pr.filters.addProject")} title={t("pr.filters.addProject")} />
                       </PopoverTrigger>
                       <PopoverContent align="end" aria-label={t("pr.filters.addProject")} className="flex w-[min(24rem,calc(100vw-2rem))] flex-col gap-3">
                         <Label htmlFor={`${filterTab}-project-input`}>{t("pr.filters.projects")}</Label>
@@ -952,9 +957,7 @@ export function MyPullRequestsPage() {
                       if (open) setRepositoryInput("");
                     }}>
                       <PopoverTrigger asChild>
-                        <Button type="button" variant="outline" size="icon" actionTone="add" className="size-7 shrink-0" aria-label={t("pr.filters.addRepository")} title={t("pr.filters.addRepository")}>
-                          <Plus aria-hidden="true" />
-                        </Button>
+                        <CreateButton type="button" variant="outline" className="h-7" aria-label={t("pr.filters.addRepository")} title={t("pr.filters.addRepository")} />
                       </PopoverTrigger>
                       <PopoverContent align="end" aria-label={t("pr.filters.addRepository")} className="flex w-[min(24rem,calc(100vw-2rem))] flex-col gap-3">
                         <Label htmlFor={`${filterTab}-repository-input`}>{t("pr.filters.repositories")}</Label>
@@ -1021,9 +1024,7 @@ export function MyPullRequestsPage() {
                       if (open) setCreatorInput("");
                     }}>
                       <PopoverTrigger asChild>
-                        <Button type="button" variant="outline" size="icon" actionTone="add" className="size-7 shrink-0" aria-label={t("pr.filters.addCreator")} title={t("pr.filters.addCreator")}>
-                          <Plus aria-hidden="true" />
-                        </Button>
+                        <CreateButton type="button" variant="outline" className="h-7" aria-label={t("pr.filters.addCreator")} title={t("pr.filters.addCreator")} />
                       </PopoverTrigger>
                       <PopoverContent align="end" aria-label={t("pr.filters.addCreator")} className="flex w-[min(24rem,calc(100vw-2rem))] flex-col gap-3">
                         <Label htmlFor={`${filterTab}-creator-input`}>{t("pr.filters.creators")}</Label>
@@ -1092,8 +1093,8 @@ export function MyPullRequestsPage() {
             ) : null}
           </DialogBody>
           <DialogFooter>
-            <Button type="button" variant="outline" onClick={() => setSettingsOpen(false)} disabled={saving}>{t("settings.common.cancel")}</Button>
-            <Button type="button" onClick={() => void saveSettings()} disabled={saving || !filtersChanged}>{saving ? t("settings.common.saving") : t("settings.common.save")}</Button>
+            <Button data-dialog-cancel type="button" variant="outline" onClick={() => setSettingsOpen(false)} disabled={saving}>{t("settings.common.cancel")}</Button>
+            <Button type="button" actionTone="edit" onClick={() => void saveSettings()} disabled={saving || !filtersChanged}>{saving ? t("settings.common.saving") : t("settings.common.save")}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

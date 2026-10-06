@@ -66,7 +66,7 @@ export function CompetencySubtaskRow({
       )}
       {editable ? (
         <div className="relative">
-          <select
+          <select autoComplete="off"
             aria-label={t("planning.competency")}
             value={subtask.competency ?? ""}
             onChange={handleCompetency}

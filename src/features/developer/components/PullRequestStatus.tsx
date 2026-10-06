@@ -1,3 +1,4 @@
+import { Hint } from "@/components/ui/tooltip";
 import { Info } from "lucide-react";
 
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -21,6 +22,7 @@ export function PullRequestStatus({
   kind,
   count,
   activeFilterCount = 0,
+  filterMode,
   sortOrder,
   lastSyncAt,
   now = Date.now(),
@@ -29,6 +31,7 @@ export function PullRequestStatus({
   kind: PullRequestListKind;
   count: number;
   activeFilterCount?: number;
+  filterMode?: "allow" | "deny";
   sortOrder: PullRequestSortOrder;
   lastSyncAt?: number;
   now?: number;
@@ -63,9 +66,9 @@ export function PullRequestStatus({
       {relativeLastSync ? (
         <>
           <span aria-hidden="true">·</span>
-          <time dateTime={new Date(lastSyncAt!).toISOString()} title={formattedLastSync}>
+          <Hint content={formattedLastSync}><time dateTime={new Date(lastSyncAt!).toISOString()}>
             {t("pr.status.updated", { last: relativeLastSync })}
-          </time>
+          </time></Hint>
         </>
       ) : null}
       {polling ? (
@@ -76,14 +79,13 @@ export function PullRequestStatus({
       ) : null}
       <Popover>
         <PopoverTrigger asChild>
-          <button
+          <Hint content={t("pr.status.openDetails")}><button
             type="button"
             className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-foreground/70 transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             aria-label={t("pr.status.openDetails")}
-            title={t("pr.status.openDetails")}
           >
             <Info className="size-3.5" aria-hidden="true" />
-          </button>
+          </button></Hint>
         </PopoverTrigger>
         <PopoverContent align="start" aria-label={t("pr.status.details")} className="w-max max-w-[min(20rem,calc(100vw-2rem))] space-y-2">
           <p className="text-xs font-medium text-foreground">{t("pr.status.details")}</p>
@@ -94,7 +96,9 @@ export function PullRequestStatus({
             <dd className="text-right text-foreground">{count}</dd>
             <dt className="text-muted-foreground">{t("pr.status.filters")}</dt>
             <dd className="text-right text-foreground">
-              {activeFilterCount === 0 ? t("pr.status.noFilters") : activeFilterCount}
+              {filterMode && (filterMode === "allow" || activeFilterCount > 0)
+                ? `${t(filterMode === "allow" ? "pr.filters.whitelist" : "pr.filters.blacklist")} · ${activeFilterCount}`
+                : activeFilterCount === 0 ? t("pr.status.noFilters") : activeFilterCount}
             </dd>
             <dt className="text-muted-foreground">{t("pr.status.sort")}</dt>
             <dd className="text-right text-foreground">

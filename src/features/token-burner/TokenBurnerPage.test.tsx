@@ -113,9 +113,12 @@ describe("TokenBurnerPage", () => {
     expect(runningStatuses).toHaveLength(2);
     for (const running of runningStatuses) {
       expect(running).toHaveClass("model-testing-status", "text-primary");
+      expect(running).toHaveClass("border-transparent");
       expect(running.querySelector("svg")).toHaveClass("size-4", "animate-spin");
     }
     expect(screen.getByText("Ready")).toHaveClass("model-testing-status");
+    fireEvent.focus(runningStatuses[0]);
+    expect(await screen.findByRole("tooltip")).toHaveTextContent("Looking for pull requests and running AI reviews.");
   });
 
   it("shows unknown usage and an interrupted review after Stop", async () => {

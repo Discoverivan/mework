@@ -87,19 +87,19 @@ describe("TaskTrackerPage", () => {
     expect(screen.getAllByText("In Progress").length).toBeGreaterThanOrEqual(1);
     expect(screen.getByText(monitor.jql)).toBeInTheDocument();
     const newMonitorButton = screen.getByRole("button", { name: "Create monitor" });
-    expect(newMonitorButton).not.toHaveTextContent("Create monitor");
-    expect(newMonitorButton).toHaveAttribute("title", "Create monitor");
+    expect(newMonitorButton).toHaveTextContent("Create");
+    expect(newMonitorButton).toHaveAttribute("data-tooltip", "Create monitor");
     expect(newMonitorButton.closest("header")).toBeInTheDocument();
-    expect(newMonitorButton).toHaveClass("h-9", "w-9", "bg-primary");
+    expect(newMonitorButton).toHaveClass("h-9", "bg-background");
     const headerActionLabels = ["Export monitor settings", "Check now", "Edit monitor"];
     const headerActionButtons = headerActionLabels.map((label) => screen.getByRole("button", { name: label }));
     headerActionButtons.forEach((button, index) => {
       expect(button).not.toHaveTextContent(headerActionLabels[index]);
-      expect(button).toHaveAttribute("title", headerActionLabels[index]);
+      expect(button).toHaveAttribute("data-tooltip", headerActionLabels[index]);
     });
     expect(Array.from(headerActionButtons[0].parentElement?.querySelectorAll("button") ?? [])).toEqual(headerActionButtons);
     const copyJqlButton = screen.getByRole("button", { name: "Copy JQL" });
-    expect(copyJqlButton).toHaveAttribute("title", "Copy JQL");
+    expect(copyJqlButton).toHaveAttribute("data-tooltip", "Copy JQL");
     expect(copyJqlButton.parentElement?.querySelector("code")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Edit monitor" }));
     expect(screen.getByRole("dialog")).toBeInTheDocument();
@@ -265,7 +265,7 @@ describe("TaskTrackerPage", () => {
 
     fireEvent.click(await screen.findByRole("button", { name: "Create monitor" }));
     const importButton = screen.getByRole("button", { name: "Import from JSON" });
-    expect(importButton).toHaveAttribute("title", "Import from JSON");
+    expect(importButton).toHaveAttribute("data-tooltip", "Import from JSON");
     expect(importButton).not.toHaveTextContent("Import from JSON");
     expect(importButton.querySelector("svg")).toBeInTheDocument();
     expect(importButton.parentElement).toHaveClass("mr-auto");

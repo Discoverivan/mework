@@ -1,7 +1,8 @@
+import { Hint } from "@/components/ui/tooltip";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { save } from "@tauri-apps/plugin-dialog";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import { AlertTriangle, Check, CheckCheck, ChevronDown, ChevronUp, Copy, Download, ExternalLink, Pencil, Plus, Radar, RefreshCw, SlidersHorizontal, Trash2, Upload, X } from "lucide-react";
+import { AlertTriangle, Check, CheckCheck, ChevronDown, ChevronUp, Copy, Download, ExternalLink, Pencil, Radar, RefreshCw, SlidersHorizontal, Trash2, Upload, X } from "lucide-react";
 
 import { APP_EVENT, emitAppEvent, subscribeAppEvent } from "@/app/app-events";
 import { PageHeader } from "@/components/shared/PageHeader";
@@ -10,6 +11,7 @@ import { useI18n, type I18nContextValue } from "@/i18n/context";
 import type { TranslationKey } from "@/i18n/locales/en";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
+import { CreateButton } from "@/components/shared/CreateButton";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -543,17 +545,13 @@ export function TaskTrackerPage({ mockMode = false }: { mockMode?: boolean }) {
         titleId="task-tracker-title"
         description={t("taskTracker.description")}
         actions={mockMode ? undefined : (
-          <Button
+          <CreateButton
             type="button"
-            size="icon"
-            actionTone="add"
-            className="h-9 w-9"
+            className="h-9"
             aria-label={t("taskTracker.createMonitor")}
             title={t("taskTracker.createMonitor")}
             onClick={openCreate}
-          >
-            <Plus className="size-4" aria-hidden="true" />
-          </Button>
+          />
         )}
       />
 
@@ -595,7 +593,7 @@ export function TaskTrackerPage({ mockMode = false }: { mockMode?: boolean }) {
               </div>
               <div className="min-w-0 flex-1">
                 <div className="relative">
-                  <code className="block min-w-0 truncate rounded bg-muted px-3 py-2 pr-12 font-mono text-xs" title={activeMonitor.jql}>{activeMonitor.jql}</code>
+                  <Hint content={activeMonitor.jql}><code className="block min-w-0 truncate rounded bg-muted px-3 py-2 pr-12 font-mono text-xs">{activeMonitor.jql}</code></Hint>
                   <Button type="button" variant="ghost" size="icon" className="absolute right-0.5 top-1/2 size-8 -translate-y-1/2" aria-label={jqlCopied ? t("taskTracker.jqlCopied") : t("taskTracker.copyJql")} title={jqlCopied ? t("taskTracker.jqlCopied") : t("taskTracker.copyJql")} onClick={() => void copyJql()}>{jqlCopied ? <Check className="size-4" aria-hidden="true" /> : <Copy className="size-4" aria-hidden="true" />}</Button>
                 </div>
               </div>
@@ -614,7 +612,7 @@ export function TaskTrackerPage({ mockMode = false }: { mockMode?: boolean }) {
           <div className="flex items-start gap-3">
             <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
               <Button type="button" variant="outline" size="sm" onClick={openFilters}><SlidersHorizontal className="mr-2 size-4" aria-hidden="true" />{t("taskTracker.filters")}{activeFilterBadges.length > 0 ? <span className="ml-1 rounded-full bg-primary px-1.5 py-0.5 text-[10px] leading-none text-primary-foreground">{activeFilterBadges.length}</span> : null}</Button>
-              {activeFilterBadges.map((filter) => <div key={filter.key} className="inline-flex max-w-[24rem] items-center gap-1.5 rounded-full border border-border bg-muted px-3 py-1.5 text-sm"><span className="truncate">{filter.label}</span><button type="button" className="shrink-0 rounded-full p-0.5 text-muted-foreground transition-colors hover:bg-background hover:text-foreground" aria-label={t("taskTracker.removeFilter", { filter: filter.label })} title={t("taskTracker.removeFilter", { filter: filter.label })} onClick={() => removeFilter(filter.key)}><X className="size-3.5" aria-hidden="true" /></button></div>)}
+              {activeFilterBadges.map((filter) => <div key={filter.key} className="inline-flex max-w-[24rem] items-center gap-1.5 rounded-full border border-border bg-muted px-3 py-1.5 text-sm"><span className="truncate">{filter.label}</span><Hint content={t("taskTracker.removeFilter", { filter: filter.label })}><button type="button" className="shrink-0 rounded-full p-0.5 text-muted-foreground transition-colors hover:bg-background hover:text-foreground" aria-label={t("taskTracker.removeFilter", { filter: filter.label })} onClick={() => removeFilter(filter.key)}><X className="size-3.5" aria-hidden="true" /></button></Hint></div>)}
             </div>
             <Button type="button" variant="ghost" size="sm" className="ml-auto shrink-0 whitespace-nowrap" disabled={changesRead || !activeMonitor.issues.some((issue) => issue.changed)} onClick={markAllRead}><CheckCheck className="mr-2 size-4" aria-hidden="true" />{t("taskTracker.markAllRead")}</Button>
           </div>
@@ -625,12 +623,12 @@ export function TaskTrackerPage({ mockMode = false }: { mockMode?: boolean }) {
               <DialogBody>
                 <div className="space-y-4">
                   <div><Label htmlFor="task-tracker-search">{t("taskTracker.search")}</Label><Input id="task-tracker-search" className="mt-1" value={filterDraftSearch} onChange={(event) => setFilterDraftSearch(event.target.value)} placeholder={t("taskTracker.searchPlaceholder")} /></div>
-                  <div><Label htmlFor="task-tracker-status">{t("taskTracker.status")}</Label><select id="task-tracker-status" className="mt-1 h-9 w-full rounded-md border border-input bg-background px-3 text-sm" value={filterDraftStatus} onChange={(event) => setFilterDraftStatus(event.target.value)}><option value="all">{t("taskTracker.allStatuses")}</option>{statuses.map((status) => <option key={status} value={status}>{status}</option>)}</select></div>
-                  <div><Label htmlFor="task-tracker-change">{t("taskTracker.changeType")}</Label><select id="task-tracker-change" className="mt-1 h-9 w-full rounded-md border border-input bg-background px-3 text-sm" value={filterDraftChange} onChange={(event) => setFilterDraftChange(event.target.value as FilterChange)}><option value="all">{t("taskTracker.allChangeTypes")}</option><option value="new">{changeLabel("new", t)}</option><option value="status">{changeLabel("status", t)}</option><option value="comment">{changeLabel("comment", t)}</option><option value="removed">{changeLabel("removed", t)}</option></select></div>
+                  <div><Label htmlFor="task-tracker-status">{t("taskTracker.status")}</Label><select autoComplete="off" id="task-tracker-status" className="mt-1 h-9 w-full rounded-md border border-input bg-background px-3 text-sm" value={filterDraftStatus} onChange={(event) => setFilterDraftStatus(event.target.value)}><option value="all">{t("taskTracker.allStatuses")}</option>{statuses.map((status) => <option key={status} value={status}>{status}</option>)}</select></div>
+                  <div><Label htmlFor="task-tracker-change">{t("taskTracker.changeType")}</Label><select autoComplete="off" id="task-tracker-change" className="mt-1 h-9 w-full rounded-md border border-input bg-background px-3 text-sm" value={filterDraftChange} onChange={(event) => setFilterDraftChange(event.target.value as FilterChange)}><option value="all">{t("taskTracker.allChangeTypes")}</option><option value="new">{changeLabel("new", t)}</option><option value="status">{changeLabel("status", t)}</option><option value="comment">{changeLabel("comment", t)}</option><option value="removed">{changeLabel("removed", t)}</option></select></div>
                   <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={filterDraftOnlyChanged} onChange={(event) => setFilterDraftOnlyChanged(event.target.checked)} />{t("taskTracker.onlyChanged")}</label>
                 </div>
               </DialogBody>
-              <DialogFooter className="sm:justify-between"><Button type="button" variant="outline" onClick={clearFilterDraft} disabled={!filterDraftSearch.trim() && filterDraftStatus === "all" && filterDraftChange === "all" && !filterDraftOnlyChanged}>{t("taskTracker.clearFilters")}</Button><Button type="button" onClick={applyFilters} disabled={!filtersChanged}>{t("settings.common.save")}</Button></DialogFooter>
+              <DialogFooter className="sm:justify-between"><Button type="button" variant="outline" onClick={clearFilterDraft} disabled={!filterDraftSearch.trim() && filterDraftStatus === "all" && filterDraftChange === "all" && !filterDraftOnlyChanged}>{t("taskTracker.clearFilters")}</Button><Button type="button" actionTone="edit" onClick={applyFilters} disabled={!filtersChanged}>{t("settings.common.save")}</Button></DialogFooter>
             </DialogContent>
           </Dialog>
 
@@ -732,12 +730,12 @@ function MonitorDialog({ t, open, editing, draft, saving, validating, validation
             <div><Label htmlFor="monitor-name">{t("taskTracker.field.name")}</Label><Input id="monitor-name" className="mt-1" value={draft.name} onChange={(event) => onChange("name", event.target.value)} placeholder={t("taskTracker.field.namePlaceholder")} /></div>
             <div>
               <Label htmlFor="monitor-jql">JQL</Label>
-              <textarea id="monitor-jql" className="mt-1 min-h-24 w-full rounded-md border border-input bg-background px-3 py-2 font-mono text-sm" value={draft.jql} onChange={(event) => onChange("jql", event.target.value)} placeholder="project = DEMO AND resolution = Unresolved" />
+              <textarea autoComplete="off" id="monitor-jql" className="mt-1 min-h-24 w-full rounded-md border border-input bg-background px-3 py-2 font-mono text-sm" value={draft.jql} onChange={(event) => onChange("jql", event.target.value)} placeholder="project = DEMO AND resolution = Unresolved" />
               <Button type="button" variant="outline" size="sm" className="mt-2" disabled={validating || !draft.jql.trim()} onClick={onValidate}>{validating ? t("taskTracker.validatingJql") : t("taskTracker.validateJql")}</Button>
               {validation ? <p className="mt-2 text-sm text-muted-foreground">{t("taskTracker.jqlValid", { count: validation.truncated ? `${validation.count}+` : validation.count })}</p> : null}
             </div>
             <div><Label htmlFor="monitor-max-tracked-issues">{t("taskTracker.field.maxTrackedIssues")}</Label><Input id="monitor-max-tracked-issues" type="number" min={1} max={MAX_ALLOWED_TRACKED_ISSUES} step={1} className="mt-1" value={draft.maxTrackedIssues} onChange={(event) => onChange("maxTrackedIssues", Number(event.target.value))} /></div>
-            <div className="grid gap-4 sm:grid-cols-2"><div><Label htmlFor="monitor-schedule-kind">{t("taskTracker.field.schedule")}</Label><select id="monitor-schedule-kind" className="mt-1 h-9 w-full rounded-md border border-input bg-background px-3 text-sm" value={draft.scheduleKind} onChange={(event) => onChange("scheduleKind", event.target.value as TaskTrackerScheduleKind)}><option value="period">{t("taskTracker.schedule.period")}</option><option value="cron">{t("taskTracker.schedule.cron")}</option></select></div><div><Label htmlFor="monitor-schedule-value">{draft.scheduleKind === "period" ? t("taskTracker.field.seconds") : t("taskTracker.field.cron")}</Label><Input id="monitor-schedule-value" className="mt-1" value={draft.scheduleValue} onChange={(event) => onChange("scheduleValue", event.target.value)} placeholder={draft.scheduleKind === "period" ? "300" : "*/10 * * * *"} /></div></div>
+            <div className="grid gap-4 sm:grid-cols-2"><div><Label htmlFor="monitor-schedule-kind">{t("taskTracker.field.schedule")}</Label><select autoComplete="off" id="monitor-schedule-kind" className="mt-1 h-9 w-full rounded-md border border-input bg-background px-3 text-sm" value={draft.scheduleKind} onChange={(event) => onChange("scheduleKind", event.target.value as TaskTrackerScheduleKind)}><option value="period">{t("taskTracker.schedule.period")}</option><option value="cron">{t("taskTracker.schedule.cron")}</option></select></div><div><Label htmlFor="monitor-schedule-value">{draft.scheduleKind === "period" ? t("taskTracker.field.seconds") : t("taskTracker.field.cron")}</Label><Input id="monitor-schedule-value" className="mt-1" value={draft.scheduleValue} onChange={(event) => onChange("scheduleValue", event.target.value)} placeholder={draft.scheduleKind === "period" ? "300" : "*/10 * * * *"} /></div></div>
             <fieldset><legend className="text-sm font-medium">{t("taskTracker.field.trackEvents")}</legend><div className="mt-2 grid gap-2 sm:grid-cols-2">{ALL_EVENTS.map((event) => <label key={event} className="flex items-center gap-2 text-sm"><input type="checkbox" checked={draft.trackedEvents.includes(event)} onChange={(change) => onChange("trackedEvents", change.target.checked ? [...draft.trackedEvents, event] : draft.trackedEvents.filter((value) => value !== event))} />{t(EVENT_LABEL_KEYS[event])}</label>)}</div></fieldset>
             {error ? <Alert variant="destructive"><AlertDescription>{error}</AlertDescription></Alert> : null}
           </div>
@@ -751,8 +749,8 @@ function MonitorDialog({ t, open, editing, draft, saving, validating, validation
               </Button>
             </> : <Button type="button" variant="ghost" actionTone="delete" className="text-muted-foreground hover:bg-transparent hover:text-destructive" title={t("taskTracker.deleteMonitor", { name: draft.name })} onClick={onDelete}><Trash2 className="mr-2 size-4" aria-hidden="true" />{t("taskTracker.delete")}</Button>}
           </div>
+          <Button data-dialog-cancel type="button" variant="outline" onClick={() => onOpenChange(false)}>{t("taskTracker.cancel")}</Button>
           <div className="ml-auto flex items-center gap-2">
-            <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>{t("taskTracker.cancel")}</Button>
             <Button type="button" actionTone={editing ? "edit" : "add"} disabled={saving} onClick={onSave}>{saving ? t("taskTracker.saving") : editing ? t("taskTracker.saveChanges") : t("taskTracker.create")}</Button>
           </div>
         </DialogFooter>

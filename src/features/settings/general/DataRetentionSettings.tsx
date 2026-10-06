@@ -52,9 +52,14 @@ export function DataRetentionSettings() {
   }
 
   return <Card>
-    <CardHeader className="px-4 py-3.5">
-      <CardTitle className="text-base font-semibold leading-tight">{t("dataRetention.title")}</CardTitle>
-      <CardDescription className="leading-snug">{t("dataRetention.description")}</CardDescription>
+    <CardHeader className="flex flex-row items-center justify-between gap-3 space-y-0 px-4 py-3.5">
+      <div className="min-w-0 space-y-1.5">
+        <CardTitle className="text-base font-semibold leading-tight">{t("dataRetention.title")}</CardTitle>
+        <CardDescription className="leading-snug">{t("dataRetention.description")}</CardDescription>
+      </div>
+      <Button type="button" size="sm" actionTone="edit" className="shrink-0" onClick={() => void save()} disabled={!changed || saving || Object.values(valid).includes(false)}>
+        {saving ? <Loader2 className="animate-spin" aria-hidden="true" /> : null}{t("settings.common.save")}
+      </Button>
     </CardHeader>
     <CardContent className="flex flex-col gap-4 px-4 pb-3.5">
       {draft ? <>
@@ -65,9 +70,6 @@ export function DataRetentionSettings() {
             onValidityChange={validityHandlers[field]}
             errors={{ required: t("forms.numberRequired"), number: t("forms.numberInvalid"), range: t("forms.numberRange", { min: 0, max: 3650 }), whole: t("forms.numberInvalid") }} />)}
         </div>
-        <div className="flex justify-end"><Button type="button" size="sm" onClick={() => void save()} disabled={!changed || saving || Object.values(valid).includes(false)}>
-          {saving ? <Loader2 className="animate-spin" aria-hidden="true" /> : null}{t("settings.common.save")}
-        </Button></div>
       </> : loading ? <Loader2 className="size-4 animate-spin text-muted-foreground" aria-label={t("dataRetention.loading")} /> : <Button type="button" variant="outline" size="sm" className="w-fit" onClick={() => { setNotice(null); setLoadRevision((value) => value + 1); }}>{t("tokenBurner.retry")}</Button>}
       {notice ? <StatusToast message={t(`dataRetention.${notice}`)} variant={notice === "saved" ? "success" : "error"} onDismiss={() => setNotice(null)} /> : null}
     </CardContent>

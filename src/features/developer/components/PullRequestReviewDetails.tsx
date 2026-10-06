@@ -1,3 +1,4 @@
+import { Hint } from "@/components/ui/tooltip";
 import { Info } from "lucide-react";
 import { useEffect, useState } from "react";
 import { APP_EVENT, subscribeAppEvent } from "@/app/app-events";
@@ -34,9 +35,9 @@ export function PullRequestReviewDetails({ review, inBadge = false }: { review: 
   return (
     <Popover open={open} onOpenChange={(nextOpen) => { onOpenChange(nextOpen); setOpen(nextOpen); }}>
       <PopoverTrigger asChild>
-        <button ref={triggerRef} type="button" className={cn("inline-flex h-5 shrink-0 items-center justify-center rounded-full text-foreground/70 transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring", inBadge ? "w-3.5" : "w-5")} aria-label={t("pr.dialog.showReviewDetails")} title={t("pr.dialog.showReviewDetails")}>
+        <Hint content={t("pr.dialog.showReviewDetails")}><button ref={triggerRef} type="button" className={cn("inline-flex h-5 shrink-0 items-center justify-center rounded-full text-foreground/70 transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring", inBadge ? "w-3.5" : "w-5")} aria-label={t("pr.dialog.showReviewDetails")}>
           <Info className="size-3.5" aria-hidden="true" />
-        </button>
+        </button></Hint>
       </PopoverTrigger>
       <PopoverContent align="end" alignOffset={alignOffset} sideOffset={8} aria-label={t("pr.dialog.reviewDetails")} className="w-max max-w-[min(20rem,calc(100vw-2rem))] space-y-2">
         <p className="text-xs font-medium text-foreground">{t("pr.dialog.reviewDetails")}</p>

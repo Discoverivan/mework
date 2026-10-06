@@ -49,7 +49,7 @@ describe("CommandBoardPage", () => {
     expect(await screen.findByRole("status", { name: "No commands yet" })).toBeInTheDocument();
     const addCommandButton = screen.getByRole("button", { name: "Add command" });
     expect(addCommandButton.querySelector("svg.lucide-plus")).not.toBeNull();
-    expect(addCommandButton).not.toHaveTextContent("Add command");
+    expect(addCommandButton).toHaveTextContent("Create");
     fireEvent.click(addCommandButton);
 
     expect(screen.getByRole("dialog")).toBeInTheDocument();

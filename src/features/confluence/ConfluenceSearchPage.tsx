@@ -77,12 +77,12 @@ export function ConfluenceSearchPage() {
         description={t("confluence.description")}
       />
 
-      <form className="flex flex-wrap items-end gap-3" onSubmit={submit}>
+      <form autoComplete="off" className="flex flex-wrap items-end gap-3" onSubmit={submit}>
         {teamSpaces.length > 0 ? (
           <div className="grid min-w-64 gap-2">
             <Label htmlFor="confluence-search-space">{t("confluence.scope")}</Label>
             <div className="relative">
-              <select
+              <select autoComplete="off"
                 id="confluence-search-space"
                 aria-label={t("confluence.scope")}
                 className="h-10 w-full appearance-none rounded-md border border-input bg-background py-2 pl-3 pr-9 text-sm"
@@ -112,16 +112,18 @@ export function ConfluenceSearchPage() {
             disabled={searching}
           />
         </div>
-        <Button
-          type="submit"
-          size="icon"
-          className="shrink-0"
-          aria-label={searching ? t("confluence.searching") : t("confluence.search")}
-          title={searching ? t("confluence.searching") : t("confluence.search")}
-          disabled={!integrationId || !query.trim() || searching}
-        >
-          {searching ? <LoaderCircle className="animate-spin" aria-hidden="true" /> : <Search className="knowledge-search-icon" aria-hidden="true" />}
-        </Button>
+        <div className="flex h-10 shrink-0 items-center">
+          <Button
+            type="submit"
+            className="shrink-0"
+            aria-label={searching ? t("confluence.searching") : t("confluence.search")}
+            title={searching ? t("confluence.searching") : t("confluence.search")}
+            disabled={!integrationId || !query.trim() || searching}
+          >
+            {searching ? <LoaderCircle className="animate-spin" aria-hidden="true" /> : <Search className="knowledge-search-icon" aria-hidden="true" />}
+            {searching ? t("confluence.searching") : t("confluence.search")}
+          </Button>
+        </div>
       </form>
 
       {error ? (

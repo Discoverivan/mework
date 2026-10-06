@@ -5,6 +5,7 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import { expect, it } from "vitest";
 
 import { Button } from "./button";
+import { ToggleGroup, ToggleGroupItem } from "./toggle-group";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogTitle } from "./alert-dialog";
 
 it("applies the minimal action style to form and confirmation buttons", () => {
@@ -19,13 +20,16 @@ it("applies the minimal action style to form and confirmation buttons", () => {
 
   try {
     render(<>
-      <Button onClick={() => { applied = true; }}>Apply</Button>
-      <Button>Save</Button>
+      <Button actionTone="edit" onClick={() => { applied = true; }}>Apply</Button>
+      <Button actionTone="edit">Save</Button>
       <Button variant="outline">Cancel</Button>
       <Button variant="outline" actionTone="add">Add item</Button>
       <Button variant="outline" actionTone="delete">Delete item</Button>
       <Button variant="default" aria-pressed="true">Selected filter</Button>
       <Button variant="outline" role="combobox" className="example-selector">Select sprint</Button>
+      <div className="app-dialog-content"><div className="app-dialog-sections">
+        <ToggleGroup type="single" defaultValue="allow"><ToggleGroupItem value="allow">Allow</ToggleGroupItem><ToggleGroupItem value="deny">Deny</ToggleGroupItem></ToggleGroup>
+      </div></div>
       <div className="app-shell"><aside><nav className="sidebar-navigation"><Button asChild variant="ghost" className="example-navigation"><a href="#example">Example section</a></Button></nav></aside></div>
       <AlertDialog defaultOpen>
         <AlertDialogContent>
@@ -48,6 +52,13 @@ it("applies the minimal action style to form and confirmation buttons", () => {
     }
     expect(getComputedStyle(screen.getByText("Remove item")).getPropertyValue("--app-action-color")).toBe("var(--destructive)");
     expect(getComputedStyle(screen.getByText("Keep item").closest(".app-dialog-actions")!).gap).toBe("0.5rem");
+    const allow = screen.getByText("Allow");
+    expect(getComputedStyle(allow).minHeight).toBe("32px");
+    expect(getComputedStyle(allow).paddingTop).toBe("4px");
+    expect(getComputedStyle(allow.closest(".app-dialog-sections")!).gap).toBe("1rem");
+    expect(getComputedStyle(allow.closest(".app-dialog-content")!).gap).toBe("0.75rem");
+    fireEvent.click(screen.getByText("Deny"));
+    expect(screen.getByText("Deny")).toHaveAttribute("data-state", "on");
     const selector = screen.getByText("Select sprint");
     const navigation = screen.getByText("Example section");
     expect(getComputedStyle(navigation).height).toBe("36px");
@@ -73,8 +84,13 @@ it("applies the minimal action style to form and confirmation buttons", () => {
     expect(screen.getByRole("button", { name: "Selected filter" })).not.toHaveClass("app-action-text");
     apply.focus();
     expect(getComputedStyle(apply).color).toBe("var(--primary-foreground)");
+    cancel.focus();
+    expect(getComputedStyle(cancel).color).not.toBe("var(--primary-foreground)");
+    expect(cancel).not.toHaveAttribute("data-action-tone");
+    expect(getComputedStyle(cancel).backgroundColor).toBe(getComputedStyle(save).backgroundColor);
+    apply.focus();
     apply.setAttribute("data-action-tone", "add");
-    expect(getComputedStyle(apply).color).toBe("var(--overlay)");
+    expect(getComputedStyle(apply).color).toBe("var(--app-action-color)");
   } finally {
     style.remove();
     if (previousStyle === undefined) delete document.documentElement.dataset.buttonStyle;
