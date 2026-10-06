@@ -1,9 +1,10 @@
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { GeneralSettingsPage } from "./GeneralSettingsPage";
 import { ApplicationInfoPage } from "../ApplicationInfoPage";
 import { APP_EVENT, subscribeAppEvent } from "@/app/app-events";
 import { I18nProvider } from "@/i18n/I18nProvider";
+import { clearDismissedUpdateNotice, dismissUpdateNotice } from "@/components/shared/update-notice";
 
 const { generalSettingsMock, commandBoardTerminalPreferencesMock, saveCommandBoardTerminalPreferenceMock, openNotificationSettingsMock, requestNotificationPermissionMock, saveAppearanceSettingsMock, saveButtonStyleMock, saveGeneralSettingsMock, sendNotificationTestMock, updaterCheckMock, installAvailableUpdateMock, openUrlMock, invokeMock, beginUpdateCheckMock, recordUpdateCheckResultMock } = vi.hoisted(() => ({
   generalSettingsMock: vi.fn(),
@@ -351,6 +352,10 @@ describe("GeneralSettingsPage", () => {
       fireEvent.click(installButton);
       await waitFor(() => expect(installAvailableUpdateMock).toHaveBeenCalledWith(update));
       fireEvent.click(screen.getByRole("button", { name: "Later" }));
+      expect(screen.queryByText("New version 0.1.5 is available")).not.toBeInTheDocument();
+      act(() => clearDismissedUpdateNotice());
+      expect(screen.getByText("New version 0.1.5 is available")).toBeInTheDocument();
+      act(() => dismissUpdateNotice("0.1.5"));
       expect(screen.queryByText("New version 0.1.5 is available")).not.toBeInTheDocument();
     } finally {
       unsubscribe();

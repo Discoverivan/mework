@@ -71,6 +71,7 @@ pub struct UpdateCheckCompletion {
 struct UpdateAvailabilityInner {
     generation: u64,
     revision: u64,
+    pending_source: UpdateCheckSource,
     snapshot: UpdateAvailabilitySnapshot,
 }
 
@@ -96,7 +97,12 @@ impl UpdateAvailabilityState {
                 state.revision = state.revision.wrapping_add(1);
                 state.snapshot.revision = state.revision;
                 state.snapshot.status = UpdateCheckStatus::Checking;
-                state.snapshot.check_source = source;
+                state.pending_source = source;
+                // Manual checks move the notice into About immediately. A background
+                // check must first confirm availability before moving a known notice.
+                if source == UpdateCheckSource::Manual {
+                    state.snapshot.check_source = source;
+                }
                 UpdateCheckTicket {
                     check_id: state.generation,
                     snapshot: state.snapshot.clone(),
@@ -132,6 +138,7 @@ impl UpdateAvailabilityState {
                     state.snapshot.last_checked_at = Some(checked_at);
                     match result {
                         Ok(version) => {
+                            state.snapshot.check_source = state.pending_source;
                             state.snapshot.status = if version.is_some() {
                                 UpdateCheckStatus::Available
                             } else {
@@ -240,6 +247,14 @@ mod tests {
         assert_eq!(completion.snapshot.status, UpdateCheckStatus::Available);
         assert!(completion.snapshot.revision > latest_check.snapshot.revision);
         assert_eq!(state.current_version(), Some("0.2.0".to_owned()));
+        let background = state.begin_check(UpdateCheckSource::Background);
+        assert_eq!(background.snapshot.check_source, UpdateCheckSource::Manual);
+        let confirmed =
+            state.finish_check_at(background.check_id, Ok(Some("0.2.0".to_owned())), 6789);
+        assert_eq!(
+            confirmed.snapshot.check_source,
+            UpdateCheckSource::Background
+        );
     }
 
     #[test]

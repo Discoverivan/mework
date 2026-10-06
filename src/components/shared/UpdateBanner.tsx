@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Clock3, NotebookText } from "lucide-react";
 
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -9,7 +9,7 @@ import { loadAvailableUpdateReleaseNotes, type ReleaseNote } from "@/release-not
 import { mockReleaseNotes } from "@/release-notes/mock";
 import { checkForAvailableUpdate } from "./update-check";
 import { installAvailableUpdate } from "./update-install";
-import { dismissUpdateNotice, readDismissedUpdateVersion, useDismissedUpdateVersion } from "./update-notice";
+import { dismissUpdateNotice, useDismissedUpdateVersion } from "./update-notice";
 import { useI18n } from "@/i18n/context";
 
 interface UpdateBannerProps {
@@ -22,7 +22,6 @@ interface UpdateBannerProps {
 export function UpdateBanner({ enabled, updateVersion, developmentBuild = import.meta.env.DEV, mockMode = false }: UpdateBannerProps) {
   const { t, language } = useI18n();
   const dismissedVersion = useDismissedUpdateVersion();
-  const [visibleVersion, setVisibleVersion] = useState<string | null>(null);
   const [installing, setInstalling] = useState(false);
   const [error, setError] = useState<string>();
   const [developmentNotice, setDevelopmentNotice] = useState(false);
@@ -31,20 +30,10 @@ export function UpdateBanner({ enabled, updateVersion, developmentBuild = import
   const [loadingNotes, setLoadingNotes] = useState(false);
   const [notesError, setNotesError] = useState(false);
 
-  useEffect(() => {
-    if (!enabled || !updateVersion || updateVersion === dismissedVersion || updateVersion === readDismissedUpdateVersion()) {
-      setVisibleVersion(null);
-      return;
-    }
-    setVisibleVersion(updateVersion);
-  }, [dismissedVersion, enabled, updateVersion]);
-
-  if (!enabled || !updateVersion || visibleVersion !== updateVersion) return null;
+  if (!enabled || !updateVersion || updateVersion === dismissedVersion) return null;
 
   function dismissUpdate() {
-    if (!visibleVersion) return;
-    setVisibleVersion(null);
-    dismissUpdateNotice(visibleVersion);
+    if (updateVersion) dismissUpdateNotice(updateVersion);
   }
 
   async function installUpdate() {

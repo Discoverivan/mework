@@ -12,7 +12,7 @@ import { StatusToast } from "@/components/shared/StatusToast";
 import { ReleaseNotesDialog } from "@/components/shared/ReleaseNotesDialog";
 import { beginUpdateCheck, checkForAvailableUpdate, recordUpdateCheckResult } from "@/components/shared/update-check";
 import { installAvailableUpdate } from "@/components/shared/update-install";
-import { clearDismissedUpdateNotice, dismissUpdateNotice, readDismissedUpdateVersion } from "@/components/shared/update-notice";
+import { clearDismissedUpdateNotice, dismissUpdateNotice, useDismissedUpdateVersion } from "@/components/shared/update-notice";
 import { useI18n } from "@/i18n/context";
 import { EMPTY_UPDATE_AVAILABILITY, type UpdateAvailabilitySnapshot } from "@/shared/contracts/updates";
 import { listReleaseNotesVersions, loadAvailableUpdateReleaseNotes, loadReleaseNoteVersion, prefetchOlderReleaseNotes, type ReleaseNote } from "@/release-notes";
@@ -44,7 +44,7 @@ export function ApplicationInfoPage({
   const [localAvailableUpdate, setLocalAvailableUpdate] = useState<Update | null>(null);
   const [installingUpdate, setInstallingUpdate] = useState(false);
   const [updateInstallError, setUpdateInstallError] = useState<string | null>(null);
-  const [dismissedUpdateVersion, setDismissedUpdateVersion] = useState<string | null>(readDismissedUpdateVersion);
+  const dismissedUpdateVersion = useDismissedUpdateVersion();
   const [releaseNotesOpen, setReleaseNotesOpen] = useState(false);
   const [releaseNotesVersions, setReleaseNotesVersions] = useState<string[]>([]);
   const [selectedReleaseNote, setSelectedReleaseNote] = useState<ReleaseNote | null>(null);
@@ -130,7 +130,6 @@ export function ApplicationInfoPage({
     if (checkingUpdatesRef.current) return;
     checkingUpdatesRef.current = true;
     clearDismissedUpdateNotice();
-    setDismissedUpdateVersion(null);
     setCheckingUpdates(true);
     setUpdateInstallError(null);
     try {
@@ -303,7 +302,6 @@ export function ApplicationInfoPage({
             <div className="application-update-install flex flex-wrap gap-2">
               <Button type="button" variant="ghost" size="sm" disabled={installingUpdate} onClick={() => {
                 dismissUpdateNotice(availableUpdateVersion);
-                setDismissedUpdateVersion(availableUpdateVersion);
               }}><Clock3 data-icon="inline-start" aria-hidden="true" />{t("update.later")}</Button>
               <Button type="button" actionTone="edit" size="sm" onClick={() => void handleInstallUpdate()} disabled={isUpdateChecking || installingUpdate}>
                 {installingUpdate ? <RefreshCw data-icon="inline-start" className="animate-spin" aria-hidden="true" /> : <Download data-icon="inline-start" aria-hidden="true" />}
