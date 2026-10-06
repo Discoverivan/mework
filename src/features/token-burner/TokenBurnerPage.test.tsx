@@ -5,7 +5,7 @@ import type { TokenBurnerSnapshot } from "@/shared/contracts/token-burner";
 import { TokenBurnerPage } from "./TokenBurnerPage";
 import { APP_EVENT, emitAppEvent } from "@/app/app-events";
 
-const { snapshotMock, startMock, stopMock, resetMock, repositoriesMock, integrationAvailableMock, aiSettingsMock, saveSettingsMock } = vi.hoisted(() => ({
+const { snapshotMock, startMock, stopMock, resetMock, repositoriesMock, integrationAvailableMock, aiSettingsMock, saveAiSettingsMock, saveSettingsMock } = vi.hoisted(() => ({
   snapshotMock: vi.fn(),
   startMock: vi.fn(),
   stopMock: vi.fn(),
@@ -13,6 +13,7 @@ const { snapshotMock, startMock, stopMock, resetMock, repositoriesMock, integrat
   repositoriesMock: vi.fn(),
   integrationAvailableMock: vi.fn(),
   aiSettingsMock: vi.fn(),
+  saveAiSettingsMock: vi.fn(),
   saveSettingsMock: vi.fn(),
 }));
 
@@ -31,6 +32,7 @@ vi.mock("./api", () => ({
 
 vi.mock("@/features/settings/api", () => ({
   getAiSettings: aiSettingsMock,
+  saveAiSettings: saveAiSettingsMock,
 }));
 
 const initialSnapshot: TokenBurnerSnapshot = {
@@ -60,6 +62,7 @@ describe("TokenBurnerPage", () => {
     });
     resetMock.mockResolvedValue(initialSnapshot);
     saveSettingsMock.mockImplementation(async (settings) => settings);
+    saveAiSettingsMock.mockImplementation(async (settings) => ({ ...(await aiSettingsMock()), settings }));
   });
 
   it("opens as soon as the local snapshot loads without waiting for repositories or AI settings", async () => {
@@ -89,10 +92,12 @@ describe("TokenBurnerPage", () => {
   });
 
   it("shows active search progress before the first pull request is selected", async () => {
-    snapshotMock.mockResolvedValue({ ...initialSnapshot, status: "running" });
+    snapshotMock.mockResolvedValue({ ...initialSnapshot, status: "running", activeForMs: 300_000 });
     render(<I18nProvider><TokenBurnerPage /></I18nProvider>);
 
     expect(await screen.findByText("Finding the next pull request…")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Status" })).toBeInTheDocument();
+    expect(screen.getByText("Active for 5m")).toBeInTheDocument();
     act(() => emitAppEvent(APP_EVENT.tokenBurnerChanged, {
       ...initialSnapshot,
       status: "running",
@@ -116,7 +121,6 @@ describe("TokenBurnerPage", () => {
       expect(running).toHaveClass("border-transparent");
       expect(running.querySelector("svg")).toHaveClass("size-4", "animate-spin");
     }
-    expect(screen.getByText("Ready")).toHaveClass("model-testing-status");
     fireEvent.focus(runningStatuses[0]);
     expect(await screen.findByRole("tooltip")).toHaveTextContent("Looking for pull requests and running AI reviews.");
   });
@@ -219,7 +223,8 @@ describe("TokenBurnerPage", () => {
     fireEvent.click(screen.getByRole("button", { name: "Reset and clear history" }));
 
     await waitFor(() => expect(resetMock).toHaveBeenCalledOnce());
-    expect(await screen.findByText("0")).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByRole("progressbar", { name: "Daily target" })).toHaveAttribute("aria-valuenow", "0"));
+    expect(screen.getByText(/^0 \/ /)).toBeInTheDocument();
     expect(screen.queryByText(/History Repo/)).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Settings" }));
     expect(screen.getByLabelText("Daily target (tokens)")).toHaveValue("2");
@@ -255,14 +260,11 @@ describe("TokenBurnerPage", () => {
     await waitFor(() => expect(screen.queryByRole("dialog", { name: "Settings" })).not.toBeInTheDocument());
   });
 
-  it("uses the selected Codex CLI model and starts a background review session", async () => {
+  it("saves shared AI configuration with status notices and starts a background review session", async () => {
     render(<I18nProvider><TokenBurnerPage /></I18nProvider>);
 
     expect(await screen.findByRole("heading", { name: "Model-testing" })).toBeInTheDocument();
-    expect(screen.getByText("Codex CLI")).toBeInTheDocument();
-    expect(screen.getByText("example-codex-model")).toBeInTheDocument();
-    expect(screen.getByText("medium")).toBeInTheDocument();
-    expect(screen.getByText("Off")).toBeInTheDocument();
+    expect(await screen.findByRole("combobox", { name: "AI provider" })).toHaveTextContent("Use defaults");
     const activity = screen.getByRole("heading", { name: "Activity" }).closest(".rounded-lg.border");
     expect(activity).toContainElement(screen.getByRole("button", { name: "Start" }));
     const repository = screen.getByRole("combobox", { name: "Repository" });
@@ -285,10 +287,54 @@ describe("TokenBurnerPage", () => {
     expect(screen.queryByLabelText("Maximum tokens per request")).not.toBeInTheDocument();
     expect(screen.queryByText("Review depth")).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
-    fireEvent.click(screen.getByRole("button", { name: "Change" }));
-    expect(window.location.hash).toBe("#settings/ai?focus=token-burner");
+    let completeAiSave!: () => void;
+    saveAiSettingsMock.mockImplementation(async (settings) => {
+      const data = await aiSettingsMock();
+      return new Promise((resolve) => { completeAiSave = () => resolve({ ...data, settings }); });
+    });
+    fireEvent.click(screen.getByRole("combobox", { name: "AI provider" }));
+    fireEvent.click(screen.getByRole("option", { name: "Codex CLI" }));
+    expect(screen.getByRole("combobox", { name: "Model" })).toHaveTextContent("example-codex-model");
+    expect(screen.getByRole("combobox", { name: "Reasoning" })).toHaveTextContent("medium");
+    fireEvent.click(screen.getByRole("combobox", { name: "Mode" }));
+    fireEvent.click(screen.getByRole("option", { name: "Fast" }));
+    fireEvent.change(screen.getByLabelText("Retries"), { target: { value: "2" } });
+    await waitFor(() => expect(saveAiSettingsMock).toHaveBeenCalledOnce());
+    expect(screen.getByRole("status")).toHaveTextContent("Saving");
+    expect(saveAiSettingsMock).toHaveBeenCalledWith(expect.objectContaining({
+      tokenBurner: { provider: "codex-cli", model: "example-codex-model", reasoning: "medium", fastMode: true },
+      retries: { default: 0, actions: { taskCreation: null, pullRequestReview: null, tokenBurner: 2, sprintSummary: null } },
+    }));
+    await act(async () => completeAiSave());
+    expect(screen.getByRole("status")).toHaveTextContent("AI settings saved. They apply to new runs.");
+    await waitFor(() => expect(screen.queryByText("AI settings saved. They apply to new runs.")).not.toBeInTheDocument(), { timeout: 3500 });
+
+    // A provider refresh carries persisted settings, including a freshly decoded profile.
+    const savedAi = saveAiSettingsMock.mock.calls[0][0];
+    fireEvent.click(screen.getByRole("combobox", { name: "Mode" }));
+    fireEvent.click(screen.getByRole("option", { name: "Normal" }));
+    act(() => emitAppEvent(APP_EVENT.aiSettingsChanged, {
+      settings: { ...savedAi, tokenBurner: { ...savedAi.tokenBurner }, retries: { ...savedAi.retries, default: 1 } },
+      providers: [{ id: "codex-cli", name: "Codex CLI", status: "connected", available: true, models: ["example-codex-model"] }],
+    }));
+    expect(screen.getByRole("combobox", { name: "Mode" })).toHaveTextContent("Normal");
+    await waitFor(() => expect(saveAiSettingsMock).toHaveBeenCalledTimes(2));
+    expect(saveAiSettingsMock.mock.calls[1][0]).toMatchObject({ tokenBurner: { fastMode: false }, retries: { default: 1 } });
+    await act(async () => completeAiSave());
+
+    // Retain the draft after a transient save failure and let the user retry it directly.
+    saveAiSettingsMock.mockRejectedValueOnce(new Error("Example save failure"));
+    fireEvent.click(screen.getByRole("combobox", { name: "AI provider" }));
+    fireEvent.click(screen.getByRole("option", { name: "Use defaults" }));
+    const retrySave = await screen.findByRole("button", { name: "Retry saving" });
+    expect(screen.getByRole("button", { name: "Start" })).toBeDisabled();
+    saveAiSettingsMock.mockImplementation(async (settings) => ({ ...(await aiSettingsMock()), settings }));
+    fireEvent.click(retrySave);
+    await waitFor(() => expect(saveAiSettingsMock).toHaveBeenCalledTimes(4));
+    expect(saveAiSettingsMock.mock.calls[3][0]).toMatchObject({ tokenBurner: null, retries: { default: 1, actions: { tokenBurner: null } } });
+    await waitFor(() => expect(screen.getByRole("button", { name: "Start" })).toBeEnabled());
     fireEvent.click(screen.getByRole("button", { name: "Start" }));
 
     await waitFor(() => expect(startMock).toHaveBeenCalledOnce());
-  });
+  }, 10_000);
 });

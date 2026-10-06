@@ -13,7 +13,9 @@ import { Input } from "@/components/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { useInfoPopoverAnchor } from "@/components/shared/use-info-popover-anchor";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Field, FieldGroup, FieldLabel } from "@/components/ui/field";
+import { Label } from "@/components/ui/label";
+import { Separator } from "@/components/ui/separator";
+import { ModelTestingAiSettings } from "./ModelTestingAiSettings";
 import { PageHeader } from "@/components/shared/PageHeader";
 import { StatusToast } from "@/components/shared/StatusToast";
 import { APP_EVENT, subscribeAppEvent } from "@/app/app-events";
@@ -156,6 +158,7 @@ export function TokenBurnerPage() {
   const [integrationLoading, setIntegrationLoading] = useState(true);
   const [integrationError, setIntegrationError] = useState<string | null>(null);
   const [aiSettings, setAiSettings] = useState<Awaited<ReturnType<typeof getAiSettings>> | null>(null);
+  const [aiConfigurationPending, setAiConfigurationPending] = useState(false);
   const [loading, setLoading] = useState(true);
   const [pageError, setPageError] = useState<string | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -411,27 +414,27 @@ export function TokenBurnerPage() {
         </Alert>
       ) : null}
 
-      <section className="grid gap-4 md:grid-cols-3" aria-label={t("tokenBurner.status")}>
+      <section className="grid gap-4 md:grid-cols-2" aria-label={t("tokenBurner.status")}>
         <Card className="text-sm">
-          <CardHeader className="px-4 pb-2 pt-3.5"><CardTitle className="text-base font-semibold leading-tight">{t("tokenBurner.usedToday")}</CardTitle><p className="text-base font-medium leading-snug tabular-nums">{formatTokens(tokensToday)}</p></CardHeader>
-          <CardContent className="flex justify-end px-4 pb-3.5 pt-0">
-            <Button type="button" variant="outline" size="sm" onClick={() => setResetConfirmOpen(true)} disabled={!canResetDailyProgress || resetBusy}>
-              {resetBusy ? <Loader2 data-icon="inline-start" className="animate-spin" /> : null}{t("tokenBurner.resetDailyProgress")}
+          <CardHeader className="flex-row items-center justify-between space-y-0 px-4 pb-2 pt-3.5">
+            <CardTitle className="text-base font-semibold leading-tight">{t("tokenBurner.dailyTarget")}</CardTitle>
+            <Button type="button" variant="ghost" size="icon" className="size-7" aria-label={t("tokenBurner.resetDailyProgress")} title={t("tokenBurner.resetDailyProgress")} onClick={() => setResetConfirmOpen(true)} disabled={!canResetDailyProgress || resetBusy}>
+              {resetBusy ? <Loader2 className="animate-spin" aria-hidden="true" /> : <RotateCcw aria-hidden="true" />}
             </Button>
-          </CardContent>
-        </Card>
-        <Card className="text-sm">
-          <CardHeader className="px-4 pb-2 pt-3.5"><CardTitle className="text-base font-semibold leading-tight">{t("tokenBurner.dailyTarget")}</CardTitle><p className="text-base font-medium leading-snug tabular-nums">{percent}%</p></CardHeader>
+          </CardHeader>
           <CardContent className="flex flex-col gap-2 px-4 pb-3.5">
-            <div role="progressbar" aria-label={t("tokenBurner.dailyTarget")} aria-valuemin={0} aria-valuemax={100} aria-valuenow={percent} className="h-2 overflow-hidden rounded-full bg-muted">
+            <div className="flex items-center justify-between gap-3 tabular-nums">
+              <p className="text-sm text-muted-foreground">{formatTokens(tokensToday, true)} / {formatTokens(target, true)}</p>
+              <p className="text-sm font-medium">{percent}%</p>
+            </div>
+            <div role="progressbar" aria-label={t("tokenBurner.dailyTarget")} aria-valuemin={0} aria-valuemax={100} aria-valuenow={percent} className="h-3 overflow-hidden rounded-full bg-muted">
               <div className="h-full rounded-full bg-primary transition-[width]" style={{ width: `${percent}%` }} />
             </div>
-            <p className="text-sm text-muted-foreground tabular-nums">{formatTokens(tokensToday, true)} / {formatTokens(target, true)}</p>
           </CardContent>
         </Card>
-        <Card className="text-sm" data-info-popover-boundary>
-          <CardHeader className="px-4 pb-2 pt-3.5"><CardTitle className="text-base font-semibold leading-tight">{t("tokenBurner.activeFor")}</CardTitle><p className="text-base font-medium leading-snug tabular-nums">{activeForLabel}</p></CardHeader>
-          <CardContent className="flex items-center gap-1.5 px-4 pb-3.5">
+        <Card className="flex flex-col text-sm" data-info-popover-boundary>
+          <CardHeader className="px-4 pb-2 pt-3.5"><CardTitle className="text-base font-semibold leading-tight">{t("tokenBurner.status")}</CardTitle></CardHeader>
+          <CardContent className="flex flex-1 flex-wrap content-center items-center gap-1.5 px-4 pb-3.5 pt-3.5">
             <ModelTestingStatus status={state} label={t(statusKey)} />
             {lastError ? (
               <Popover onOpenChange={onOpenChange}>
@@ -445,6 +448,9 @@ export function TokenBurnerPage() {
                 </PopoverContent>
               </Popover>
             ) : null}
+            {state !== "idle" && (state === "running" || activeFor > 0) ? (
+              <p className="ml-auto text-sm text-muted-foreground tabular-nums">{t("tokenBurner.activeFor")} {activeForLabel}</p>
+            ) : null}
           </CardContent>
         </Card>
       </section>
@@ -454,20 +460,25 @@ export function TokenBurnerPage() {
           <CardTitle className="text-base font-semibold leading-tight">{t("tokenBurner.configuration")}</CardTitle>
           <CardDescription className="leading-snug">{t("tokenBurner.configurationDescription")}</CardDescription>
         </CardHeader>
-        <CardContent className="grid gap-5 px-4 pb-3.5 lg:grid-cols-2">
-          <FieldGroup className="grid gap-4 sm:grid-cols-2">
-            <Field>
-              <p className="text-sm text-muted-foreground">{t("tokenBurner.action")}</p>
-              <p className="font-medium">{t("tokenBurner.reviewPullRequests")}</p>
-            </Field>
-            <Field>
-              <FieldLabel htmlFor="token-burner-repository">{t("tokenBurner.repository")}</FieldLabel>
+        <CardContent className="flex flex-col gap-5 px-4 pb-3.5">
+          {aiSettings ? <ModelTestingAiSettings data={aiSettings} disabled={runningOrStopping || actionBusy} onPendingChange={setAiConfigurationPending} /> : null}
+          <Separator />
+          <div className="flex flex-wrap items-end gap-4">
+            <div className="grid min-w-0 max-w-full gap-2.5">
+              <Label className="translate-x-1" id="token-burner-action-label">{t("tokenBurner.action")}</Label>
+              <Select value="reviewPullRequests" disabled>
+                <SelectTrigger aria-labelledby="token-burner-action-label" className="h-9"><SelectValue /></SelectTrigger>
+                <SelectContent><SelectItem value="reviewPullRequests">{t("tokenBurner.reviewPullRequests")}</SelectItem></SelectContent>
+              </Select>
+            </div>
+            <div className="grid min-w-0 max-w-full gap-2.5">
+              <Label className="translate-x-1" htmlFor="token-burner-repository">{t("tokenBurner.repository")}</Label>
               <Popover open={repositoryPickerOpen} onOpenChange={(open) => {
                 setRepositoryPickerOpen(open);
                 if (open) setRepositorySearch("");
               }}>
                 <PopoverTrigger asChild>
-                  <Button id="token-burner-repository" type="button" variant="outline" role="combobox" aria-label={t("tokenBurner.repository")} aria-expanded={repositoryPickerOpen} aria-haspopup="dialog" disabled={runningOrStopping || !integrationAvailable} className="w-fit max-w-full justify-between gap-3 px-3 font-normal">
+                  <Button id="token-burner-repository" type="button" variant="outline" role="combobox" aria-label={t("tokenBurner.repository")} aria-expanded={repositoryPickerOpen} aria-haspopup="dialog" disabled={runningOrStopping || !integrationAvailable} className="h-9 w-fit max-w-full justify-between gap-3 px-3 font-normal">
                     <span className="truncate">{selectedRepository?.name ?? settings.repository ?? t("tokenBurner.allRepositories")}</span>
                     <ChevronDown className="-mr-1 opacity-50" aria-hidden="true" />
                   </Button>
@@ -490,15 +501,8 @@ export function TokenBurnerPage() {
                   {matchingRepositories.length === 0 && repositoryQuery ? <p className="text-sm text-muted-foreground">{t("tokenBurner.noMatchingRepositories")}</p> : null}
                 </PopoverContent>
               </Popover>
-            </Field>
-          </FieldGroup>
-          <section className="grid gap-4 rounded-md border p-4 sm:grid-cols-2" aria-label={t("tokenBurner.aiConfiguration")}>
-            <div className="min-w-0"><p className="text-sm text-muted-foreground">{t("tokenBurner.aiProvider")}</p><p className="truncate font-medium">{aiSelection.provider?.name ?? t("tokenBurner.aiSettingsMissing")}</p></div>
-            <div className="min-w-0"><p className="text-sm text-muted-foreground">{t("settings.ai.model")}</p><p className="truncate font-medium">{aiSelection.model || t("settings.ai.notSelected")}</p></div>
-            <div><p className="text-sm text-muted-foreground">{t("settings.ai.reasoning")}</p><p className="font-medium">{aiSelection.supportsCodexTuning ? aiSelection.reasoning : t("tokenBurner.notApplied")}</p></div>
-            <div><p className="text-sm text-muted-foreground">{t("settings.ai.fastMode")}</p><p className="font-medium">{aiSelection.supportsCodexTuning ? t(aiSelection.fastMode ? "tokenBurner.enabled" : "tokenBurner.disabled") : t("tokenBurner.notApplied")}</p></div>
-            <div className="flex items-center justify-between gap-3 sm:col-span-2"><ModelTestingStatus status={aiSelection.ready ? "completed" : "error"} label={t(aiSelection.ready ? "tokenBurner.aiReady" : "tokenBurner.aiSettingsMissing")} description={t(aiSelection.ready ? "tokenBurner.statusHelp.ready" : "tokenBurner.statusHelp.aiMissing")} /><Button type="button" variant="secondary" size="sm" onClick={openAiSettings}>{t("tokenBurner.changeAiSettings")}</Button></div>
-          </section>
+            </div>
+          </div>
         </CardContent>
       </Card>
 
@@ -511,8 +515,8 @@ export function TokenBurnerPage() {
             </div>
             <div className="flex shrink-0 items-center">
               {state === "running" ? <div className="flex gap-2"><Button variant="secondary" size="sm" actionTone="warning" onClick={() => void runAction("pause")} disabled={actionBusy}><Pause data-icon="inline-start" />{t("tokenBurner.pause")}</Button><Button variant="secondary" size="sm" actionTone="delete" onClick={() => void runAction("stop")} disabled={actionBusy}><Square data-icon="inline-start" />{t("tokenBurner.stop")}</Button></div>
-                : state === "paused" ? <div className="flex gap-2"><Button variant="secondary" size="sm" actionTone="edit" onClick={() => void runAction("resume")} disabled={actionBusy}><Play data-icon="inline-start" />{t("tokenBurner.resume")}</Button><Button variant="secondary" size="sm" actionTone="delete" onClick={() => void runAction("stop")} disabled={actionBusy}><Square data-icon="inline-start" />{t("tokenBurner.stop")}</Button></div>
-                  : <Button variant="secondary" size="sm" actionTone="edit" onClick={() => void runAction("start")} disabled={actionBusy || !integrationAvailable || !aiSelection.ready || state === "stopping"}>{state === "error" || state === "interrupted" ? <RotateCcw data-icon="inline-start" /> : <Play data-icon="inline-start" />}{t(state === "error" || state === "interrupted" ? "tokenBurner.retry" : "tokenBurner.start")}</Button>}
+                : state === "paused" ? <div className="flex gap-2"><Button variant="secondary" size="sm" actionTone="edit" onClick={() => void runAction("resume")} disabled={actionBusy || aiConfigurationPending}><Play data-icon="inline-start" />{t("tokenBurner.resume")}</Button><Button variant="secondary" size="sm" actionTone="delete" onClick={() => void runAction("stop")} disabled={actionBusy}><Square data-icon="inline-start" />{t("tokenBurner.stop")}</Button></div>
+                  : <Button variant="secondary" size="sm" actionTone="edit" onClick={() => void runAction("start")} disabled={actionBusy || aiConfigurationPending || !integrationAvailable || !aiSelection.ready || state === "stopping"}>{state === "error" || state === "interrupted" ? <RotateCcw data-icon="inline-start" /> : <Play data-icon="inline-start" />}{t(state === "error" || state === "interrupted" ? "tokenBurner.retry" : "tokenBurner.start")}</Button>}
             </div>
           </div>
           {selectedRepository ? <CardDescription>{selectedRepository.name}</CardDescription> : null}

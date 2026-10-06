@@ -630,6 +630,7 @@ export const ru: Record<TranslationKey, string> = {
   "settings.ai.modeNormal": "Обычный",
   "settings.ai.modeFast": "Быстрый",
   "settings.ai.saved": "Настройки AI сохранены. Они применятся к новым запускам.",
+  "settings.ai.retrySave": "Повторить сохранение",
   "settings.ai.noModelSelected": "Не выбрана доступная модель.",
   "settings.ai.notConnected": "Выбранный провайдер не подключён.",
   "settings.ai.save": "Сохранить",
