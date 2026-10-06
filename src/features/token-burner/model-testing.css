@@ -1,0 +1,10 @@
+:root[data-button-style="quiet"] .model-testing-ai-status {
+  background: transparent;
+  border-color: transparent;
+  min-height: 2rem;
+  padding: 0.25rem 0.375rem;
+}
+
+:root[data-button-style="quiet"] .model-testing-ai-status.bg-destructive {
+  color: var(--destructive);
+}

@@ -190,7 +190,7 @@ async function renderFlatPage() {
   fireEvent.click(await screen.findByRole("button", { name: "Options" }));
   const dialog = screen.getByRole("dialog", { name: "Options" });
   chooseDisplayOption(dialog, "Group by", "Don't group");
-  fireEvent.click(within(dialog).getByRole("button", { name: "Apply" }));
+  fireEvent.click(within(dialog).getByRole("button", { name: "Save" }));
 }
 
 function chooseDisplayOption(dialog: HTMLElement, label: string, option: string) {
@@ -251,7 +251,7 @@ describe("MyPullRequestsPage", () => {
     chooseDisplayOption(firstDialog, "Sort order", "Recently updated last");
     fireEvent.click(within(firstDialog).getByRole("switch", { name: "Expand groups by default" }));
     chooseDisplayOption(firstDialog, "Group by", "Don't group");
-    fireEvent.click(within(firstDialog).getByRole("button", { name: "Apply" }));
+    fireEvent.click(within(firstDialog).getByRole("button", { name: "Save" }));
     firstRender.unmount();
 
     render(<MyPullRequestsPage />);
@@ -378,6 +378,7 @@ describe("MyPullRequestsPage", () => {
     fireEvent.click(screen.getByRole("button", { name: "Options" }));
     const displayOptions = screen.getByRole("dialog", { name: "Options" });
     const sortOrder = within(displayOptions).getByRole("combobox", { name: "Sort order" });
+    expect(within(displayOptions).getByRole("button", { name: "Save" })).toBeDisabled();
     const grouping = within(displayOptions).getByRole("combobox", { name: "Group by" });
     const displaySection = sortOrder.closest(".rounded-lg.border");
     expect(displaySection).toBe(grouping.closest(".rounded-lg.border"));
@@ -389,6 +390,7 @@ describe("MyPullRequestsPage", () => {
       "Example documentation change",
     ]);
     chooseDisplayOption(displayOptions, "Sort order", "Recently updated last");
+    expect(within(displayOptions).getByRole("button", { name: "Save" })).toBeEnabled();
     expect(within(demoGroup).getAllByRole("heading", { level: 2 }).map((heading) => heading.textContent)).toEqual([
       "Example pull request",
       "Example documentation change",
@@ -401,14 +403,14 @@ describe("MyPullRequestsPage", () => {
     chooseDisplayOption(displayOptions, "Group by", "Person (PR author)");
     expect(screen.queryByRole("region", { name: "Pull requests by Test Author A" })).not.toBeInTheDocument();
     expect(within(displayOptions).getByRole("switch", { name: "Expand groups by default" })).toBeInTheDocument();
-    fireEvent.click(within(displayOptions).getByRole("button", { name: "Apply" }));
+    fireEvent.click(within(displayOptions).getByRole("button", { name: "Save" }));
     expect(screen.getByRole("region", { name: "Pull requests by Test Author A" })).toBeInTheDocument();
     expect(screen.getByRole("region", { name: "Pull requests by Test Author B" })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Options" }));
     const secondOptions = screen.getByRole("dialog", { name: "Options" });
     chooseDisplayOption(secondOptions, "Group by", "Don't group");
     expect(within(secondOptions).queryByRole("switch", { name: "Expand groups by default" })).not.toBeInTheDocument();
-    fireEvent.click(within(secondOptions).getByRole("button", { name: "Apply" }));
+    fireEvent.click(within(secondOptions).getByRole("button", { name: "Save" }));
 
     expect(screen.queryByRole("region", { name: "DEMO project" })).not.toBeInTheDocument();
     expect(screen.getByText("DEMO/sample-repository", { exact: false })).toBeInTheDocument();
@@ -428,10 +430,12 @@ describe("MyPullRequestsPage", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Filters" }));
     expect(screen.getByRole("dialog", { name: "Filters" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
     fireEvent.click(screen.getByRole("button", { name: "Add author filter" }));
     fireEvent.change(screen.getByRole("textbox", { name: "Creator filters" }), { target: { value: "Test Author A" } });
     await waitFor(() => expect(searchUsersMock).toHaveBeenCalledWith("Test Author A"));
     fireEvent.click(screen.getByRole("button", { name: "Test Author A (test-author-a)" }));
+    expect(screen.getByRole("button", { name: "Save" })).toBeEnabled();
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
 
     await waitFor(() => expect(saveSettingsMock).toHaveBeenCalledWith({
@@ -497,13 +501,13 @@ describe("MyPullRequestsPage", () => {
     const toggle = screen.getByRole("switch", { name: "AI auto-review" });
     expect(toggle).toHaveClass("h-[22px]", "w-10");
     expect(screen.getByText("AI auto-review", { selector: "label" })).toHaveClass("text-sm", "font-semibold", "leading-tight");
-    expect(screen.getByRole("button", { name: "Apply" })).toHaveClass("app-action-text", "hover:text-success");
+    expect(screen.getByRole("button", { name: "Save" })).toHaveClass("app-action-text", "hover:text-success");
     expect(screen.getByRole("button", { name: "Cancel" })).toHaveClass("app-action-text", "hover:text-primary");
     expect(toggle).not.toBeChecked();
     fireEvent.click(toggle);
     expect(saveSettingsMock).not.toHaveBeenCalled();
     expect(toggle).toBeChecked();
-    fireEvent.click(screen.getByRole("button", { name: "Apply" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
 
     await waitFor(() => expect(saveSettingsMock).toHaveBeenCalledWith({
       projectBlacklist: [],

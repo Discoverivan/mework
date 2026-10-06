@@ -246,9 +246,10 @@ describe("DailyPage smoke test", () => {
     expect(await screen.findByRole("menuitem", { name: /Code Review/ })).toBeInTheDocument();
     expect(screen.getByRole("menuitem", { name: "In Progress" })).toHaveAttribute("aria-current", "true");
     expect(screen.getByRole("menuitem", { name: /Complete required fields in Jira/ })).toHaveAttribute("aria-disabled", "true");
-    refreshDailyWorkspaceMock.mockResolvedValueOnce(workspace.subtasks.map((task) =>
-      task.key === "DEMO-2" ? { ...task, status: "Code Review" } : task,
-    ));
+    let completeTransition!: () => void;
+    transitionDailyIssueMock.mockReturnValueOnce(new Promise((resolve) => { completeTransition = resolve; }));
+    let completeRefresh!: (tasks: DailyWorkspace["subtasks"]) => void;
+    refreshDailyWorkspaceMock.mockReturnValueOnce(new Promise((resolve) => { completeRefresh = resolve; }));
     fireEvent.click(screen.getByRole("menuitem", { name: /Code Review/ }));
     await waitFor(() => expect(transitionDailyIssueMock).toHaveBeenCalledWith(
       project.id,
@@ -257,8 +258,23 @@ describe("DailyPage smoke test", () => {
       "transition-review",
       expect.any(String),
     ));
-    expect(await screen.findByRole("button", { name: "Change status for DEMO-2 (current: Code Review)" })).toBeInTheDocument();
+    expect(statusButton).toBeDisabled();
+    expect(statusButton).toHaveAttribute("aria-busy", "true");
+    expect(statusButton.querySelector(".animate-spin")).toBeInTheDocument();
+    await act(async () => { completeTransition(); });
+    const savedStatus = await screen.findByRole("button", { name: "Change status for DEMO-2 (current: Code Review)" });
+    await waitFor(() => expect(savedStatus).toBeEnabled());
+    expect(savedStatus).toHaveAttribute("aria-busy", "false");
     expect(screen.getByRole("status")).toHaveTextContent("DEMO-2 moved to Code Review.");
+    expect(screen.getByText("1 tasks · 0 in progress · 0 done · 0 backlog")).toBeInTheDocument();
+    expect(publishPresenterStateMock).toHaveBeenCalledWith(expect.objectContaining({
+      workspace: expect.objectContaining({
+        subtasks: expect.arrayContaining([expect.objectContaining({ key: "DEMO-2", status: "Code Review" })]),
+      }),
+    }));
+    await act(async () => { completeRefresh(workspace.subtasks.map((task) =>
+      task.key === "DEMO-2" ? { ...task, status: "Code Review" } : task,
+    )); });
     expect(screen.getByText("Sub-task · Parent DEMO-1")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "DEMO-2" }));
     await waitFor(() => expect(openUrlMock).toHaveBeenCalledWith("https://jira.example.invalid/browse/DEMO-2"));

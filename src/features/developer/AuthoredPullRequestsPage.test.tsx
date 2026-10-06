@@ -104,7 +104,7 @@ async function renderFlatPage() {
   fireEvent.click(await screen.findByRole("button", { name: "Options" }));
   const dialog = screen.getByRole("dialog", { name: "Options" });
   chooseDisplayOption(dialog, "Group by", "Don't group");
-  fireEvent.click(within(dialog).getByRole("button", { name: "Apply" }));
+  fireEvent.click(within(dialog).getByRole("button", { name: "Save" }));
 }
 
 function chooseDisplayOption(dialog: HTMLElement, label: string, option: string) {
@@ -136,7 +136,7 @@ describe("AuthoredPullRequestsPage", () => {
     chooseDisplayOption(firstDialog, "Sort order", "Recently updated last");
     fireEvent.click(within(firstDialog).getByRole("switch", { name: "Expand groups by default" }));
     chooseDisplayOption(firstDialog, "Group by", "Don't group");
-    fireEvent.click(within(firstDialog).getByRole("button", { name: "Apply" }));
+    fireEvent.click(within(firstDialog).getByRole("button", { name: "Save" }));
     firstRender.unmount();
 
     render(<AuthoredPullRequestsPage />);
@@ -234,7 +234,7 @@ describe("AuthoredPullRequestsPage", () => {
 
     expect(screen.getByRole("region", { name: "DEMO project" })).toBeInTheDocument();
 
-    fireEvent.click(within(displayOptions).getByRole("button", { name: "Apply" }));
+    fireEvent.click(within(displayOptions).getByRole("button", { name: "Save" }));
     expect(screen.queryByRole("region", { name: "DEMO project" })).not.toBeInTheDocument();
     expect(screen.getByText("DEMO/sample-repository", { exact: false })).toBeInTheDocument();
     expect(quickFilter).toHaveTextContent("All");
@@ -306,7 +306,7 @@ describe("AuthoredPullRequestsPage", () => {
     fireEvent.click(toggle);
     expect(saveReviewSettingsMock).not.toHaveBeenCalled();
     expect(toggle).toBeChecked();
-    fireEvent.click(screen.getByRole("button", { name: "Apply" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
 
     await waitFor(() => expect(saveReviewSettingsMock).toHaveBeenCalledWith({
       ...reviewSettings,

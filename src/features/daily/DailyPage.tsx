@@ -196,7 +196,7 @@ function TaskStatusMenu({
   async function handleOpenChange(nextOpen: boolean) {
     onOpenChange(nextOpen);
     setOpen(nextOpen);
-    if (!nextOpen) return;
+    if (!nextOpen || performingId) return;
     setLoading(true);
     setTransitions([]);
     onError(undefined);
@@ -212,6 +212,7 @@ function TaskStatusMenu({
   async function selectTransition(transition: DailyIssueTransition) {
     if (transition.requiresFields || performingId) return;
     setPerformingId(transition.id);
+    setOpen(false);
     onError(undefined);
     try {
       await onTransition(task, transition);
@@ -237,12 +238,16 @@ function TaskStatusMenu({
           className={cn(
             badgeVariants(),
             issueStatusBadgeClass(task.status),
-            "daily-status-trigger h-8 rounded-md px-3 text-[13px] leading-4 focus:ring-0 focus:ring-offset-0 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
+            "daily-status-trigger h-8 gap-1.5 rounded-md px-3 text-[13px] leading-4 focus:ring-0 focus:ring-offset-0 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-wait",
           )}
+          disabled={performingId !== undefined}
+          aria-busy={performingId !== undefined}
           aria-label={t("daily.changeStatus", { key: task.key, status: task.status })}
-          title={t("daily.changeStatus", { key: task.key, status: task.status })}
+          title={performingId ? t("daily.savingStatus") : t("daily.changeStatus", { key: task.key, status: task.status })}
         >
+          {performingId ? <RefreshCw className="size-3.5 shrink-0 animate-spin" aria-hidden="true" /> : null}
           {task.status}
+          {performingId ? <span className="sr-only">{t("daily.savingStatus")}</span> : null}
         </button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" alignOffset={alignOffset} collisionPadding={5} className="w-max min-w-0 max-w-[var(--radix-dropdown-menu-content-available-width)]">
@@ -338,7 +343,7 @@ export function DailyPage() {
   const refreshWorkspace = useCallback(async (projectId: string, sprintId?: string) => {
     const revision = workspaceRequestRevision.current + 1;
     workspaceRequestRevision.current = revision;
-    statusRefreshRevision.current += 1;
+    const statusRevision = ++statusRefreshRevision.current;
     const cachedWorkspace = readDailyWorkspaceCache(projectId, sprintId);
     setWorkspace(cachedWorkspace);
     setLoadingWorkspace(cachedWorkspace == null);
@@ -347,7 +352,14 @@ export function DailyPage() {
     try {
       const loaded = await refreshDailyWorkspaceCache(projectId, sprintId);
       if (workspaceRequestRevision.current !== revision) return;
-      setWorkspace(loaded);
+      setWorkspace((current) => {
+        if (statusRefreshRevision.current !== statusRevision) {
+          // The request started before a confirmed status change; preserve that newer state and cache.
+          if (current) writeDailyWorkspaceCache(current);
+          return current;
+        }
+        return loaded;
+      });
     } catch (reason) {
       if (workspaceRequestRevision.current === revision) setError(commandError(reason));
     } finally {
@@ -423,6 +435,7 @@ export function DailyPage() {
 
   async function handleTaskTransition(task: DailySubtask, transition: DailyIssueTransition) {
     if (!workspace) return;
+    const workspaceRevision = workspaceRequestRevision.current;
     const managedProjectId = workspace.managedProjectId;
     const sprintId = workspace.selectedSprintId;
     await transitionDailyIssue(
@@ -432,20 +445,32 @@ export function DailyPage() {
       transition.id,
       crypto.randomUUID(),
     );
+    if (workspaceRequestRevision.current !== workspaceRevision) return;
+    const revision = ++statusRefreshRevision.current;
+    setRefreshingStatuses(false);
+    setWorkspace((current) => {
+      if (!current || current.managedProjectId !== managedProjectId || current.selectedSprintId !== sprintId) return current;
+      const nextWorkspace = {
+        ...current,
+        subtasks: current.subtasks.map((item) => item.key === task.key ? { ...item, status: transition.toStatus } : item),
+      };
+      writeDailyWorkspaceCache(nextWorkspace);
+      return nextWorkspace;
+    });
     setTaskActionError(undefined);
     setTaskActionNotice(t("daily.statusChanged", { key: task.key, status: transition.toStatus }));
-    try {
-      const subtasks = await refreshDailyWorkspace(managedProjectId, sprintId);
-      statusRefreshRevision.current += 1;
+    // Jira has confirmed the write. Reconcile other fields without keeping the status control busy.
+    void refreshDailyWorkspace(managedProjectId, sprintId).then((subtasks) => {
+      if (statusRefreshRevision.current !== revision) return;
       setWorkspace((current) => {
         if (!current || current.managedProjectId !== managedProjectId || current.selectedSprintId !== sprintId) return current;
         const nextWorkspace = { ...current, subtasks };
         writeDailyWorkspaceCache(nextWorkspace);
         return nextWorkspace;
       });
-    } catch {
-      setTaskActionError(t("daily.statusRefreshFailed"));
-    }
+    }).catch(() => {
+      if (statusRefreshRevision.current === revision) setTaskActionError(t("daily.statusRefreshFailed"));
+    });
   }
 
   useEffect(() => {

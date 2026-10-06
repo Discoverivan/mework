@@ -4,12 +4,13 @@ import type { TokenBurnerRepository } from "@/shared/contracts/token-burner";
 import { isTokenBurnerIntegrationAvailable, listTokenBurnerRepositories } from "./api";
 
 interface IntegrationState {
+  loading: boolean;
   available: boolean;
   repositories: TokenBurnerRepository[];
   error: unknown;
 }
 
-let state: IntegrationState = { available: false, repositories: [], error: null };
+let state: IntegrationState = { loading: true, available: false, repositories: [], error: null };
 const listeners = new Set<(state: IntegrationState) => void>();
 let cleanup: (() => void) | undefined;
 let request: Promise<void> | undefined;
@@ -25,6 +26,7 @@ function publish(next: IntegrationState) {
 function refresh() {
   revision += 1;
   if (request) return request;
+  publish({ ...state, loading: true });
   const currentEpoch = epoch;
   // One owner coalesces invalidations and discards stale responses after edits.
   const sharedRequest = Promise.resolve().then(async () => {
@@ -36,10 +38,10 @@ function refresh() {
         available = await isTokenBurnerIntegrationAvailable();
         if (currentEpoch !== epoch || listeners.size === 0) return;
         const repositories = available ? await listTokenBurnerRepositories() : [];
-        if (loadedRevision === revision && currentEpoch === epoch) publish({ available, repositories, error: null });
+        if (loadedRevision === revision && currentEpoch === epoch) publish({ loading: false, available, repositories, error: null });
       } catch (error) {
         // A repository-list failure must not invalidate a configured integration.
-        if (loadedRevision === revision && currentEpoch === epoch) publish({ available, repositories: [], error });
+        if (loadedRevision === revision && currentEpoch === epoch) publish({ loading: false, available, repositories: [], error });
       }
     } while (loadedRevision !== revision && listeners.size > 0 && currentEpoch === epoch);
   }).finally(() => { if (request === sharedRequest) request = undefined; });
@@ -75,7 +77,7 @@ export function subscribeModelTestingIntegrations(listener: (state: IntegrationS
       healthSignature = undefined;
       epoch += 1;
       request = undefined;
-      state = { available: false, repositories: [], error: null };
+      state = { loading: true, available: false, repositories: [], error: null };
     }
   };
 }

@@ -120,16 +120,19 @@ describe("TaskTrackerPage", () => {
     fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
     fireEvent.click(screen.getByRole("button", { name: /Filters/ }));
     fireEvent.click(screen.getByRole("checkbox", { name: "Only changed" }));
-    fireEvent.click(screen.getByRole("button", { name: "Apply" }));
+    expect(screen.getByRole("button", { name: "Save" })).toBeEnabled();
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
     expect(screen.getByText("Only changed")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: /Filters/ }));
+    expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
     fireEvent.click(screen.getByRole("button", { name: "Clear filters" }));
-    fireEvent.click(screen.getByRole("button", { name: "Apply" }));
+    expect(screen.getByRole("button", { name: "Save" })).toBeEnabled();
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
     expect(screen.queryByText("Only changed")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "DEMO-1" })).toBeInTheDocument();
   });
 
-  it("applies filter changes only after Apply and removes a filter chip with its close button", async () => {
+  it("applies filter changes only after Save and removes a filter chip with its close button", async () => {
     render(<TaskTrackerPage />);
     fireEvent.click(await screen.findByRole("button", { name: /Filters/ }));
     fireEvent.change(screen.getByLabelText("Search"), { target: { value: "no-match" } });
@@ -137,7 +140,7 @@ describe("TaskTrackerPage", () => {
     expect(screen.getByRole("button", { name: "DEMO-1" })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: /Filters/ }));
     fireEvent.change(screen.getByLabelText("Search"), { target: { value: "no-match" } });
-    fireEvent.click(screen.getByRole("button", { name: "Apply" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
     expect(screen.queryByRole("button", { name: "DEMO-1" })).not.toBeInTheDocument();
     expect(screen.getByText("Search: no-match")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Remove Search: no-match" }));

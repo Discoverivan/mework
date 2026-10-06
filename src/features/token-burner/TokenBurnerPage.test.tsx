@@ -5,13 +5,14 @@ import type { TokenBurnerSnapshot } from "@/shared/contracts/token-burner";
 import { TokenBurnerPage } from "./TokenBurnerPage";
 import { APP_EVENT, emitAppEvent } from "@/app/app-events";
 
-const { snapshotMock, startMock, resetMock, repositoriesMock, integrationAvailableMock, aiSettingsMock } = vi.hoisted(() => ({
+const { snapshotMock, startMock, resetMock, repositoriesMock, integrationAvailableMock, aiSettingsMock, saveSettingsMock } = vi.hoisted(() => ({
   snapshotMock: vi.fn(),
   startMock: vi.fn(),
   resetMock: vi.fn(),
   repositoriesMock: vi.fn(),
   integrationAvailableMock: vi.fn(),
   aiSettingsMock: vi.fn(),
+  saveSettingsMock: vi.fn(),
 }));
 
 vi.mock("./api", () => ({
@@ -19,7 +20,7 @@ vi.mock("./api", () => ({
   getTokenBurnerSettings: vi.fn(),
   listTokenBurnerRepositories: repositoriesMock,
   isTokenBurnerIntegrationAvailable: integrationAvailableMock,
-  saveTokenBurnerSettings: vi.fn(),
+  saveTokenBurnerSettings: saveSettingsMock,
   startTokenBurner: startMock,
   pauseTokenBurner: vi.fn(),
   resumeTokenBurner: vi.fn(),
@@ -57,15 +58,25 @@ describe("TokenBurnerPage", () => {
       sessionStartedAt: Date.now(),
     });
     resetMock.mockResolvedValue(initialSnapshot);
+    saveSettingsMock.mockImplementation(async (settings) => settings);
   });
 
   it("opens as soon as the local snapshot loads without waiting for repositories or AI settings", async () => {
-    integrationAvailableMock.mockReturnValue(new Promise(() => {}));
+    let completeIntegration!: (available: boolean) => void;
+    let completeRepositories!: (repositories: { key: string; name: string }[]) => void;
+    integrationAvailableMock.mockReturnValueOnce(new Promise((resolve) => { completeIntegration = resolve; }));
+    repositoriesMock.mockReturnValueOnce(new Promise((resolve) => { completeRepositories = resolve; }));
     aiSettingsMock.mockReturnValue(new Promise(() => {}));
     render(<I18nProvider><TokenBurnerPage /></I18nProvider>);
 
     expect(await screen.findByRole("heading", { name: "Model-testing" })).toBeInTheDocument();
     expect(screen.queryByLabelText("Model-testing")).not.toBeInTheDocument();
+    expect(screen.getByRole("status")).toHaveTextContent("Checking Bitbucket connection and loading repositories…");
+    expect(screen.queryByText("Connect a working Bitbucket integration to load assigned pull requests.")).not.toBeInTheDocument();
+    await act(async () => { completeIntegration(true); });
+    expect(screen.getByRole("status")).toHaveTextContent("Checking Bitbucket connection and loading repositories…");
+    await act(async () => { completeRepositories([{ key: "integration-id/DEMO/example-repo", name: "Example Project / Example Repository" }]); });
+    await waitFor(() => expect(screen.queryByText("Checking Bitbucket connection and loading repositories…")).not.toBeInTheDocument());
   });
 
   it("explains when no assigned open pull requests are available", async () => {
@@ -168,7 +179,7 @@ describe("TokenBurnerPage", () => {
     expect(await screen.findByText("0")).toBeInTheDocument();
     expect(screen.queryByText(/History Repo/)).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Settings" }));
-    expect(screen.getByLabelText("Daily target (tokens)")).toHaveValue(2_000_000);
+    expect(screen.getByLabelText("Daily target (tokens)")).toHaveValue("2");
   });
 
   it("does not allow resetting daily progress during an active session", async () => {
@@ -183,6 +194,24 @@ describe("TokenBurnerPage", () => {
     expect(resetMock).not.toHaveBeenCalled();
   });
 
+  it("saves a scaled token target and a manual delay in canonical units", async () => {
+    render(<I18nProvider><TokenBurnerPage /></I18nProvider>);
+    fireEvent.click(await screen.findByRole("button", { name: "Settings" }));
+    fireEvent.click(screen.getByRole("combobox", { name: "Scale" }));
+    fireEvent.click(screen.getByRole("option", { name: "Thousands" }));
+    fireEvent.change(screen.getByLabelText("Daily target (tokens)"), { target: { value: "2500" } });
+    const delay = screen.getByRole("textbox", { name: "Delay between reviews" });
+    fireEvent.change(delay, { target: { value: "oops" } });
+    expect(delay).toHaveAttribute("aria-invalid", "true");
+    expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
+    fireEvent.change(delay, { target: { value: "3" } });
+    fireEvent.click(screen.getByRole("combobox", { name: "Unit" }));
+    fireEvent.click(screen.getByRole("option", { name: "Minutes" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(saveSettingsMock).toHaveBeenCalledWith({ ...initialSnapshot.settings, dailyTarget: 2_500_000, delayBetweenRequestsSeconds: 180 }));
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Settings" })).not.toBeInTheDocument());
+  });
+
   it("uses the selected Codex CLI model and starts a background review session", async () => {
     render(<I18nProvider><TokenBurnerPage /></I18nProvider>);
 
@@ -191,9 +220,25 @@ describe("TokenBurnerPage", () => {
     expect(screen.getByText("example-codex-model")).toBeInTheDocument();
     expect(screen.getByText("medium")).toBeInTheDocument();
     expect(screen.getByText("Off")).toBeInTheDocument();
+    const activity = screen.getByRole("heading", { name: "Activity" }).closest(".rounded-lg.border");
+    expect(activity).toContainElement(screen.getByRole("button", { name: "Start" }));
+    const repository = screen.getByRole("combobox", { name: "Repository" });
+    await waitFor(() => expect(repository).toBeEnabled());
+    fireEvent.click(repository);
+    expect(screen.getByRole("button", { name: "Example Project / Example Repository" })).toBeInTheDocument();
+    fireEvent.change(screen.getByRole("textbox", { name: "Search by project or repository name" }), { target: { value: "example repository" } });
+    fireEvent.click(screen.getByRole("button", { name: "Example Project / Example Repository" }));
+    await waitFor(() => expect(saveSettingsMock).toHaveBeenCalledWith({ ...initialSnapshot.settings, repository: "integration-id/DEMO/example-repo" }));
     fireEvent.click(screen.getByRole("button", { name: "Settings" }));
     expect(screen.getByLabelText("Daily target (tokens)")).toBeInTheDocument();
-    expect(screen.getByLabelText("Delay between reviews (seconds)")).toBeInTheDocument();
+    expect(screen.getByRole("dialog", { name: "Settings" })).toBeInTheDocument();
+    expect(screen.getByRole("dialog", { name: "Settings" })).toHaveFocus();
+    expect(screen.getByLabelText("Delay between reviews")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
+    fireEvent.change(screen.getByLabelText("Daily target (tokens)"), { target: { value: "3" } });
+    expect(screen.getByRole("button", { name: "Save" })).toBeEnabled();
+    fireEvent.change(screen.getByLabelText("Daily target (tokens)"), { target: { value: "2" } });
+    expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
     expect(screen.queryByLabelText("Maximum tokens per request")).not.toBeInTheDocument();
     expect(screen.queryByText("Review depth")).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
