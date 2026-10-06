@@ -957,6 +957,7 @@ describe("MyPullRequestsPage", () => {
     expect(duplicateCard.lastElementChild).toContainElement(existing);
     expect(duplicateCard.firstElementChild).toContainElement(screen.getByRole("link", { name: "src/timeout.ts:18" }));
     const partialStatus = screen.getByRole("status", { name: "Comment status for src/retry.ts" });
+    expect(within(partialStatus.closest("li")!).getByText("An existing discussion partially covers this finding. You can publish the missing clarification as a reply.")).toBeInTheDocument();
     expect(partialStatus.closest("li")!.lastElementChild).toContainElement(screen.getByRole("link", { name: "Existing comment for src/retry.ts" }));
     expect(screen.getByRole("link", { name: "Existing comment for src/retry.ts" })).toHaveAttribute("href", `${pullRequests[0].url}/overview?commentId=12`);
     const publishClarification = screen.getByRole("button", { name: "Publish comment for src/retry.ts" });
@@ -996,6 +997,8 @@ describe("MyPullRequestsPage", () => {
     expect(screen.getAllByText("Published")).toHaveLength(1);
     expect(screen.getAllByRole("link", { name: "Existing comment for src/retry.ts" })).toHaveLength(1);
     expect(screen.getByRole("link", { name: "Existing comment for src/retry.ts" })).toHaveAttribute("href", `${pullRequests[0].url}/overview?commentId=13`);
+    const publishedCard = screen.getByRole("status", { name: "Comment status for src/retry.ts" }).closest("li")!;
+    expect(within(publishedCard).queryByText("An existing discussion partially covers this finding. You can publish the missing clarification as a reply.")).not.toBeInTheDocument();
     expect(getCommentMatchesMock).toHaveBeenCalledWith(expect.objectContaining({
       integrationId: "bitbucket-1", projectKey: "DEMO", repositorySlug: "sample-repository",
       pullRequestId: "7", comments: completedReview.result!.comments,
