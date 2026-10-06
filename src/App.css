@@ -221,17 +221,11 @@ body,
   line-height: 1;
 }
 
-.sidebar-update-badge {
-  display: inline-flex;
-  align-items: center;
-  border-radius: 999px;
-  margin-left: 4px;
-  padding: 3px 6px;
-  background: var(--primary);
-  color: var(--primary-foreground);
-  font-size: 9px;
-  font-weight: 600;
-  line-height: 1;
+.sidebar-version .sidebar-update-badge {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+  color: var(--primary);
 }
 
 .theme-picker {

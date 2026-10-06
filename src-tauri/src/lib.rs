@@ -461,6 +461,7 @@ pub fn run() {
             commands::updates::list_update_release_notes_versions,
             commands::updates::list_release_notes_versions,
             commands::updates::load_release_note_version,
+            commands::updates::load_available_update_release_notes,
             commands::create_task::ai_task_draft,
             commands::create_task::jira_task_team_members,
             commands::create_task::jira_task_create,

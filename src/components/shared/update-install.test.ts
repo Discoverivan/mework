@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { installAvailableUpdate } from "./update-install";
 
 const { relaunchMock } = vi.hoisted(() => ({
@@ -10,7 +10,9 @@ vi.mock("@tauri-apps/plugin-process", () => ({
 }));
 
 describe("installAvailableUpdate", () => {
+  afterEach(() => vi.unstubAllEnvs());
   it("downloads the update before relaunching the application", async () => {
+    vi.stubEnv("DEV", false);
     const order: string[] = [];
     const update = {
       downloadAndInstall: vi.fn(async () => {

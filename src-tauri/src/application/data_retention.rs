@@ -1,26 +1,106 @@
 use serde::{Deserialize, Serialize};
 use sqlx::{Row, SqlitePool};
 use std::time::Duration;
+use time::{Date, Duration as TimeDuration, Month, OffsetDateTime};
 
 use crate::infrastructure::db::repositories;
 
 const SETTINGS_KEY: &str = "maintenance.data_retention";
 
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum RetentionUnit {
+    Minutes,
+    Hours,
+    #[default]
+    Days,
+    Months,
+}
+
+impl RetentionUnit {
+    fn maximum(self) -> u32 {
+        match self {
+            Self::Minutes => 5_256_000,
+            Self::Hours => 87_600,
+            Self::Days => 3650,
+            Self::Months => 120,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct RetentionPeriod {
+    pub value: u32,
+    pub unit: RetentionUnit,
+}
+
+impl<'de> Deserialize<'de> for RetentionPeriod {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        #[derive(Deserialize)]
+        #[serde(untagged)]
+        enum StoredPeriod {
+            Period { value: u32, unit: RetentionUnit },
+            LegacyDays(u32),
+        }
+        Ok(match StoredPeriod::deserialize(deserializer)? {
+            StoredPeriod::Period { value, unit } => Self { value, unit },
+            StoredPeriod::LegacyDays(value) => Self::days(value),
+        })
+    }
+}
+
+impl RetentionPeriod {
+    fn days(value: u32) -> Self {
+        Self {
+            value,
+            unit: RetentionUnit::Days,
+        }
+    }
+
+    fn cutoff(&self, now: OffsetDateTime) -> Result<Option<OffsetDateTime>, String> {
+        if self.value == 0 {
+            return Ok(None);
+        }
+        let cutoff = match self.unit {
+            RetentionUnit::Minutes => now.checked_sub(TimeDuration::minutes(self.value.into())),
+            RetentionUnit::Hours => now.checked_sub(TimeDuration::hours(self.value.into())),
+            RetentionUnit::Days => now.checked_sub(TimeDuration::days(self.value.into())),
+            RetentionUnit::Months => {
+                let months = i32::try_from(self.value).map_err(|_| "invalid retention period")?;
+                let index = now.year() * 12 + i32::from(u8::from(now.month())) - 1 - months;
+                let year = index.div_euclid(12);
+                let month = Month::try_from((index.rem_euclid(12) + 1) as u8)
+                    .map_err(|_| "invalid retention period")?;
+                let day = now.day().min(time::util::days_in_month(month, year));
+                let date = Date::from_calendar_date(year, month, day)
+                    .map_err(|_| "invalid retention period")?;
+                Some(now.replace_date(date))
+            }
+        };
+        cutoff
+            .map(Some)
+            .ok_or_else(|| "invalid retention period".to_owned())
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 #[serde(default)]
 pub struct DataRetentionSettings {
-    pub review_history_days: u32,
-    pub sync_history_days: u32,
-    pub removed_task_days: u32,
+    #[serde(alias = "reviewHistoryDays")]
+    pub review_history: RetentionPeriod,
+    #[serde(alias = "syncHistoryDays")]
+    pub sync_history: RetentionPeriod,
+    #[serde(alias = "removedTaskDays")]
+    pub removed_tasks: RetentionPeriod,
 }
 
 impl Default for DataRetentionSettings {
     fn default() -> Self {
         Self {
-            review_history_days: 90,
-            sync_history_days: 30,
-            removed_task_days: 30,
+            review_history: RetentionPeriod::days(90),
+            sync_history: RetentionPeriod::days(30),
+            removed_tasks: RetentionPeriod::days(30),
         }
     }
 }
@@ -41,14 +121,14 @@ pub async fn settings(pool: &SqlitePool) -> Result<DataRetentionSettings, String
 
 fn validate(settings: &DataRetentionSettings) -> Result<(), String> {
     if [
-        settings.review_history_days,
-        settings.sync_history_days,
-        settings.removed_task_days,
+        &settings.review_history,
+        &settings.sync_history,
+        &settings.removed_tasks,
     ]
     .into_iter()
-    .any(|days| days > 3650)
+    .any(|period| period.value > period.unit.maximum())
     {
-        return Err("retention must be between 0 and 3650 days".to_owned());
+        return Err("retention period exceeds the supported limit".to_owned());
     }
     Ok(())
 }
@@ -68,17 +148,21 @@ pub async fn save_settings(
 
 pub async fn clean_up(pool: &SqlitePool) -> Result<(), String> {
     let settings = settings(pool).await?;
-    crate::application::developer_review::prune_old_reviews(pool, settings.review_history_days)
-        .await?;
+    let now = OffsetDateTime::now_utc();
+    let review_cutoff = settings
+        .review_history
+        .cutoff(now)?
+        .map(|cutoff| (cutoff.unix_timestamp_nanos() / 1_000_000) as i64);
+    crate::application::developer_review::prune_old_reviews(pool, review_cutoff).await?;
     let mut transaction = pool.begin().await.map_err(db_error)?;
-    if settings.sync_history_days > 0 {
-        sqlx::query("DELETE FROM sync_runs WHERE finished_at IS NOT NULL AND status IN ('succeeded', 'failed') AND datetime(finished_at) < datetime('now', ?)")
-            .bind(format!("-{} days", settings.sync_history_days))
+    if let Some(cutoff) = settings.sync_history.cutoff(now)? {
+        sqlx::query("DELETE FROM sync_runs WHERE finished_at IS NOT NULL AND status IN ('succeeded', 'failed') AND datetime(finished_at) < datetime(?, 'unixepoch')")
+            .bind(cutoff.unix_timestamp())
             .execute(&mut *transaction).await.map_err(db_error)?;
     }
-    if settings.removed_task_days > 0 {
-        sqlx::query("DELETE FROM task_monitor_issues WHERE present = 0 AND datetime(observed_at) < datetime('now', ?)")
-            .bind(format!("-{} days", settings.removed_task_days))
+    if let Some(cutoff) = settings.removed_tasks.cutoff(now)? {
+        sqlx::query("DELETE FROM task_monitor_issues WHERE present = 0 AND datetime(observed_at) < datetime(?, 'unixepoch')")
+            .bind(cutoff.unix_timestamp())
             .execute(&mut *transaction).await.map_err(db_error)?;
     }
     // Preserve the local calendar day and exact counts; these rows are outside all live periods.
@@ -129,10 +213,35 @@ mod tests {
             crate::infrastructure::db::open_database(&directory.path().join("retention.sqlite"))
                 .await
                 .unwrap();
+        repositories::upsert_setting(
+            &pool,
+            SETTINGS_KEY,
+            r#"{"reviewHistoryDays":17,"syncHistoryDays":12,"removedTaskDays":0}"#,
+            1,
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            super::settings(&pool).await.unwrap(),
+            DataRetentionSettings {
+                review_history: RetentionPeriod::days(17),
+                sync_history: RetentionPeriod::days(12),
+                removed_tasks: RetentionPeriod::days(0),
+            }
+        );
         let settings = DataRetentionSettings {
-            review_history_days: 1,
-            sync_history_days: 1,
-            removed_task_days: 1,
+            review_history: RetentionPeriod {
+                value: 1,
+                unit: RetentionUnit::Months,
+            },
+            sync_history: RetentionPeriod {
+                value: 1,
+                unit: RetentionUnit::Hours,
+            },
+            removed_tasks: RetentionPeriod {
+                value: 1,
+                unit: RetentionUnit::Minutes,
+            },
         };
         save_settings(&pool, settings.clone()).await.unwrap();
         assert_eq!(super::settings(&pool).await.unwrap(), settings);
@@ -141,6 +250,10 @@ mod tests {
         for (key, present) in [("EXAMPLE-1", 0), ("EXAMPLE-2", 1)] {
             sqlx::query("INSERT INTO task_monitor_issues (monitor_id, issue_id, issue_key, summary, status, priority, issue_url, present, observed_at) VALUES ('example-monitor', ?, ?, 'Example task', 'Open', '', 'https://example.invalid', ?, '2000-01-01')").bind(key).bind(key).bind(present).execute(&pool).await.unwrap();
         }
+        sqlx::query("UPDATE task_monitor_issues SET observed_at = datetime('now', '-2 minutes')")
+            .execute(&pool)
+            .await
+            .unwrap();
         for (id, status, finished) in [
             ("expired", "succeeded", Some("2000-01-01")),
             ("active", "running", None),
@@ -148,12 +261,23 @@ mod tests {
             sqlx::query("INSERT INTO sync_runs (id, integration_id, job_kind, status, started_at, finished_at) VALUES (?, 'example-integration', 'example', ?, '2000-01-01', ?)").bind(id).bind(status).bind(finished).execute(&pool).await.unwrap();
         }
         sqlx::query("INSERT INTO pull_request_comment_actions (idempotency_key, request_json, status) VALUES ('example-action', '{}', 'completed')").execute(&pool).await.unwrap();
+        sqlx::query(
+            "UPDATE sync_runs SET finished_at = datetime('now', '-2 hours') WHERE id = 'expired'",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
         for tokens in [30_i64, 70] {
             sqlx::query("INSERT INTO ai_token_usage (recorded_at, provider, model, input_tokens, output_tokens, total_tokens) VALUES ('2000-01-01T12:00:00Z', 'example', 'example-model', ?, 0, ?)").bind(tokens).bind(tokens).execute(&pool).await.unwrap();
         }
         let mut reviews = serde_json::Map::new();
+        let review_finished_at = (OffsetDateTime::now_utc()
+            .checked_sub(TimeDuration::days(62))
+            .unwrap()
+            .unix_timestamp_nanos()
+            / 1_000_000) as i64;
         for (id, status) in [("1", "completed"), ("2", "completed"), ("3", "running")] {
-            reviews.insert(format!("example-integration:EXAMPLE:example-repo:{id}"), serde_json::json!({"runId": id, "status": status, "reviewedCommit": null, "result": null, "error": null, "startedAt": 1, "finishedAt": 2}));
+            reviews.insert(format!("example-integration:EXAMPLE:example-repo:{id}"), serde_json::json!({"runId": id, "status": status, "reviewedCommit": null, "result": null, "error": null, "startedAt": 1, "finishedAt": review_finished_at}));
         }
         repositories::upsert_setting(
             &pool,

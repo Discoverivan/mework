@@ -689,10 +689,13 @@ pub async fn initialize_review_state(pool: &SqlitePool) -> Result<(), String> {
     Ok(())
 }
 
-pub(crate) async fn prune_old_reviews(pool: &SqlitePool, days: u32) -> Result<(), String> {
-    if days == 0 {
+pub(crate) async fn prune_old_reviews(
+    pool: &SqlitePool,
+    cutoff: Option<i64>,
+) -> Result<(), String> {
+    let Some(cutoff) = cutoff else {
         return Ok(());
-    }
+    };
     // Cache refreshes take these locks in the same order. Do not prune from a partial refresh.
     let _cache_guard = developer::pull_request_state_lock().lock().await;
     let _review_guard = review_state_lock().lock().await;
@@ -726,7 +729,6 @@ pub(crate) async fn prune_old_reviews(pool: &SqlitePool, days: u32) -> Result<()
             }
         }
     }
-    let cutoff = developer::current_unix_millis().saturating_sub(i64::from(days) * 86_400_000);
     let mut state = load_state(pool).await?;
     let previous_count = state.reviews.len();
     state.reviews.retain(|key, review| {

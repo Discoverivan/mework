@@ -62,8 +62,8 @@ const { devOverlayEnabledMock, getDevOverlayStateMock, addDevMockTaskMock, setDe
   loadReleaseNoteVersionMock: vi.fn(),
   markReleaseNotesSeenMock: vi.fn(),
   updaterCheckMock: vi.fn().mockResolvedValue(null),
-  backgroundUpdateStateMock: vi.fn().mockResolvedValue({ availableVersion: null, lastCheckedAt: null, status: "idle", revision: 0 }),
-  beginUpdateCheckMock: vi.fn().mockResolvedValue({ checkId: 1, snapshot: { availableVersion: null, lastCheckedAt: null, status: "checking", revision: 1 } }),
+  backgroundUpdateStateMock: vi.fn().mockResolvedValue({ availableVersion: null, lastCheckedAt: null, status: "idle", checkSource: "background", revision: 0 }),
+  beginUpdateCheckMock: vi.fn().mockResolvedValue({ checkId: 1, snapshot: { availableVersion: null, lastCheckedAt: null, status: "checking", checkSource: "manual", revision: 1 } }),
   recordUpdateCheckResultMock: vi.fn(),
 }));
 
@@ -242,9 +242,9 @@ describe("mework application shell", () => {
     updaterCheckMock.mockReset();
     updaterCheckMock.mockResolvedValue(null);
     backgroundUpdateStateMock.mockReset();
-    backgroundUpdateStateMock.mockResolvedValue({ availableVersion: null, lastCheckedAt: null, status: "idle", revision: 0 });
+    backgroundUpdateStateMock.mockResolvedValue({ availableVersion: null, lastCheckedAt: null, status: "idle", checkSource: "background", revision: 0 });
     beginUpdateCheckMock.mockReset();
-    beginUpdateCheckMock.mockResolvedValue({ checkId: 1, snapshot: { availableVersion: null, lastCheckedAt: null, status: "checking", revision: 1 } });
+    beginUpdateCheckMock.mockResolvedValue({ checkId: 1, snapshot: { availableVersion: null, lastCheckedAt: null, status: "checking", checkSource: "manual", revision: 1 } });
     recordUpdateCheckResultMock.mockReset();
     recordUpdateCheckResultMock.mockImplementation(async (_checkId: number, availableVersion: string | null, succeeded: boolean) => ({
       accepted: true,
@@ -252,6 +252,7 @@ describe("mework application shell", () => {
         availableVersion: succeeded ? availableVersion : null,
         lastCheckedAt: Date.now(),
         status: succeeded ? availableVersion ? "available" : "current" : "error",
+        checkSource: "manual",
         revision: _checkId + 1,
       },
     }));
@@ -316,10 +317,12 @@ describe("mework application shell", () => {
     expect(refreshAllIntegrationsHealthMock).not.toHaveBeenCalled();
     expect(refreshMyPullRequestsMock).not.toHaveBeenCalled();
     expect(refreshAuthoredPullRequestsMock).not.toHaveBeenCalled();
+    expect(updaterCheckMock).not.toHaveBeenCalled();
+    updaterCheckMock.mockResolvedValueOnce({ version: "0.1.5" });
     fireEvent.click(screen.getByRole("button", { name: "Open About mework and check for updates" }));
     expect(await screen.findByRole("heading", { name: "About", level: 1 })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "mework-dev", level: 2 })).toBeInTheDocument();
-    const releaseNotesButton = screen.getByRole("button", { name: "Release notes" });
+    const releaseNotesButton = screen.getAllByRole("button", { name: "Release notes" })[0];
     expect(releaseNotesButton).toHaveTextContent("Release notes");
     expect(releaseNotesButton.querySelector("svg.lucide-notebook-text")).not.toBeNull();
     expect(releaseNotesButton.nextElementSibling).toBe(screen.getByRole("button", { name: "View on GitHub" }));
@@ -334,9 +337,21 @@ describe("mework application shell", () => {
     fireEvent.click(screen.getByRole("button", { name: "Close" }));
     expect(window.location.hash).toBe("#settings/application-info");
     await waitFor(() => expect(updaterCheckMock).toHaveBeenCalledOnce());
-    expect(await screen.findByText("You're up to date.")).toBeInTheDocument();
+    expect(await screen.findByText("New version 0.1.5 is available")).toHaveClass("application-update-title");
+    expect(screen.getAllByText("New version 0.1.5 is available")).toHaveLength(1);
+    expect(screen.getByRole("button", { name: "Update" })).toHaveAttribute("data-action-tone", "edit");
+    fireEvent.click(screen.getByRole("button", { name: "Update" }));
+    expect(screen.getByRole("alert")).toHaveTextContent("This is mework-dev. Installing updates is not allowed in the development version.");
+    expect(document.querySelector(".sidebar-update-badge")).not.toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Later" }));
+    expect(document.querySelector(".sidebar-update-badge")).toBeNull();
+    expect(screen.queryByText("New version 0.1.5 is available")).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Open About mework and check for updates" }));
     await waitFor(() => expect(window.location.hash).toBe("#settings/application-info"));
+    expect(updaterCheckMock).toHaveBeenCalledOnce();
+    fireEvent.click(screen.getByRole("link", { name: "General" }));
+    expect(await screen.findByRole("heading", { name: "General" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Update" })).not.toBeInTheDocument();
     expect(updaterCheckMock).toHaveBeenCalledOnce();
   });
 
@@ -360,20 +375,25 @@ describe("mework application shell", () => {
       availableVersion: "0.2.38",
       lastCheckedAt,
       status: "available",
+      checkSource: "background",
       revision: 4,
     });
     render(<App />);
 
     await screen.findByRole("main", { name: "mework" });
     fireEvent.click(screen.getByRole("link", { name: "About" }));
-    expect(await screen.findByText("New version 0.2.38 is available")).toBeInTheDocument();
+    expect(document.querySelector(".application-update-banner")).toBeNull();
+    expect(screen.getByText("New version 0.2.38 is available")).toBeInTheDocument();
     expect(await screen.findByText(/^Last checked: today,/)).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Download & Install" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Update" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Update" }));
+    expect(screen.getByRole("alert")).toHaveTextContent("This is mework-dev. Installing updates is not allowed in the development version.");
     expect(updaterCheckMock).not.toHaveBeenCalled();
     emitAppEvent(APP_EVENT.updateAvailabilityChanged, {
       availableVersion: null,
       lastCheckedAt: lastCheckedAt - 1_000,
       status: "current",
+      checkSource: "background",
       revision: 3,
     });
     expect(screen.getByText("New version 0.2.38 is available")).toBeInTheDocument();
@@ -381,9 +401,14 @@ describe("mework application shell", () => {
     fireEvent.click(screen.getByRole("link", { name: "General" }));
     await waitFor(() => expect(window.location.hash).toBe("#settings/general"));
     expect(await screen.findByRole("heading", { name: "General" })).toBeInTheDocument();
+    expect(screen.getByText("New version 0.2.38 is available")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("link", { name: "About" }));
     await waitFor(() => expect(window.location.hash).toBe("#settings/application-info"));
-    expect(await screen.findByRole("button", { name: "Download & Install" })).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "Update" })).toBeInTheDocument();
+    expect(document.querySelector(".sidebar-update-badge")).not.toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Later" }));
+    expect(document.querySelector(".sidebar-update-badge")).toBeNull();
+    expect(screen.queryByText("New version 0.2.38 is available")).not.toBeInTheDocument();
   });
 
   it("keeps the daily presenter available in mock mode", async () => {

@@ -4,6 +4,7 @@ import type { Update } from "@tauri-apps/plugin-updater";
 import { AppShell, type AppSection } from "./components/layout/AppShell";
 import { SplashScreen } from "./components/shared/SplashScreen";
 import { UpdateBanner } from "./components/shared/UpdateBanner";
+import { useDismissedUpdateVersion } from "./components/shared/update-notice";
 import { ReleaseNotesDialog } from "./components/shared/ReleaseNotesDialog";
 import { StatusToast } from "./components/shared/StatusToast";
 import { getBackgroundUpdateState } from "./components/shared/update-check";
@@ -154,6 +155,7 @@ function AppContent() {
 
   const selectedUpdateNoteIndex = selectedUpdateNote ? updateNoteVersions.indexOf(selectedUpdateNote.version) : -1;
   const availableUpdateVersion = updateAvailability.availableVersion;
+  const dismissedUpdateVersion = useDismissedUpdateVersion();
 
   useEffect(() => {
     if (import.meta.env.DEV) return;
@@ -394,7 +396,7 @@ function AppContent() {
             void updateAppearance({ themePreference: theme }).catch(() => undefined);
           }}
           version={appVersion}
-          updateAvailableVersion={availableUpdateVersion}
+          updateAvailableVersion={availableUpdateVersion === dismissedUpdateVersion ? null : availableUpdateVersion}
           onOpenApplicationInfo={openApplicationInfo}
           onNavigate={navigate}
           activeSection={route}
@@ -418,7 +420,7 @@ function AppContent() {
       ) : null}
       {import.meta.env.DEV && mockMode ? <DevOverlay /> : null}
       <SplashScreen visible={!ready} />
-      <UpdateBanner enabled={ready && !import.meta.env.DEV && !mockMode} updateVersion={availableUpdateVersion} />
+      <UpdateBanner enabled={ready && updateAvailability.checkSource === "background"} updateVersion={availableUpdateVersion} developmentBuild={import.meta.env.DEV || mockMode} mockMode={mockMode} />
       <ReleaseNotesDialog open={releaseNotesOpen} onOpenChange={handleReleaseNotesOpenChange}
         releases={selectedUpdateNote ? [selectedUpdateNote] : []}
         navigation={{

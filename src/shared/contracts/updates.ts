@@ -1,6 +1,7 @@
 export type UpdateCheckStatus = "idle" | "checking" | "current" | "available" | "error";
 
 export interface UpdateAvailabilitySnapshot {
+  checkSource: "background" | "manual";
   availableVersion: string | null;
   lastCheckedAt: number | null;
   status: UpdateCheckStatus;
@@ -18,6 +19,7 @@ export interface UpdateCheckCompletion {
 }
 
 export const EMPTY_UPDATE_AVAILABILITY: UpdateAvailabilitySnapshot = {
+  checkSource: "background",
   availableVersion: null,
   lastCheckedAt: null,
   status: "idle",

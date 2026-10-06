@@ -38,10 +38,19 @@ pub enum UpdateCheckStatus {
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct UpdateAvailabilitySnapshot {
+    pub check_source: UpdateCheckSource,
     pub available_version: Option<String>,
     pub last_checked_at: Option<u64>,
     pub status: UpdateCheckStatus,
     pub revision: u64,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum UpdateCheckSource {
+    #[default]
+    Background,
+    Manual,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
@@ -80,13 +89,14 @@ impl UpdateAvailabilityState {
         self.snapshot().available_version
     }
 
-    pub fn begin_check(&self) -> UpdateCheckTicket {
+    pub fn begin_check(&self, source: UpdateCheckSource) -> UpdateCheckTicket {
         match self.0.lock() {
             Ok(mut state) => {
                 state.generation = state.generation.wrapping_add(1);
                 state.revision = state.revision.wrapping_add(1);
                 state.snapshot.revision = state.revision;
                 state.snapshot.status = UpdateCheckStatus::Checking;
+                state.snapshot.check_source = source;
                 UpdateCheckTicket {
                     check_id: state.generation,
                     snapshot: state.snapshot.clone(),
@@ -154,7 +164,7 @@ pub async fn run_background_update_checks<R: tauri::Runtime>(
     use tauri_plugin_updater::UpdaterExt;
 
     loop {
-        let ticket = state.begin_check();
+        let ticket = state.begin_check(UpdateCheckSource::Background);
         if app
             .emit("update_availability_changed", ticket.snapshot.clone())
             .is_err()
@@ -190,17 +200,21 @@ mod tests {
     use std::time::Duration;
 
     use super::{
-        next_update_check_delay, UpdateAvailabilityState, UpdateCheckStatus, UPDATE_CHECK_INTERVAL,
-        UPDATE_CHECK_RETRY_INTERVAL,
+        next_update_check_delay, UpdateAvailabilityState, UpdateCheckSource, UpdateCheckStatus,
+        UPDATE_CHECK_INTERVAL, UPDATE_CHECK_RETRY_INTERVAL,
     };
 
     #[test]
     fn records_startup_check_status_version_and_timestamp() {
         let state = UpdateAvailabilityState::default();
 
-        let stale_check = state.begin_check();
-        let latest_check = state.begin_check();
+        let stale_check = state.begin_check(UpdateCheckSource::Background);
+        let latest_check = state.begin_check(UpdateCheckSource::Manual);
         assert_eq!(latest_check.snapshot.status, UpdateCheckStatus::Checking);
+        assert_eq!(
+            latest_check.snapshot.check_source,
+            UpdateCheckSource::Manual
+        );
 
         let stale_completion =
             state.finish_check_at(stale_check.check_id, Ok(Some("0.1.0".to_owned())), 1234);

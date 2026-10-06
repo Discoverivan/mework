@@ -4,7 +4,8 @@ use crate::application::release_notes::{
     self, ReleaseNote, ReleaseNotesRequestState, ReleaseNotesState,
 };
 use crate::application::updates::{
-    UpdateAvailabilitySnapshot, UpdateAvailabilityState, UpdateCheckCompletion, UpdateCheckTicket,
+    UpdateAvailabilitySnapshot, UpdateAvailabilityState, UpdateCheckCompletion, UpdateCheckSource,
+    UpdateCheckTicket,
 };
 
 #[tauri::command]
@@ -24,7 +25,7 @@ pub fn begin_update_check(
     app: AppHandle,
     state: State<'_, UpdateAvailabilityState>,
 ) -> UpdateCheckTicket {
-    let ticket = state.begin_check();
+    let ticket = state.begin_check(UpdateCheckSource::Manual);
     if app
         .emit("update_availability_changed", ticket.snapshot.clone())
         .is_err()
@@ -88,6 +89,17 @@ pub async fn list_release_notes_versions(
     request_state: State<'_, ReleaseNotesRequestState>,
 ) -> Result<Vec<String>, String> {
     release_notes::list_versions(&app, &request_state).await
+}
+
+#[tauri::command]
+pub async fn load_available_update_release_notes(
+    app: AppHandle,
+    request_state: State<'_, ReleaseNotesRequestState>,
+    target_version: String,
+    language: String,
+) -> Result<Vec<ReleaseNote>, String> {
+    release_notes::load_available_update_notes(&app, &request_state, &target_version, &language)
+        .await
 }
 
 #[tauri::command]

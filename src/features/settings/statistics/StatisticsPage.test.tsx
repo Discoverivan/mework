@@ -1,5 +1,5 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AiUsageStatistics } from "./api";
 import { StatisticsPage } from "./StatisticsPage";
 
@@ -18,6 +18,8 @@ const todayStats: AiUsageStatistics = {
 };
 
 describe("StatisticsPage", () => {
+  afterEach(() => vi.restoreAllMocks());
+
   beforeEach(() => {
     Element.prototype.scrollIntoView = vi.fn();
     getAiUsageStatisticsMock.mockReset();
@@ -40,6 +42,8 @@ describe("StatisticsPage", () => {
   });
 
   it("shows provider/model token totals and reloads when the period changes", async () => {
+    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect")
+      .mockReturnValue(new DOMRect(0, 0, 640, 320));
     render(<StatisticsPage />);
 
     expect(await screen.findByRole("heading", { name: "Statistics" })).toBeInTheDocument();
@@ -55,6 +59,19 @@ describe("StatisticsPage", () => {
     expect(within(table).getAllByText("1,500")).toHaveLength(2);
     expect(within(table).getAllByText("300")).toHaveLength(2);
     expect(within(table).getAllByText("1,800").length).toBeGreaterThan(0);
+
+    fireEvent.keyDown(await screen.findByRole("application"), { key: "ArrowRight" });
+    await waitFor(() => {
+      const tooltip = document.querySelector<HTMLElement>(".recharts-tooltip-wrapper");
+      expect(tooltip).toBeVisible();
+      expect(tooltip).toHaveTextContent("1,800");
+      expect(tooltip?.style.transform).toContain("translate(");
+      expect(tooltip?.style.transition).toBe("");
+    });
+    await waitFor(() => {
+      const tooltip = document.querySelector<HTMLElement>(".recharts-tooltip-wrapper");
+      expect(tooltip?.style.transition).toBe("transform 400ms ease");
+    });
 
     fireEvent.click(screen.getByRole("combobox", { name: "Reporting period" }));
     expect(screen.getByRole("option", { name: "This month" })).toBeInTheDocument();

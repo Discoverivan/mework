@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import {
+  ArrowUpCircle,
   BarChart3,
   CalendarDays,
   Command,
@@ -244,7 +245,7 @@ export function AppShell({
             >
               {version === "dev" ? "dev" : versionLabel}
               {updateAvailableVersion ? (
-                <span className="sidebar-update-badge" aria-hidden="true">{t("nav.updateBadge")}</span>
+                <ArrowUpCircle className="sidebar-update-badge" aria-hidden="true" />
               ) : null}
             </Button>
           ) : null}
