@@ -178,7 +178,7 @@ fn validate_settings(settings: &TokenBurnerSettings) -> Result<(), String> {
 }
 
 async fn clear_previous_day_history(pool: &SqlitePool) -> Result<(), String> {
-    sqlx::query("DELETE FROM token_burner_sessions WHERE date(started_at, 'localtime') < date('now', 'localtime') AND status NOT IN ('running', 'stopping')")
+    sqlx::query("DELETE FROM token_burner_sessions WHERE date(started_at, 'localtime') < date('now', 'localtime') AND status NOT IN ('running', 'paused', 'stopping')")
         .execute(pool)
         .await
         .map_err(|_| "failed to clear previous-day Model-testing history".to_owned())?;
@@ -638,6 +638,13 @@ async fn wait_until_stopping(pool: &SqlitePool, session_id: &str) {
     }
 }
 
+async fn wait_between_iterations(pool: &SqlitePool, session_id: &str, delay: Duration) -> bool {
+    tokio::select! {
+        _ = tokio::time::sleep(delay) => true,
+        _ = wait_until_stopping(pool, session_id) => false,
+    }
+}
+
 async fn run_session<R: Runtime>(
     pool: SqlitePool,
     app: AppHandle<R>,
@@ -812,10 +819,15 @@ async fn worker_loop<R: Runtime>(
         if !wait_until_running(&pool, &session_id).await {
             return;
         }
-        tokio::time::sleep(Duration::from_secs(
-            settings.delay_between_requests_seconds as u64,
-        ))
-        .await;
+        if !wait_between_iterations(
+            &pool,
+            &session_id,
+            Duration::from_secs(settings.delay_between_requests_seconds as u64),
+        )
+        .await
+        {
+            return;
+        }
     }
 }
 
@@ -1368,7 +1380,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn active_worker_observes_a_stop_request() {
+    async fn stop_interrupts_the_delay_between_iterations() {
         let directory = tempfile::tempdir().unwrap();
         let pool = crate::infrastructure::db::open_database(&directory.path().join("stop.sqlite"))
             .await
@@ -1383,17 +1395,17 @@ mod tests {
         let worker_pool = pool.clone();
         let worker_session = session_id.clone();
         let watcher = tokio::spawn(async move {
-            wait_until_stopping(&worker_pool, &worker_session).await;
+            wait_between_iterations(&worker_pool, &worker_session, Duration::from_secs(3600)).await
         });
         sqlx::query("UPDATE token_burner_sessions SET status = 'stopping' WHERE id = ?")
             .bind(&session_id)
             .execute(&pool)
             .await
             .unwrap();
-        tokio::time::timeout(Duration::from_secs(1), watcher)
+        assert!(!tokio::time::timeout(Duration::from_secs(1), watcher)
             .await
             .unwrap()
-            .unwrap();
+            .unwrap());
     }
 
     #[tokio::test]
@@ -1473,21 +1485,26 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn previous_day_cleanup_deletes_history_but_keeps_current_day_runs() {
+    async fn previous_day_cleanup_keeps_current_day_and_paused_runs() {
         let directory = tempfile::tempdir().unwrap();
         let pool =
             crate::infrastructure::db::open_database(&directory.path().join("cleanup.sqlite"))
                 .await
                 .unwrap();
-        for (session_id, offset) in [("yesterday", "-2 days"), ("today", "+0 seconds")] {
+        for (session_id, offset, status) in [
+            ("yesterday", "-2 days", "completed"),
+            ("today", "+0 seconds", "completed"),
+            ("paused", "-2 days", "paused"),
+        ] {
             let started_at: String =
                 sqlx::query_scalar("SELECT strftime('%Y-%m-%dT%H:%M:%fZ','now', ?)")
                     .bind(offset)
                     .fetch_one(&pool)
                     .await
                     .unwrap();
-            sqlx::query("INSERT INTO token_burner_sessions (id, status, started_at, settings_json) VALUES (?, 'completed', ?, '{}')")
+            sqlx::query("INSERT INTO token_burner_sessions (id, status, started_at, settings_json) VALUES (?, ?, ?, '{}')")
                 .bind(session_id)
+                .bind(status)
                 .bind(started_at)
                 .execute(&pool)
                 .await
@@ -1506,13 +1523,13 @@ mod tests {
                 .fetch_all(&pool)
                 .await
                 .unwrap();
-        assert_eq!(sessions, vec!["today"]);
+        assert_eq!(sessions, vec!["paused", "today"]);
         let iteration_count: i64 =
             sqlx::query_scalar("SELECT COUNT(*) FROM token_burner_iterations")
                 .fetch_one(&pool)
                 .await
                 .unwrap();
-        assert_eq!(iteration_count, 1);
+        assert_eq!(iteration_count, 2);
     }
 
     #[tokio::test]
