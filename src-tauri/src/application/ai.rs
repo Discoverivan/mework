@@ -320,14 +320,12 @@ pub async fn load(pool: &SqlitePool) -> Result<AiSettings, String> {
         .and_then(|raw| serde_json::from_str::<Value>(raw).ok())
         .and_then(|value| value.get("retries").cloned())
         .is_some();
-    if !has_retry_settings {
-        if stored.is_some() {
-            let legacy_attempts = crate::application::general::load(pool)
-                .await?
-                .ai_review_attempts;
-            settings.retries.actions.pull_request_review =
-                Some(legacy_attempts.saturating_sub(1).min(MAX_AI_RETRIES));
-        }
+    if !has_retry_settings && stored.is_some() {
+        let legacy_attempts = crate::application::general::load(pool)
+            .await?
+            .ai_review_attempts;
+        settings.retries.actions.pull_request_review =
+            Some(legacy_attempts.saturating_sub(1).min(MAX_AI_RETRIES));
     }
     let normalized = settings.normalize_action_retries();
     if !has_retry_settings || normalized {
