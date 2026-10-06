@@ -46,7 +46,7 @@ const { devOverlayEnabledMock, getDevOverlayStateMock, addDevMockTaskMock, setDe
   addDevMockPullRequestMock: vi.fn(),
   resetDevMockScenarioMock: vi.fn(),
   getAiSettingsMock: vi.fn().mockResolvedValue({
-    settings: { provider: "codex-cli", model: "gpt-5.5", reasoning: "medium", fastMode: false },
+    settings: { provider: "codex-cli", model: "gpt-5.5", reasoning: "medium", fastMode: false, retries: { default: 0, actions: { taskCreation: null, pullRequestReview: null, tokenBurner: null, sprintSummary: null } } },
     providers: [{ id: "codex-cli", name: "Codex CLI", status: "connected", available: true, models: ["gpt-5.5"] }],
   }),
   getPullRequestUnreadCountsMock: vi.fn().mockResolvedValue({ reviewer: 0, authored: 0 }),
@@ -201,7 +201,7 @@ describe("mework application shell", () => {
     vi.stubGlobal("matchMedia", () => ({ matches: true }));
     getAiSettingsMock.mockClear();
     getAiSettingsMock.mockResolvedValue({
-      settings: { provider: "codex-cli", model: "gpt-5.5", reasoning: "medium", fastMode: false },
+      settings: { provider: "codex-cli", model: "gpt-5.5", reasoning: "medium", fastMode: false, retries: { default: 0, actions: { taskCreation: null, pullRequestReview: null, tokenBurner: null, sprintSummary: null } } },
       providers: [{ id: "codex-cli", name: "Codex CLI", status: "connected", available: true, models: ["gpt-5.5"] }],
     });
     devOverlayEnabledMock.mockReset();

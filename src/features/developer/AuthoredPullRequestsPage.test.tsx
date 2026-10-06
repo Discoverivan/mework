@@ -41,7 +41,7 @@ const getReviewStatesMock = vi.mocked(getPullRequestReviewStates);
 const startReviewMock = vi.mocked(startPullRequestReview);
 
 const aiSettings: AiSettingsPageData = {
-  settings: { provider: "codex-cli", model: "gpt-5.5", reasoning: "medium", fastMode: false },
+  settings: { provider: "codex-cli", model: "gpt-5.5", reasoning: "medium", fastMode: false, retries: { default: 0, actions: { taskCreation: null, pullRequestReview: null, tokenBurner: null, sprintSummary: null } } },
   providers: [{ id: "codex-cli", name: "Codex CLI", status: "connected", available: true, models: ["gpt-5.5"] }],
 };
 
