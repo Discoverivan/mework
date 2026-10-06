@@ -263,7 +263,7 @@
     color: var(--primary-foreground);
   }
 
-  :root[data-button-style="filled"] .app-action-text[data-action-tone="warning"]:not(:disabled):is(:hover, :focus-visible) {
+  :root[data-button-style="filled"] .app-action-text:is([data-action-tone="add"], [data-action-tone="success"], [data-action-tone="warning"]):not(:disabled):is(:hover, :focus-visible) {
     color: var(--overlay);
   }
 

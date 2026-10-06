@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -19,6 +19,15 @@ export function DataRetentionSettings() {
   const [notice, setNotice] = useState<"loadError" | "saveError" | "saved" | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadRevision, setLoadRevision] = useState(0);
+  const validityHandlers = useMemo(() => {
+    const update = (field: typeof FIELDS[number]) => (value: boolean) =>
+      setValid((current) => current[field] === value ? current : { ...current, [field]: value });
+    return {
+      reviewHistoryDays: update("reviewHistoryDays"),
+      syncHistoryDays: update("syncHistoryDays"),
+      removedTaskDays: update("removedTaskDays"),
+    };
+  }, []);
 
   useEffect(() => {
     let active = true;
@@ -53,7 +62,7 @@ export function DataRetentionSettings() {
           {FIELDS.map((field) => <ManualNumberField key={field} id={`retention-${field}`} label={t(`dataRetention.${field}`)}
             description={t(`dataRetention.${field}Help`)} value={draft[field]} min={0} max={3650} disabled={saving}
             onChange={(value) => setDraft((current) => current && { ...current, [field]: value })}
-            onValidityChange={(value) => setValid((current) => current[field] === value ? current : { ...current, [field]: value })}
+            onValidityChange={validityHandlers[field]}
             errors={{ required: t("forms.numberRequired"), number: t("forms.numberInvalid"), range: t("forms.numberRange", { min: 0, max: 3650 }), whole: t("forms.numberInvalid") }} />)}
         </div>
         <div className="flex justify-end"><Button type="button" size="sm" onClick={() => void save()} disabled={!changed || saving || Object.values(valid).includes(false)}>

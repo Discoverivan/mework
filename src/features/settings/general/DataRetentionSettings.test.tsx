@@ -13,6 +13,9 @@ it("loads retention settings and saves a changed history limit", async () => {
   const history = await screen.findByRole("textbox", { name: "PR review history (days)" });
   expect(history).toHaveValue("90");
   expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
+  fireEvent.change(history, { target: { value: "" } });
+  expect(history).toHaveValue("");
+  expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
   fireEvent.change(history, { target: { value: "30" } });
   fireEvent.click(screen.getByRole("button", { name: "Save" }));
   await waitFor(() => expect(invokeMock).toHaveBeenCalledWith("data_retention_settings_save", { settings: { ...settings, reviewHistoryDays: 30 } }));

@@ -73,6 +73,8 @@ it("applies the minimal action style to form and confirmation buttons", () => {
     expect(screen.getByRole("button", { name: "Selected filter" })).not.toHaveClass("app-action-text");
     apply.focus();
     expect(getComputedStyle(apply).color).toBe("var(--primary-foreground)");
+    apply.setAttribute("data-action-tone", "add");
+    expect(getComputedStyle(apply).color).toBe("var(--overlay)");
   } finally {
     style.remove();
     if (previousStyle === undefined) delete document.documentElement.dataset.buttonStyle;
