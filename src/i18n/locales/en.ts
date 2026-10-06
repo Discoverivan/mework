@@ -636,6 +636,7 @@ export const en = {
   "tokenBurner.aiSettingsMissing": "Select a connected AI provider and model in AI Settings.",
   "tokenBurner.runningNow": "Running now",
   "tokenBurner.activity": "Activity",
+  "tokenBurner.activityDescription": "Manage the review run and follow its progress.",
   "tokenBurner.noActiveWork": "No pull request is being analyzed right now.",
   "tokenBurner.noAssignedPullRequests": "No assigned open pull requests match this repository filter.",
   "tokenBurner.findingPullRequest": "Finding the next pull request…",

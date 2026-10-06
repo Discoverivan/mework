@@ -451,9 +451,9 @@ export function TokenBurnerPage() {
                 if (open) setRepositorySearch("");
               }}>
                 <PopoverTrigger asChild>
-                  <Button id="token-burner-repository" type="button" variant="outline" role="combobox" aria-label={t("tokenBurner.repository")} aria-expanded={repositoryPickerOpen} aria-haspopup="dialog" disabled={runningOrStopping || !integrationAvailable} className="w-fit max-w-full justify-between gap-3 font-normal">
+                  <Button id="token-burner-repository" type="button" variant="outline" role="combobox" aria-label={t("tokenBurner.repository")} aria-expanded={repositoryPickerOpen} aria-haspopup="dialog" disabled={runningOrStopping || !integrationAvailable} className="w-fit max-w-full justify-between gap-3 px-3 font-normal">
                     <span className="truncate">{selectedRepository?.name ?? settings.repository ?? t("tokenBurner.allRepositories")}</span>
-                    <ChevronDown className="opacity-50" aria-hidden="true" />
+                    <ChevronDown className="-mr-1 opacity-50" aria-hidden="true" />
                   </Button>
                 </PopoverTrigger>
                 <PopoverContent align="start" aria-label={t("tokenBurner.repository")} className="flex w-[min(24rem,calc(100vw-2rem))] flex-col gap-3">
@@ -481,7 +481,7 @@ export function TokenBurnerPage() {
             <div className="min-w-0"><p className="text-sm text-muted-foreground">{t("settings.ai.model")}</p><p className="truncate font-medium">{aiSelection.model || t("settings.ai.notSelected")}</p></div>
             <div><p className="text-sm text-muted-foreground">{t("settings.ai.reasoning")}</p><p className="font-medium">{aiSelection.supportsCodexTuning ? aiSelection.reasoning : t("tokenBurner.notApplied")}</p></div>
             <div><p className="text-sm text-muted-foreground">{t("settings.ai.fastMode")}</p><p className="font-medium">{aiSelection.supportsCodexTuning ? t(aiSelection.fastMode ? "tokenBurner.enabled" : "tokenBurner.disabled") : t("tokenBurner.notApplied")}</p></div>
-            <div className="flex items-center justify-between gap-3 sm:col-span-2"><Badge variant={aiSelection.ready ? "outline" : "destructive"} className={cn("model-testing-ai-status min-h-9 gap-2 rounded-md px-3 text-sm font-medium", aiSelection.ready && "border-success/30 bg-success/10 text-success")}>{aiSelection.ready ? <CheckCircle2 className="size-4 shrink-0" aria-hidden="true" /> : <CircleAlert className="size-4 shrink-0" aria-hidden="true" />}{t(aiSelection.ready ? "tokenBurner.aiReady" : "tokenBurner.aiSettingsMissing")}</Badge><Button type="button" variant="secondary" size="sm" onClick={openAiSettings}>{t("tokenBurner.changeAiSettings")}</Button></div>
+            <div className="flex items-center justify-between gap-3 sm:col-span-2"><Badge variant={aiSelection.ready ? "outline" : "destructive"} className={cn("model-testing-ai-status min-h-9 gap-2 rounded-md px-3 text-sm font-medium", aiSelection.ready && "border-success/30 bg-success/10 text-success")}>{aiSelection.ready ? <CheckCircle2 className="size-4 shrink-0" aria-hidden="true" /> : <CircleAlert className="size-4 shrink-0" aria-hidden="true" />}{t(aiSelection.ready ? "tokenBurner.aiReady" : "tokenBurner.aiSettingsMissing")}</Badge><Button type="button" variant="secondary" size="sm" className="model-testing-neutral-action" onClick={openAiSettings}>{t("tokenBurner.changeAiSettings")}</Button></div>
           </section>
         </CardContent>
       </Card>
@@ -489,16 +489,17 @@ export function TokenBurnerPage() {
       <Card className="text-sm">
         <CardHeader className="px-4 pb-2 pt-3.5">
           <div className="flex flex-wrap items-center justify-between gap-3">
-            <div className="flex min-w-0 flex-col gap-1.5">
+            <div className="flex min-w-0 flex-col gap-1">
               <CardTitle className="text-base font-semibold leading-tight">{t("tokenBurner.activity")}</CardTitle>
-              {selectedRepository ? <CardDescription>{selectedRepository.name}</CardDescription> : null}
+              <CardDescription className="leading-snug">{t("tokenBurner.activityDescription")}</CardDescription>
             </div>
-            <div className="shrink-0">
-              {state === "running" ? <div className="flex gap-2"><Button variant="outline" size="sm" onClick={() => void runAction("pause")} disabled={actionBusy}><Pause data-icon="inline-start" />{t("tokenBurner.pause")}</Button><Button variant="outline" size="sm" onClick={() => void runAction("stop")} disabled={actionBusy}><Square data-icon="inline-start" />{t("tokenBurner.stop")}</Button></div>
-                : state === "paused" ? <div className="flex gap-2"><Button size="sm" onClick={() => void runAction("resume")} disabled={actionBusy}><Play data-icon="inline-start" />{t("tokenBurner.resume")}</Button><Button variant="outline" size="sm" onClick={() => void runAction("stop")} disabled={actionBusy}><Square data-icon="inline-start" />{t("tokenBurner.stop")}</Button></div>
-                  : <Button size="sm" onClick={() => void runAction("start")} disabled={actionBusy || !integrationAvailable || !aiSelection.ready || state === "stopping"}>{state === "error" || state === "interrupted" ? <RotateCcw data-icon="inline-start" /> : <Play data-icon="inline-start" />}{t(state === "error" || state === "interrupted" ? "tokenBurner.retry" : "tokenBurner.start")}</Button>}
+            <div className="flex shrink-0 items-center">
+              {state === "running" ? <div className="flex gap-2"><Button variant="secondary" size="sm" actionTone="warning" className="model-testing-neutral-action" onClick={() => void runAction("pause")} disabled={actionBusy}><Pause data-icon="inline-start" />{t("tokenBurner.pause")}</Button><Button variant="secondary" size="sm" actionTone="delete" className="model-testing-neutral-action" onClick={() => void runAction("stop")} disabled={actionBusy}><Square data-icon="inline-start" />{t("tokenBurner.stop")}</Button></div>
+                : state === "paused" ? <div className="flex gap-2"><Button variant="secondary" size="sm" className="model-testing-neutral-action" onClick={() => void runAction("resume")} disabled={actionBusy}><Play data-icon="inline-start" />{t("tokenBurner.resume")}</Button><Button variant="secondary" size="sm" actionTone="delete" className="model-testing-neutral-action" onClick={() => void runAction("stop")} disabled={actionBusy}><Square data-icon="inline-start" />{t("tokenBurner.stop")}</Button></div>
+                  : <Button variant="secondary" size="sm" className="model-testing-neutral-action" onClick={() => void runAction("start")} disabled={actionBusy || !integrationAvailable || !aiSelection.ready || state === "stopping"}>{state === "error" || state === "interrupted" ? <RotateCcw data-icon="inline-start" /> : <Play data-icon="inline-start" />}{t(state === "error" || state === "interrupted" ? "tokenBurner.retry" : "tokenBurner.start")}</Button>}
             </div>
           </div>
+          {selectedRepository ? <CardDescription>{selectedRepository.name}</CardDescription> : null}
         </CardHeader>
         <CardContent className="flex flex-col gap-4 px-4 pb-3.5 pt-0">
           {currentIterations.length === 0 && completedIterations.length === 0 ? <p className="flex items-center gap-2 text-sm text-muted-foreground">{state === "running" ? <Loader2 className="size-4 animate-spin" aria-hidden="true" /> : null}{t(state === "running" ? "tokenBurner.findingPullRequest" : state === "no_prs" ? "tokenBurner.noAssignedPullRequests" : "tokenBurner.noActiveWork")}</p> : null}
@@ -506,7 +507,7 @@ export function TokenBurnerPage() {
             <div key={iteration.id} className="flex flex-col gap-3 rounded-md border p-4">
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div className="min-w-0"><p className="font-medium">PR #{iteration.pullRequestId} — {iteration.repositoryName}</p><p className="truncate text-sm text-muted-foreground">{iteration.pullRequestTitle}</p></div>
-                <Badge variant="secondary">{t("tokenBurner.runningNow")}</Badge>
+                <Badge variant="outline" className="model-testing-running-status border-primary/30 bg-primary/10 text-primary">{t("tokenBurner.runningNow")}</Badge>
               </div>
               <div className="flex items-center gap-2 text-sm"><Loader2 className="size-4 animate-spin text-primary" aria-hidden="true" /><span>{t("tokenBurner.currentReview")}: {t(PERSPECTIVE_KEYS[iteration.perspective] ?? "tokenBurner.perspectiveUnknown")}</span></div>
               <p className="text-sm text-muted-foreground">{t(PHASE_KEYS[iteration.phase] ?? "tokenBurner.phaseAnalyzing")}</p>

@@ -638,6 +638,7 @@ export const ru: Record<TranslationKey, string> = {
   "tokenBurner.aiSettingsMissing": "Выберите подключённого провайдера ИИ и модель в настройках ИИ.",
   "tokenBurner.runningNow": "Сейчас выполняется",
   "tokenBurner.activity": "Активность",
+  "tokenBurner.activityDescription": "Управляйте запуском ревью и следите за его ходом.",
   "tokenBurner.noActiveWork": "Сейчас pull request не анализируется.",
   "tokenBurner.noAssignedPullRequests": "Нет назначенных мне открытых pull request для выбранного фильтра репозитория.",
   "tokenBurner.findingPullRequest": "Поиск следующего pull request…",
