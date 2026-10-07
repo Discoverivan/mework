@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -7,6 +7,7 @@ import { ManualNumberField } from "@/components/shared/ManualNumberField";
 import { StatusToast } from "@/components/shared/StatusToast";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Hint } from "@/components/ui/tooltip";
+import { Separator } from "@/components/ui/separator";
 import { useI18n } from "@/i18n/context";
 import type { DataRetentionSettings as Settings, RetentionMode, RetentionUnit } from "@/shared/contracts/data-retention";
 
@@ -73,14 +74,17 @@ export function DataRetentionSettings() {
     </CardHeader>
     <CardContent className="@container/retention flex flex-col gap-4 px-4 pb-3.5">
       {draft ? <>
-        <div className="grid gap-4 @min-[40rem]/retention:grid-cols-2">
-          {FIELDS.map((field) => {
+        <div className="flex flex-col">
+          {FIELDS.map((field, index) => {
             const period = draft[field];
             const max = MAXIMUM[period.unit];
             const label = t(`dataRetention.${field}`);
-            return <div key={field} role="group" aria-labelledby={`retention-${field}-label`}
-              className="flex flex-col gap-3 rounded-lg border bg-background p-4">
+            return <Fragment key={field}>
+              {index > 0 ? <Separator /> : null}
+              <div role="group" aria-labelledby={`retention-${field}-label`}
+              className="flex flex-wrap items-center justify-between gap-x-4 gap-y-3 py-3">
               <Hint content={t(`dataRetention.${field}Help`)}><span id={`retention-${field}-label`} className="text-sm font-medium leading-none">{label}</span></Hint>
+              <div className="flex flex-wrap items-center gap-3">
               <Select value={period.mode} disabled={saving} onValueChange={(mode) => {
                 setValid((current) => ({ ...current, [field]: true }));
                 setDraft((current) => current && { ...current, [field]: { ...current[field], mode: mode as RetentionMode } });
@@ -114,17 +118,20 @@ export function DataRetentionSettings() {
                     <SelectItem value="unlimited">{t("dataRetention.unlimitedSize")}</SelectItem>
                   </SelectContent>
                 </Select>
-                {draft.diagnosticLogMaxMiB !== null ? <div className="flex items-end gap-2">
-                  <ManualNumberField id="retention-log-size" label={t("dataRetention.logSize")} description={t("dataRetention.logSizeHelp")}
+                {draft.diagnosticLogMaxMiB !== null ? <div className="flex items-center gap-2">
+                  <span id="retention-log-size-label" className="sr-only">{t("dataRetention.logSize")}</span>
+                  <ManualNumberField id="retention-log-size" label={t("dataRetention.logSize")} labelledBy="retention-log-size-label" description={t("dataRetention.logSizeHelp")}
                     value={draft.diagnosticLogMaxMiB} min={1} max={MAX_LOG_MIB} minVisibleDigits={1} disabled={saving}
                     onChange={(value) => setDraft((current) => current && { ...current, diagnosticLogMaxMiB: value })}
                     onValidityChange={validityHandlers.diagnosticLogMaxMiB}
                     errors={{ required: t("forms.numberRequired"), number: t("forms.numberInvalid"), range: t("forms.numberRange", { min: 1, max: MAX_LOG_MIB }), whole: t("forms.numberInvalid") }} />
-                  <span className="pb-2 text-sm text-muted-foreground">{t("dataRetention.mib")}</span>
+                  <span className="text-sm text-muted-foreground">{t("dataRetention.mib")}</span>
                 </div> : null}
               </> : null}
-              {period.mode === "disabled" ? <p className="text-sm text-muted-foreground">{t(field === "diagnosticLogs" ? "dataRetention.logsDisabledHelp" : "dataRetention.historyDisabledHelp")}</p> : null}
-            </div>;
+              </div>
+              {period.mode === "disabled" ? <p className="basis-full text-sm text-muted-foreground">{t(field === "diagnosticLogs" ? "dataRetention.logsDisabledHelp" : "dataRetention.historyDisabledHelp")}</p> : null}
+            </div>
+            </Fragment>;
           })}
         </div>
       </> : loading ? <Loader2 className="size-4 animate-spin text-muted-foreground" aria-label={t("dataRetention.loading")} /> : <Button type="button" variant="outline" size="sm" className="w-fit" onClick={() => { setNotice(null); setLoadRevision((value) => value + 1); }}>{t("tokenBurner.retry")}</Button>}
