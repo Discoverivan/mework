@@ -165,8 +165,8 @@ fn validate(settings: &DataRetentionSettings) -> Result<(), String> {
     ]
     .into_iter()
     .any(|period| {
-        period.value > period.unit.maximum()
-            || (period.mode == RetentionMode::Period && period.value == 0)
+        period.mode == RetentionMode::Period
+            && (period.value == 0 || period.value > period.unit.maximum())
     }) {
         return Err("retention period exceeds the supported limit".to_owned());
     }
@@ -336,7 +336,11 @@ mod tests {
                 value: 1,
                 unit: RetentionUnit::Hours,
             },
-            diagnostic_logs: RetentionPeriod::days(14),
+            diagnostic_logs: RetentionPeriod {
+                mode: RetentionMode::Indefinite,
+                value: 87_600,
+                unit: RetentionUnit::Days,
+            },
             diagnostic_log_max_mib: None,
             removed_tasks: RetentionPeriod {
                 mode: RetentionMode::Period,
@@ -441,7 +445,12 @@ mod tests {
         );
         let mut disabled = DataRetentionSettings::default();
         disabled.review_history.mode = RetentionMode::Disabled;
+        // A hidden period may exceed the new unit's limit after switching modes.
+        disabled.review_history.value = 3650;
+        disabled.review_history.unit = RetentionUnit::Months;
         disabled.sync_history.mode = RetentionMode::Disabled;
+        disabled.sync_history.value = 87_600;
+        disabled.sync_history.unit = RetentionUnit::Days;
         disabled.removed_tasks.mode = RetentionMode::Disabled;
         disabled.diagnostic_logs.mode = RetentionMode::Disabled;
         sqlx::query("INSERT INTO sync_runs (id, integration_id, job_kind, status, started_at, finished_at) VALUES ('recent', 'example-integration', 'example', 'succeeded', datetime('now'), datetime('now'))")
