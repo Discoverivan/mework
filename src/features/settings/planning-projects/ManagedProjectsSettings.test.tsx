@@ -239,6 +239,14 @@ describe("ManagedProjectsSettings task creation settings", () => {
   });
 
   it("checks Epic link JQL and persists sprint and JQL defaults per team", async () => {
+    saveProjectMock.mockResolvedValue({
+      ...project,
+      defaultTaskSprintId: "sprint-1",
+      defaultTaskSprintName: "Platform Sprint",
+      defaultEpicLinkKey: "DEMO-EPIC-1",
+      defaultEpicLinkSummary: "Example epic",
+      epicLinkJql: "project = DEMO AND issuetype = Epic",
+    });
     listMembersMock.mockResolvedValue([{
       accountId: "user-1",
       displayName: "Example Member",
@@ -297,5 +305,15 @@ describe("ManagedProjectsSettings task creation settings", () => {
       defaultEpicLinkSummary: "Example epic",
       epicLinkJql: "project = DEMO AND issuetype = Epic",
     })));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Cancel" })).toBeEnabled());
+    fireEvent.change(screen.getByLabelText("Epic link JQL"), {
+      target: { value: "project = DEMO" },
+    });
+    fireEvent.click(screen.getByRole("combobox", { name: "Default sprint for task creation" }));
+    fireEvent.click(screen.getByRole("option", { name: "No default sprint" }));
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(screen.getByLabelText("Epic link JQL")).toHaveValue("project = DEMO AND issuetype = Epic");
+    expect(screen.getByRole("combobox", { name: "Default sprint for task creation" })).toHaveTextContent("Platform Sprint");
+    expect(screen.getByRole("combobox", { name: "Default Epic link for task creation" })).toHaveTextContent("Example epic");
   });
 });

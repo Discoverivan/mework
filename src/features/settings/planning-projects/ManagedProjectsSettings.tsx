@@ -41,6 +41,7 @@ import type { ManagedProjectSaveInput } from "@/shared/contracts/settings";
 import { deleteManagedProject, listManagedProjects, saveManagedProject } from "./api";
 import { useI18n } from "@/i18n/context";
 import type { TranslationKey } from "@/i18n/locales/en";
+import "./TeamSettings.css";
 
 type Action = "next" | "save" | "delete" | null;
 type AddTeamStep = "details" | "board";
@@ -695,6 +696,18 @@ export function ManagedProjectsSettings({
     }
   }
 
+  function cancelTaskCreationChanges() {
+    if (!detailProject || controlsDisabled || epicPreviewLoading) return;
+    setDefaultTaskSprintId(detailProject.defaultTaskSprintId ?? "");
+    setDefaultTaskSprintName(detailProject.defaultTaskSprintName ?? "");
+    setDefaultEpicLinkKey(detailProject.defaultEpicLinkKey ?? "");
+    setDefaultEpicLinkSummary(detailProject.defaultEpicLinkSummary ?? "");
+    setEpicLinkJql(detailProject.epicLinkJql ?? "");
+    setEpicPreviewIssues([]);
+    setEpicPreviewOpen(false);
+    setTeamSaveError(null);
+  }
+
   async function handleCheckEpicLinkJql() {
     if (!detailProject || epicPreviewLoading) return;
     const jql = epicLinkJql.trim();
@@ -933,7 +946,7 @@ export function ManagedProjectsSettings({
                           aria-label={t(detailProject?.id === project.id ? "teams.closeDetails" : "teams.openDetails", { team: project.projectName })}
                           title={t(detailProject?.id === project.id ? "teams.closeDetails" : "teams.openDetails", { team: project.projectName })}
                         >
-                          <ChevronDown className={`transition-transform ${detailProject?.id === project.id ? "rotate-180" : ""}`} aria-hidden="true" />
+                          <ChevronDown className={`transition-transform duration-200 motion-reduce:transition-none ${detailProject?.id === project.id ? "rotate-180" : ""}`} aria-hidden="true" />
                         </Button>
                         <Button
                           type="button"
@@ -1155,13 +1168,16 @@ export function ManagedProjectsSettings({
       ) : null}
 
       {detailProject && detailHost ? createPortal(
-        <div className="border-t px-4 pb-4 pt-4" aria-label={t("teams.members")}>
-          <CardContent className="grid gap-4">
-            <section className="grid gap-4 rounded-md border p-3" aria-label={t("teams.taskSettings")}>
+        <div className="team-settings-reveal">
+        <div className="min-h-0 overflow-hidden">
+        <div className="border-t px-4 pb-4 pt-4">
+          <div className="grid gap-4 pl-4">
+            <section className="grid gap-2" aria-label={t("teams.taskSettings")}>
               <div>
                 <h3 className="font-semibold">{t("teams.taskSettings")}</h3>
                 <p className="text-sm text-muted-foreground">{t("teams.taskSettingsDescription")}</p>
               </div>
+              <div className="task-creation-settings grid gap-4 rounded-md border bg-background p-4">
               <div className="grid gap-2 sm:max-w-xl">
                 <Label htmlFor={`default-task-sprint-${detailProject.id}`}>{t("teams.defaultSprint")}</Label>
                 <div>
@@ -1170,7 +1186,7 @@ export function ManagedProjectsSettings({
                     setDefaultTaskSprintId(nextId);
                     setDefaultTaskSprintName(taskSprints.find((sprint) => sprint.id === nextId)?.name ?? "");
                   }} disabled={controlsDisabled || taskSprintsLoading}>
-                    <SelectTrigger id={`default-task-sprint-${detailProject.id}`} aria-label={t("teams.defaultSprint")}><SelectValue /></SelectTrigger>
+                    <SelectTrigger className="bg-card" id={`default-task-sprint-${detailProject.id}`} aria-label={t("teams.defaultSprint")}><SelectValue /></SelectTrigger>
                     <SelectContent>
                       <SelectItem value={NO_SELECTION}>{taskSprintsLoading ? t("teams.loadingSprints") : t("teams.noDefaultSprint")}</SelectItem>
                       {defaultTaskSprintId && !taskSprints.some((sprint) => sprint.id === defaultTaskSprintId) ? (
@@ -1186,6 +1202,7 @@ export function ManagedProjectsSettings({
                 <Label htmlFor={`epic-link-jql-${detailProject.id}`}>{t("teams.epicJql")}</Label>
                 <div className="flex flex-wrap gap-2">
                   <Input
+                    className="bg-card"
                     id={`epic-link-jql-${detailProject.id}`}
                     aria-label={t("teams.epicJql")}
                     value={epicLinkJql}
@@ -1198,7 +1215,7 @@ export function ManagedProjectsSettings({
                     placeholder="project = DEMO AND issuetype = Epic"
                     disabled={controlsDisabled}
                   />
-                  <Button type="button" variant="outline" onClick={() => void handleCheckEpicLinkJql()} disabled={controlsDisabled || epicPreviewLoading || !epicLinkJql.trim()}>
+                  <Button className="bg-card" type="button" variant="outline" onClick={() => void handleCheckEpicLinkJql()} disabled={controlsDisabled || epicPreviewLoading || !epicLinkJql.trim()}>
                     {epicPreviewLoading ? t("settings.common.checking") : t("teams.check")}
                   </Button>
                 </div>
@@ -1212,7 +1229,7 @@ export function ManagedProjectsSettings({
                       setDefaultEpicLinkKey(nextKey);
                       setDefaultEpicLinkSummary(selected?.summary ?? (nextKey ? defaultEpicLinkSummary : ""));
                     }} disabled={controlsDisabled}>
-                      <SelectTrigger id={`default-epic-link-${detailProject.id}`} aria-label={t("teams.defaultEpic")}><SelectValue /></SelectTrigger>
+                      <SelectTrigger className="bg-card" id={`default-epic-link-${detailProject.id}`} aria-label={t("teams.defaultEpic")}><SelectValue /></SelectTrigger>
                       <SelectContent>
                         <SelectItem value={NO_SELECTION}>{t("teams.noDefaultEpic")}</SelectItem>
                         {defaultEpicLinkKey && !epicPreviewIssues.some((issue) => issue.key === defaultEpicLinkKey) ? (
@@ -1230,10 +1247,14 @@ export function ManagedProjectsSettings({
                   <AlertDescription>{teamSaveError}</AlertDescription>
                 </Alert>
               ) : null}
-              <div>
-                <Button type="button" actionTone="edit" onClick={() => void handleSaveTaskCreationSettings()} disabled={controlsDisabled}>
+              <div className="flex items-center justify-between gap-2">
+                <Button className="bg-card" type="button" variant="outline" onClick={cancelTaskCreationChanges} disabled={controlsDisabled || epicPreviewLoading}>
+                  {t("settings.common.cancel")}
+                </Button>
+                <Button className="bg-card" type="button" actionTone="edit" onClick={() => void handleSaveTaskCreationSettings()} disabled={controlsDisabled || epicPreviewLoading}>
                   {teamSaving ? t("settings.common.saving") : t("teams.saveTaskSettings")}
                 </Button>
+              </div>
               </div>
             </section>
 
@@ -1262,6 +1283,7 @@ export function ManagedProjectsSettings({
               </Alert>
             ) : null}
 
+            <section className="grid gap-2" aria-label={t("teams.members")}>
             <div className="flex items-center justify-between gap-3">
               <h3 className="font-semibold">{t("teams.members")}</h3>
               <Button type="button" size="sm" actionTone="add" onClick={openAddMemberDialog} disabled={controlsDisabled}>{t("teams.addMember")}</Button>
@@ -1466,13 +1488,16 @@ export function ManagedProjectsSettings({
             ) : (
               <p className="text-sm text-muted-foreground">{t("teams.noMembers")}</p>
             )}
+            </section>
 
             {teamSaveError ? (
               <Alert variant="destructive" role="alert">
                 <AlertDescription>{teamSaveError}</AlertDescription>
               </Alert>
             ) : null}
-          </CardContent>
+          </div>
+        </div>
+        </div>
         </div>, detailHost) : null}
     </section>
   );

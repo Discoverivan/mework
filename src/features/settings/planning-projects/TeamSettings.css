@@ -1,0 +1,27 @@
+.team-settings-reveal {
+  display: grid;
+  grid-template-rows: 1fr;
+  animation: team-settings-open 200ms ease-out;
+}
+
+.task-creation-settings {
+  --secondary: var(--card);
+  --secondary-foreground: var(--card-foreground);
+}
+
+@keyframes team-settings-open {
+  from {
+    grid-template-rows: 0fr;
+    opacity: 0;
+  }
+  to {
+    grid-template-rows: 1fr;
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .team-settings-reveal {
+    animation: none;
+  }
+}
