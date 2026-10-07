@@ -9,14 +9,14 @@ vi.mock("@tauri-apps/api/core", () => ({ invoke: invokeMock }));
 it("loads retention settings and saves a changed history limit", async () => {
   Element.prototype.scrollIntoView = vi.fn();
   const settings = {
-    reviewHistory: { value: 90, unit: "days" },
-    syncHistory: { value: 30, unit: "days" },
-    removedTasks: { value: 30, unit: "days" },
+    reviewHistory: { value: 7, unit: "days" },
+    syncHistory: { value: 7, unit: "days" },
+    removedTasks: { value: 7, unit: "days" },
   };
   invokeMock.mockImplementation(async (command, args) => command === "data_retention_settings" ? settings : args.settings);
   render(<I18nProvider><DataRetentionSettings /></I18nProvider>);
   const history = await screen.findByRole("textbox", { name: "PR review history" });
-  expect(history).toHaveValue("90");
+  expect(history).toHaveValue("7");
   expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
   fireEvent.change(history, { target: { value: "" } });
   expect(history).toHaveValue("");

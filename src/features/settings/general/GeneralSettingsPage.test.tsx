@@ -57,7 +57,7 @@ vi.mock("@/components/shared/update-install", () => ({
 
 describe("GeneralSettingsPage", () => {
   beforeEach(() => {
-    invokeMock.mockResolvedValue({ reviewHistory: { value: 90, unit: "days" }, syncHistory: { value: 30, unit: "days" }, removedTasks: { value: 30, unit: "days" } });
+    invokeMock.mockResolvedValue({ reviewHistory: { value: 7, unit: "days" }, syncHistory: { value: 7, unit: "days" }, removedTasks: { value: 7, unit: "days" } });
     vi.clearAllMocks();
     const initialSettings = {
       language: "english",
@@ -69,6 +69,7 @@ describe("GeneralSettingsPage", () => {
       authoredNotificationsEnabled: true,
       taskTrackerNotificationsEnabled: true,
       extraFunctionsEnabled: false,
+      modelTestingEnabled: true,
       aiReviewAttempts: 3,
       notificationPermission: "denied",
     };
@@ -122,15 +123,28 @@ describe("GeneralSettingsPage", () => {
     installAvailableUpdateMock.mockResolvedValue(undefined);
   });
 
-  it("persists the opt-in developer feature toggle and notifies the app", async () => {
+  it("persists the extra-functions master switch without resetting individual choices", async () => {
     const onChanged = vi.fn();
     const unsubscribe = subscribeAppEvent(APP_EVENT.extraFunctionsEnabledChanged, onChanged);
     render(<I18nProvider><GeneralSettingsPage /></I18nProvider>);
-    const toggle = await screen.findByRole("switch", { name: "Model-testing" });
-    expect(toggle).not.toBeChecked();
-    fireEvent.click(toggle);
+    const master = await screen.findByRole("switch", { name: "Extra functions" });
+    const toggle = screen.getByRole("switch", { name: "Model-testing" });
+    expect(master).not.toBeChecked();
+    expect(toggle).toBeChecked();
+    expect(toggle).toBeDisabled();
+    fireEvent.click(master);
     await waitFor(() => expect(saveGeneralSettingsMock).toHaveBeenLastCalledWith(expect.objectContaining({ extraFunctionsEnabled: true })));
-    await waitFor(() => expect(onChanged).toHaveBeenCalledWith(true));
+    await waitFor(() => expect(onChanged).toHaveBeenCalledWith({ extraFunctionsEnabled: true, modelTestingEnabled: true }));
+    expect(toggle).toBeEnabled();
+    fireEvent.click(toggle);
+    await waitFor(() => expect(onChanged).toHaveBeenLastCalledWith({ extraFunctionsEnabled: true, modelTestingEnabled: false }));
+    fireEvent.click(master);
+    await waitFor(() => expect(master).not.toBeChecked());
+    expect(toggle).toBeDisabled();
+    expect(toggle).not.toBeChecked();
+    fireEvent.click(master);
+    await waitFor(() => expect(onChanged).toHaveBeenLastCalledWith({ extraFunctionsEnabled: true, modelTestingEnabled: false }));
+    expect(toggle).toBeEnabled();
     unsubscribe();
   });
 
@@ -162,6 +176,7 @@ describe("GeneralSettingsPage", () => {
       authoredNotificationsEnabled: true,
       taskTrackerNotificationsEnabled: false,
       extraFunctionsEnabled: false,
+      modelTestingEnabled: true,
       language: "english",
       aiResponseLanguage: "sameAsUi",
       themePreference: "system",
@@ -202,6 +217,7 @@ describe("GeneralSettingsPage", () => {
       authoredNotificationsEnabled: true,
       taskTrackerNotificationsEnabled: false,
       extraFunctionsEnabled: false,
+      modelTestingEnabled: true,
       language: "english",
       aiResponseLanguage: "sameAsUi",
       themePreference: "light",

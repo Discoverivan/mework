@@ -14,6 +14,12 @@ const Tooltip = ({ children, ...props }: React.ComponentProps<typeof TooltipPrim
   </TooltipPrimitive.Root>
 )
 
+function hasVisibleText(node: Node): boolean {
+  if (node.nodeType === Node.TEXT_NODE) return Boolean(node.textContent?.trim())
+  if (node instanceof Element && (node.localName === "svg" || node.matches(".sr-only, .hidden, [hidden]"))) return false
+  return Array.from(node.childNodes).some(hasVisibleText)
+}
+
 const TooltipTrigger = React.forwardRef<
   React.ElementRef<typeof TooltipPrimitive.Trigger>,
   React.ComponentPropsWithoutRef<typeof TooltipPrimitive.Trigger>
@@ -29,7 +35,7 @@ const TooltipTrigger = React.forwardRef<
     }}
     onFocus={(event) => {
       onFocus?.(event)
-      if (suppressRestoredFocus.current || event.currentTarget.getAttribute("aria-expanded") === "true") {
+      if (hasVisibleText(event.currentTarget) || suppressRestoredFocus.current || event.currentTarget.getAttribute("aria-expanded") === "true") {
         event.preventDefault()
       }
       suppressRestoredFocus.current = false
@@ -40,7 +46,7 @@ const TooltipTrigger = React.forwardRef<
     }}
     onPointerMove={(event) => {
       onPointerMove?.(event)
-      if (event.currentTarget.getAttribute("aria-expanded") === "true") {
+      if (hasVisibleText(event.currentTarget) || event.currentTarget.getAttribute("aria-expanded") === "true") {
         event.preventDefault()
       } else if (!event.defaultPrevented && event.pointerType !== "touch") {
         suppressRestoredFocus.current = false

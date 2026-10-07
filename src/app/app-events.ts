@@ -40,7 +40,7 @@ interface AppEventMap {
   [APP_EVENT.updateAvailabilityChanged]: UpdateAvailabilitySnapshot;
   [APP_EVENT.updateNoticeDismissalChanged]: string | null;
   [APP_EVENT.tokenBurnerChanged]: TokenBurnerSnapshot;
-  [APP_EVENT.extraFunctionsEnabledChanged]: boolean;
+  [APP_EVENT.extraFunctionsEnabledChanged]: { extraFunctionsEnabled: boolean; modelTestingEnabled: boolean };
 }
 
 type AppEventName = keyof AppEventMap;
