@@ -246,9 +246,7 @@ describe("DailyPage smoke test", () => {
     const statusButton = screen.getByRole("button", { name: "Change status for DEMO-2 (current: In Progress)" });
     expect(statusButton).not.toHaveAttribute("title");
     fireEvent.focus(statusButton);
-    const statusHint = await screen.findByRole("tooltip");
-    expect(statusHint).toHaveTextContent("Change status");
-    expect(statusHint.closest("[data-side]")).toHaveAttribute("data-side", "bottom");
+    expect(screen.queryByRole("tooltip")).not.toBeInTheDocument();
     fireEvent.blur(statusButton);
     fireEvent.pointerDown(statusButton, { button: 0, ctrlKey: false });
     expect(await screen.findByRole("menuitem", { name: /Code Review/ })).toBeInTheDocument();

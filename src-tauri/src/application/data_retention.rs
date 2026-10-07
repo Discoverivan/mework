@@ -98,9 +98,9 @@ pub struct DataRetentionSettings {
 impl Default for DataRetentionSettings {
     fn default() -> Self {
         Self {
-            review_history: RetentionPeriod::days(90),
-            sync_history: RetentionPeriod::days(30),
-            removed_tasks: RetentionPeriod::days(30),
+            review_history: RetentionPeriod::days(7),
+            sync_history: RetentionPeriod::days(7),
+            removed_tasks: RetentionPeriod::days(7),
         }
     }
 }
@@ -213,6 +213,10 @@ mod tests {
             crate::infrastructure::db::open_database(&directory.path().join("retention.sqlite"))
                 .await
                 .unwrap();
+        let defaults = super::settings(&pool).await.unwrap();
+        assert_eq!(defaults.review_history, RetentionPeriod::days(7));
+        assert_eq!(defaults.sync_history, RetentionPeriod::days(7));
+        assert_eq!(defaults.removed_tasks, RetentionPeriod::days(7));
         repositories::upsert_setting(
             &pool,
             SETTINGS_KEY,

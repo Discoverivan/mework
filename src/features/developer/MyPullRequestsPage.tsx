@@ -890,13 +890,13 @@ export function MyPullRequestsPage() {
               <CardHeader className="bg-muted px-3 py-1">
                 <div className="flex items-center justify-between gap-3">
                   <CardTitle className="min-w-0 flex-1 text-[15px] font-normal leading-normal">{t("pr.filters.projects")}</CardTitle>
-                  <div className="flex w-11 shrink-0 items-center justify-end">
+                  <div className="flex shrink-0 items-center justify-end">
                     <Popover modal open={settingsOpen && filterSearch === "project"} onOpenChange={(open) => {
                       setFilterSearch((current) => open ? "project" : current === "project" ? undefined : current);
                       if (open) setProjectInput("");
                     }}>
                       <PopoverTrigger asChild>
-                        <CreateButton type="button" variant="outline" className="h-7" aria-label={t("pr.filters.addProject")} title={t("pr.filters.addProject")} />
+                        <CreateButton type="button" variant="outline" className="h-7" aria-label={t("pr.filters.addProject")} />
                       </PopoverTrigger>
                       <PopoverContent align="end" aria-label={t("pr.filters.addProject")} className="flex w-[min(24rem,calc(100vw-2rem))] flex-col gap-3">
                         <Label htmlFor={`${filterTab}-project-input`}>{t("pr.filters.projects")}</Label>
@@ -931,9 +931,9 @@ export function MyPullRequestsPage() {
                     {draftSettings[activeProjectField].map((value) => (
                       <li key={value} className="flex min-h-10 min-w-0 items-center justify-between gap-3 border-b py-1.5 text-[13px] last:border-b-0">
                         <span className="min-w-0 break-words">{value}</span>
-                        <div className="flex w-11 shrink-0 items-center justify-end">
-                          <Button type="button" size="icon" variant="ghost" actionTone="delete" className="size-7 shrink-0 text-muted-foreground hover:bg-transparent hover:text-destructive" aria-label={t("pr.filters.removeProject", { list: activeTabLabel, value })} title={t("pr.filters.removeProject", { list: activeTabLabel, value })} onClick={() => removeValue("project", value)}>
-                            <Trash2 aria-hidden="true" />
+                        <div className="flex shrink-0 items-center justify-end">
+                          <Button type="button" size="sm" variant="ghost" actionTone="delete" className="h-7 shrink-0 text-muted-foreground hover:bg-transparent hover:text-destructive" aria-label={t("pr.filters.removeProject", { list: activeTabLabel, value })} onClick={() => removeValue("project", value)}>
+                            <Trash2 data-icon="inline-start" aria-hidden="true" />{t("pr.filters.remove")}
                           </Button>
                         </div>
                       </li>
@@ -951,13 +951,13 @@ export function MyPullRequestsPage() {
               <CardHeader className="bg-muted px-3 py-1">
                 <div className="flex items-center justify-between gap-3">
                   <CardTitle className="min-w-0 flex-1 text-[15px] font-normal leading-normal">{t("pr.filters.repositories")}</CardTitle>
-                  <div className="flex w-11 shrink-0 items-center justify-end">
+                  <div className="flex shrink-0 items-center justify-end">
                     <Popover modal open={settingsOpen && filterSearch === "repository"} onOpenChange={(open) => {
                       setFilterSearch((current) => open ? "repository" : current === "repository" ? undefined : current);
                       if (open) setRepositoryInput("");
                     }}>
                       <PopoverTrigger asChild>
-                        <CreateButton type="button" variant="outline" className="h-7" aria-label={t("pr.filters.addRepository")} title={t("pr.filters.addRepository")} />
+                        <CreateButton type="button" variant="outline" className="h-7" aria-label={t("pr.filters.addRepository")} />
                       </PopoverTrigger>
                       <PopoverContent align="end" aria-label={t("pr.filters.addRepository")} className="flex w-[min(24rem,calc(100vw-2rem))] flex-col gap-3">
                         <Label htmlFor={`${filterTab}-repository-input`}>{t("pr.filters.repositories")}</Label>
@@ -998,9 +998,9 @@ export function MyPullRequestsPage() {
                     {draftSettings[activeRepositoryField].map((value) => (
                       <li key={value} className="flex min-h-10 min-w-0 items-center justify-between gap-3 border-b py-1.5 text-[13px] last:border-b-0">
                         <span className="min-w-0 break-words">{value}</span>
-                        <div className="flex w-11 shrink-0 items-center justify-end">
-                          <Button type="button" size="icon" variant="ghost" actionTone="delete" className="size-7 shrink-0 text-muted-foreground hover:bg-transparent hover:text-destructive" aria-label={t("pr.filters.removeRepository", { list: activeTabLabel, value })} title={t("pr.filters.removeRepository", { list: activeTabLabel, value })} onClick={() => removeValue("repository", value)}>
-                            <Trash2 aria-hidden="true" />
+                        <div className="flex shrink-0 items-center justify-end">
+                          <Button type="button" size="sm" variant="ghost" actionTone="delete" className="h-7 shrink-0 text-muted-foreground hover:bg-transparent hover:text-destructive" aria-label={t("pr.filters.removeRepository", { list: activeTabLabel, value })} onClick={() => removeValue("repository", value)}>
+                            <Trash2 data-icon="inline-start" aria-hidden="true" />{t("pr.filters.remove")}
                           </Button>
                         </div>
                       </li>
@@ -1018,13 +1018,13 @@ export function MyPullRequestsPage() {
               <CardHeader className="bg-muted px-3 py-1">
                 <div className="flex items-center justify-between gap-3">
                   <CardTitle className="min-w-0 flex-1 text-[15px] font-normal leading-normal">{t("pr.filters.creators")}</CardTitle>
-                  <div className="flex w-11 shrink-0 items-center justify-end">
+                  <div className="flex shrink-0 items-center justify-end">
                     <Popover modal open={settingsOpen && filterSearch === "creator"} onOpenChange={(open) => {
                       setFilterSearch((current) => open ? "creator" : current === "creator" ? undefined : current);
                       if (open) setCreatorInput("");
                     }}>
                       <PopoverTrigger asChild>
-                        <CreateButton type="button" variant="outline" className="h-7" aria-label={t("pr.filters.addCreator")} title={t("pr.filters.addCreator")} />
+                        <CreateButton type="button" variant="outline" className="h-7" aria-label={t("pr.filters.addCreator")} />
                       </PopoverTrigger>
                       <PopoverContent align="end" aria-label={t("pr.filters.addCreator")} className="flex w-[min(24rem,calc(100vw-2rem))] flex-col gap-3">
                         <Label htmlFor={`${filterTab}-creator-input`}>{t("pr.filters.creators")}</Label>
@@ -1070,9 +1070,9 @@ export function MyPullRequestsPage() {
                     {draftSettings[activeCreatorField].map((value) => (
                       <li key={value} className="flex min-h-10 min-w-0 items-center justify-between gap-3 border-b py-1.5 text-[13px] last:border-b-0">
                         <span className="min-w-0 break-words">{value}</span>
-                        <div className="flex w-11 shrink-0 items-center justify-end">
-                          <Button type="button" size="icon" variant="ghost" actionTone="delete" className="size-7 shrink-0 text-muted-foreground hover:bg-transparent hover:text-destructive" aria-label={t("pr.filters.removeCreator", { list: activeTabLabel, value })} title={t("pr.filters.removeCreator", { list: activeTabLabel, value })} onClick={() => removeValue("creator", value)}>
-                            <Trash2 aria-hidden="true" />
+                        <div className="flex shrink-0 items-center justify-end">
+                          <Button type="button" size="sm" variant="ghost" actionTone="delete" className="h-7 shrink-0 text-muted-foreground hover:bg-transparent hover:text-destructive" aria-label={t("pr.filters.removeCreator", { list: activeTabLabel, value })} onClick={() => removeValue("creator", value)}>
+                            <Trash2 data-icon="inline-start" aria-hidden="true" />{t("pr.filters.remove")}
                           </Button>
                         </div>
                       </li>

@@ -9,7 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from ".
 function ExamplePicker() {
   const [open, setOpen] = useState(false);
   return <Popover open={open} onOpenChange={setOpen}>
-    <PopoverTrigger asChild><Button title="Example picker hint">Open example picker</Button></PopoverTrigger>
+    <PopoverTrigger asChild><Button title="Example picker hint" aria-label="Open example picker"><svg aria-hidden="true" /><span className="sr-only">Open example picker</span></Button></PopoverTrigger>
     <PopoverContent aria-label="Example picker">
       <Button onClick={() => setOpen(false)}>Select example item</Button>
     </PopoverContent>
@@ -34,7 +34,7 @@ it("dismisses a picker hint on activation and keeps it closed when selection res
   expect(await screen.findByRole("tooltip")).toHaveTextContent("Example picker hint");
 });
 
-it("keeps a select hint closed after keyboard selection restores focus", async () => {
+it("keeps hints hidden for labeled controls through keyboard selection", async () => {
   Element.prototype.scrollIntoView = vi.fn();
   render(<Select defaultValue="first">
     <SelectTrigger title="Example select hint"><SelectValue /></SelectTrigger>
@@ -42,7 +42,7 @@ it("keeps a select hint closed after keyboard selection restores focus", async (
   </Select>);
   const trigger = screen.getByRole("combobox");
   act(() => trigger.focus());
-  expect(await screen.findByRole("tooltip")).toHaveTextContent("Example select hint");
+  expect(screen.queryByRole("tooltip")).not.toBeInTheDocument();
   fireEvent.keyDown(trigger, { key: "ArrowDown" });
   const option = await screen.findByRole("option", { name: "Second example" });
   act(() => option.focus());

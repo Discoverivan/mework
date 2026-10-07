@@ -9,7 +9,7 @@ it("focuses the opened form and shows a control hint when the user focuses that 
     <DialogTrigger asChild><Button>Open example form</Button></DialogTrigger>
     <DialogContent aria-describedby={undefined}>
       <DialogTitle>Example form</DialogTitle>
-      <Button title="Example control hint">Example control</Button>
+      <Button title="Example control hint" aria-label="Example control"><svg aria-hidden="true" /></Button>
     </DialogContent>
   </Dialog>);
 

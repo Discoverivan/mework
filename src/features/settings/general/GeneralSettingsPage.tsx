@@ -109,6 +109,7 @@ export function GeneralSettingsPage() {
       authoredNotificationsEnabled: settings.authoredNotificationsEnabled,
       taskTrackerNotificationsEnabled: settings.taskTrackerNotificationsEnabled,
       extraFunctionsEnabled: settings.extraFunctionsEnabled,
+      modelTestingEnabled: settings.modelTestingEnabled,
       language: settings.language,
       aiResponseLanguage: settings.aiResponseLanguage ?? AiResponseLanguage.SameAsUi,
       themePreference: settings.themePreference,
@@ -128,8 +129,11 @@ export function GeneralSettingsPage() {
           })
         : await saveGeneralSettings(requested);
       setSettings(saved);
-      if (changes.extraFunctionsEnabled !== undefined) {
-        emitAppEvent(APP_EVENT.extraFunctionsEnabledChanged, saved.extraFunctionsEnabled);
+      if (changes.extraFunctionsEnabled !== undefined || changes.modelTestingEnabled !== undefined) {
+        emitAppEvent(APP_EVENT.extraFunctionsEnabledChanged, {
+          extraFunctionsEnabled: saved.extraFunctionsEnabled,
+          modelTestingEnabled: saved.modelTestingEnabled,
+        });
       }
     } catch (saveError) {
       setSettings(previous);
@@ -529,9 +533,15 @@ export function GeneralSettingsPage() {
 
       <Card>
         <CardHeader className="space-y-4 px-4 py-3.5">
-          <div>
-            <CardTitle className="text-base font-semibold leading-tight">{t("general.extraFunctions")}</CardTitle>
-            <CardDescription className="mt-1 leading-snug">{t("general.extraFunctionsDescription")}</CardDescription>
+          <div className="flex items-center justify-between gap-4">
+            <div className="-translate-y-px min-w-0">
+              <Label htmlFor="general-extra-functions-enabled" alignment="inline" className="text-base font-semibold leading-tight">{t("general.extraFunctions")}</Label>
+              <CardDescription className="mt-1 leading-snug">{t("general.extraFunctionsDescription")}</CardDescription>
+            </div>
+            <Switch id="general-extra-functions-enabled" size="md"
+              checked={settings?.extraFunctionsEnabled ?? false}
+              onCheckedChange={(checked) => void handlePreferencesChange({ extraFunctionsEnabled: checked })}
+              disabled={loading || saving} />
           </div>
           <div className="border-t pt-4">
             <div className="flex items-center justify-between gap-4 pl-4">
@@ -544,9 +554,9 @@ export function GeneralSettingsPage() {
               <Switch
                 id="general-model-testing-enabled"
                 size="sm"
-                checked={settings?.extraFunctionsEnabled ?? false}
-                onCheckedChange={(checked) => void handlePreferencesChange({ extraFunctionsEnabled: checked })}
-                disabled={loading || saving}
+                checked={settings?.modelTestingEnabled ?? true}
+                onCheckedChange={(checked) => void handlePreferencesChange({ modelTestingEnabled: checked })}
+                disabled={loading || saving || !(settings?.extraFunctionsEnabled ?? false)}
               />
             </div>
           </div>

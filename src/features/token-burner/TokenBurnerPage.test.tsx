@@ -122,7 +122,7 @@ describe("TokenBurnerPage", () => {
       expect(running.querySelector("svg")).toHaveClass("size-4", "animate-spin");
     }
     fireEvent.focus(runningStatuses[0]);
-    expect(await screen.findByRole("tooltip")).toHaveTextContent("Looking for pull requests and running AI reviews.");
+    expect(screen.queryByRole("tooltip")).not.toBeInTheDocument();
   });
 
   it("shows unknown usage and an interrupted review after Stop", async () => {

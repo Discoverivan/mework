@@ -211,7 +211,8 @@ function AppContent() {
       }
       let modelTestingPreference = false;
       try {
-        modelTestingPreference = (await generalSettings()).extraFunctionsEnabled;
+        const settings = await generalSettings();
+        modelTestingPreference = settings.extraFunctionsEnabled && settings.modelTestingEnabled;
       } catch {
         // Keep optional developer features hidden if settings could not be loaded.
       }
@@ -351,7 +352,7 @@ function AppContent() {
 
   useEffect(() => subscribeAppEvent(
     APP_EVENT.extraFunctionsEnabledChanged,
-    setModelTestingEnabled,
+    (settings) => setModelTestingEnabled(settings.extraFunctionsEnabled && settings.modelTestingEnabled),
   ), []);
 
   useEffect(() => {

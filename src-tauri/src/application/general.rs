@@ -10,7 +10,7 @@ use crate::os::notifications::{
 };
 
 const GENERAL_SETTINGS_KEY: &str = "general.settings";
-const GENERAL_SETTINGS_SCHEMA_VERSION: i64 = 6;
+const GENERAL_SETTINGS_SCHEMA_VERSION: i64 = 7;
 pub const DEFAULT_AI_REVIEW_ATTEMPTS: u8 = 3;
 pub const MAX_AI_REVIEW_ATTEMPTS: u8 = 10;
 static GENERAL_SETTINGS_WRITE_LOCK: OnceLock<tokio::sync::Mutex<()>> = OnceLock::new();
@@ -108,6 +108,8 @@ pub struct GeneralSettings {
     pub button_style: ButtonStyle,
     #[serde(default)]
     pub extra_functions_enabled: bool,
+    #[serde(default = "enabled_by_default")]
+    pub model_testing_enabled: bool,
     #[serde(default = "default_ai_review_attempts")]
     pub ai_review_attempts: u8,
 }
@@ -124,6 +126,7 @@ impl Default for GeneralSettings {
             theme_preference: ThemePreference::System,
             button_style: ButtonStyle::Filled,
             extra_functions_enabled: false,
+            model_testing_enabled: true,
             ai_review_attempts: DEFAULT_AI_REVIEW_ATTEMPTS,
         }
     }
@@ -141,6 +144,7 @@ pub struct GeneralSettingsDto {
     pub theme_preference: ThemePreference,
     pub button_style: ButtonStyle,
     pub extra_functions_enabled: bool,
+    pub model_testing_enabled: bool,
     pub ai_review_attempts: u8,
     pub notification_permission: NotificationPermission,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -219,6 +223,7 @@ pub async fn save_general_preferences(
     task_tracker_notifications_enabled: bool,
     ai_response_language: AiResponseLanguage,
     extra_functions_enabled: bool,
+    model_testing_enabled: bool,
 ) -> Result<(), String> {
     update(pool, |settings| {
         settings.notifications_enabled = notifications_enabled;
@@ -227,6 +232,7 @@ pub async fn save_general_preferences(
         settings.task_tracker_notifications_enabled = task_tracker_notifications_enabled;
         settings.ai_response_language = ai_response_language;
         settings.extra_functions_enabled = extra_functions_enabled;
+        settings.model_testing_enabled = model_testing_enabled;
     })
     .await
 }
@@ -276,6 +282,7 @@ pub async fn dto<R: Runtime>(
         theme_preference: settings.theme_preference,
         button_style: settings.button_style,
         extra_functions_enabled: settings.extra_functions_enabled,
+        model_testing_enabled: settings.model_testing_enabled,
         ai_review_attempts: settings.ai_review_attempts,
         notification_permission,
         permission_check_error,
@@ -376,6 +383,7 @@ mod tests {
         assert_eq!(settings.theme_preference, ThemePreference::System);
         assert_eq!(settings.button_style, ButtonStyle::Filled);
         assert!(!settings.extra_functions_enabled);
+        assert!(settings.model_testing_enabled);
         assert_eq!(settings.ai_review_attempts, DEFAULT_AI_REVIEW_ATTEMPTS);
     }
 
@@ -387,6 +395,7 @@ mod tests {
         .unwrap();
         assert_eq!(legacy.ai_response_language, AiResponseLanguage::SameAsUi);
         assert_eq!(legacy.button_style, ButtonStyle::Filled);
+        assert!(legacy.model_testing_enabled);
         assert_eq!(legacy.ai_review_attempts, DEFAULT_AI_REVIEW_ATTEMPTS);
         assert_eq!(
             legacy.ai_response_language.output_language(legacy.language),
@@ -463,6 +472,7 @@ mod tests {
             false,
             AiResponseLanguage::Russian,
             true,
+            false,
         )
         .await
         .unwrap();
@@ -478,5 +488,6 @@ mod tests {
         assert!(!settings.task_tracker_notifications_enabled);
         assert!(settings.extra_functions_enabled);
         assert_eq!(settings.ai_review_attempts, 4);
+        assert!(!settings.model_testing_enabled);
     }
 }
