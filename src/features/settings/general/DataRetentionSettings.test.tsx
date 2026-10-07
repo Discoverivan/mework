@@ -18,6 +18,7 @@ it("loads retention settings and saves a changed history limit", async () => {
   render(<I18nProvider><DataRetentionSettings /></I18nProvider>);
   const history = await screen.findByRole("textbox", { name: "PR review history" });
   expect(history).toHaveValue("7");
+  const compactWidth = history.style.width;
   const logs = screen.getByRole("textbox", { name: "Diagnostic logs" });
   expect(logs).toHaveValue("7");
   expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
@@ -25,11 +26,15 @@ it("loads retention settings and saves a changed history limit", async () => {
   expect(history).toHaveValue("");
   expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
   fireEvent.change(history, { target: { value: "30" } });
+  expect(history.style.width).toBe(compactWidth);
+  fireEvent.change(history, { target: { value: "1234" } });
+  expect(history).toHaveValue("1234");
+  expect(history.style.width).not.toBe(compactWidth);
   fireEvent.click(screen.getByRole("combobox", { name: "PR review history unit" }));
   fireEvent.click(screen.getByRole("option", { name: "Hours" }));
   fireEvent.change(logs, { target: { value: "14" } });
   fireEvent.click(screen.getByRole("button", { name: "Save" }));
-  await waitFor(() => expect(invokeMock).toHaveBeenCalledWith("data_retention_settings_save", { settings: { ...settings, reviewHistory: { value: 30, unit: "hours" }, diagnosticLogs: { value: 14, unit: "days" } } }));
+  await waitFor(() => expect(invokeMock).toHaveBeenCalledWith("data_retention_settings_save", { settings: { ...settings, reviewHistory: { value: 1234, unit: "hours" }, diagnosticLogs: { value: 14, unit: "days" } } }));
   expect(screen.getByRole("combobox", { name: "PR review history unit" })).toHaveTextContent("Hours");
   await waitFor(() => expect(screen.getByRole("button", { name: "Save" })).toBeDisabled());
 });
