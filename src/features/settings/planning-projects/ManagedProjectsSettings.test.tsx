@@ -78,6 +78,37 @@ beforeEach(() => {
 });
 
 describe("ManagedProjectsSettings task creation settings", () => {
+  it("confirms removal of a member and team after allowing cancellation", async () => {
+    listMembersMock.mockResolvedValue([{
+      accountId: "user-1", displayName: "Example Member", tags: ["backend"], active: true,
+    }]);
+    render(<ManagedProjectsSettings jiraIntegrations={[{
+      id: "jira-1", kind: "jira", baseUrl: "https://jira.example.invalid", enabled: true, capabilities: {},
+    }]} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Open Platform team project details" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Delete Example Member" }));
+    let confirmation = within(await screen.findByRole("dialog", { name: "Remove team member" }));
+    fireEvent.click(confirmation.getByRole("button", { name: "Cancel" }));
+    expect(removePlanningTeamMember).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Delete Example Member" }));
+    confirmation = within(await screen.findByRole("dialog", { name: "Remove team member" }));
+    fireEvent.click(confirmation.getByRole("button", { name: "Delete" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    expect(removePlanningTeamMember).toHaveBeenCalledWith("team-1", "user-1");
+    expect(screen.queryByRole("button", { name: "Delete Example Member" })).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Delete Platform team" }));
+    confirmation = within(await screen.findByRole("dialog", { name: "Delete team" }));
+    fireEvent.click(confirmation.getByRole("button", { name: "Cancel" }));
+    expect(deleteManagedProject).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Delete Platform team" }));
+    confirmation = within(await screen.findByRole("dialog", { name: "Delete team" }));
+    fireEvent.click(confirmation.getByRole("button", { name: "Delete" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    expect(deleteManagedProject).toHaveBeenCalledWith("team-1");
+    expect(screen.queryByRole("button", { name: "Delete Platform team" })).not.toBeInTheDocument();
+  });
+
   it("shows the saved board and saves or closes editing without waiting for board choices", async () => {
     render(
       <ManagedProjectsSettings

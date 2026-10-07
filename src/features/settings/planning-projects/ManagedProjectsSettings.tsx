@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Separator } from "@/components/ui/separator";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
   Dialog,
@@ -45,6 +46,7 @@ import "./TeamSettings.css";
 
 type Action = "next" | "save" | "delete" | null;
 type AddTeamStep = "details" | "board";
+type DeleteTarget = { kind: "team"; project: ManagedProjectSettings } | { kind: "member"; member: TeamMember };
 
 const ROLE_OPTIONS = ["backend", "frontend", "qa", "devops", "analyst", "product", "architect"];
 const NO_SELECTION = "__none__";
@@ -285,6 +287,8 @@ export function ManagedProjectsSettings({
   const [memberDialogOpen, setMemberDialogOpen] = useState(false);
   const [editingMemberAccountId, setEditingMemberAccountId] = useState<string | null>(null);
   const [detailHost, setDetailHost] = useState<HTMLDivElement | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<DeleteTarget | null>(null);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   useEffect(() => {
     let active = true;
@@ -753,17 +757,19 @@ export function ManagedProjectsSettings({
   }
 
   async function handleDelete(project: ManagedProjectSettings) {
+    if (controlsDisabled) return;
     setAction("delete");
     setDeletingProjectId(project.id);
-    setSaveError(null);
+    setDeleteError(null);
     try {
       await deleteManagedProject(project.id);
       setProjects((current) => current.filter((candidate) => candidate.id !== project.id));
       if (detailProject?.id === project.id) setDetailProject(null);
       if (form?.id === project.id) setForm(null);
+      setDeleteTarget(null);
     } catch (error) {
       const message = commandError(error);
-      setSaveError(/permission|forbidden|denied/i.test(message)
+      setDeleteError(/permission|forbidden|denied/i.test(message)
         ? t("teams.deletePermissionError")
         : t("teams.deleteError"));
     } finally {
@@ -830,15 +836,16 @@ export function ManagedProjectsSettings({
   }
 
   async function handleRemoveTeamMember(accountId: string) {
-    if (!detailProject || teamSaving) return;
+    if (!detailProject || controlsDisabled) return;
     setTeamSaving(true);
     setRemovingMemberAccountId(accountId);
-    setTeamSaveError(null);
+    setDeleteError(null);
     try {
       await removePlanningTeamMember(detailProject.id, accountId);
       setConfiguredMembers((current) => current.filter((member) => member.accountId !== accountId));
+      setDeleteTarget(null);
     } catch (error) {
-      setTeamSaveError(t("teams.removeMemberError", { error: commandError(error) }));
+      setDeleteError(t("teams.removeMemberError", { error: commandError(error) }));
     } finally {
       setTeamSaving(false);
       setRemovingMemberAccountId(null);
@@ -973,7 +980,7 @@ export function ManagedProjectsSettings({
                           size="icon"
                           actionTone="delete"
                           className="size-8 text-muted-foreground hover:bg-transparent hover:text-destructive [&_svg]:size-[18px]"
-                          onClick={() => void handleDelete(project)}
+                          onClick={() => { setDeleteError(null); setDeleteTarget({ kind: "team", project }); }}
                           disabled={controlsDisabled}
                           aria-label={t(deletingProjectId === project.id ? "teams.deletingTeamAction" : "teams.deleteTeamAction", { team: project.projectName })}
                           title={t(deletingProjectId === project.id ? "teams.deletingTeamAction" : "teams.deleteTeamAction", { team: project.projectName })}
@@ -1005,6 +1012,25 @@ export function ManagedProjectsSettings({
           })}
         </div>
       ) : null}
+
+      <Dialog open={deleteTarget !== null} onOpenChange={(open) => { if (!open && !controlsDisabled) setDeleteTarget(null); }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{t(deleteTarget?.kind === "member" ? "teams.confirmDeleteMember" : "teams.confirmDeleteTeam")}</DialogTitle>
+            <DialogDescription>{deleteTarget?.kind === "member"
+              ? t("teams.deleteMemberConfirmation", { member: memberLabel(deleteTarget.member) })
+              : t("teams.deleteTeamConfirmation", { team: deleteTarget?.project.projectName ?? "" })}</DialogDescription>
+          </DialogHeader>
+          {deleteError ? <Alert variant="destructive" role="alert"><AlertDescription>{deleteError}</AlertDescription></Alert> : null}
+          <DialogFooter>
+            <Button data-dialog-cancel type="button" variant="outline" onClick={() => setDeleteTarget(null)} disabled={controlsDisabled}>{t("settings.common.cancel")}</Button>
+            <Button type="button" variant="destructive" disabled={controlsDisabled} onClick={() => {
+              if (deleteTarget?.kind === "team") void handleDelete(deleteTarget.project);
+              else if (deleteTarget?.kind === "member") void handleRemoveTeamMember(deleteTarget.member.accountId);
+            }}>{t(controlsDisabled ? "teams.deleting" : "teams.delete")}</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {form ? (
         <Dialog open onOpenChange={(open) => { if (!open) closeTeamForm(); }}>
@@ -1190,22 +1216,22 @@ export function ManagedProjectsSettings({
         <div className="team-settings-reveal">
         <div className="min-h-0 overflow-hidden">
         <div className="border-t px-4 pb-4 pt-4">
-          <div className="grid gap-4 pl-4">
-            <section className="grid gap-2" aria-label={t("teams.taskSettings")}>
+          <div className="team-settings-content grid gap-4 pl-4">
+            <section className="grid gap-3" aria-label={t("teams.taskSettings")}>
               <div>
                 <h3 className="font-semibold">{t("teams.taskSettings")}</h3>
                 <p className="text-sm text-muted-foreground">{t("teams.taskSettingsDescription")}</p>
               </div>
-              <div className="task-creation-settings grid gap-4 rounded-md border bg-background p-4">
-              <div className="grid gap-2 sm:max-w-xl">
-                <Label htmlFor={`default-task-sprint-${detailProject.id}`}>{t("teams.defaultSprint")}</Label>
-                <div>
+              <Separator />
+              <div className="flex flex-wrap items-center justify-between gap-4">
+                <Label alignment="inline" htmlFor={`default-task-sprint-${detailProject.id}`}>{t("teams.defaultSprint")}</Label>
+                <div className="grid gap-2">
                   <Select value={defaultTaskSprintId || NO_SELECTION} onValueChange={(value) => {
                     const nextId = value === NO_SELECTION ? "" : value;
                     setDefaultTaskSprintId(nextId);
                     setDefaultTaskSprintName(taskSprints.find((sprint) => sprint.id === nextId)?.name ?? "");
                   }} disabled={controlsDisabled || taskSprintsLoading}>
-                    <SelectTrigger className="bg-card" id={`default-task-sprint-${detailProject.id}`} aria-label={t("teams.defaultSprint")}><SelectValue /></SelectTrigger>
+                    <SelectTrigger id={`default-task-sprint-${detailProject.id}`} aria-label={t("teams.defaultSprint")}><SelectValue /></SelectTrigger>
                     <SelectContent>
                       <SelectItem value={NO_SELECTION}>{taskSprintsLoading ? t("teams.loadingSprints") : t("teams.noDefaultSprint")}</SelectItem>
                       {defaultTaskSprintId && !taskSprints.some((sprint) => sprint.id === defaultTaskSprintId) ? (
@@ -1214,14 +1240,18 @@ export function ManagedProjectsSettings({
                       {taskSprints.map((sprint) => <SelectItem key={sprint.id} value={sprint.id}>{sprint.name}</SelectItem>)}
                     </SelectContent>
                   </Select>
-                </div>
                 {taskSprintsError ? <p className="text-xs text-destructive">{t("teams.loadSprintsError", { error: taskSprintsError })}</p> : null}
+                </div>
               </div>
-              <div className="grid gap-2">
-                <Label htmlFor={`epic-link-jql-${detailProject.id}`}>{t("teams.epicJql")}</Label>
-                <div className="flex flex-wrap gap-2">
+              <Separator />
+              <div className="flex flex-wrap items-center justify-between gap-4">
+                <div className="min-w-0 flex-1 basis-48">
+                  <Label alignment="inline" htmlFor={`epic-link-jql-${detailProject.id}`}>{t("teams.epicJql")}</Label>
+                  <p className="mt-1 text-xs text-muted-foreground">{t("teams.epicJqlDescription")}</p>
+                </div>
+                <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto sm:max-w-xl sm:flex-1">
                   <Input
-                    className="bg-card"
+                    className="min-w-0 flex-1 basis-48"
                     id={`epic-link-jql-${detailProject.id}`}
                     aria-label={t("teams.epicJql")}
                     value={epicLinkJql}
@@ -1234,21 +1264,25 @@ export function ManagedProjectsSettings({
                     placeholder="project = DEMO AND issuetype = Epic"
                     disabled={controlsDisabled}
                   />
-                  <Button className="bg-card" type="button" variant="outline" onClick={() => void handleCheckEpicLinkJql()} disabled={controlsDisabled || epicPreviewLoading || !epicLinkJql.trim()}>
+                  <Button type="button" variant="outline" onClick={() => void handleCheckEpicLinkJql()} disabled={controlsDisabled || epicPreviewLoading || !epicLinkJql.trim()}>
                     {epicPreviewLoading ? t("settings.common.checking") : t("teams.check")}
                   </Button>
                 </div>
-                <p className="text-xs text-muted-foreground">{t("teams.epicJqlDescription")}</p>
-                <div className="grid gap-2 sm:max-w-xl">
-                  <Label htmlFor={`default-epic-link-${detailProject.id}`}>{t("teams.defaultEpic")}</Label>
-                  <div>
+              </div>
+              <Separator />
+              <div className="flex flex-wrap items-center justify-between gap-4">
+                <div className="min-w-0 flex-1 basis-48">
+                  <Label alignment="inline" htmlFor={`default-epic-link-${detailProject.id}`}>{t("teams.defaultEpic")}</Label>
+                  <p className="mt-1 text-xs text-muted-foreground">{t("teams.epicSaveHint")}</p>
+                </div>
+                  <div className="max-w-full">
                     <Select value={defaultEpicLinkKey || NO_SELECTION} onValueChange={(value) => {
                       const nextKey = value === NO_SELECTION ? "" : value;
                       const selected = epicPreviewIssues.find((issue) => issue.key === nextKey);
                       setDefaultEpicLinkKey(nextKey);
                       setDefaultEpicLinkSummary(selected?.summary ?? (nextKey ? defaultEpicLinkSummary : ""));
                     }} disabled={controlsDisabled}>
-                      <SelectTrigger className="bg-card" id={`default-epic-link-${detailProject.id}`} aria-label={t("teams.defaultEpic")}><SelectValue /></SelectTrigger>
+                      <SelectTrigger id={`default-epic-link-${detailProject.id}`} aria-label={t("teams.defaultEpic")}><SelectValue /></SelectTrigger>
                       <SelectContent>
                         <SelectItem value={NO_SELECTION}>{t("teams.noDefaultEpic")}</SelectItem>
                         {defaultEpicLinkKey && !epicPreviewIssues.some((issue) => issue.key === defaultEpicLinkKey) ? (
@@ -1258,8 +1292,6 @@ export function ManagedProjectsSettings({
                       </SelectContent>
                     </Select>
                   </div>
-                  <p className="text-xs text-muted-foreground">{t("teams.epicSaveHint")}</p>
-                </div>
               </div>
               {teamSaveError ? (
                 <Alert variant="destructive" role="alert">
@@ -1267,13 +1299,12 @@ export function ManagedProjectsSettings({
                 </Alert>
               ) : null}
               <div className="flex items-center justify-between gap-2">
-                <Button className="bg-card" type="button" variant="outline" onClick={cancelTaskCreationChanges} disabled={controlsDisabled || epicPreviewLoading}>
+                <Button type="button" variant="outline" onClick={cancelTaskCreationChanges} disabled={controlsDisabled || epicPreviewLoading}>
                   {t("settings.common.cancel")}
                 </Button>
-                <Button className="bg-card" type="button" actionTone="edit" onClick={() => void handleSaveTaskCreationSettings()} disabled={controlsDisabled || epicPreviewLoading || !taskCreationChanged}>
+                <Button type="button" actionTone="edit" onClick={() => void handleSaveTaskCreationSettings()} disabled={controlsDisabled || epicPreviewLoading || !taskCreationChanged}>
                   {teamSaving ? t("settings.common.saving") : t("teams.saveTaskSettings")}
                 </Button>
-              </div>
               </div>
             </section>
 
@@ -1302,6 +1333,7 @@ export function ManagedProjectsSettings({
               </Alert>
             ) : null}
 
+            <Separator />
             <section className="grid gap-1" aria-label={t("teams.members")}>
             <div className="flex items-center justify-between gap-3">
               <h3 className="font-semibold">{t("teams.members")}</h3>
@@ -1414,17 +1446,18 @@ export function ManagedProjectsSettings({
             </Dialog>
 
             {configuredMembers.length > 0 ? (
-              <div className="grid gap-3" aria-label={t("teams.configuredMembers")}>
+              <div className="grid gap-2" aria-label={t("teams.configuredMembers")}>
                 {configuredMembers.map((member, index) => {
                   const label = memberLabel(member);
                   return (
                     <Fragment key={member.accountId}>
+                      {index > 0 ? <Separator /> : null}
                       {draggingMemberAccountId && pointerDropInsertionIndex === index ? (
                         <div className="h-1 w-full rounded-full bg-primary shadow-sm" aria-label={t("teams.dropPosition")} />
                       ) : null}
                       <div
                         data-team-member-id={member.accountId}
-                        className={`team-member-panel flex flex-wrap items-center gap-2 rounded-md border bg-background p-2 transition ${draggingMemberAccountId === member.accountId ? "opacity-60" : ""}`}
+                        className={`flex flex-wrap items-center gap-2 py-2 transition ${draggingMemberAccountId === member.accountId ? "opacity-60" : ""}`}
                       >
                       <Hint content={t("teams.dragToReorder")}><span
                         className="cursor-grab touch-none text-muted-foreground active:cursor-grabbing"
@@ -1463,7 +1496,7 @@ export function ManagedProjectsSettings({
                       <div className="min-w-48 flex-1">
                         <div className="flex min-h-5 items-center gap-2">
                           <p className="font-medium leading-5">{label}</p>
-                          <Badge variant="outline" className="bg-card px-1.5 py-0 text-[10px] leading-4">
+                          <Badge variant="outline" className="bg-background px-1.5 py-0 text-[10px] leading-4">
                             {member.tags[0] || t("teams.roleNotSelected")}
                           </Badge>
                         </div>
@@ -1488,7 +1521,7 @@ export function ManagedProjectsSettings({
                         size="icon"
                         actionTone="delete"
                         className="size-8 text-muted-foreground hover:bg-transparent hover:text-destructive [&_svg]:size-[18px]"
-                        onClick={() => void handleRemoveTeamMember(member.accountId)}
+                        onClick={() => { setDeleteError(null); setDeleteTarget({ kind: "member", member }); }}
                         disabled={controlsDisabled}
                         aria-label={t(removingMemberAccountId === member.accountId ? "teams.deletingMemberAction" : "teams.deleteMemberAction", { member: label })}
                         title={t(removingMemberAccountId === member.accountId ? "teams.deletingMemberAction" : "teams.deleteMemberAction", { member: label })}
