@@ -290,7 +290,6 @@ describe("GeneralSettingsPage", () => {
     });
     render(<GeneralSettingsPage />);
     const notificationsCard = screen.getByRole("switch", { name: "Notifications" }).closest(".rounded-lg.border.bg-card");
-    fireEvent.click(await screen.findByRole("button", { name: "Show notification settings" }));
     const allowButton = await screen.findByRole("button", { name: "Allow notifications" });
     expect(notificationsCard).toContainElement(allowButton);
     fireEvent.click(allowButton);

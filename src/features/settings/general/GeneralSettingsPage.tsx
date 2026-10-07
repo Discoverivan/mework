@@ -398,8 +398,7 @@ export function GeneralSettingsPage() {
             </div>
           </div>
         </CardHeader>
-        <SettingsReveal open={notificationsExpanded} id="general-notification-details">
-        <CardContent className="space-y-4 px-4 pb-3.5">
+        {permissionBlocked || notificationError ? <CardContent className="space-y-4 px-4 pb-3.5">
           {permissionBlocked ? (
             <Alert variant="destructive" role="alert" aria-live="polite">
               <AlertTriangle className="size-4" aria-hidden="true" />
@@ -432,6 +431,9 @@ export function GeneralSettingsPage() {
               <AlertDescription>{notificationError}</AlertDescription>
             </Alert>
           ) : null}
+        </CardContent> : null}
+        <SettingsReveal open={notificationsExpanded} id="general-notification-details">
+        <CardContent className="space-y-4 px-4 pb-3.5">
           <div className="grid gap-3 border-t pt-4">
             <div className="flex items-center justify-between gap-4 pl-4">
               <div>
