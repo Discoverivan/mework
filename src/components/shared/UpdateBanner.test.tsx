@@ -50,7 +50,7 @@ describe("UpdateBanner", () => {
     expect(screen.getByRole("alert")).toHaveTextContent("Installing updates is not allowed in the development version.");
     expect(checkForAvailableUpdateMock).not.toHaveBeenCalled();
     expect(screen.getByRole("button", { name: "Update" })).toHaveAttribute("data-action-tone", "edit");
-    fireEvent.click(screen.getByRole("button", { name: "Release notes" }));
+    fireEvent.click(screen.getByRole("button", { name: "What's new" }));
     expect(screen.getByRole("alert")).toHaveTextContent("Viewing release notes is not available in the development version.");
     expect(loadAvailableUpdateReleaseNotesMock).not.toHaveBeenCalled();
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();

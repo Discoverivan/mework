@@ -307,15 +307,15 @@ export function ApplicationInfoPage({
               <p className="application-update-title">{t("update.available", { version: availableUpdateVersion })}</p>
             </div>
             <div className="application-update-install flex flex-wrap gap-2">
+              <Button type="button" variant="secondary" size="sm" onClick={() => void handleOpenUpdateReleaseNotes()} disabled={loadingReleaseNotes}>
+                <NotebookText data-icon="inline-start" aria-hidden="true" />{t("releaseNotes.title")}
+              </Button>
               <Button type="button" variant="ghost" size="sm" disabled={installingUpdate} onClick={() => {
                 dismissUpdateNotice(availableUpdateVersion);
               }}><Clock3 data-icon="inline-start" aria-hidden="true" />{t("update.later")}</Button>
               <Button type="button" actionTone="edit" size="sm" onClick={() => void handleInstallUpdate()} disabled={isUpdateChecking || installingUpdate}>
                 {installingUpdate ? <RefreshCw data-icon="inline-start" className="animate-spin" aria-hidden="true" /> : <Download data-icon="inline-start" aria-hidden="true" />}
                 {installingUpdate ? t("general.updating", { version: availableUpdateVersion ?? "" }) : t("update.now")}
-              </Button>
-              <Button type="button" variant="secondary" size="sm" onClick={() => void handleOpenUpdateReleaseNotes()} disabled={loadingReleaseNotes}>
-                <NotebookText data-icon="inline-start" aria-hidden="true" />{t("releaseNotes.open")}
               </Button>
             </div>
           </div>
