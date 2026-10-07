@@ -89,14 +89,14 @@ export function UpdateBanner({ enabled, updateVersion, developmentBuild = import
           <div className="flex flex-col items-start gap-3 sm:flex-row sm:items-center sm:justify-between">
             <AlertTitle className="mb-0 min-w-0 flex-1 text-sm leading-snug">{t("update.available", { version: updateVersion })}</AlertTitle>
             <div className="flex shrink-0 flex-wrap gap-2">
+              <Button type="button" variant="secondary" size="sm" onClick={() => void openReleaseNotes()} disabled={loadingNotes}>
+                <NotebookText data-icon="inline-start" aria-hidden="true" />{t("releaseNotes.title")}
+              </Button>
               <Button type="button" variant="ghost" size="sm" onClick={dismissUpdate} disabled={installing}>
                 <Clock3 data-icon="inline-start" aria-hidden="true" />{t("update.later")}
               </Button>
               <Button type="button" actionTone="edit" size="sm" onClick={() => void installUpdate()} disabled={installing}>
                 {installing ? t("update.updating") : t("update.now")}
-              </Button>
-              <Button type="button" variant="secondary" size="sm" onClick={() => void openReleaseNotes()} disabled={loadingNotes}>
-                <NotebookText data-icon="inline-start" aria-hidden="true" />{t("releaseNotes.open")}
               </Button>
             </div>
           </div>

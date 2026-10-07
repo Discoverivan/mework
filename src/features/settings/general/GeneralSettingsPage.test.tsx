@@ -339,8 +339,8 @@ describe("GeneralSettingsPage", () => {
       const checkButton = screen.getByRole("button", { name: "Check for updates" });
       expect(checkButton).toHaveTextContent("Check for updates");
       expect(checkButton.querySelector("svg.lucide-refresh-cw")).not.toBeNull();
-      expect(screen.getAllByRole("button", { name: "Release notes" })).toHaveLength(2);
-      expect(screen.getAllByRole("button", { name: "Release notes" })[0]).toBe(releasesButton);
+      expect(screen.getAllByRole("button", { name: "Release notes" })).toHaveLength(1);
+      expect(screen.getByRole("button", { name: "Release notes" })).toBe(releasesButton);
       expect(await screen.findByText(/^Last checked: today,/)).toBeInTheDocument();
       await waitFor(() => expect(updateAvailabilityListener).toHaveBeenCalledWith(expect.objectContaining({
         availableVersion: "0.1.5",
@@ -354,7 +354,7 @@ describe("GeneralSettingsPage", () => {
       const updateBanner = installButton.closest(".application-update-banner");
       expect(installButton).toHaveAttribute("data-action-tone", "edit");
       expect(screen.getByRole("button", { name: "Later" })).toHaveAttribute("data-button-variant", "ghost");
-      const releaseNotesAction = within(updateBanner as HTMLElement).getByRole("button", { name: "Release notes" });
+      const releaseNotesAction = within(updateBanner as HTMLElement).getByRole("button", { name: "What's new" });
       expect(updateBanner).toContainElement(releaseNotesAction);
       expect(updateBanner).toContainElement(installButton);
       expect(screen.getAllByRole("button", { name: "Update" })).toHaveLength(1);
@@ -373,7 +373,7 @@ describe("GeneralSettingsPage", () => {
       fireEvent.click(screen.getByRole("button", { name: "Newer release" }));
       expect(screen.getByText("Example newest change.")).toBeInTheDocument();
       fireEvent.click(screen.getByRole("button", { name: "Close" }));
-      fireEvent.click(within(floatingBanner.container).getByRole("button", { name: "Release notes" }));
+      fireEvent.click(within(floatingBanner.container).getByRole("button", { name: "What's new" }));
       expect(await screen.findByRole("heading", { name: "What's new" })).toBeInTheDocument();
       expect(screen.getByText("Example newest change.")).toBeInTheDocument();
       expect(screen.queryByText("Example earlier change.")).not.toBeInTheDocument();
@@ -407,11 +407,12 @@ describe("GeneralSettingsPage", () => {
   });
 
   it("shows the development build and blocks release notes without loading them", () => {
+    clearDismissedUpdateNotice();
     render(<ApplicationInfoPage version="dev" onAvailableUpdateChange={vi.fn()}
       updateAvailability={{ availableVersion: "0.1.5", lastCheckedAt: null, status: "available", checkSource: "manual", revision: 1 }} />);
     expect(screen.getByRole("heading", { name: "mework-dev" })).toBeInTheDocument();
     expect(screen.getByText("dev")).toHaveClass("application-info-version");
-    for (const button of screen.getAllByRole("button", { name: "Release notes" })) {
+    for (const button of [screen.getByRole("button", { name: "Release notes" }), screen.getByRole("button", { name: "What's new" })]) {
       fireEvent.click(button);
       expect(screen.getByRole("alert")).toHaveTextContent("Viewing release notes is not available in the development version.");
     }
