@@ -115,6 +115,52 @@ impl RetentionPeriod {
     }
 }
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum LogSizeUnit {
+    Kib,
+    Mib,
+    Gib,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct LogSizeLimit {
+    pub value: u32,
+    pub unit: LogSizeUnit,
+}
+
+impl LogSizeLimit {
+    fn mib(value: u32) -> Self {
+        Self {
+            value,
+            unit: LogSizeUnit::Mib,
+        }
+    }
+    fn bytes(&self) -> u64 {
+        u64::from(self.value)
+            * match self.unit {
+                LogSizeUnit::Kib => 1024,
+                LogSizeUnit::Mib => 1024 * 1024,
+                LogSizeUnit::Gib => 1024 * 1024 * 1024,
+            }
+    }
+}
+
+impl<'de> Deserialize<'de> for LogSizeLimit {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        #[derive(Deserialize)]
+        #[serde(untagged)]
+        enum StoredLimit {
+            Limit { value: u32, unit: LogSizeUnit },
+            LegacyMib(u32),
+        }
+        Ok(match StoredLimit::deserialize(deserializer)? {
+            StoredLimit::Limit { value, unit } => Self { value, unit },
+            StoredLimit::LegacyMib(value) => Self::mib(value),
+        })
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 #[serde(default)]
@@ -126,8 +172,8 @@ pub struct DataRetentionSettings {
     #[serde(alias = "removedTaskDays")]
     pub removed_tasks: RetentionPeriod,
     pub diagnostic_logs: RetentionPeriod,
-    #[serde(rename = "diagnosticLogMaxMiB")]
-    pub diagnostic_log_max_mib: Option<u32>,
+    #[serde(alias = "diagnosticLogMaxMiB")]
+    pub diagnostic_log_size_limit: Option<LogSizeLimit>,
 }
 
 impl Default for DataRetentionSettings {
@@ -137,7 +183,7 @@ impl Default for DataRetentionSettings {
             sync_history: RetentionPeriod::days(7),
             removed_tasks: RetentionPeriod::days(7),
             diagnostic_logs: RetentionPeriod::days(7),
-            diagnostic_log_max_mib: Some(100),
+            diagnostic_log_size_limit: Some(LogSizeLimit::mib(100)),
         }
     }
 }
@@ -170,9 +216,11 @@ fn validate(settings: &DataRetentionSettings) -> Result<(), String> {
     }) {
         return Err("retention period exceeds the supported limit".to_owned());
     }
-    if settings
-        .diagnostic_log_max_mib
-        .is_some_and(|value| value == 0 || value > 1_048_576)
+    if settings.diagnostic_logs.mode != RetentionMode::Disabled
+        && settings
+            .diagnostic_log_size_limit
+            .as_ref()
+            .is_some_and(|limit| limit.value == 0 || limit.bytes() > 1024 * 1024 * 1024 * 1024)
     {
         return Err("invalid diagnostic log size limit".to_owned());
     }
@@ -207,7 +255,7 @@ pub async fn save_settings(
     validate(&settings)?;
     let json = serde_json::to_string(&settings)
         .map_err(|_| "failed to serialize data retention settings".to_owned())?;
-    repositories::upsert_setting(pool, SETTINGS_KEY, &json, 2)
+    repositories::upsert_setting(pool, SETTINGS_KEY, &json, 3)
         .await
         .map_err(|_| "failed to save data retention settings".to_owned())?;
     clean_up(pool).await?;
@@ -225,8 +273,9 @@ pub async fn configure_logs(settings: &DataRetentionSettings) {
     };
     let enabled = period.mode != RetentionMode::Disabled;
     let max_bytes = settings
-        .diagnostic_log_max_mib
-        .map(|value| u64::from(value) * 1024 * 1024);
+        .diagnostic_log_size_limit
+        .as_ref()
+        .map(LogSizeLimit::bytes);
     let result = tokio::task::spawn_blocking(move || {
         crate::application::logging::configure(enabled, max_bytes, cutoff)
     })
@@ -310,7 +359,7 @@ mod tests {
         repositories::upsert_setting(
             &pool,
             SETTINGS_KEY,
-            r#"{"reviewHistoryDays":17,"syncHistoryDays":12,"removedTaskDays":0}"#,
+            r#"{"reviewHistoryDays":17,"syncHistoryDays":12,"removedTaskDays":0,"diagnosticLogMaxMiB":75}"#,
             1,
         )
         .await
@@ -322,7 +371,7 @@ mod tests {
                 sync_history: RetentionPeriod::days(12),
                 removed_tasks: RetentionPeriod::days(0),
                 diagnostic_logs: RetentionPeriod::days(7),
-                diagnostic_log_max_mib: Some(100),
+                diagnostic_log_size_limit: Some(LogSizeLimit::mib(75)),
             }
         );
         let settings = DataRetentionSettings {
@@ -341,13 +390,24 @@ mod tests {
                 value: 87_600,
                 unit: RetentionUnit::Days,
             },
-            diagnostic_log_max_mib: None,
+            diagnostic_log_size_limit: None,
             removed_tasks: RetentionPeriod {
                 mode: RetentionMode::Period,
                 value: 1,
                 unit: RetentionUnit::Minutes,
             },
         };
+        let mut sized = settings.clone();
+        sized.diagnostic_log_size_limit = Some(LogSizeLimit {
+            value: 2,
+            unit: LogSizeUnit::Gib,
+        });
+        save_settings(&pool, sized.clone()).await.unwrap();
+        assert_eq!(super::settings(&pool).await.unwrap(), sized);
+        assert_eq!(
+            sized.diagnostic_log_size_limit.as_ref().unwrap().bytes(),
+            2 * 1024 * 1024 * 1024
+        );
         save_settings(&pool, settings.clone()).await.unwrap();
         assert_eq!(super::settings(&pool).await.unwrap(), settings);
         sqlx::query("INSERT INTO integrations (id, kind, base_url, account_key, credential_ref, created_at, updated_at) VALUES ('example-integration', 'jira', 'https://example.invalid', 'example', '', '2000-01-01', '2000-01-01')").execute(&pool).await.unwrap();

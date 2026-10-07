@@ -57,7 +57,7 @@ vi.mock("@/components/shared/update-install", () => ({
 
 describe("GeneralSettingsPage", () => {
   beforeEach(() => {
-    invokeMock.mockResolvedValue({ reviewHistory: { mode: "period", value: 7, unit: "days" }, syncHistory: { mode: "period", value: 7, unit: "days" }, removedTasks: { mode: "period", value: 7, unit: "days" }, diagnosticLogs: { mode: "period", value: 7, unit: "days" }, diagnosticLogMaxMiB: 100 });
+    invokeMock.mockResolvedValue({ reviewHistory: { mode: "period", value: 7, unit: "days" }, syncHistory: { mode: "period", value: 7, unit: "days" }, removedTasks: { mode: "period", value: 7, unit: "days" }, diagnosticLogs: { mode: "period", value: 7, unit: "days" }, diagnosticLogSizeLimit: { value: 100, unit: "mib" } });
     vi.clearAllMocks();
     const initialSettings = {
       language: "english",

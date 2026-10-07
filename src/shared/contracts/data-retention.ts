@@ -8,10 +8,17 @@ export interface RetentionPeriod {
   unit: RetentionUnit;
 }
 
+export type LogSizeUnit = "kib" | "mib" | "gib";
+
+export interface LogSizeLimit {
+  value: number;
+  unit: LogSizeUnit;
+}
+
 export interface DataRetentionSettings {
   reviewHistory: RetentionPeriod;
   syncHistory: RetentionPeriod;
   removedTasks: RetentionPeriod;
   diagnosticLogs: RetentionPeriod;
-  diagnosticLogMaxMiB: number | null;
+  diagnosticLogSizeLimit: LogSizeLimit | null;
 }

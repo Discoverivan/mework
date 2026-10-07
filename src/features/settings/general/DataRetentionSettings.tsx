@@ -9,13 +9,14 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Hint } from "@/components/ui/tooltip";
 import { Separator } from "@/components/ui/separator";
 import { useI18n } from "@/i18n/context";
-import type { DataRetentionSettings as Settings, RetentionMode, RetentionUnit } from "@/shared/contracts/data-retention";
+import type { DataRetentionSettings as Settings, LogSizeUnit, RetentionMode, RetentionUnit } from "@/shared/contracts/data-retention";
 
 const FIELDS = ["reviewHistory", "syncHistory", "removedTasks", "diagnosticLogs"] as const;
 const UNITS: RetentionUnit[] = ["minutes", "hours", "days", "months"];
 const MAXIMUM: Record<RetentionUnit, number> = { minutes: 5_256_000, hours: 87_600, days: 3650, months: 120 };
 const MODES: RetentionMode[] = ["period", "indefinite", "disabled"];
-const MAX_LOG_MIB = 1_048_576;
+const SIZE_UNITS: LogSizeUnit[] = ["kib", "mib", "gib"];
+const MAX_LOG_SIZE: Record<LogSizeUnit, number> = { kib: 1_073_741_824, mib: 1_048_576, gib: 1024 };
 
 export function DataRetentionSettings() {
   const { t } = useI18n();
@@ -34,7 +35,7 @@ export function DataRetentionSettings() {
       syncHistory: update("syncHistory"),
       removedTasks: update("removedTasks"),
       diagnosticLogs: update("diagnosticLogs"),
-      diagnosticLogMaxMiB: (value: boolean) => setValid((current) => current.diagnosticLogMaxMiB === value ? current : { ...current, diagnosticLogMaxMiB: value }),
+      diagnosticLogSizeLimit: (value: boolean) => setValid((current) => current.diagnosticLogSizeLimit === value ? current : { ...current, diagnosticLogSizeLimit: value }),
     };
   }, []);
 
@@ -49,7 +50,7 @@ export function DataRetentionSettings() {
 
   const changed = saved && draft && JSON.stringify(saved) !== JSON.stringify(draft);
   const invalid = draft && (FIELDS.some((field) => draft[field].mode === "period" && valid[field] === false)
-    || (draft.diagnosticLogs.mode !== "disabled" && draft.diagnosticLogMaxMiB !== null && valid.diagnosticLogMaxMiB === false));
+    || (draft.diagnosticLogs.mode !== "disabled" && draft.diagnosticLogSizeLimit !== null && valid.diagnosticLogSizeLimit === false));
   async function save() {
     if (!draft || !changed || saving || invalid) return;
     setSaving(true);
@@ -80,9 +81,9 @@ export function DataRetentionSettings() {
             const max = MAXIMUM[period.unit];
             const label = t(`dataRetention.${field}`);
             return <Fragment key={field}>
-              <Separator />
+              <div className="pl-4"><Separator /></div>
               <div role="group" aria-labelledby={`retention-${field}-label`}
-              className="flex flex-wrap items-center justify-between gap-x-4 gap-y-3 py-3 pl-4">
+              className="flex flex-wrap items-center justify-between gap-x-4 gap-y-3 py-3 pl-4 last:pb-0">
               <Hint content={t(`dataRetention.${field}Help`)}><span id={`retention-${field}-label`} className="text-sm font-medium leading-none">{label}</span></Hint>
               <div className="flex flex-wrap items-center gap-3">
               <Select value={period.mode} disabled={saving} onValueChange={(mode) => {
@@ -109,11 +110,11 @@ export function DataRetentionSettings() {
               </div> : null}
               </div>
               {field === "diagnosticLogs" && period.mode !== "disabled" ? <div className="flex basis-full flex-wrap items-center justify-between gap-x-4 gap-y-3">
-                <Hint content={t("dataRetention.logSizeHelp")}><span id="retention-log-size-label" className="text-sm font-medium leading-none">{t("dataRetention.logSize")}</span></Hint>
-                <div className="flex flex-wrap items-center gap-3">
-                <Select value={draft.diagnosticLogMaxMiB === null ? "unlimited" : "limited"} disabled={saving} onValueChange={(mode) => {
-                  setValid((current) => ({ ...current, diagnosticLogMaxMiB: true }));
-                  setDraft((current) => current && { ...current, diagnosticLogMaxMiB: mode === "unlimited" ? null : 100 });
+                <span id="retention-log-size-label" className="sr-only">{t("dataRetention.logSize")}</span>
+                <div className="ml-auto flex flex-wrap items-center gap-3">
+                <Select value={draft.diagnosticLogSizeLimit === null ? "unlimited" : "limited"} disabled={saving} onValueChange={(mode) => {
+                  setValid((current) => ({ ...current, diagnosticLogSizeLimit: true }));
+                  setDraft((current) => current && { ...current, diagnosticLogSizeLimit: mode === "unlimited" ? null : { value: 100, unit: "mib" } });
                 }}>
                   <SelectTrigger className="h-9 w-fit" aria-label={t("dataRetention.sizeMode")}><SelectValue /></SelectTrigger>
                   <SelectContent>
@@ -121,13 +122,18 @@ export function DataRetentionSettings() {
                     <SelectItem value="unlimited">{t("dataRetention.unlimitedSize")}</SelectItem>
                   </SelectContent>
                 </Select>
-                {draft.diagnosticLogMaxMiB !== null ? <div className="flex items-center gap-2">
+                {draft.diagnosticLogSizeLimit !== null ? <div className="flex items-center gap-2">
                   <ManualNumberField id="retention-log-size" label={t("dataRetention.logSize")} labelledBy="retention-log-size-label" description={t("dataRetention.logSizeHelp")}
-                    value={draft.diagnosticLogMaxMiB} min={1} max={MAX_LOG_MIB} minVisibleDigits={1} disabled={saving}
-                    onChange={(value) => setDraft((current) => current && { ...current, diagnosticLogMaxMiB: value })}
-                    onValidityChange={validityHandlers.diagnosticLogMaxMiB}
-                    errors={{ required: t("forms.numberRequired"), number: t("forms.numberInvalid"), range: t("forms.numberRange", { min: 1, max: MAX_LOG_MIB }), whole: t("forms.numberInvalid") }} />
-                  <span className="text-sm text-muted-foreground">{t("dataRetention.mib")}</span>
+                    value={draft.diagnosticLogSizeLimit.value} min={1} max={MAX_LOG_SIZE[draft.diagnosticLogSizeLimit.unit]} minVisibleDigits={1} disabled={saving}
+                    onChange={(value) => setDraft((current) => current && { ...current, diagnosticLogSizeLimit: current.diagnosticLogSizeLimit && { ...current.diagnosticLogSizeLimit, value } })}
+                    onValidityChange={validityHandlers.diagnosticLogSizeLimit}
+                    errors={{ required: t("forms.numberRequired"), number: t("forms.numberInvalid"), range: t("forms.numberRange", { min: 1, max: MAX_LOG_SIZE[draft.diagnosticLogSizeLimit.unit] }), whole: t("forms.numberInvalid") }} />
+                  <Select value={draft.diagnosticLogSizeLimit.unit} disabled={saving} onValueChange={(unit) => setDraft((current) => current && {
+                    ...current, diagnosticLogSizeLimit: current.diagnosticLogSizeLimit && { ...current.diagnosticLogSizeLimit, unit: unit as LogSizeUnit },
+                  })}>
+                    <SelectTrigger className="h-9 w-fit gap-1.5 px-2" aria-label={t("dataRetention.sizeUnit")}><SelectValue /></SelectTrigger>
+                    <SelectContent>{SIZE_UNITS.map((unit) => <SelectItem key={unit} value={unit}>{t(`dataRetention.${unit}`)}</SelectItem>)}</SelectContent>
+                  </Select>
                 </div> : null}
                 </div>
               </div> : null}

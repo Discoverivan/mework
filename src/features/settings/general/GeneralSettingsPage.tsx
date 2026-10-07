@@ -365,6 +365,7 @@ export function GeneralSettingsPage() {
         </CardHeader>
       </Card>
 
+      <DataRetentionSettings />
       <Card>
         <CardHeader className="space-y-4 px-4 py-3.5">
           <div className="flex items-center justify-between gap-4">
@@ -529,7 +530,6 @@ export function GeneralSettingsPage() {
         </span>
       </Card>
 
-      <DataRetentionSettings />
 
       <Card>
         <CardHeader className="space-y-4 px-4 py-3.5">

@@ -13,7 +13,7 @@ it("loads retention settings and saves a changed history limit", async () => {
     syncHistory: { mode: "period", value: 7, unit: "days" },
     removedTasks: { mode: "period", value: 7, unit: "days" },
     diagnosticLogs: { mode: "period", value: 7, unit: "days" },
-    diagnosticLogMaxMiB: 100,
+    diagnosticLogSizeLimit: { value: 100, unit: "mib" },
   };
   invokeMock.mockImplementation(async (command, args) => command === "data_retention_settings" ? settings : args.settings);
   render(<I18nProvider><DataRetentionSettings /></I18nProvider>);
@@ -40,13 +40,19 @@ it("loads retention settings and saves a changed history limit", async () => {
   fireEvent.click(screen.getByRole("option", { name: "Keep indefinitely" }));
   fireEvent.click(screen.getByRole("combobox", { name: "Diagnostic log size policy" }));
   fireEvent.click(screen.getByRole("option", { name: "No size limit" }));
+  expect(screen.queryByRole("textbox", { name: "Total log size" })).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole("combobox", { name: "Diagnostic log size policy" }));
+  fireEvent.click(screen.getByRole("option", { name: "Limit total size" }));
+  fireEvent.click(screen.getByRole("combobox", { name: "Diagnostic log size unit" }));
+  fireEvent.click(screen.getByRole("option", { name: "GiB" }));
+  fireEvent.change(screen.getByRole("textbox", { name: "Total log size" }), { target: { value: "2" } });
   fireEvent.click(screen.getByRole("combobox", { name: "Removed tasks retention" }));
   fireEvent.click(screen.getByRole("option", { name: "Do not keep" }));
   fireEvent.click(screen.getByRole("button", { name: "Save" }));
   await waitFor(() => expect(invokeMock).toHaveBeenCalledWith("data_retention_settings_save", { settings: { ...settings,
     reviewHistory: { mode: "period", value: 1234, unit: "hours" },
     removedTasks: { ...settings.removedTasks, mode: "disabled" },
-    diagnosticLogs: { mode: "indefinite", value: 14, unit: "days" }, diagnosticLogMaxMiB: null,
+    diagnosticLogs: { mode: "indefinite", value: 14, unit: "days" }, diagnosticLogSizeLimit: { value: 2, unit: "gib" },
   } }));
   expect(screen.getByRole("combobox", { name: "PR review history unit" })).toHaveTextContent("Hours");
   await waitFor(() => expect(screen.getByRole("button", { name: "Save" })).toBeDisabled());
