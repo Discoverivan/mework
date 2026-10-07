@@ -148,7 +148,7 @@ function settingsError(error: unknown): string {
 
 export function TokenBurnerPage() {
   const { triggerRef, alignOffset, onOpenChange } = useInfoPopoverAnchor();
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   const [snapshot, setSnapshot] = useState<TokenBurnerSnapshot | null>(null);
   const [settings, setSettings] = useState<TokenBurnerSettings>(DEFAULT_SETTINGS);
   const [repositories, setRepositories] = useState<{ key: string; name: string }[]>([]);
@@ -322,6 +322,13 @@ export function TokenBurnerPage() {
     || settingsDraft.repository !== settings.repository;
   const delaySeconds = scaleWholeNumber(delayAmount, DELAY_UNITS[delayUnit]);
   const targetTokens = scaleWholeNumber(targetAmount, TOKEN_UNITS[targetUnit]);
+  const dailyTargetHelp = t(`tokenBurner.dailyTargetHelp.${targetUnit}`, {
+    min: (1000 / TOKEN_UNITS[targetUnit]).toLocaleString(locale),
+    max: (100_000_000 / TOKEN_UNITS[targetUnit]).toLocaleString(locale),
+  });
+  const delayHelp = t(`tokenBurner.delayHelp.${delayUnit}`, {
+    max: (3600 / DELAY_UNITS[delayUnit]).toLocaleString(locale),
+  });
   const settingsValid = dailyTargetValid && delayValid
     && Number.isSafeInteger(targetTokens) && targetTokens >= 1000 && targetTokens <= 100_000_000
     && Number.isSafeInteger(delaySeconds) && delaySeconds >= 0 && delaySeconds <= 3600;
@@ -583,11 +590,11 @@ export function TokenBurnerPage() {
                 <div className="flex flex-wrap items-center justify-between gap-4">
                   <div className="min-w-0 flex-1">
                     <Label id="burner-daily-target-label" htmlFor="burner-daily-target" alignment="inline" className="font-medium">{t("tokenBurner.dailyTargetField")}</Label>
-                    <CardDescription className="mt-1 text-xs leading-snug">{t("tokenBurner.dailyTargetHelp")}</CardDescription>
+                    <CardDescription className="mt-1 text-xs leading-snug">{dailyTargetHelp}</CardDescription>
                   </div>
                   <div className="flex w-full items-center gap-3 sm:w-auto">
                     <ManualNumberField id="burner-daily-target" labelledBy="burner-daily-target-label" label={t("tokenBurner.dailyTargetField")}
-                      description={t("tokenBurner.dailyTargetHelp")} value={targetAmount} min={1000} max={100_000_000} scale={TOKEN_UNITS[targetUnit]} allowDecimals
+                      description={dailyTargetHelp} value={targetAmount} min={1000} max={100_000_000} scale={TOKEN_UNITS[targetUnit]} allowDecimals
                       disabled={settingsSaving} onValidityChange={setDailyTargetValid}
                       errors={{ required: t("forms.numberRequired"), number: t("forms.numberInvalid"), range: t("forms.numberRange", { min: 1000 / TOKEN_UNITS[targetUnit], max: 100_000_000 / TOKEN_UNITS[targetUnit] }), whole: t("tokenBurner.targetWholeTokens") }}
                       onChange={(amount) => changeTarget(amount, targetUnit)} />
@@ -602,11 +609,11 @@ export function TokenBurnerPage() {
                 <div className="flex flex-wrap items-center justify-between gap-4">
                   <div className="min-w-0 flex-1">
                     <Label id="burner-request-delay-label" htmlFor="burner-request-delay" alignment="inline" className="font-medium">{t("tokenBurner.delayBetweenRequests")}</Label>
-                    <CardDescription className="mt-1 text-xs leading-snug">{t("tokenBurner.delayHelp")}</CardDescription>
+                    <CardDescription className="mt-1 text-xs leading-snug">{delayHelp}</CardDescription>
                   </div>
                   <div className="flex w-full items-center gap-3 sm:w-auto">
                     <ManualNumberField id="burner-request-delay" labelledBy="burner-request-delay-label" label={t("tokenBurner.delayBetweenRequests")}
-                      description={t("tokenBurner.delayHelp")} value={delayAmount} min={0} max={3600} scale={DELAY_UNITS[delayUnit]} allowDecimals
+                      description={delayHelp} value={delayAmount} min={0} max={3600} scale={DELAY_UNITS[delayUnit]} allowDecimals
                       disabled={settingsSaving} onValidityChange={setDelayValid}
                       errors={{ required: t("forms.numberRequired"), number: t("forms.numberInvalid"), range: t("forms.numberRange", { min: 0, max: 3600 / DELAY_UNITS[delayUnit] }), whole: t("tokenBurner.delayWholeSeconds") }}
                       onChange={(amount) => changeDelay(amount, delayUnit)} />

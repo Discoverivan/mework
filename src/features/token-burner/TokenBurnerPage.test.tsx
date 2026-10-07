@@ -251,6 +251,7 @@ describe("TokenBurnerPage", () => {
     expect(settingsPanel?.querySelectorAll('[data-orientation="horizontal"]')).toHaveLength(1);
     fireEvent.click(screen.getByRole("combobox", { name: "Scale" }));
     fireEvent.click(screen.getByRole("option", { name: "Thousands" }));
+    expect(screen.getByText("From 1 to 100,000 thousand tokens.")).toBeInTheDocument();
     fireEvent.change(screen.getByLabelText("Daily target (tokens)"), { target: { value: "1.001" } });
     const delay = screen.getByRole("textbox", { name: "Delay between reviews" });
     fireEvent.change(delay, { target: { value: "oops" } });
@@ -259,6 +260,7 @@ describe("TokenBurnerPage", () => {
     fireEvent.change(delay, { target: { value: "3" } });
     fireEvent.click(screen.getByRole("combobox", { name: "Unit" }));
     fireEvent.click(screen.getByRole("option", { name: "Minutes" }));
+    expect(screen.getByText("From 0 to 60 minutes.")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
     await waitFor(() => expect(saveSettingsMock).toHaveBeenCalledWith({ ...initialSnapshot.settings, dailyTarget: 1001, delayBetweenRequestsSeconds: 180 }));
     await waitFor(() => expect(screen.queryByRole("dialog", { name: "Settings" })).not.toBeInTheDocument());
