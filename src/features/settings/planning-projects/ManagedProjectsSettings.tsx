@@ -1218,9 +1218,19 @@ export function ManagedProjectsSettings({
         <div className="border-t px-4 pb-4 pt-4">
           <div className="team-settings-content grid gap-4 pl-4">
             <section className="grid gap-3" aria-label={t("teams.taskSettings")}>
-              <div>
+              <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="min-w-0 flex-1">
                 <h3 className="font-semibold">{t("teams.taskSettings")}</h3>
                 <p className="text-sm text-muted-foreground">{t("teams.taskSettingsDescription")}</p>
+              </div>
+              <div className="ml-auto flex shrink-0 items-center gap-2">
+                <Button type="button" size="sm" variant="outline" onClick={cancelTaskCreationChanges} disabled={controlsDisabled || epicPreviewLoading}>
+                  {t("settings.common.cancel")}
+                </Button>
+                <Button type="button" size="sm" actionTone="edit" onClick={() => void handleSaveTaskCreationSettings()} disabled={controlsDisabled || epicPreviewLoading || !taskCreationChanged}>
+                  {teamSaving ? t("settings.common.saving") : t("teams.saveTaskSettings")}
+                </Button>
+              </div>
               </div>
               <Separator />
               <div className="flex flex-wrap items-center justify-between gap-4">
@@ -1298,14 +1308,6 @@ export function ManagedProjectsSettings({
                   <AlertDescription>{teamSaveError}</AlertDescription>
                 </Alert>
               ) : null}
-              <div className="flex items-center justify-between gap-2">
-                <Button type="button" variant="outline" onClick={cancelTaskCreationChanges} disabled={controlsDisabled || epicPreviewLoading}>
-                  {t("settings.common.cancel")}
-                </Button>
-                <Button type="button" actionTone="edit" onClick={() => void handleSaveTaskCreationSettings()} disabled={controlsDisabled || epicPreviewLoading || !taskCreationChanged}>
-                  {teamSaving ? t("settings.common.saving") : t("teams.saveTaskSettings")}
-                </Button>
-              </div>
             </section>
 
             <Dialog open={epicPreviewOpen} onOpenChange={setEpicPreviewOpen}>
