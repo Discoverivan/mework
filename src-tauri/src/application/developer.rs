@@ -966,6 +966,13 @@ pub async fn sync_my_pull_requests_with_notifications(
         },
     )
     .await?;
+    drop(_state_guard);
+    if crate::application::data_retention::prune_review_history(pool)
+        .await
+        .is_err()
+    {
+        eprintln!("PR review history cleanup failed");
+    }
     let result: Vec<_> = all_values
         .into_iter()
         .filter(|pull_request| matches_review_settings(pull_request, &review_settings))
