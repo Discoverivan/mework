@@ -10,6 +10,7 @@ pub async fn persist_successful_page(
     issues: &[JiraIssue],
     observed_at: &str,
 ) -> Result<(), sqlx::Error> {
+    let keep_history = crate::application::data_retention::sync_history_enabled(pool).await?;
     let mut transaction = pool.begin().await?;
 
     for issue in issues {
@@ -58,24 +59,26 @@ pub async fn persist_successful_page(
         return Err(sqlx::Error::RowNotFound);
     }
 
-    sqlx::query(
-        "INSERT INTO sync_runs
+    if keep_history {
+        sqlx::query(
+            "INSERT INTO sync_runs
             (id, integration_id, job_kind, status, started_at, finished_at,
              checkpoint_before, checkpoint_after, pages, counters_json)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-    )
-    .bind(uuid::Uuid::now_v7().to_string())
-    .bind(integration_id)
-    .bind("jira_issue_poll")
-    .bind("succeeded")
-    .bind(observed_at)
-    .bind(observed_at)
-    .bind(checkpoint_before)
-    .bind(checkpoint_after)
-    .bind(1_i64)
-    .bind(serde_json::json!({ "issues": issues.len() }).to_string())
-    .execute(&mut *transaction)
-    .await?;
+        )
+        .bind(uuid::Uuid::now_v7().to_string())
+        .bind(integration_id)
+        .bind("jira_issue_poll")
+        .bind("succeeded")
+        .bind(observed_at)
+        .bind(observed_at)
+        .bind(checkpoint_before)
+        .bind(checkpoint_after)
+        .bind(1_i64)
+        .bind(serde_json::json!({ "issues": issues.len() }).to_string())
+        .execute(&mut *transaction)
+        .await?;
+    }
 
     transaction.commit().await
 }

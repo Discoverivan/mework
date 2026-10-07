@@ -663,6 +663,14 @@ async fn finish_review<R: Runtime>(
         run.clone()
     };
     let saved = save_state(pool, &state).await.is_ok();
+    drop(_guard);
+    if saved
+        && crate::application::data_retention::prune_review_history(pool)
+            .await
+            .is_err()
+    {
+        eprintln!("PR review history cleanup failed");
+    }
     if saved {
         let _ = app.emit(
             "pull_request_review_changed",

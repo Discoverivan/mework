@@ -67,7 +67,6 @@ pub fn run() {
 
             let app_data_dir = app.path().app_data_dir()?;
             std::fs::create_dir_all(&app_data_dir)?;
-            crate::application::logging::initialize(&app_data_dir);
             let database_path = if mock_mode_enabled {
                 crate::infrastructure::db::reset_mock_database_file(&app_data_dir)?
             } else {
@@ -76,6 +75,11 @@ pub fn run() {
             let pool = tauri::async_runtime::block_on(crate::infrastructure::db::open_database(
                 &database_path,
             ))?;
+            let retention_settings = tauri::async_runtime::block_on(crate::application::data_retention::settings(&pool))
+                .map_err(std::io::Error::other)?;
+            tauri::async_runtime::block_on(crate::application::data_retention::configure_logs(&retention_settings));
+            crate::application::logging::initialize(&app_data_dir);
+            tauri::async_runtime::block_on(crate::application::data_retention::configure_logs(&retention_settings));
             if mock_mode_enabled {
                 tauri::async_runtime::block_on(
                     crate::application::dev_overlay::seed_mock_settings(&pool, mock_urls.as_ref()),

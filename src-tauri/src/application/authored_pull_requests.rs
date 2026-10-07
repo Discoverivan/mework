@@ -323,6 +323,13 @@ pub async fn sync_authored_pull_requests_with_notifications(
         },
     )
     .await?;
+    drop(_state_guard);
+    if crate::application::data_retention::prune_review_history(pool)
+        .await
+        .is_err()
+    {
+        eprintln!("PR review history cleanup failed");
+    }
     Ok((
         MyPullRequestsPageDto {
             total: Some(all_values.len() as u64),

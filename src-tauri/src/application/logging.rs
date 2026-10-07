@@ -17,6 +17,15 @@ const MAX_ENTRY_CHARS: usize = 8_000;
 const MAX_HTTP_BODY_BYTES: usize = 8_192;
 static LOG_PATH: OnceLock<PathBuf> = OnceLock::new();
 static LOG_LOCK: Mutex<()> = Mutex::new(());
+#[derive(Clone, Copy)]
+struct LogPolicy {
+    enabled: bool,
+    max_bytes: Option<u64>,
+}
+static LOG_POLICY: Mutex<LogPolicy> = Mutex::new(LogPolicy {
+    enabled: false,
+    max_bytes: Some(MAX_TOTAL_LOG_BYTES),
+});
 
 pub fn ensure_logs_dir(app_data_dir: &Path) -> std::io::Result<PathBuf> {
     let logs_dir = app_data_dir.join("logs");
@@ -612,6 +621,12 @@ pub fn redact_value(value: Value) -> Value {
 fn write(level: &str, component: &str, event: &str, details: Value) {
     let Some(path) = LOG_PATH.get() else { return };
     let Ok(_guard) = LOG_LOCK.lock() else { return };
+    let Ok(policy) = LOG_POLICY.lock().map(|policy| *policy) else {
+        return;
+    };
+    if !policy.enabled {
+        return;
+    }
     let timestamp = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|duration| duration.as_millis())
@@ -626,7 +641,14 @@ fn write(level: &str, component: &str, event: &str, details: Value) {
     let Ok(line) = serde_json::to_string(&record) else {
         return;
     };
-    if append_record(path, &line, time::OffsetDateTime::now_utc()).is_err() {
+    if append_record(
+        path,
+        &line,
+        time::OffsetDateTime::now_utc(),
+        policy.max_bytes,
+    )
+    .is_err()
+    {
         eprintln!("Application log write failed");
     }
 }
@@ -652,9 +674,15 @@ fn rotate(path: &Path, date: time::Date) -> std::io::Result<()> {
     Err(std::io::Error::other("log archive sequence exhausted"))
 }
 
-fn append_record(path: &Path, line: &str, now: time::OffsetDateTime) -> std::io::Result<()> {
+fn append_record(
+    path: &Path,
+    line: &str,
+    now: time::OffsetDateTime,
+    max_bytes: Option<u64>,
+) -> std::io::Result<()> {
     let bytes = line.len() as u64 + 1;
-    if bytes > MAX_LOG_BYTES {
+    let file_limit = max_bytes.unwrap_or(MAX_LOG_BYTES).min(MAX_LOG_BYTES);
+    if bytes > file_limit {
         return Err(std::io::Error::other("log entry exceeds file limit"));
     }
     match fs::symlink_metadata(path) {
@@ -664,11 +692,15 @@ fn append_record(path: &Path, line: &str, now: time::OffsetDateTime) -> std::io:
             }
             let modified = modified_at(&metadata)?;
             if metadata.len() > 0
-                && (metadata.len() + bytes > MAX_LOG_BYTES || modified.date() != now.date())
+                && (metadata.len() + bytes > file_limit || modified.date() != now.date())
             {
                 rotate(path, modified.date())?;
                 // Reserve space for the new active file, so the cap holds between rotations.
-                prune_archives(path, None, MAX_TOTAL_LOG_BYTES - MAX_LOG_BYTES)?;
+                prune_archives(
+                    path,
+                    None,
+                    max_bytes.map(|limit| limit.saturating_sub(file_limit)),
+                )?;
             }
         }
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
@@ -713,7 +745,7 @@ fn is_archive(name: &str) -> bool {
 fn prune_archives(
     path: &Path,
     cutoff: Option<time::OffsetDateTime>,
-    budget: u64,
+    budget: Option<u64>,
 ) -> std::io::Result<()> {
     let directory = path
         .parent()
@@ -736,7 +768,7 @@ fn prune_archives(
     archives.sort_by(|left, right| (&left.0, &left.1).cmp(&(&right.0, &right.1)));
     let mut total: u64 = archives.iter().map(|archive| archive.2).sum();
     for (_, archive, size) in archives {
-        if total <= budget {
+        if budget != Some(0) && budget.is_none_or(|budget| total <= budget) {
             break;
         }
         fs::remove_file(archive)?;
@@ -749,6 +781,7 @@ fn clean_up_at(
     path: &Path,
     cutoff: Option<time::OffsetDateTime>,
     now: time::OffsetDateTime,
+    max_bytes: Option<u64>,
 ) -> std::io::Result<()> {
     match fs::symlink_metadata(path) {
         Ok(metadata) => {
@@ -758,7 +791,7 @@ fn clean_up_at(
             let modified = modified_at(&metadata)?;
             if metadata.len() > 0
                 && (modified.date() != now.date()
-                    || metadata.len() >= MAX_LOG_BYTES
+                    || metadata.len() >= max_bytes.unwrap_or(MAX_LOG_BYTES).min(MAX_LOG_BYTES)
                     || cutoff.is_some_and(|cutoff| modified < cutoff))
             {
                 rotate(path, modified.date())?;
@@ -767,17 +800,43 @@ fn clean_up_at(
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
         Err(error) => return Err(error),
     }
-    prune_archives(path, cutoff, MAX_TOTAL_LOG_BYTES - MAX_LOG_BYTES)
+    prune_archives(
+        path,
+        cutoff,
+        max_bytes.map(|limit| limit.saturating_sub(limit.min(MAX_LOG_BYTES))),
+    )
 }
 
-pub fn clean_up(cutoff: Option<time::OffsetDateTime>) -> std::io::Result<()> {
-    let Some(path) = LOG_PATH.get() else {
-        return Ok(());
-    };
+fn remove_logs(path: &Path) -> std::io::Result<()> {
+    match fs::symlink_metadata(path) {
+        Ok(metadata) if metadata.file_type().is_file() => fs::remove_file(path)?,
+        Ok(_) => return Err(std::io::Error::other("log path is not a regular file")),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(error) => return Err(error),
+    }
+    prune_archives(path, None, Some(0))
+}
+
+pub fn configure(
+    enabled: bool,
+    max_bytes: Option<u64>,
+    cutoff: Option<time::OffsetDateTime>,
+) -> std::io::Result<()> {
     let _guard = LOG_LOCK
         .lock()
         .map_err(|_| std::io::Error::other("log lock poisoned"))?;
-    clean_up_at(path, cutoff, time::OffsetDateTime::now_utc())
+    *LOG_POLICY
+        .lock()
+        .map_err(|_| std::io::Error::other("log policy lock poisoned"))? =
+        LogPolicy { enabled, max_bytes };
+    let Some(path) = LOG_PATH.get() else {
+        return Ok(());
+    };
+    if enabled {
+        clean_up_at(path, cutoff, time::OffsetDateTime::now_utc(), max_bytes)
+    } else {
+        remove_logs(path)
+    }
 }
 
 #[cfg(test)]
@@ -801,7 +860,7 @@ mod tests {
         };
         fs::write(&path, "previous day\n").unwrap();
         set_modified(&path, yesterday);
-        append_record(&path, "current day", now).unwrap();
+        append_record(&path, "current day", now, Some(MAX_TOTAL_LOG_BYTES)).unwrap();
         let daily_archive = directory
             .path()
             .join(format!("application.{}.001.log", yesterday.date()));
@@ -816,7 +875,7 @@ mod tests {
                 .unwrap()
                 .set_len(MAX_LOG_BYTES)
                 .unwrap();
-            append_record(&path, "current day", now).unwrap();
+            append_record(&path, "current day", now, Some(MAX_TOTAL_LOG_BYTES)).unwrap();
         }
         for sequence in 1..=2 {
             assert!(directory
@@ -830,9 +889,15 @@ mod tests {
         let unrelated = directory.path().join("support.log");
         fs::write(&unrelated, "keep\n").unwrap();
         set_modified(&unrelated, expired);
-        clean_up_at(&path, None, now).unwrap();
-        assert!(legacy.exists()); // Zero retention keeps old archives within the size cap.
-        clean_up_at(&path, Some(now - time::Duration::days(7)), now).unwrap();
+        clean_up_at(&path, None, now, Some(MAX_TOTAL_LOG_BYTES)).unwrap();
+        assert!(legacy.exists()); // Indefinite age retention still honors the size cap.
+        clean_up_at(
+            &path,
+            Some(now - time::Duration::days(7)),
+            now,
+            Some(MAX_TOTAL_LOG_BYTES),
+        )
+        .unwrap();
         assert!(!legacy.exists());
         assert!(daily_archive.exists());
         assert_eq!(fs::read_to_string(&path).unwrap(), "current day\n");
@@ -844,17 +909,29 @@ mod tests {
             .set_len(MAX_TOTAL_LOG_BYTES)
             .unwrap();
         set_modified(&oversized, expired);
-        clean_up_at(&path, None, now).unwrap();
+        clean_up_at(&path, None, now, None).unwrap();
+        assert!(oversized.exists());
+        clean_up_at(&path, None, now, Some(MAX_TOTAL_LOG_BYTES)).unwrap();
         assert!(!oversized.exists());
         assert!(daily_archive.exists());
         assert_eq!(fs::read_to_string(&unrelated).unwrap(), "keep\n");
         assert_eq!(fs::read_to_string(&path).unwrap(), "current day\n");
         // An idle active file is rotated before expiration cleanup; it is never unlinked in place.
         set_modified(&path, expired);
-        clean_up_at(&path, Some(now - time::Duration::days(7)), now).unwrap();
-        append_record(&path, "resumed", now).unwrap();
+        clean_up_at(
+            &path,
+            Some(now - time::Duration::days(7)),
+            now,
+            Some(MAX_TOTAL_LOG_BYTES),
+        )
+        .unwrap();
+        append_record(&path, "resumed", now, Some(MAX_TOTAL_LOG_BYTES)).unwrap();
         assert_eq!(fs::read_to_string(&path).unwrap(), "resumed\n");
         assert!(!oversized.exists());
+        remove_logs(&path).unwrap();
+        assert!(!path.exists());
+        assert!(!daily_archive.exists());
+        assert!(unrelated.exists());
     }
 
     #[test]
