@@ -1,6 +1,13 @@
 .team-settings-reveal {
   display: grid;
+  grid-template-rows: 0fr;
+  opacity: 0;
+  transition: grid-template-rows 200ms ease-out, opacity 200ms ease-out;
+}
+
+.team-settings-reveal[data-expanded="true"] {
   grid-template-rows: 1fr;
+  opacity: 1;
   animation: team-settings-open 200ms ease-out;
 }
 
@@ -22,7 +29,9 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .team-settings-reveal {
+  .team-settings-reveal,
+  .team-settings-reveal[data-expanded="true"] {
     animation: none;
+    transition: none;
   }
 }

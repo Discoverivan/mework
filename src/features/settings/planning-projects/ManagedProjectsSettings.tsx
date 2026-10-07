@@ -247,6 +247,13 @@ export function ManagedProjectsSettings({
   const [validatedProject, setValidatedProject] = useState<ProjectKeyValidationSuccess | null>(null);
   const [validatedConfluenceSpace, setValidatedConfluenceSpace] = useState<ConfluenceSpace | null>(null);
   const [detailProject, setDetailProject] = useState<ManagedProjectSettings | null>(null);
+  const [detailExpanded, setDetailExpanded] = useState(false);
+
+  useEffect(() => {
+    if (detailExpanded || !detailProject) return;
+    const timeout = window.setTimeout(() => setDetailProject(null), 200);
+    return () => window.clearTimeout(timeout);
+  }, [detailExpanded, detailProject]);
   const [loading, setLoading] = useState(true);
   const [action, setAction] = useState<Action>(null);
   const [deletingProjectId, setDeletingProjectId] = useState<string | null>(null);
@@ -511,6 +518,7 @@ export function ManagedProjectsSettings({
     setForm(null);
     setSaveError(null);
     setDetailProject(project);
+    setDetailExpanded(true);
   }
 
   async function handleLoadBoards() {
@@ -994,13 +1002,13 @@ export function ManagedProjectsSettings({
                           variant="ghost"
                           size="icon"
                           className="size-8 [&_svg]:size-[18px]"
-                          onClick={() => detailProject?.id === project.id ? setDetailProject(null) : openDetail(project)}
+                          onClick={() => detailExpanded && detailProject?.id === project.id ? setDetailExpanded(false) : openDetail(project)}
                           disabled={controlsDisabled}
-                          aria-expanded={detailProject?.id === project.id}
-                          aria-label={t(detailProject?.id === project.id ? "teams.closeDetails" : "teams.openDetails", { team: project.projectName })}
-                          title={t(detailProject?.id === project.id ? "teams.closeDetails" : "teams.openDetails", { team: project.projectName })}
+                          aria-expanded={detailExpanded && detailProject?.id === project.id}
+                          aria-label={t(detailExpanded && detailProject?.id === project.id ? "teams.closeDetails" : "teams.openDetails", { team: project.projectName })}
+                          title={t(detailExpanded && detailProject?.id === project.id ? "teams.closeDetails" : "teams.openDetails", { team: project.projectName })}
                         >
-                          <ChevronDown className={`transition-transform duration-200 motion-reduce:transition-none ${detailProject?.id === project.id ? "rotate-180" : ""}`} aria-hidden="true" />
+                          <ChevronDown className={`transition-transform duration-200 motion-reduce:transition-none ${detailExpanded && detailProject?.id === project.id ? "rotate-180" : ""}`} aria-hidden="true" />
                         </Button>
                       </div>
                     </div>
@@ -1213,9 +1221,10 @@ export function ManagedProjectsSettings({
       ) : null}
 
       {detailProject && detailHost ? createPortal(
-        <div className="team-settings-reveal">
-        <div className="min-h-0 overflow-hidden">
-        <div className="border-t px-4 pb-4 pt-4">
+        <div className="team-settings-reveal" data-expanded={detailExpanded}>
+        <div className="min-h-0 overflow-hidden" aria-hidden={!detailExpanded} inert={!detailExpanded}>
+        <div className="px-4 pb-4">
+          <Separator className="mb-4" />
           <div className="team-settings-content grid gap-4 pl-4">
             <section className="grid gap-3" aria-label={t("teams.taskSettings")}>
               <div className="flex flex-wrap items-center justify-between gap-3">
@@ -1235,7 +1244,10 @@ export function ManagedProjectsSettings({
               <Separator />
               <div className="grid gap-3 pl-4">
               <div className="flex flex-wrap items-center justify-between gap-4">
-                <Label alignment="inline" htmlFor={`default-task-sprint-${detailProject.id}`}>{t("teams.defaultSprint")}</Label>
+                <div className="min-w-0 flex-1 basis-48">
+                  <Label alignment="inline" htmlFor={`default-task-sprint-${detailProject.id}`}>{t("teams.defaultSprint")}</Label>
+                  <p className="mt-1 text-xs text-muted-foreground">{t("teams.defaultSprintDescription")}</p>
+                </div>
                 <div className="grid gap-2">
                   <Select value={defaultTaskSprintId || NO_SELECTION} onValueChange={(value) => {
                     const nextId = value === NO_SELECTION ? "" : value;
@@ -1284,7 +1296,7 @@ export function ManagedProjectsSettings({
               <div className="flex flex-wrap items-center justify-between gap-4">
                 <div className="min-w-0 flex-1 basis-48">
                   <Label alignment="inline" htmlFor={`default-epic-link-${detailProject.id}`}>{t("teams.defaultEpic")}</Label>
-                  <p className="mt-1 text-xs text-muted-foreground">{t("teams.epicSaveHint")}</p>
+                  <p className="mt-1 text-xs text-muted-foreground">{t("teams.defaultEpicDescription")}</p>
                 </div>
                   <div className="max-w-full">
                     <Select value={defaultEpicLinkKey || NO_SELECTION} onValueChange={(value) => {
@@ -1338,11 +1350,12 @@ export function ManagedProjectsSettings({
               </Alert>
             ) : null}
 
-            <section className="grid gap-1" aria-label={t("teams.members")}>
+            <section className="grid gap-2" aria-label={t("teams.members")}>
             <div className="flex items-center justify-between gap-3">
               <h3 className="font-semibold">{t("teams.members")}</h3>
               <CreateButton label={t("teams.addMemberAction")} aria-label={t("teams.addMember")} title={t("teams.addMember")} onClick={openAddMemberDialog} disabled={controlsDisabled} />
             </div>
+            <Separator className="-mt-1" />
             <Dialog open={memberDialogOpen} onOpenChange={(open) => { if (open) setMemberDialogOpen(true); else closeMemberDialog(); }}>
               <DialogContent>
                 <DialogHeader>
@@ -1450,7 +1463,7 @@ export function ManagedProjectsSettings({
             </Dialog>
 
             {configuredMembers.length > 0 ? (
-              <div className="grid gap-2" aria-label={t("teams.configuredMembers")}>
+              <div className="grid gap-2 pl-4" aria-label={t("teams.configuredMembers")}>
                 {configuredMembers.map((member, index) => {
                   const label = memberLabel(member);
                   return (

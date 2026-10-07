@@ -78,6 +78,24 @@ beforeEach(() => {
 });
 
 describe("ManagedProjectsSettings task creation settings", () => {
+  it("keeps team details mounted during collapse and opens them again", async () => {
+    const { container } = render(<ManagedProjectsSettings jiraIntegrations={[{
+      id: "jira-1", kind: "jira", baseUrl: "https://jira.example.invalid", enabled: true, capabilities: {},
+    }]} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Open Platform team project details" }));
+    await screen.findByRole("combobox", { name: "Default sprint for task creation" });
+    const reveal = container.querySelector(".team-settings-reveal")!;
+    expect(reveal).toHaveAttribute("data-expanded", "true");
+    fireEvent.click(screen.getByRole("button", { name: "Hide Platform team project details" }));
+    expect(reveal).toBeInTheDocument();
+    expect(reveal).toHaveAttribute("data-expanded", "false");
+    expect(reveal.firstElementChild).toHaveAttribute("inert");
+    expect(screen.queryByRole("combobox", { name: "Default sprint for task creation" })).not.toBeInTheDocument();
+    await waitFor(() => expect(reveal).not.toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: "Open Platform team project details" }));
+    expect(await screen.findByRole("combobox", { name: "Default sprint for task creation" })).toBeInTheDocument();
+  });
+
   it("confirms removal of a member and team after allowing cancellation", async () => {
     listMembersMock.mockResolvedValue([{
       accountId: "user-1", displayName: "Example Member", tags: ["backend"], active: true,
