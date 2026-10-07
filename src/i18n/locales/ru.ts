@@ -575,7 +575,7 @@ export const ru: Record<TranslationKey, string> = {
   "general.languageUi": "UI",
   "general.languageUiDescription": "Выберите язык интерфейса приложения.",
   "general.aiResponseLanguage": "Язык ответов ИИ-агента",
-  "general.aiResponseLanguageDescription": "Выберите язык для черновиков задач и ревью pull request.",
+  "general.aiResponseLanguageDescription": "Выберите язык ответов AI.",
   "general.aiResponseLanguageSameAsUi": "Как в интерфейсе",
   "general.aiResponseLanguageEnglish": "Английский",
   "general.aiResponseLanguageRussian": "Русский",

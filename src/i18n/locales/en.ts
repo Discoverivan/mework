@@ -573,7 +573,7 @@ export const en = {
   "general.languageUi": "UI",
   "general.languageUiDescription": "Choose the language used for the application interface.",
   "general.aiResponseLanguage": "AI agent response language",
-  "general.aiResponseLanguageDescription": "Choose the language for generated task drafts and pull request reviews.",
+  "general.aiResponseLanguageDescription": "Choose the language for AI responses.",
   "general.aiResponseLanguageSameAsUi": "Same as UI",
   "general.aiResponseLanguageEnglish": "English",
   "general.aiResponseLanguageRussian": "Russian",
