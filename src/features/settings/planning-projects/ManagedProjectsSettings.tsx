@@ -1309,8 +1309,8 @@ export function ManagedProjectsSettings({
                   <AlertDescription>{teamSaveError}</AlertDescription>
                 </Alert>
               ) : null}
-              </div>
               <Separator />
+              </div>
             </section>
 
             <Dialog open={epicPreviewOpen} onOpenChange={setEpicPreviewOpen}>
