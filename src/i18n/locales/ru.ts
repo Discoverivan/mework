@@ -23,7 +23,7 @@ export const ru: Record<TranslationKey, string> = {
   "dataRetention.days": "Дни",
   "dataRetention.months": "Месяцы",
   "dataRetention.loading": "Загрузка настроек хранения данных…",
-  "dataRetention.description": "Автоматическая очистка при запуске и ежедневно. 0 — отключить очистку по возрасту. Актуальные данные и итоги статистики AI сохраняются.",
+  "dataRetention.description": "Автоматическая очистка при запуске и ежедневно. 0 — отключить очистку по возрасту. В этом случае данные хранятся бессрочно; для диагностических логов сохраняется лимит объёма.",
   "dataRetention.reviewHistory": "История PR-ревью",
   "dataRetention.reviewHistoryHelp": "Удалять старые завершённые ревью PR, отсутствующих в текущих списках. 0 — хранить бессрочно.",
   "dataRetention.syncHistory": "История синхронизации",

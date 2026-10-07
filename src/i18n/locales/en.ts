@@ -21,7 +21,7 @@ export const en = {
   "dataRetention.days": "Days",
   "dataRetention.months": "Months",
   "dataRetention.loading": "Loading data retention settings…",
-  "dataRetention.description": "Automatic cleanup at startup and daily. Set 0 to disable age-based cleanup. Current data and AI usage totals are preserved.",
+  "dataRetention.description": "Automatic cleanup at startup and daily. Set 0 to disable age-based cleanup. Data is then kept indefinitely; diagnostic logs still have a size limit.",
   "dataRetention.reviewHistory": "PR review history",
   "dataRetention.reviewHistoryHelp": "Remove older finished reviews for PRs absent from the current lists. 0 keeps them indefinitely.",
   "dataRetention.syncHistory": "Sync history",
