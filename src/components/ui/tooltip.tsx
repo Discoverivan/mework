@@ -14,7 +14,40 @@ const Tooltip = ({ children, ...props }: React.ComponentProps<typeof TooltipPrim
   </TooltipPrimitive.Root>
 )
 
-const TooltipTrigger = TooltipPrimitive.Trigger
+const TooltipTrigger = React.forwardRef<
+  React.ElementRef<typeof TooltipPrimitive.Trigger>,
+  React.ComponentPropsWithoutRef<typeof TooltipPrimitive.Trigger>
+>(({ onClick, onFocus, onPointerMove, onKeyDown, ...props }, ref) => {
+  const suppressRestoredFocus = React.useRef(false)
+  return <TooltipPrimitive.Trigger
+    {...props}
+    ref={ref}
+    onClick={(event) => {
+      // Closing a picker returns focus here; that is not a request for its hint.
+      suppressRestoredFocus.current = true
+      onClick?.(event)
+    }}
+    onFocus={(event) => {
+      onFocus?.(event)
+      if (suppressRestoredFocus.current || event.currentTarget.getAttribute("aria-expanded") === "true") {
+        event.preventDefault()
+      }
+    }}
+    onPointerMove={(event) => {
+      onPointerMove?.(event)
+      if (event.currentTarget.getAttribute("aria-expanded") === "true") {
+        event.preventDefault()
+      } else if (!event.defaultPrevented && event.pointerType !== "touch") {
+        suppressRestoredFocus.current = false
+      }
+    }}
+    onKeyDown={(event) => {
+      onKeyDown?.(event)
+      if (!event.defaultPrevented && event.key === "Tab") suppressRestoredFocus.current = false
+    }}
+  />
+})
+TooltipTrigger.displayName = TooltipPrimitive.Trigger.displayName
 
 const TooltipContent = React.forwardRef<
   React.ElementRef<typeof TooltipPrimitive.Content>,

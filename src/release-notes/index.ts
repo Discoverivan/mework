@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import releaseNotesConfig from "../../src-tauri/release-notes-config.json";
 
 export interface ReleaseNote {
   version: string;
@@ -31,8 +32,34 @@ export function loadReleaseNoteVersion(version: string, language: "en" | "ru"): 
   return invoke("load_release_note_version", { version, language });
 }
 
+const availableUpdateNotes = new Map<string, { promise: Promise<ReleaseNote[]>; expiresAt: number }>();
+
 export function loadAvailableUpdateReleaseNotes(targetVersion: string, language: "en" | "ru"): Promise<ReleaseNote[]> {
-  return invoke("load_available_update_release_notes", { targetVersion, language });
+  const now = Date.now();
+  for (const [key, entry] of availableUpdateNotes) {
+    if (entry.expiresAt <= now) availableUpdateNotes.delete(key);
+  }
+  const key = `${targetVersion}:${language}`;
+  const cached = availableUpdateNotes.get(key);
+  if (cached) return cached.promise;
+
+  // Share both the background request and its result between the banner and About.
+  // Persisted content and all network access remain owned by the Rust core.
+  const entry: { promise: Promise<ReleaseNote[]>; expiresAt: number } = {
+    promise: invoke<ReleaseNote[]>("load_available_update_release_notes", { targetVersion, language })
+      .then((notes) => {
+        if (notes.length === 0) throw new Error("No release notes");
+        entry.expiresAt = Date.now() + releaseNotesConfig.cacheTtlSeconds * 1000;
+        return notes;
+      })
+      .catch((error: unknown) => {
+        availableUpdateNotes.delete(key);
+        throw error;
+      }),
+    expiresAt: Infinity,
+  };
+  availableUpdateNotes.set(key, entry);
+  return entry.promise;
 }
 
 export function prefetchOlderReleaseNotes(versions: string[], selectedVersion: string, language: "en" | "ru"): void {
