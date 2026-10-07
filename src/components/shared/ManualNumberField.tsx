@@ -10,6 +10,7 @@ import { scaleWholeNumber } from "@/lib/scaled-number";
 interface ManualNumberFieldProps {
   id: string;
   label: string;
+  labelledBy?: string;
   description?: string;
   value: number;
   min: number;
@@ -22,7 +23,7 @@ interface ManualNumberFieldProps {
   onValidityChange?: (valid: boolean) => void;
 }
 
-export function ManualNumberField({ id, label, description, value, min, max, scale = 1, allowDecimals = false, disabled = false, errors, onChange, onValidityChange }: ManualNumberFieldProps) {
+export function ManualNumberField({ id, label, labelledBy, description, value, min, max, scale = 1, allowDecimals = false, disabled = false, errors, onChange, onValidityChange }: ManualNumberFieldProps) {
   const [draft, setDraft] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [showError, setShowError] = useState(false);
@@ -55,7 +56,7 @@ export function ManualNumberField({ id, label, description, value, min, max, sca
   }
 
   return <div role="group" className="grid w-fit gap-2.5" data-disabled={disabled}>
-    <Hint content={description}><span id={`${id}-label`} className="whitespace-nowrap px-1 text-sm font-medium leading-none">{label}</span></Hint>
+    {!labelledBy ? <Hint content={description}><span id={`${id}-label`} className="whitespace-nowrap px-1 text-sm font-medium leading-none">{label}</span></Hint> : null}
     <Popover open={!disabled && showError && Boolean(error)} onOpenChange={setShowError}>
       <PopoverAnchor asChild><Input
         id={id}
@@ -65,7 +66,7 @@ export function ManualNumberField({ id, label, description, value, min, max, sca
         autoComplete="off"
         value={draft ?? String(value)}
         disabled={disabled}
-        aria-labelledby={`${id}-label`}
+        aria-labelledby={labelledBy ?? `${id}-label`}
         aria-description={error ?? description}
         aria-invalid={Boolean(error)}
         onFocus={() => setShowError(Boolean(error))}

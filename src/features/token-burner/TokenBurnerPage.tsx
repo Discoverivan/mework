@@ -578,37 +578,48 @@ export function TokenBurnerPage() {
         }}>
           <DialogHeader className="px-1"><DialogTitle className="text-base leading-tight">{t("tokenBurner.settings")}</DialogTitle></DialogHeader>
           <DialogBody className="m-0 p-1">
-            <div className="rounded-md border">
-              <div className="flex flex-wrap items-start gap-3 p-4">
-                <ManualNumberField id="burner-daily-target" label={t("tokenBurner.dailyTargetField")}
-                  description={t("tokenBurner.dailyTargetHelp")} value={targetAmount} min={1000} max={100_000_000} scale={TOKEN_UNITS[targetUnit]} allowDecimals
-                  disabled={settingsSaving} onValidityChange={setDailyTargetValid}
-                  errors={{ required: t("forms.numberRequired"), number: t("forms.numberInvalid"), range: t("forms.numberRange", { min: 1000 / TOKEN_UNITS[targetUnit], max: 100_000_000 / TOKEN_UNITS[targetUnit] }), whole: t("tokenBurner.targetWholeTokens") }}
-                  onChange={(amount) => changeTarget(amount, targetUnit)} />
-                <div className="grid w-fit gap-2.5">
-                  <span id="burner-target-unit-label" className="px-1 text-sm font-medium leading-none">{t("tokenBurner.tokenUnit")}</span>
-                  <Select value={targetUnit} onValueChange={(unit) => changeTarget(targetAmount, unit as TokenUnit)} disabled={settingsSaving}>
-                    <SelectTrigger aria-labelledby="burner-target-unit-label" className="h-9"><SelectValue /></SelectTrigger>
-                    <SelectContent>{(Object.keys(TOKEN_UNITS) as TokenUnit[]).map((unit) => <SelectItem key={unit} value={unit}>{t(`tokenBurner.unit.${unit}`)}</SelectItem>)}</SelectContent>
-                  </Select>
+            <Card>
+              <CardContent className="flex flex-col gap-3 px-4 pb-3.5 pt-4">
+                <Separator />
+                <div className="flex flex-wrap items-center justify-between gap-4 pl-4">
+                  <div className="min-w-0 flex-1">
+                    <Label id="burner-daily-target-label" htmlFor="burner-daily-target" alignment="inline" className="font-medium">{t("tokenBurner.dailyTargetField")}</Label>
+                    <CardDescription className="mt-1 text-xs leading-snug">{t("tokenBurner.dailyTargetHelp")}</CardDescription>
+                  </div>
+                  <div className="flex w-full items-center gap-3 sm:w-auto">
+                    <ManualNumberField id="burner-daily-target" labelledBy="burner-daily-target-label" label={t("tokenBurner.dailyTargetField")}
+                      description={t("tokenBurner.dailyTargetHelp")} value={targetAmount} min={1000} max={100_000_000} scale={TOKEN_UNITS[targetUnit]} allowDecimals
+                      disabled={settingsSaving} onValidityChange={setDailyTargetValid}
+                      errors={{ required: t("forms.numberRequired"), number: t("forms.numberInvalid"), range: t("forms.numberRange", { min: 1000 / TOKEN_UNITS[targetUnit], max: 100_000_000 / TOKEN_UNITS[targetUnit] }), whole: t("tokenBurner.targetWholeTokens") }}
+                      onChange={(amount) => changeTarget(amount, targetUnit)} />
+                    <span id="burner-target-unit-label" className="sr-only">{t("tokenBurner.tokenUnit")}</span>
+                    <Select value={targetUnit} onValueChange={(unit) => changeTarget(targetAmount, unit as TokenUnit)} disabled={settingsSaving}>
+                      <SelectTrigger aria-labelledby="burner-target-unit-label" className="h-9"><SelectValue /></SelectTrigger>
+                      <SelectContent>{(Object.keys(TOKEN_UNITS) as TokenUnit[]).map((unit) => <SelectItem key={unit} value={unit}>{t(`tokenBurner.unit.${unit}`)}</SelectItem>)}</SelectContent>
+                    </Select>
+                  </div>
                 </div>
-              </div>
-              <Separator />
-              <div className="flex flex-wrap items-start gap-3 p-4">
-                <ManualNumberField id="burner-request-delay" label={t("tokenBurner.delayBetweenRequests")}
-                  description={t("tokenBurner.delayHelp")} value={delayAmount} min={0} max={3600} scale={DELAY_UNITS[delayUnit]} allowDecimals
-                  disabled={settingsSaving} onValidityChange={setDelayValid}
-                  errors={{ required: t("forms.numberRequired"), number: t("forms.numberInvalid"), range: t("forms.numberRange", { min: 0, max: 3600 / DELAY_UNITS[delayUnit] }), whole: t("tokenBurner.delayWholeSeconds") }}
-                  onChange={(amount) => changeDelay(amount, delayUnit)} />
-                <div className="grid w-fit gap-2.5">
-                  <span id="burner-delay-unit-label" className="px-1 text-sm font-medium leading-none">{t("tokenBurner.timeUnit")}</span>
-                  <Select value={delayUnit} onValueChange={(unit) => changeDelay(delayAmount, unit as DelayUnit)} disabled={settingsSaving}>
-                    <SelectTrigger aria-labelledby="burner-delay-unit-label" className="h-9"><SelectValue /></SelectTrigger>
-                    <SelectContent>{(Object.keys(DELAY_UNITS) as DelayUnit[]).map((unit) => <SelectItem key={unit} value={unit}>{t(`tokenBurner.unit.${unit}`)}</SelectItem>)}</SelectContent>
-                  </Select>
+                <div className="pl-4"><Separator /></div>
+                <div className="flex flex-wrap items-center justify-between gap-4 pl-4">
+                  <div className="min-w-0 flex-1">
+                    <Label id="burner-request-delay-label" htmlFor="burner-request-delay" alignment="inline" className="font-medium">{t("tokenBurner.delayBetweenRequests")}</Label>
+                    <CardDescription className="mt-1 text-xs leading-snug">{t("tokenBurner.delayHelp")}</CardDescription>
+                  </div>
+                  <div className="flex w-full items-center gap-3 sm:w-auto">
+                    <ManualNumberField id="burner-request-delay" labelledBy="burner-request-delay-label" label={t("tokenBurner.delayBetweenRequests")}
+                      description={t("tokenBurner.delayHelp")} value={delayAmount} min={0} max={3600} scale={DELAY_UNITS[delayUnit]} allowDecimals
+                      disabled={settingsSaving} onValidityChange={setDelayValid}
+                      errors={{ required: t("forms.numberRequired"), number: t("forms.numberInvalid"), range: t("forms.numberRange", { min: 0, max: 3600 / DELAY_UNITS[delayUnit] }), whole: t("tokenBurner.delayWholeSeconds") }}
+                      onChange={(amount) => changeDelay(amount, delayUnit)} />
+                    <span id="burner-delay-unit-label" className="sr-only">{t("tokenBurner.timeUnit")}</span>
+                    <Select value={delayUnit} onValueChange={(unit) => changeDelay(delayAmount, unit as DelayUnit)} disabled={settingsSaving}>
+                      <SelectTrigger aria-labelledby="burner-delay-unit-label" className="h-9"><SelectValue /></SelectTrigger>
+                      <SelectContent>{(Object.keys(DELAY_UNITS) as DelayUnit[]).map((unit) => <SelectItem key={unit} value={unit}>{t(`tokenBurner.unit.${unit}`)}</SelectItem>)}</SelectContent>
+                    </Select>
+                  </div>
                 </div>
-              </div>
-            </div>
+              </CardContent>
+            </Card>
             {savingError ? <Alert className="mt-4" variant="destructive"><AlertDescription>{savingError}</AlertDescription></Alert> : null}
           </DialogBody>
           <DialogFooter className="px-1">
