@@ -159,6 +159,7 @@ describe("GeneralSettingsPage", () => {
 
     expect(await screen.findByRole("switch", { name: "Notifications" })).toBeChecked();
     fireEvent.click(screen.getByRole("button", { name: "Show notification settings" }));
+    fireEvent.click(screen.getByRole("button", { name: "Show language settings" }));
     const uiSelect = screen.getByRole("combobox", { name: "UI" });
     expect(uiSelect).toHaveTextContent("English");
     expect(screen.getByRole("combobox", { name: "Appearance" })).toHaveTextContent("System");
@@ -297,10 +298,15 @@ describe("GeneralSettingsPage", () => {
     expect(screen.queryByRole("heading", { name: "Notifications are not allowed" })).not.toBeInTheDocument();
   });
 
-  it("saves the AI response language independently from the UI language", async () => {
+  it("expands language settings and preserves the saved AI language across collapse", async () => {
     render(<GeneralSettingsPage />);
 
-    const responseLanguage = await screen.findByRole("combobox", { name: "AI agent response language" });
+    expect(screen.queryByRole("combobox", { name: "AI responses" })).not.toBeInTheDocument();
+    const expand = screen.getByRole("button", { name: "Show language settings" });
+    expect(expand).toHaveAttribute("aria-expanded", "false");
+    fireEvent.click(expand);
+    const responseLanguage = await screen.findByRole("combobox", { name: "AI responses" });
+    await waitFor(() => expect(responseLanguage).toBeEnabled());
     expect(responseLanguage).toHaveTextContent("Same as UI");
     fireEvent.click(responseLanguage);
     fireEvent.click(screen.getByRole("option", { name: "Russian" }));
@@ -309,6 +315,12 @@ describe("GeneralSettingsPage", () => {
       language: "english",
       aiResponseLanguage: "russian",
     })));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Hide language settings" })).toBeEnabled());
+    fireEvent.click(screen.getByRole("button", { name: "Hide language settings" }));
+    expect(screen.queryByRole("combobox", { name: "AI responses" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Show language settings" }));
+    expect(screen.getByRole("combobox", { name: "AI responses" })).toHaveTextContent("Russian");
+    expect(screen.getByRole("combobox", { name: "UI" })).toHaveTextContent("English");
   });
 
   it("shows update details and a single install action when a newer version is available", async () => {

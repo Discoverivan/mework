@@ -104,7 +104,7 @@ export function ActionSettingsSection({ defaults, renderModelSettings, renderAct
       <p className="text-sm leading-snug text-muted-foreground">{t("settings.ai.actionsDescription")}</p>
     </header>
     <Card>
-      <CardContent className="flex flex-col gap-4 px-4 py-4">
+      <CardContent className="flex flex-col gap-4 px-4 py-4 [&_[id$=-label]]:font-normal">
         {defaults ? <>{defaults}<Separator /></> : null}
         {loadError ? <Alert variant="destructive"><AlertDescription>{t("settings.prompts.loadError")}</AlertDescription></Alert> : null}
         {saveError && !editing ? <Alert variant="destructive" role="alert"><AlertDescription>{t("settings.prompts.saveError")}</AlertDescription></Alert> : null}
@@ -113,7 +113,7 @@ export function ActionSettingsSection({ defaults, renderModelSettings, renderAct
           return <Fragment key={action}>
             {index > 0 ? <Separator /> : null}
             <section className="flex flex-col gap-4" aria-label={t(actionLabels[action])}>
-              <h3 className="text-base font-medium">{t(actionLabels[action])}</h3>
+              <h3 className="text-sm font-medium">{t(actionLabels[action])}</h3>
               <div className="flex flex-wrap items-start gap-4">
                 {renderModelSettings?.(action)}
                 {renderActionOptions?.(action)}

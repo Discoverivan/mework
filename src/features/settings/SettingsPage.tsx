@@ -343,7 +343,7 @@ export function SettingsPage({ section = "integrations", focusActivity, mockMode
         .catch(() => {
           if (!active) return;
           if (!getCachedAiSettings()) setAiData(UNAVAILABLE_AI_DATA);
-          setAiError(t("settings.error.loadCodex"));
+          setAiError(t("settings.error.loadAiSettings"));
         })
         .finally(() => {
           if (active) setLoading(false);
@@ -1119,7 +1119,7 @@ export function SettingsPage({ section = "integrations", focusActivity, mockMode
             onSavingChange={handleInstructionsSaving}
             onLoadingChange={setInstructionsLoading}
             defaults={<section className="flex flex-col gap-4" aria-labelledby="ai-defaults-title">
-              <h3 id="ai-defaults-title" className="text-base font-medium">{t("settings.ai.defaults")}</h3>
+              <h3 id="ai-defaults-title" className="text-sm font-medium">{t("settings.ai.defaults")}</h3>
               <div className="flex flex-wrap items-end gap-4">
                 <div className="grid min-w-0 max-w-full gap-2.5">
                   <Label className="translate-x-1" id="ai-provider-label">{t("settings.ai.provider")}</Label>
@@ -1180,7 +1180,7 @@ export function SettingsPage({ section = "integrations", focusActivity, mockMode
             </section>}
             renderModelSettings={renderActionModelSettings}
             extraAction={<section id="ai-token-burner-action" className="flex flex-col gap-4" aria-label={t("settings.ai.tokenBurner")}>
-              <h3 className="text-base font-medium">{t("settings.ai.tokenBurner")}</h3>
+              <h3 className="text-sm font-medium">{t("settings.ai.tokenBurner")}</h3>
               {renderActionModelSettings("tokenBurner")}
             </section>}
                       />

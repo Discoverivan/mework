@@ -11,10 +11,13 @@
   animation: team-settings-open 200ms ease-out;
 }
 
-.team-settings-content,
 .team-member-form {
   --secondary: var(--background);
   --secondary-foreground: var(--foreground);
+}
+
+:root[data-button-style="quiet"] .team-task-actions {
+  margin-inline-end: 0.25rem;
 }
 
 @keyframes team-settings-open {

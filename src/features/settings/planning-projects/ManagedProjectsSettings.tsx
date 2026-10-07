@@ -1232,7 +1232,7 @@ export function ManagedProjectsSettings({
                 <h3 className="font-semibold">{t("teams.taskSettings")}</h3>
                 <p className="text-sm text-muted-foreground">{t("teams.taskSettingsDescription")}</p>
               </div>
-              <div className="ml-auto flex shrink-0 items-center gap-2">
+              <div className="team-task-actions ml-auto flex shrink-0 items-center gap-2">
                 <Button type="button" size="sm" variant="outline" onClick={cancelTaskCreationChanges} disabled={controlsDisabled || epicPreviewLoading || !taskCreationChanged}>
                   {t("settings.common.cancel")}
                 </Button>

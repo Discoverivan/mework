@@ -585,7 +585,7 @@ export function TokenBurnerPage() {
           settingsDialogRef.current?.focus();
         }}>
           <DialogHeader className="px-1"><DialogTitle className="text-base leading-tight">{t("tokenBurner.settings")}</DialogTitle></DialogHeader>
-          <DialogBody className="m-0 p-1">
+          <DialogBody className="m-0 p-1 pb-0">
             <Card className="shadow-none">
               <CardContent className="flex flex-col gap-3 p-4">
                 <div className="flex flex-wrap items-center justify-between gap-4">
