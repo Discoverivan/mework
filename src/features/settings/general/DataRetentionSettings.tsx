@@ -76,7 +76,7 @@ export function DataRetentionSettings() {
             return <Fragment key={field}>
               {index > 0 ? <Separator orientation="vertical" className="hidden h-auto self-stretch @min-[56rem]/retention:block" /> : null}
               <div role="group" aria-labelledby={`retention-${field}-label`}
-              className="grid w-fit grid-cols-[3rem_auto] gap-x-2 gap-y-2.5 [&>div[role=group]]:contents [&_[id$='-label']]:col-span-2 [&_input]:px-2">
+              className="grid w-fit grid-cols-[3.25rem_auto] gap-x-2 gap-y-2.5 [&>div[role=group]]:contents [&_[id$='-label']]:col-span-2">
               <ManualNumberField id={`retention-${field}`} label={label}
                 description={t(`dataRetention.${field}Help`)} value={period.value} min={0} max={max} disabled={saving}
                 onChange={(value) => setDraft((current) => current && { ...current, [field]: { ...current[field], value } })}
