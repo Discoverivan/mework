@@ -78,7 +78,7 @@ export function DataRetentionSettings() {
               <div role="group" aria-labelledby={`retention-${field}-label`}
               className="grid w-fit grid-cols-[max-content_auto] gap-x-2 gap-y-2.5 [&>div[role=group]]:contents [&_[id$='-label']]:col-span-2">
               <ManualNumberField id={`retention-${field}`} label={label}
-                description={t(`dataRetention.${field}Help`)} value={period.value} min={0} max={max} minVisibleDigits={2} disabled={saving}
+                description={t(`dataRetention.${field}Help`)} value={period.value} min={0} max={max} minVisibleDigits={1} disabled={saving}
                 onChange={(value) => setDraft((current) => current && { ...current, [field]: { ...current[field], value } })}
                 onValidityChange={validityHandlers[field]}
                 errors={{ required: t("forms.numberRequired"), number: t("forms.numberInvalid"), range: t("forms.numberRange", { min: 0, max }), whole: t("forms.numberInvalid") }} />

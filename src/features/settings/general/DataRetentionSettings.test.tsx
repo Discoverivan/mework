@@ -26,6 +26,8 @@ it("loads retention settings and saves a changed history limit", async () => {
   expect(history).toHaveValue("");
   expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
   fireEvent.change(history, { target: { value: "30" } });
+  expect(history.style.width).not.toBe(compactWidth);
+  fireEvent.change(history, { target: { value: "7" } });
   expect(history.style.width).toBe(compactWidth);
   fireEvent.change(history, { target: { value: "1234" } });
   expect(history).toHaveValue("1234");
