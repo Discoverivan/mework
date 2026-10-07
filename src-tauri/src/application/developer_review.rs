@@ -1739,9 +1739,47 @@ fn review_result_schema() -> &'static str {
 }"#
 }
 
+// Provider extensions are ignored at this boundary; persisted and public result
+// types remain strict. Required fields and enum values still use the core types.
+#[derive(Deserialize)]
+struct ProviderReviewResult {
+    verdict: PullRequestReviewVerdict,
+    description: String,
+    summary: String,
+    comments: Vec<ProviderReviewComment>,
+}
+
+#[derive(Deserialize)]
+struct ProviderReviewComment {
+    severity: PullRequestReviewSeverity,
+    file: String,
+    line: Option<u64>,
+    comment: String,
+}
+
+impl From<ProviderReviewResult> for PullRequestReviewResult {
+    fn from(result: ProviderReviewResult) -> Self {
+        Self {
+            verdict: result.verdict,
+            description: result.description,
+            summary: result.summary,
+            comments: result
+                .comments
+                .into_iter()
+                .map(|comment| PullRequestReviewComment {
+                    severity: comment.severity,
+                    file: comment.file,
+                    line: comment.line,
+                    comment: comment.comment,
+                })
+                .collect(),
+        }
+    }
+}
+
 fn parse_review_result(output: &[u8]) -> Result<PullRequestReviewResult, String> {
     let text = String::from_utf8_lossy(output).trim().to_owned();
-    let parsed = serde_json::from_str::<PullRequestReviewResult>(&text)
+    let parsed = serde_json::from_str::<ProviderReviewResult>(&text)
         .or_else(|_| {
             let start = text
                 .find('{')
@@ -1749,7 +1787,7 @@ fn parse_review_result(output: &[u8]) -> Result<PullRequestReviewResult, String>
             let end = text
                 .rfind('}')
                 .ok_or(serde_json::Error::io(std::io::Error::other("missing JSON")))?;
-            serde_json::from_str::<PullRequestReviewResult>(&text[start..=end])
+            serde_json::from_str::<ProviderReviewResult>(&text[start..=end])
         })
         .map_err(|_| {
             crate::application::logging::error(
@@ -1765,7 +1803,7 @@ fn parse_review_result(output: &[u8]) -> Result<PullRequestReviewResult, String>
             );
             "AI provider returned invalid review JSON".to_owned()
         })?;
-    validate_result(parsed).inspect_err(|error| {
+    validate_result(parsed.into()).inspect_err(|error| {
         crate::application::logging::log_parse_failure(
             "ai",
             "pull_request_review",
@@ -1794,7 +1832,7 @@ fn review_schema_diagnostic(text: &str) -> serde_json::Value {
             .unwrap_or(text)
     };
     let mut deserializer = serde_json::Deserializer::from_str(candidate);
-    let result: Result<PullRequestReviewResult, _> =
+    let result: Result<ProviderReviewResult, _> =
         serde_path_to_error::deserialize(&mut deserializer);
     let Err(error) = result else {
         return serde_json::json!({"operation": "pull_request_review", "reason": "trailing_content"});
@@ -2229,7 +2267,8 @@ mod tests {
                     "verdict": "needs_changes",
                     "description": "Updates an example handler.",
                     "summary": "One concrete finding.",
-                    "comments": [{"severity": "high", "file": "src/example.rs", "line": 1, "comment": "Validate the input before use."}]
+                    "comments": [{"severity": "high", "file": "src/example.rs", "line": 1, "comment": "Validate the input before use.", "extraMetadata": {"note": "Synthetic provider extension"}}],
+                    "extraMetadata": {"note": "Synthetic provider extension"}
                 }).to_string()}}],
                 "usage": {"prompt_tokens": 100, "completion_tokens": 50, "total_tokens": 150}
             })))
@@ -2238,7 +2277,7 @@ mod tests {
             .await;
         let runtime = crate::application::ai::OpenAiCompatibleRuntimeConfig {
             base_url: format!("{}/v1", server.uri()),
-            token: uuid::Uuid::now_v7().to_string(),
+            token: String::new(),
             allow_insecure_tls: false,
         };
         let (result, usage) = super::request_token_burner_review(
@@ -2257,6 +2296,10 @@ mod tests {
         let review = result.unwrap();
         assert_eq!(review.verdict, PullRequestReviewVerdict::NeedsChanges);
         assert_eq!(review.comments[0].severity, PullRequestReviewSeverity::High);
+        assert_eq!(review.comments[0].comment, "Validate the input before use.");
+        assert!(!serde_json::to_string(&review)
+            .unwrap()
+            .contains("extraMetadata"));
         assert_eq!(usage.unwrap().total_tokens, 150);
     }
 
@@ -2492,7 +2535,8 @@ mod tests {
         let diagnostic = super::review_schema_diagnostic(
             r#"{"Private unknown key":"Private value","verdict":"ok"}"#,
         );
-        assert_eq!(diagnostic["reason"], "unknown field");
+        assert_eq!(diagnostic["reason"], "missing field");
+        assert_eq!(diagnostic["path"], "$.description");
         assert!(!diagnostic.to_string().contains("Private"));
     }
 

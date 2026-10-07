@@ -461,14 +461,13 @@ pub async fn start<R: Runtime>(
     {
         return Err("Token Burner is already running".to_owned());
     }
-    let session_id = Uuid::now_v7().to_string();
-    if let Err(error) = sqlx::query("INSERT INTO token_burner_sessions (id, status, started_at, settings_json) VALUES (?, 'running', strftime('%Y-%m-%dT%H:%M:%fZ','now'), ?)")
-        .bind(&session_id)
-        .bind(settings_json)
-        .execute(&pool).await {
-        runtime.running.store(false, Ordering::Release);
-        return Err(format!("failed to start Token Burner session: {error}"));
-    }
+    let session_id = match start_or_retry_session(&pool, &settings_json).await {
+        Ok(id) => id,
+        Err(error) => {
+            runtime.running.store(false, Ordering::Release);
+            return Err(error);
+        }
+    };
     let worker_pool = pool.clone();
     let worker_runtime = runtime.clone();
     let worker_app = app.clone();
@@ -488,6 +487,58 @@ pub async fn start<R: Runtime>(
     drop(state_guard);
     emit_snapshot(&pool, &app).await?;
     snapshot(&pool).await
+}
+
+async fn start_or_retry_session(pool: &SqlitePool, settings_json: &str) -> Result<String, String> {
+    // Match snapshot's day-scoped history before selecting a retry. Moving an
+    // older session to today would leave its iterations outside today's usage.
+    clear_previous_day_history(pool).await?;
+    let mut transaction = pool.begin().await.map_err(db_read_error)?;
+    let latest: Option<(String, String)> = sqlx::query_as(
+        "SELECT id, status FROM token_burner_sessions ORDER BY started_at DESC LIMIT 1",
+    )
+    .fetch_optional(&mut *transaction)
+    .await
+    .map_err(db_read_error)?;
+    let session_id = if let Some((id, _)) =
+        latest.filter(|(_, status)| matches!(status.as_str(), "error" | "interrupted"))
+    {
+        sqlx::query("UPDATE token_burner_sessions SET accumulated_runtime_ms = accumulated_runtime_ms + CASE WHEN paused_at IS NULL THEN MAX(0, (strftime('%s', COALESCE(finished_at, started_at)) - strftime('%s', started_at)) * 1000) ELSE 0 END, status = 'running', started_at = strftime('%Y-%m-%dT%H:%M:%fZ','now'), finished_at = NULL, paused_at = NULL, error = NULL, ended_without_pull_requests = 0, settings_json = ? WHERE id = ?")
+            .bind(settings_json).bind(&id).execute(&mut *transaction).await.map_err(db_read_error)?;
+        id
+    } else {
+        let id = Uuid::now_v7().to_string();
+        sqlx::query("INSERT INTO token_burner_sessions (id, status, started_at, settings_json) VALUES (?, 'running', strftime('%Y-%m-%dT%H:%M:%fZ','now'), ?)")
+            .bind(&id).bind(settings_json).execute(&mut *transaction).await.map_err(db_read_error)?;
+        id
+    };
+    transaction.commit().await.map_err(db_read_error)?;
+    Ok(session_id)
+}
+
+#[derive(sqlx::FromRow)]
+struct FailedIteration {
+    id: String,
+    integration_id: String,
+    project_key: String,
+    repository_slug: String,
+    pull_request_id: String,
+    perspective: String,
+}
+
+async fn failed_iteration(
+    pool: &SqlitePool,
+    session_id: &str,
+) -> Result<Option<FailedIteration>, String> {
+    sqlx::query_as("SELECT id, integration_id, project_key, repository_slug, pull_request_id, perspective FROM token_burner_iterations WHERE session_id = ? AND status = 'failed' ORDER BY started_at DESC LIMIT 1")
+        .bind(session_id).fetch_optional(pool).await.map_err(db_read_error)
+}
+
+async fn restart_iteration(pool: &SqlitePool, id: &str, model: &str) -> Result<bool, String> {
+    // Keep prior usage and reservations: another provider request cannot refund them.
+    let result = sqlx::query("UPDATE token_burner_iterations SET status = 'running', phase = 'loading_pr', finished_at = NULL, error = NULL, result_json = NULL, model = ?, iteration = iteration + 1 WHERE id = ? AND status = 'failed' AND EXISTS (SELECT 1 FROM token_burner_sessions WHERE id = token_burner_iterations.session_id AND status = 'running')")
+        .bind(model).bind(id).execute(pool).await.map_err(db_read_error)?;
+    Ok(result.rows_affected() == 1)
 }
 
 pub async fn pause<R: Runtime>(
@@ -726,10 +777,14 @@ async fn worker_loop<R: Runtime>(
         let gate = SCHEDULER_LOCK.get_or_init(|| Mutex::new(()));
         let _guard = gate.lock().await;
         let candidate_result = tokio::select! {
-            result = select_candidate(&pool, &settings) => result,
+            result = async {
+                let retry = failed_iteration(&pool, &session_id).await?;
+                let candidate = select_candidate(&pool, &settings, retry.as_ref()).await?;
+                Ok::<_, String>(candidate.map(|candidate| (candidate, retry)))
+            } => result,
             _ = wait_until_stopping(&pool, &session_id) => return,
         };
-        let candidate = match candidate_result {
+        let (candidate, retry) = match candidate_result {
             Ok(Some(candidate)) => candidate,
             Ok(None) => {
                 if mark_session_without_pull_requests(&pool, &session_id)
@@ -752,12 +807,29 @@ async fn worker_loop<R: Runtime>(
         if !wait_until_running(&pool, &session_id).await {
             return;
         }
-        let perspective = choose_perspective();
-        let iteration_id = Uuid::now_v7().to_string();
-        let insertion = sqlx::query("INSERT INTO token_burner_iterations (id, session_id, integration_id, project_key, repository_slug, repository_name, pull_request_id, pull_request_title, pull_request_url, iteration, perspective, model, status, phase, started_at) SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'running', 'loading_pr', strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE EXISTS (SELECT 1 FROM token_burner_sessions WHERE id = ? AND status = 'running')")
-            .bind(&iteration_id).bind(&session_id).bind(&candidate.integration_id).bind(&candidate.project_key).bind(&candidate.repository_slug).bind(&candidate.repository_name).bind(&candidate.id).bind(&candidate.title).bind(&candidate.url).bind(1_u8).bind(perspective.name).bind(&model).bind(&session_id).execute(&pool).await;
+        let perspective = if let Some(retry) = &retry {
+            let Some(&(name, instructions)) = PERSPECTIVES
+                .iter()
+                .find(|(name, _)| *name == retry.perspective)
+            else {
+                return;
+            };
+            SelectedPerspective { name, instructions }
+        } else {
+            choose_perspective()
+        };
+        let iteration_id = retry
+            .as_ref()
+            .map(|retry| retry.id.clone())
+            .unwrap_or_else(|| Uuid::now_v7().to_string());
+        let insertion = if retry.is_some() {
+            restart_iteration(&pool, &iteration_id, &model).await
+        } else {
+            sqlx::query("INSERT INTO token_burner_iterations (id, session_id, integration_id, project_key, repository_slug, repository_name, pull_request_id, pull_request_title, pull_request_url, iteration, perspective, model, status, phase, started_at) SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'running', 'loading_pr', strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE EXISTS (SELECT 1 FROM token_burner_sessions WHERE id = ? AND status = 'running')")
+            .bind(&iteration_id).bind(&session_id).bind(&candidate.integration_id).bind(&candidate.project_key).bind(&candidate.repository_slug).bind(&candidate.repository_name).bind(&candidate.id).bind(&candidate.title).bind(&candidate.url).bind(1_u8).bind(perspective.name).bind(&model).bind(&session_id).execute(&pool).await.map(|result| result.rows_affected() == 1).map_err(db_read_error)
+        };
         match insertion {
-            Ok(result) if result.rows_affected() == 1 => {}
+            Ok(true) => {}
             Ok(_) => continue,
             _ => return,
         }
@@ -803,13 +875,13 @@ async fn worker_loop<R: Runtime>(
         if let Some(review) = review {
             let usage = usage.expect("successful Token Burner reviews require provider usage");
             let result_json = serde_json::to_string(&review).ok();
-            let _ = sqlx::query("UPDATE token_burner_iterations SET status = 'completed', phase = 'completed', input_tokens = ?, output_tokens = ?, total_tokens = ?, finished_at = strftime('%Y-%m-%dT%H:%M:%fZ','now'), result_json = ? WHERE id = ?")
+            let _ = sqlx::query("UPDATE token_burner_iterations SET status = 'completed', phase = 'completed', input_tokens = input_tokens + ?, output_tokens = output_tokens + ?, total_tokens = total_tokens + ?, finished_at = strftime('%Y-%m-%dT%H:%M:%fZ','now'), result_json = ? WHERE id = ?")
                 .bind(usage.input_tokens).bind(usage.output_tokens).bind(usage.total_tokens).bind(result_json).bind(&iteration_id).execute(&pool).await;
             let _ = ai_usage_statistics::record_now(&pool, provider_id, &model, usage).await;
         } else {
             let error = iteration_error.unwrap_or_else(|| "Review request failed".to_owned());
             if let Some(usage) = usage {
-                let _ = sqlx::query("UPDATE token_burner_iterations SET status = 'failed', phase = 'failed', input_tokens = ?, output_tokens = ?, total_tokens = ?, finished_at = strftime('%Y-%m-%dT%H:%M:%fZ','now'), error = ? WHERE id = ?")
+                let _ = sqlx::query("UPDATE token_burner_iterations SET status = 'failed', phase = 'failed', input_tokens = input_tokens + ?, output_tokens = output_tokens + ?, total_tokens = total_tokens + ?, finished_at = strftime('%Y-%m-%dT%H:%M:%fZ','now'), error = ? WHERE id = ?")
                     .bind(usage.input_tokens).bind(usage.output_tokens).bind(usage.total_tokens).bind(safe_error(&error)).bind(&iteration_id).execute(&pool).await;
                 let _ = ai_usage_statistics::record_now(&pool, provider_id, &model, usage).await;
             } else {
@@ -858,8 +930,23 @@ fn choose_perspective() -> SelectedPerspective {
 async fn select_candidate(
     pool: &SqlitePool,
     settings: &TokenBurnerSettings,
+    retry: Option<&FailedIteration>,
 ) -> Result<Option<PullRequestCandidate>, String> {
     let mut candidates = assigned_open_pull_requests(pool).await?;
+    if let Some(retry) = retry {
+        return candidates
+            .into_iter()
+            .find(|candidate| {
+                candidate.integration_id == retry.integration_id
+                    && candidate.project_key == retry.project_key
+                    && candidate.repository_slug == retry.repository_slug
+                    && candidate.id == retry.pull_request_id
+            })
+            .map(Some)
+            .ok_or_else(|| {
+                "The pull request from the failed iteration is no longer available".to_owned()
+            });
+    }
     candidates.retain(|candidate| {
         settings.repository.as_deref().is_none_or(|key| {
             key == repo_key(
@@ -1021,6 +1108,12 @@ async fn execute_iteration<R: Runtime>(
     let max_output_tokens = ai::OPENAI_MAX_OUTPUT_TOKENS as u32;
     // Grow the reservation per attempt; retain estimates only when the provider reports no usage.
     let reserved_per_attempt = (prompt.len() as i64).saturating_add(max_output_tokens as i64);
+    let previous_reservation: i64 =
+        sqlx::query_scalar("SELECT reserved_tokens FROM token_burner_iterations WHERE id = ?")
+            .bind(iteration_id)
+            .fetch_one(pool)
+            .await
+            .map_err(db_read_error)?;
     let delays = [5_u64, 15, 30, 60];
     let mut response = None;
     for attempt in 0..=retries.min(crate::application::ai::MAX_AI_RETRIES) as usize {
@@ -1034,7 +1127,8 @@ async fn execute_iteration<R: Runtime>(
             set_request_reservation(
                 pool,
                 iteration_id,
-                reserved_per_attempt.saturating_mul(attempt as i64),
+                previous_reservation
+                    .saturating_add(reserved_per_attempt.saturating_mul(attempt as i64)),
             )
             .await?;
             return Err("AI request skipped because Token Burner is stopping".to_owned());
@@ -1042,7 +1136,8 @@ async fn execute_iteration<R: Runtime>(
         set_request_reservation(
             pool,
             iteration_id,
-            reserved_per_attempt.saturating_mul((attempt + 1) as i64),
+            previous_reservation
+                .saturating_add(reserved_per_attempt.saturating_mul((attempt + 1) as i64)),
         )
         .await?;
         match developer_review::request_token_burner_review(
@@ -1059,7 +1154,9 @@ async fn execute_iteration<R: Runtime>(
                 set_request_reservation(
                     pool,
                     iteration_id,
-                    reserved_per_attempt.saturating_mul(unknown_attempts as i64),
+                    previous_reservation.saturating_add(
+                        reserved_per_attempt.saturating_mul(unknown_attempts as i64),
+                    ),
                 )
                 .await?;
                 response = Some(result);
@@ -1071,7 +1168,9 @@ async fn execute_iteration<R: Runtime>(
                 set_request_reservation(
                     pool,
                     iteration_id,
-                    reserved_per_attempt.saturating_mul(unknown_attempts as i64),
+                    previous_reservation.saturating_add(
+                        reserved_per_attempt.saturating_mul(unknown_attempts as i64),
+                    ),
                 )
                 .await?;
                 if attempt == retries.min(crate::application::ai::MAX_AI_RETRIES) as usize
@@ -1242,6 +1341,67 @@ pub fn parse_usage(value: &serde_json::Value) -> Option<AiTokenUsageCounts> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn retry_preserves_successful_results_and_reuses_only_the_failed_iteration() {
+        let directory = tempfile::tempdir().unwrap();
+        let pool = crate::infrastructure::db::open_database(&directory.path().join("retry.sqlite"))
+            .await
+            .unwrap();
+        let settings = serde_json::to_string(&TokenBurnerSettings::default()).unwrap();
+        sqlx::query("INSERT INTO token_burner_sessions (id, status, started_at, settings_json) VALUES ('previous-day', 'error', strftime('%Y-%m-%dT%H:%M:%fZ','now','-1 day'), ?)")
+            .bind(&settings).execute(&pool).await.unwrap();
+        let session_id = start_or_retry_session(&pool, &settings).await.unwrap();
+        assert_ne!(session_id, "previous-day");
+        for (id, status, tokens, reserved) in [
+            ("success", "completed", 100, 0),
+            ("retry", "failed", 25, 50),
+        ] {
+            sqlx::query("INSERT INTO token_burner_iterations (id, session_id, integration_id, project_key, repository_slug, repository_name, pull_request_id, pull_request_title, iteration, perspective, model, status, phase, total_tokens, reserved_tokens, result_json, started_at) VALUES (?, ?, 'example-integration', 'EXAMPLE', 'example-repo', 'Example Repository', '42', 'Synthetic PR', 1, ?, 'example-model', ?, ?, ?, ?, ?, strftime('%Y-%m-%dT%H:%M:%fZ','now'))")
+                .bind(id).bind(&session_id).bind(PERSPECTIVES[0].0).bind(status).bind(status)
+                .bind(tokens).bind(reserved).bind(if status == "completed" { Some("{\"comments\":[]}") } else { None })
+                .execute(&pool).await.unwrap();
+        }
+        sqlx::query("UPDATE token_burner_sessions SET status = 'error', error = 'Invalid provider response', finished_at = strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id = ?")
+            .bind(&session_id).execute(&pool).await.unwrap();
+
+        assert_eq!(
+            start_or_retry_session(&pool, &settings).await.unwrap(),
+            session_id
+        );
+        let retry = failed_iteration(&pool, &session_id).await.unwrap().unwrap();
+        assert_eq!(retry.id, "retry");
+        assert_eq!(retry.pull_request_id, "42");
+        assert_eq!(retry.perspective, PERSPECTIVES[0].0);
+        assert!(restart_iteration(&pool, &retry.id, "example-model")
+            .await
+            .unwrap());
+        let current = snapshot(&pool).await.unwrap();
+        assert_eq!(current.status, "running");
+        assert!(current.error.is_none());
+        assert_eq!(current.active_iterations[0].id, "retry");
+        assert_eq!(current.completed_iterations[0].id, "success");
+        let result: String = sqlx::query_scalar(
+            "SELECT result_json FROM token_burner_iterations WHERE id = 'success'",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(result, "{\"comments\":[]}");
+        assert_eq!(
+            daily_usage_and_reservations(&pool).await.unwrap(),
+            (125, 50)
+        );
+        assert!(failed_iteration(&pool, &session_id)
+            .await
+            .unwrap()
+            .is_none());
+        let sessions: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM token_burner_sessions")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(sessions, 1);
+    }
 
     #[test]
     fn defaults_to_ten_second_delay_and_a_builtin_random_review_focus() {

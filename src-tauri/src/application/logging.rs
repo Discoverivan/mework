@@ -15,7 +15,7 @@ const MAX_LOG_BYTES: u64 = 5 * 1024 * 1024;
 const MAX_TOTAL_LOG_BYTES: u64 = 100 * 1024 * 1024;
 const MAX_ENTRY_CHARS: usize = 8_000;
 const MAX_HTTP_BODY_BYTES: usize = 8_192;
-static LOG_PATH: OnceLock<PathBuf> = OnceLock::new();
+static LOG_DIRECTORY: OnceLock<PathBuf> = OnceLock::new();
 static LOG_LOCK: Mutex<()> = Mutex::new(());
 #[derive(Clone, Copy)]
 struct LogPolicy {
@@ -41,7 +41,7 @@ pub fn initialize(app_data_dir: &Path) {
             return;
         }
     };
-    let _ = LOG_PATH.set(logs_dir.join("application.log"));
+    let _ = LOG_DIRECTORY.set(logs_dir.clone());
     info(
         "application",
         "logger_initialized",
@@ -619,7 +619,9 @@ pub fn redact_value(value: Value) -> Value {
 }
 
 fn write(level: &str, component: &str, event: &str, details: Value) {
-    let Some(path) = LOG_PATH.get() else { return };
+    let Some(directory) = LOG_DIRECTORY.get() else {
+        return;
+    };
     let Ok(_guard) = LOG_LOCK.lock() else { return };
     let Ok(policy) = LOG_POLICY.lock().map(|policy| *policy) else {
         return;
@@ -642,9 +644,9 @@ fn write(level: &str, component: &str, event: &str, details: Value) {
         return;
     };
     if append_record(
-        path,
+        directory,
         &line,
-        time::OffsetDateTime::now_utc(),
+        local_time(time::OffsetDateTime::now_utc()),
         policy.max_bytes,
     )
     .is_err()
@@ -653,29 +655,40 @@ fn write(level: &str, component: &str, event: &str, details: Value) {
     }
 }
 
+fn local_time(instant: time::OffsetDateTime) -> time::OffsetDateTime {
+    instant.to_offset(time::UtcOffset::local_offset_at(instant).unwrap_or(time::UtcOffset::UTC))
+}
+
 fn modified_at(metadata: &fs::Metadata) -> std::io::Result<time::OffsetDateTime> {
     Ok(metadata.modified()?.into())
 }
 
-fn rotate(path: &Path, date: time::Date) -> std::io::Result<()> {
-    let directory = path
-        .parent()
-        .ok_or_else(|| std::io::Error::other("missing log directory"))?;
-    for sequence in 1..=u32::MAX {
-        let archive = directory.join(format!("application.{date}.{sequence:03}.log"));
-        match fs::symlink_metadata(&archive) {
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-                return fs::rename(path, archive);
-            }
-            Err(error) => return Err(error),
-            Ok(_) => {} // Existing files, directories, and symlinks reserve this sequence.
-        }
+fn dated_log(name: &str) -> Option<(time::Date, u32)> {
+    let middle = name.strip_prefix("application.")?.strip_suffix(".log")?;
+    let (date, sequence) = middle.split_once('.')?;
+    let parts: Vec<_> = date.split('-').collect();
+    if parts.len() != 3 || parts[0].len() != 4 || parts[1].len() != 2 || parts[2].len() != 2 {
+        return None;
     }
-    Err(std::io::Error::other("log archive sequence exhausted"))
+    let date = time::Date::from_calendar_date(
+        parts[0].parse().ok()?,
+        time::Month::try_from(parts[1].parse::<u8>().ok()?).ok()?,
+        parts[2].parse().ok()?,
+    )
+    .ok()?;
+    if sequence.is_empty() || !sequence.bytes().all(|byte| byte.is_ascii_digit()) {
+        return None;
+    }
+    let sequence = sequence.parse::<u32>().ok()?;
+    (sequence > 0).then_some((date, sequence))
+}
+
+fn is_legacy_log(name: &str) -> bool {
+    matches!(name, "application.log" | "application.log.1")
 }
 
 fn append_record(
-    path: &Path,
+    directory: &Path,
     line: &str,
     now: time::OffsetDateTime,
     max_bytes: Option<u64>,
@@ -685,136 +698,102 @@ fn append_record(
     if bytes > file_limit {
         return Err(std::io::Error::other("log entry exceeds file limit"));
     }
-    match fs::symlink_metadata(path) {
-        Ok(metadata) => {
-            if !metadata.file_type().is_file() {
-                return Err(std::io::Error::other("log path is not a regular file"));
-            }
-            let modified = modified_at(&metadata)?;
-            if metadata.len() > 0
-                && (metadata.len() + bytes > file_limit || modified.date() != now.date())
-            {
-                rotate(path, modified.date())?;
-                // Reserve space for the new active file, so the cap holds between rotations.
-                prune_archives(
-                    path,
-                    None,
-                    max_bytes.map(|limit| limit.saturating_sub(file_limit)),
-                )?;
+    let date = now.date();
+    let mut latest = None;
+    for entry in fs::read_dir(directory)? {
+        let entry = entry?;
+        if let Some((day, sequence)) = entry.file_name().to_str().and_then(dated_log) {
+            if day == date && latest.as_ref().is_none_or(|(last, _)| sequence > *last) {
+                latest = Some((sequence, entry.path()));
             }
         }
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-        Err(error) => return Err(error),
     }
-    let mut file = OpenOptions::new().create(true).append(true).open(path)?;
-    writeln!(file, "{line}")
+    let (sequence, path) = latest.unwrap_or((0, directory.to_path_buf()));
+    let append = if sequence > 0 {
+        let metadata = fs::symlink_metadata(&path)?;
+        metadata.file_type().is_file() && metadata.len().saturating_add(bytes) <= file_limit
+    } else {
+        false
+    };
+    let (path, mut file) = if append {
+        let file = OpenOptions::new().append(true).open(&path)?;
+        (path, file)
+    } else {
+        let next = sequence
+            .checked_add(1)
+            .ok_or_else(|| std::io::Error::other("log sequence exhausted"))?;
+        let path = directory.join(format!("application.{date}.{next:03}.log"));
+        let file = OpenOptions::new()
+            .create_new(true)
+            .append(true)
+            .open(&path)?;
+        (path, file)
+    };
+    writeln!(file, "{line}")?;
+    drop(file);
+    // The budget includes the actual size of today's active part.
+    prune_logs(directory, None, max_bytes, Some(&path))
 }
 
-fn is_archive(name: &str) -> bool {
-    if name == "application.log.1" {
-        return true;
-    }
-    let Some(middle) = name
-        .strip_prefix("application.")
-        .and_then(|name| name.strip_suffix(".log"))
-    else {
-        return false;
-    };
-    let Some((date, sequence)) = middle.split_once('.') else {
-        return false;
-    };
-    let parts: Vec<_> = date.split('-').collect();
-    if parts.len() != 3 || parts[0].len() != 4 || parts[1].len() != 2 || parts[2].len() != 2 {
-        return false;
-    }
-    let valid_date = parts[0]
-        .parse::<i32>()
-        .ok()
-        .zip(parts[1].parse::<u8>().ok())
-        .zip(parts[2].parse::<u8>().ok())
-        .and_then(|((year, month), day)| {
-            time::Month::try_from(month)
-                .ok()
-                .and_then(|month| time::Date::from_calendar_date(year, month, day).ok())
-        });
-    valid_date.is_some()
-        && sequence.bytes().all(|byte| byte.is_ascii_digit())
-        && sequence.parse::<u32>().is_ok_and(|sequence| sequence > 0)
-}
-
-fn prune_archives(
-    path: &Path,
+fn prune_logs(
+    directory: &Path,
     cutoff: Option<time::OffsetDateTime>,
     budget: Option<u64>,
+    active: Option<&Path>,
 ) -> std::io::Result<()> {
-    let directory = path
-        .parent()
-        .ok_or_else(|| std::io::Error::other("missing log directory"))?;
-    let mut archives = Vec::new();
+    if cutoff.is_none() && budget.is_none() {
+        return Ok(());
+    }
+    let mut files = Vec::new();
     for entry in fs::read_dir(directory)? {
         let entry = entry?;
         // Never follow symlinks or touch unrelated diagnostics files.
-        if !entry.file_type()?.is_file() || !entry.file_name().to_str().is_some_and(is_archive) {
+        if !entry.file_type()?.is_file() {
+            continue;
+        }
+        let name = entry.file_name();
+        let Some(name) = name.to_str() else { continue };
+        let dated = dated_log(name);
+        if dated.is_none() && !is_legacy_log(name) {
             continue;
         }
         let metadata = entry.metadata()?;
         let modified = modified_at(&metadata)?;
-        if cutoff.is_some_and(|cutoff| modified < cutoff) {
+        let (date, sequence) = dated.unwrap_or((local_time(modified).date(), 0));
+        let expired = cutoff.is_some_and(|cutoff| {
+            if dated.is_some() {
+                // Names own the day; mtime only refines the boundary day for
+                // retention periods configured in minutes or hours.
+                date < cutoff.date() || (date == cutoff.date() && modified < cutoff)
+            } else {
+                modified < cutoff
+            }
+        });
+        if active != Some(entry.path().as_path()) && expired {
             fs::remove_file(entry.path())?;
         } else {
-            archives.push((modified, entry.path(), metadata.len()));
+            files.push((date, sequence, modified, entry.path(), metadata.len()));
         }
     }
-    archives.sort_by(|left, right| (&left.0, &left.1).cmp(&(&right.0, &right.1)));
-    let mut total: u64 = archives.iter().map(|archive| archive.2).sum();
-    for (_, archive, size) in archives {
+    files.sort_by(|left, right| {
+        (&left.0, &left.1, &left.2, &left.3).cmp(&(&right.0, &right.1, &right.2, &right.3))
+    });
+    let mut total: u64 = files.iter().map(|file| file.4).sum();
+    for (_, _, _, path, size) in files {
         if budget != Some(0) && budget.is_none_or(|budget| total <= budget) {
             break;
         }
-        fs::remove_file(archive)?;
+        if active == Some(path.as_path()) {
+            continue;
+        }
+        fs::remove_file(path)?;
         total -= size;
     }
     Ok(())
 }
 
-fn clean_up_at(
-    path: &Path,
-    cutoff: Option<time::OffsetDateTime>,
-    now: time::OffsetDateTime,
-    max_bytes: Option<u64>,
-) -> std::io::Result<()> {
-    match fs::symlink_metadata(path) {
-        Ok(metadata) => {
-            if !metadata.file_type().is_file() {
-                return Err(std::io::Error::other("log path is not a regular file"));
-            }
-            let modified = modified_at(&metadata)?;
-            if metadata.len() > 0
-                && (modified.date() != now.date()
-                    || metadata.len() >= max_bytes.unwrap_or(MAX_LOG_BYTES).min(MAX_LOG_BYTES)
-                    || cutoff.is_some_and(|cutoff| modified < cutoff))
-            {
-                rotate(path, modified.date())?;
-            }
-        }
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-        Err(error) => return Err(error),
-    }
-    prune_archives(
-        path,
-        cutoff,
-        max_bytes.map(|limit| limit.saturating_sub(limit.min(MAX_LOG_BYTES))),
-    )
-}
-
-fn remove_logs(path: &Path) -> std::io::Result<()> {
-    match fs::symlink_metadata(path) {
-        Ok(metadata) if metadata.file_type().is_file() => fs::remove_file(path)?,
-        Ok(_) => return Err(std::io::Error::other("log path is not a regular file")),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-        Err(error) => return Err(error),
-    }
-    prune_archives(path, None, Some(0))
+fn remove_logs(directory: &Path) -> std::io::Result<()> {
+    prune_logs(directory, None, Some(0), None)
 }
 
 pub fn configure(
@@ -829,13 +808,13 @@ pub fn configure(
         .lock()
         .map_err(|_| std::io::Error::other("log policy lock poisoned"))? =
         LogPolicy { enabled, max_bytes };
-    let Some(path) = LOG_PATH.get() else {
+    let Some(directory) = LOG_DIRECTORY.get() else {
         return Ok(());
     };
     if enabled {
-        clean_up_at(path, cutoff, time::OffsetDateTime::now_utc(), max_bytes)
+        prune_logs(directory, cutoff.map(local_time), max_bytes, None)
     } else {
-        remove_logs(path)
+        remove_logs(directory)
     }
 }
 
@@ -844,93 +823,66 @@ mod tests {
     use super::*;
 
     #[test]
-    fn rotates_logs_and_prunes_archives_by_age_and_total_size() {
+    fn writes_daily_parts_resumes_them_and_prunes_by_date_and_total_size() {
         let directory = tempfile::tempdir().unwrap();
-        let path = directory.path().join("application.log");
-        let now = time::OffsetDateTime::now_utc();
-        let yesterday = now - time::Duration::days(1);
-        let expired = now - time::Duration::days(8);
-        let set_modified = |path: &Path, date: time::OffsetDateTime| {
-            fs::File::options()
-                .write(true)
-                .open(path)
-                .unwrap()
-                .set_times(fs::FileTimes::new().set_modified(date.into()))
-                .unwrap();
-        };
-        fs::write(&path, "previous day\n").unwrap();
-        set_modified(&path, yesterday);
-        append_record(&path, "current day", now, Some(MAX_TOTAL_LOG_BYTES)).unwrap();
-        let daily_archive = directory
-            .path()
-            .join(format!("application.{}.001.log", yesterday.date()));
-        assert_eq!(
-            fs::read_to_string(&daily_archive).unwrap(),
-            "previous day\n"
-        );
-        for _ in 0..2 {
-            fs::File::options()
-                .write(true)
-                .open(&path)
-                .unwrap()
-                .set_len(MAX_LOG_BYTES)
-                .unwrap();
-            append_record(&path, "current day", now, Some(MAX_TOTAL_LOG_BYTES)).unwrap();
-        }
-        for sequence in 1..=2 {
-            assert!(directory
-                .path()
-                .join(format!("application.{}.{sequence:03}.log", now.date()))
-                .exists());
-        }
-        let legacy = directory.path().join("application.log.1");
-        fs::write(&legacy, "old log\n").unwrap();
-        set_modified(&legacy, expired);
-        let unrelated = directory.path().join("support.log");
-        fs::write(&unrelated, "keep\n").unwrap();
-        set_modified(&unrelated, expired);
-        clean_up_at(&path, None, now, Some(MAX_TOTAL_LOG_BYTES)).unwrap();
-        assert!(legacy.exists()); // Indefinite age retention still honors the size cap.
-        clean_up_at(
-            &path,
-            Some(now - time::Duration::days(7)),
-            now,
-            Some(MAX_TOTAL_LOG_BYTES),
-        )
-        .unwrap();
-        assert!(!legacy.exists());
-        assert!(daily_archive.exists());
-        assert_eq!(fs::read_to_string(&path).unwrap(), "current day\n");
-        let oversized = directory
-            .path()
-            .join(format!("application.{}.001.log", expired.date()));
-        fs::File::create(&oversized)
+        let directory = directory.path();
+        // Local midnight has passed while the UTC date is still yesterday.
+        let offset = time::UtcOffset::from_hms(3, 0, 0).unwrap();
+        let now = time::Date::from_calendar_date(2026, time::Month::October, 8)
             .unwrap()
-            .set_len(MAX_TOTAL_LOG_BYTES)
+            .with_hms(0, 30, 0)
+            .unwrap()
+            .assume_offset(offset);
+        let current = directory.join("application.2026-10-08.001.log");
+        append_record(directory, "first", now, None).unwrap();
+        append_record(directory, "after restart", now, None).unwrap();
+        assert_eq!(
+            fs::read_to_string(&current).unwrap(),
+            "first\nafter restart\n"
+        );
+        fs::File::options()
+            .write(true)
+            .open(&current)
+            .unwrap()
+            .set_len(MAX_LOG_BYTES)
             .unwrap();
-        set_modified(&oversized, expired);
-        clean_up_at(&path, None, now, None).unwrap();
-        assert!(oversized.exists());
-        clean_up_at(&path, None, now, Some(MAX_TOTAL_LOG_BYTES)).unwrap();
-        assert!(!oversized.exists());
-        assert!(daily_archive.exists());
-        assert_eq!(fs::read_to_string(&unrelated).unwrap(), "keep\n");
-        assert_eq!(fs::read_to_string(&path).unwrap(), "current day\n");
-        // An idle active file is rotated before expiration cleanup; it is never unlinked in place.
-        set_modified(&path, expired);
-        clean_up_at(
-            &path,
-            Some(now - time::Duration::days(7)),
-            now,
-            Some(MAX_TOTAL_LOG_BYTES),
-        )
-        .unwrap();
-        append_record(&path, "resumed", now, Some(MAX_TOTAL_LOG_BYTES)).unwrap();
-        assert_eq!(fs::read_to_string(&path).unwrap(), "resumed\n");
-        assert!(!oversized.exists());
-        remove_logs(&path).unwrap();
-        assert!(!path.exists());
-        assert!(!daily_archive.exists());
+        append_record(directory, "next part", now, None).unwrap();
+        let next = directory.join("application.2026-10-08.002.log");
+        assert_eq!(fs::read_to_string(&next).unwrap(), "next part\n");
+        append_record(directory, "continued", now, Some(MAX_TOTAL_LOG_BYTES)).unwrap();
+        assert_eq!(fs::read_to_string(&next).unwrap(), "next part\ncontinued\n");
+        let tomorrow = now + time::Duration::days(1);
+        append_record(directory, "next day", tomorrow, None).unwrap();
+        let latest = directory.join("application.2026-10-09.001.log");
+        assert_eq!(fs::read_to_string(&latest).unwrap(), "next day\n");
+        // Even a newly modified old file expires by its named date.
+        let expired = directory.join("application.2026-09-01.001.log");
+        fs::write(&expired, "expired\n").unwrap();
+        let legacy = directory.join("application.log.1");
+        fs::write(&legacy, "legacy\n").unwrap();
+        fs::File::options()
+            .write(true)
+            .open(&legacy)
+            .unwrap()
+            .set_times(fs::FileTimes::new().set_modified((now - time::Duration::days(8)).into()))
+            .unwrap();
+        let unrelated = directory.join("support.log");
+        fs::write(&unrelated, "keep\n").unwrap();
+        prune_logs(directory, Some(now - time::Duration::days(7)), None, None).unwrap();
+        assert!(!expired.exists());
+        assert!(!legacy.exists());
+        assert!(current.exists());
+        prune_logs(directory, None, Some(100), None).unwrap();
+        assert!(!current.exists());
+        assert!(next.exists());
+        assert!(latest.exists());
+        assert!(!directory.join("application.log").exists());
+        let empty = directory.join("application.2026-10-09.002.log");
+        fs::write(&empty, "").unwrap();
+        remove_logs(directory).unwrap();
+        assert!(!empty.exists());
+        assert!(!next.exists());
+        assert!(!latest.exists());
         assert!(unrelated.exists());
     }
 
