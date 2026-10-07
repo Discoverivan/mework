@@ -958,19 +958,6 @@ export function ManagedProjectsSettings({
                           type="button"
                           variant="ghost"
                           size="icon"
-                          className="size-8 [&_svg]:size-[18px]"
-                          onClick={() => detailProject?.id === project.id ? setDetailProject(null) : openDetail(project)}
-                          disabled={controlsDisabled}
-                          aria-expanded={detailProject?.id === project.id}
-                          aria-label={t(detailProject?.id === project.id ? "teams.closeDetails" : "teams.openDetails", { team: project.projectName })}
-                          title={t(detailProject?.id === project.id ? "teams.closeDetails" : "teams.openDetails", { team: project.projectName })}
-                        >
-                          <ChevronDown className={`transition-transform duration-200 motion-reduce:transition-none ${detailProject?.id === project.id ? "rotate-180" : ""}`} aria-hidden="true" />
-                        </Button>
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="icon"
                           actionTone="edit"
                           className="size-8 [&_svg]:size-[18px]"
                           onClick={() => startEdit(project)}
@@ -994,6 +981,19 @@ export function ManagedProjectsSettings({
                           {deletingProjectId === project.id
                             ? <LoaderCircle className="size-4 animate-spin" aria-hidden="true" />
                             : <Trash2 className="size-4" aria-hidden="true" />}
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          className="size-8 [&_svg]:size-[18px]"
+                          onClick={() => detailProject?.id === project.id ? setDetailProject(null) : openDetail(project)}
+                          disabled={controlsDisabled}
+                          aria-expanded={detailProject?.id === project.id}
+                          aria-label={t(detailProject?.id === project.id ? "teams.closeDetails" : "teams.openDetails", { team: project.projectName })}
+                          title={t(detailProject?.id === project.id ? "teams.closeDetails" : "teams.openDetails", { team: project.projectName })}
+                        >
+                          <ChevronDown className={`transition-transform duration-200 motion-reduce:transition-none ${detailProject?.id === project.id ? "rotate-180" : ""}`} aria-hidden="true" />
                         </Button>
                       </div>
                     </div>
