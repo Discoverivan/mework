@@ -71,6 +71,8 @@ mework keeps day-to-day engineering work in one local desktop workspace:
 - OpenAI-compatible external URLs must use HTTPS; HTTP is reserved for localhost. `allow_insecure_tls` is an explicit opt-in for trusted environments and should not be enabled for untrusted endpoints.
 - Development (`mework-dev`) and release (`mework`) use separate application data and keyring namespaces.
 
+Troubleshooting opens the local `logs` directory. The Rust core writes JSON lines to `application.log` and rotates it on the first write of a new UTC day or before a write would exceed 5 MiB. Archives use `application.YYYY-MM-DD.NNN.log` names. General Settings → Data retention controls diagnostic log retention (7 days by default); cleanup runs at startup, daily, and when retention settings are saved. Archive age is measured from its last write. A value of 0 disables age-based cleanup, while the 100 MiB total cap still removes the oldest archives when necessary; 5 MiB is reserved for the active file. The legacy `application.log.1` archive follows the same cleanup policy. Other files in the directory are left untouched.
+
 ## Development
 
 ### Prerequisites

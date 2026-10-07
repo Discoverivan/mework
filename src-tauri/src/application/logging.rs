@@ -12,6 +12,7 @@ use std::{
 };
 
 const MAX_LOG_BYTES: u64 = 5 * 1024 * 1024;
+const MAX_TOTAL_LOG_BYTES: u64 = 100 * 1024 * 1024;
 const MAX_ENTRY_CHARS: usize = 8_000;
 const MAX_HTTP_BODY_BYTES: usize = 8_192;
 static LOG_PATH: OnceLock<PathBuf> = OnceLock::new();
@@ -611,14 +612,6 @@ pub fn redact_value(value: Value) -> Value {
 fn write(level: &str, component: &str, event: &str, details: Value) {
     let Some(path) = LOG_PATH.get() else { return };
     let Ok(_guard) = LOG_LOCK.lock() else { return };
-    if fs::metadata(path)
-        .map(|metadata| metadata.len() >= MAX_LOG_BYTES)
-        .unwrap_or(false)
-    {
-        let backup = path.with_extension("log.1");
-        let _ = fs::remove_file(&backup);
-        let _ = fs::rename(path, backup);
-    }
     let timestamp = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|duration| duration.as_millis())
@@ -633,14 +626,236 @@ fn write(level: &str, component: &str, event: &str, details: Value) {
     let Ok(line) = serde_json::to_string(&record) else {
         return;
     };
-    if let Ok(mut file) = OpenOptions::new().create(true).append(true).open(path) {
-        let _ = writeln!(file, "{line}");
+    if append_record(path, &line, time::OffsetDateTime::now_utc()).is_err() {
+        eprintln!("Application log write failed");
     }
+}
+
+fn modified_at(metadata: &fs::Metadata) -> std::io::Result<time::OffsetDateTime> {
+    Ok(metadata.modified()?.into())
+}
+
+fn rotate(path: &Path, date: time::Date) -> std::io::Result<()> {
+    let directory = path
+        .parent()
+        .ok_or_else(|| std::io::Error::other("missing log directory"))?;
+    for sequence in 1..=u32::MAX {
+        let archive = directory.join(format!("application.{date}.{sequence:03}.log"));
+        match fs::symlink_metadata(&archive) {
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                return fs::rename(path, archive);
+            }
+            Err(error) => return Err(error),
+            Ok(_) => {} // Existing files, directories, and symlinks reserve this sequence.
+        }
+    }
+    Err(std::io::Error::other("log archive sequence exhausted"))
+}
+
+fn append_record(path: &Path, line: &str, now: time::OffsetDateTime) -> std::io::Result<()> {
+    let bytes = line.len() as u64 + 1;
+    if bytes > MAX_LOG_BYTES {
+        return Err(std::io::Error::other("log entry exceeds file limit"));
+    }
+    match fs::symlink_metadata(path) {
+        Ok(metadata) => {
+            if !metadata.file_type().is_file() {
+                return Err(std::io::Error::other("log path is not a regular file"));
+            }
+            let modified = modified_at(&metadata)?;
+            if metadata.len() > 0
+                && (metadata.len() + bytes > MAX_LOG_BYTES || modified.date() != now.date())
+            {
+                rotate(path, modified.date())?;
+                // Reserve space for the new active file, so the cap holds between rotations.
+                prune_archives(path, None, MAX_TOTAL_LOG_BYTES - MAX_LOG_BYTES)?;
+            }
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(error) => return Err(error),
+    }
+    let mut file = OpenOptions::new().create(true).append(true).open(path)?;
+    writeln!(file, "{line}")
+}
+
+fn is_archive(name: &str) -> bool {
+    if name == "application.log.1" {
+        return true;
+    }
+    let Some(middle) = name
+        .strip_prefix("application.")
+        .and_then(|name| name.strip_suffix(".log"))
+    else {
+        return false;
+    };
+    let Some((date, sequence)) = middle.split_once('.') else {
+        return false;
+    };
+    let parts: Vec<_> = date.split('-').collect();
+    if parts.len() != 3 || parts[0].len() != 4 || parts[1].len() != 2 || parts[2].len() != 2 {
+        return false;
+    }
+    let valid_date = parts[0]
+        .parse::<i32>()
+        .ok()
+        .zip(parts[1].parse::<u8>().ok())
+        .zip(parts[2].parse::<u8>().ok())
+        .and_then(|((year, month), day)| {
+            time::Month::try_from(month)
+                .ok()
+                .and_then(|month| time::Date::from_calendar_date(year, month, day).ok())
+        });
+    valid_date.is_some()
+        && sequence.bytes().all(|byte| byte.is_ascii_digit())
+        && sequence.parse::<u32>().is_ok_and(|sequence| sequence > 0)
+}
+
+fn prune_archives(
+    path: &Path,
+    cutoff: Option<time::OffsetDateTime>,
+    budget: u64,
+) -> std::io::Result<()> {
+    let directory = path
+        .parent()
+        .ok_or_else(|| std::io::Error::other("missing log directory"))?;
+    let mut archives = Vec::new();
+    for entry in fs::read_dir(directory)? {
+        let entry = entry?;
+        // Never follow symlinks or touch unrelated diagnostics files.
+        if !entry.file_type()?.is_file() || !entry.file_name().to_str().is_some_and(is_archive) {
+            continue;
+        }
+        let metadata = entry.metadata()?;
+        let modified = modified_at(&metadata)?;
+        if cutoff.is_some_and(|cutoff| modified < cutoff) {
+            fs::remove_file(entry.path())?;
+        } else {
+            archives.push((modified, entry.path(), metadata.len()));
+        }
+    }
+    archives.sort_by(|left, right| (&left.0, &left.1).cmp(&(&right.0, &right.1)));
+    let mut total: u64 = archives.iter().map(|archive| archive.2).sum();
+    for (_, archive, size) in archives {
+        if total <= budget {
+            break;
+        }
+        fs::remove_file(archive)?;
+        total -= size;
+    }
+    Ok(())
+}
+
+fn clean_up_at(
+    path: &Path,
+    cutoff: Option<time::OffsetDateTime>,
+    now: time::OffsetDateTime,
+) -> std::io::Result<()> {
+    match fs::symlink_metadata(path) {
+        Ok(metadata) => {
+            if !metadata.file_type().is_file() {
+                return Err(std::io::Error::other("log path is not a regular file"));
+            }
+            let modified = modified_at(&metadata)?;
+            if metadata.len() > 0
+                && (modified.date() != now.date()
+                    || metadata.len() >= MAX_LOG_BYTES
+                    || cutoff.is_some_and(|cutoff| modified < cutoff))
+            {
+                rotate(path, modified.date())?;
+            }
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(error) => return Err(error),
+    }
+    prune_archives(path, cutoff, MAX_TOTAL_LOG_BYTES - MAX_LOG_BYTES)
+}
+
+pub fn clean_up(cutoff: Option<time::OffsetDateTime>) -> std::io::Result<()> {
+    let Some(path) = LOG_PATH.get() else {
+        return Ok(());
+    };
+    let _guard = LOG_LOCK
+        .lock()
+        .map_err(|_| std::io::Error::other("log lock poisoned"))?;
+    clean_up_at(path, cutoff, time::OffsetDateTime::now_utc())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn rotates_logs_and_prunes_archives_by_age_and_total_size() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("application.log");
+        let now = time::OffsetDateTime::now_utc();
+        let yesterday = now - time::Duration::days(1);
+        let expired = now - time::Duration::days(8);
+        let set_modified = |path: &Path, date: time::OffsetDateTime| {
+            fs::File::options()
+                .write(true)
+                .open(path)
+                .unwrap()
+                .set_times(fs::FileTimes::new().set_modified(date.into()))
+                .unwrap();
+        };
+        fs::write(&path, "previous day\n").unwrap();
+        set_modified(&path, yesterday);
+        append_record(&path, "current day", now).unwrap();
+        let daily_archive = directory
+            .path()
+            .join(format!("application.{}.001.log", yesterday.date()));
+        assert_eq!(
+            fs::read_to_string(&daily_archive).unwrap(),
+            "previous day\n"
+        );
+        for _ in 0..2 {
+            fs::File::options()
+                .write(true)
+                .open(&path)
+                .unwrap()
+                .set_len(MAX_LOG_BYTES)
+                .unwrap();
+            append_record(&path, "current day", now).unwrap();
+        }
+        for sequence in 1..=2 {
+            assert!(directory
+                .path()
+                .join(format!("application.{}.{sequence:03}.log", now.date()))
+                .exists());
+        }
+        let legacy = directory.path().join("application.log.1");
+        fs::write(&legacy, "old log\n").unwrap();
+        set_modified(&legacy, expired);
+        let unrelated = directory.path().join("support.log");
+        fs::write(&unrelated, "keep\n").unwrap();
+        set_modified(&unrelated, expired);
+        clean_up_at(&path, None, now).unwrap();
+        assert!(legacy.exists()); // Zero retention keeps old archives within the size cap.
+        clean_up_at(&path, Some(now - time::Duration::days(7)), now).unwrap();
+        assert!(!legacy.exists());
+        assert!(daily_archive.exists());
+        assert_eq!(fs::read_to_string(&path).unwrap(), "current day\n");
+        let oversized = directory
+            .path()
+            .join(format!("application.{}.001.log", expired.date()));
+        fs::File::create(&oversized)
+            .unwrap()
+            .set_len(MAX_TOTAL_LOG_BYTES)
+            .unwrap();
+        set_modified(&oversized, expired);
+        clean_up_at(&path, None, now).unwrap();
+        assert!(!oversized.exists());
+        assert!(daily_archive.exists());
+        assert_eq!(fs::read_to_string(&unrelated).unwrap(), "keep\n");
+        assert_eq!(fs::read_to_string(&path).unwrap(), "current day\n");
+        // An idle active file is rotated before expiration cleanup; it is never unlinked in place.
+        set_modified(&path, expired);
+        clean_up_at(&path, Some(now - time::Duration::days(7)), now).unwrap();
+        append_record(&path, "resumed", now).unwrap();
+        assert_eq!(fs::read_to_string(&path).unwrap(), "resumed\n");
+        assert!(!oversized.exists());
+    }
 
     #[test]
     fn masks_secret_fields_and_authorization_strings() {

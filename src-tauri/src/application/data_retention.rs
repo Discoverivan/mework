@@ -93,6 +93,7 @@ pub struct DataRetentionSettings {
     pub sync_history: RetentionPeriod,
     #[serde(alias = "removedTaskDays")]
     pub removed_tasks: RetentionPeriod,
+    pub diagnostic_logs: RetentionPeriod,
 }
 
 impl Default for DataRetentionSettings {
@@ -101,6 +102,7 @@ impl Default for DataRetentionSettings {
             review_history: RetentionPeriod::days(7),
             sync_history: RetentionPeriod::days(7),
             removed_tasks: RetentionPeriod::days(7),
+            diagnostic_logs: RetentionPeriod::days(7),
         }
     }
 }
@@ -124,6 +126,7 @@ fn validate(settings: &DataRetentionSettings) -> Result<(), String> {
         &settings.review_history,
         &settings.sync_history,
         &settings.removed_tasks,
+        &settings.diagnostic_logs,
     ]
     .into_iter()
     .any(|period| period.value > period.unit.maximum())
@@ -143,11 +146,28 @@ pub async fn save_settings(
     repositories::upsert_setting(pool, SETTINGS_KEY, &json, 1)
         .await
         .map_err(|_| "failed to save data retention settings".to_owned())?;
+    clean_up_logs(&settings.diagnostic_logs).await;
     Ok(settings)
+}
+
+async fn clean_up_logs(period: &RetentionPeriod) {
+    let cutoff = match period.cutoff(OffsetDateTime::now_utc()) {
+        Ok(cutoff) => cutoff,
+        Err(_) => {
+            eprintln!("Invalid diagnostic log retention period");
+            return;
+        }
+    };
+    let result =
+        tokio::task::spawn_blocking(move || crate::application::logging::clean_up(cutoff)).await;
+    if !matches!(result, Ok(Ok(()))) {
+        eprintln!("Diagnostic log cleanup failed");
+    }
 }
 
 pub async fn clean_up(pool: &SqlitePool) -> Result<(), String> {
     let settings = settings(pool).await?;
+    clean_up_logs(&settings.diagnostic_logs).await;
     let now = OffsetDateTime::now_utc();
     let review_cutoff = settings
         .review_history
@@ -217,6 +237,7 @@ mod tests {
         assert_eq!(defaults.review_history, RetentionPeriod::days(7));
         assert_eq!(defaults.sync_history, RetentionPeriod::days(7));
         assert_eq!(defaults.removed_tasks, RetentionPeriod::days(7));
+        assert_eq!(defaults.diagnostic_logs, RetentionPeriod::days(7));
         repositories::upsert_setting(
             &pool,
             SETTINGS_KEY,
@@ -231,6 +252,7 @@ mod tests {
                 review_history: RetentionPeriod::days(17),
                 sync_history: RetentionPeriod::days(12),
                 removed_tasks: RetentionPeriod::days(0),
+                diagnostic_logs: RetentionPeriod::days(7),
             }
         );
         let settings = DataRetentionSettings {
@@ -242,6 +264,7 @@ mod tests {
                 value: 1,
                 unit: RetentionUnit::Hours,
             },
+            diagnostic_logs: RetentionPeriod::days(14),
             removed_tasks: RetentionPeriod {
                 value: 1,
                 unit: RetentionUnit::Minutes,
