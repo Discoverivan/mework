@@ -39,7 +39,7 @@ export interface PullRequestReviewDialogProps {
   onOpenChange: (open: boolean) => void;
   onOpenPullRequest: (pullRequest: MyPullRequest) => void;
   onRerunReview: (pullRequest: MyPullRequest) => void;
-  onPublishComment?: (pullRequest: MyPullRequest, comment: PullRequestPublishableComment) => Promise<void>;
+  onPublishComment?: (pullRequest: MyPullRequest, comment: PullRequestPublishableComment) => Promise<{ commentId: number }>;
   onSetDecision?: (pullRequest: MyPullRequest, action: "approve" | "needs_work") => Promise<void>;
 }
 
@@ -131,7 +131,7 @@ export function PullRequestReviewDialog({
   const result = review?.result;
   const reviewFailed = review?.status === "failed";
   const [pendingAction, setPendingAction] = useState<string>();
-  const [publicationStatus, setPublicationStatus] = useState<{ scope: string; published: Set<string>; checked: boolean; matches: PullRequestCommentMatch[]; failed?: boolean }>();
+  const [publicationStatus, setPublicationStatus] = useState<{ scope: string; published: Map<string, number>; checked: boolean; matches: PullRequestCommentMatch[]; failed?: boolean }>();
   const [checkAttempt, setCheckAttempt] = useState(0);
   const [editingComment, setEditingComment] = useState<EditableComment>();
   const [commentDraft, setCommentDraft] = useState("");
@@ -150,7 +150,7 @@ export function PullRequestReviewDialog({
   const publicationScope = `${review?.runId ?? ""}:${publicationRequest}`;
   const checkingPublication = Boolean(publicationRequest)
     && (publicationStatus?.scope !== publicationScope || !publicationStatus.checked);
-  const publishedComments = publicationStatus?.scope === publicationScope ? publicationStatus.published : new Set<string>();
+  const publishedComments = publicationStatus?.scope === publicationScope ? publicationStatus.published : new Map<string, number>();
   const commentMatches = publicationStatus?.scope === publicationScope ? publicationStatus.matches : [];
   const comparisonFailed = publicationStatus?.scope === publicationScope && publicationStatus.failed;
   const editingMatch = editingComment ? commentMatches.find((match) => match.index === editingComment.index) : undefined;
@@ -167,18 +167,18 @@ export function PullRequestReviewDialog({
     if (!open || !publicationRequest) return;
     let active = true;
     const request: PullRequestCommentMatchesRequest = JSON.parse(publicationRequest);
-    setPublicationStatus((current) => ({ scope: publicationScope, published: current?.scope === publicationScope ? current.published : new Set(), checked: false, matches: [] }));
+    setPublicationStatus((current) => ({ scope: publicationScope, published: current?.scope === publicationScope ? current.published : new Map(), checked: false, matches: [] }));
     void getPullRequestCommentMatches(request).then(({ matches }) => {
       if (!active) return;
       setPublicationStatus((current) => ({
         scope: publicationScope,
-        published: current?.scope === publicationScope ? current.published : new Set(),
+        published: current?.scope === publicationScope ? current.published : new Map(),
         matches,
         checked: true,
       }));
     }).catch(() => {
       if (!active) return;
-      setPublicationStatus((current) => ({ scope: publicationScope, published: current?.scope === publicationScope ? current.published : new Set(), checked: false, matches: [], failed: true }));
+      setPublicationStatus((current) => ({ scope: publicationScope, published: current?.scope === publicationScope ? current.published : new Map(), checked: false, matches: [], failed: true }));
     });
     return () => { active = false; };
   }, [open, publicationRequest, publicationScope, t, checkAttempt]);
@@ -216,10 +216,10 @@ export function PullRequestReviewDialog({
     setPendingAction(key);
     setActionError(undefined);
     try {
-      await onPublishComment(pullRequest, nextComment);
+      const { commentId } = await onPublishComment(pullRequest, nextComment);
       setPublicationStatus((current) => current?.scope === publicationScope ? {
         ...current,
-        published: new Set(current.published).add(key),
+        published: new Map(current.published).set(key, commentId),
       } : current);
       setEditingComment(undefined);
       setCommentDraft("");
@@ -321,16 +321,18 @@ export function PullRequestReviewDialog({
                               const index = result.comments.indexOf(comment);
                               const diffUrl = commentDiffUrl(pullRequest?.url, comment);
                               const location = `${reviewCommentPath(comment.file)}${comment.line != null ? `:${comment.line}` : ""}`;
-                              const published = publishedComments.has(commentKey(comment, index));
+                              const key = commentKey(comment, index);
+                              const published = publishedComments.has(key);
                               const matched = commentMatches.find((match) => match.index === index);
-                              const matchedUrl = matched ? existingCommentUrl(pullRequest?.url, matched.commentId) : undefined;
-                              const status: CommentStatus = pendingAction === commentKey(comment, index) ? "publishing"
+                              const existingId = publishedComments.get(key) ?? matched?.commentId;
+                              const matchedUrl = existingId != null ? existingCommentUrl(pullRequest?.url, existingId) : undefined;
+                              const status: CommentStatus = pendingAction === key ? "publishing"
                                 : published ? "published"
                                 : comparisonFailed ? "checkFailed"
                                 : checkingPublication ? "checking"
                                 : matched?.coverage === "full" ? "duplicate"
                                 : matched?.coverage === "partial" ? "partial" : "ready";
-                              const publishLabel = published ? t("pr.dialog.published") : pendingAction === commentKey(comment, index) ? t("pr.dialog.publishing") : t("pr.dialog.publish");
+                              const publishLabel = status === "publishing" ? t("pr.dialog.publishing") : t("pr.dialog.publish");
                               const locationClass = "min-w-0 rounded-md border bg-muted/50 px-2 py-1 font-mono text-sm font-medium text-primary";
                               return (
                                 <li key={`${comment.file}:${comment.line ?? "na"}:${index}`} className="space-y-2 rounded-md border bg-background p-3">
@@ -342,27 +344,21 @@ export function PullRequestReviewDialog({
                                     ) : <p className={locationClass}><CommentLocation comment={comment} /></p>}
                                   </div>
                                   <ReviewMarkdown>{comment.comment}</ReviewMarkdown>
-                                  {matched?.coverage === "partial" ? <p className="text-sm text-muted-foreground">{t("pr.dialog.partiallyCovered")}</p> : null}
+                                  {!published && matched?.coverage === "partial" ? <p className="text-sm text-muted-foreground">{t("pr.dialog.partiallyCovered")}</p> : null}
                                   <div className="flex flex-wrap items-center justify-end gap-2">
-                                    {status !== "ready" ? <Hint content={status === "checkFailed" ? t("pr.dialog.publicationCheckError") : status === "duplicate" ? t("pr.dialog.duplicateCovered") : status === "partial" ? t("pr.dialog.partiallyCovered") : undefined}><span role="status" aria-label={t("pr.dialog.statusFor", { file: reviewCommentPath(comment.file) })} className={cn("flex items-center gap-1.5 text-xs", status === "checkFailed" ? "text-destructive" : "text-muted-foreground")}>
-                                      {status === "checking" || status === "publishing" ? <Loader2 aria-hidden="true" className="size-4 animate-spin" /> : status === "checkFailed" ? <CircleAlert aria-hidden="true" className="size-4" /> : status === "published" ? <CheckCircle2 aria-hidden="true" className="size-4" /> : null}
+                                    {status !== "ready" && status !== "publishing" ? <Hint content={status === "checkFailed" ? t("pr.dialog.publicationCheckError") : status === "duplicate" ? t("pr.dialog.duplicateCovered") : status === "partial" ? t("pr.dialog.partiallyCovered") : undefined}><span role="status" aria-label={t("pr.dialog.statusFor", { file: reviewCommentPath(comment.file) })} className={cn("flex items-center gap-1.5 text-xs", status === "checkFailed" ? "text-destructive" : "text-muted-foreground")}>
+                                      {status === "checking" ? <Loader2 aria-hidden="true" className="size-4 animate-spin" /> : status === "checkFailed" ? <CircleAlert aria-hidden="true" className="size-4" /> : status === "published" ? <CheckCircle2 aria-hidden="true" className="size-4" /> : null}
                                       {t(`pr.dialog.commentStatus.${status}`)}
                                     </span></Hint> : null}
-                                    {matched?.coverage === "partial" && matchedUrl ? <Button asChild variant="outline" size="sm"><a href={matchedUrl} target="_blank" rel="noopener noreferrer" aria-label={t("pr.dialog.existingCommentFor", { file: reviewCommentPath(comment.file) })}><ExternalLink aria-hidden="true" />{t("pr.dialog.existingComment")}</a></Button> : null}
+                                    {matchedUrl ? <Button asChild variant="outline" size="sm"><a href={matchedUrl} target="_blank" rel="noopener noreferrer" aria-label={t("pr.dialog.existingCommentFor", { file: reviewCommentPath(comment.file) })}><ExternalLink aria-hidden="true" />{t("pr.dialog.existingComment")}</a></Button> : null}
                                     {status === "checkFailed" ? <Button type="button" variant="outline" size="icon" className="size-8" aria-label={t("pr.dialog.retryComparisonFor", { file: reviewCommentPath(comment.file) })} title={t("pr.dialog.retryComparison")} onClick={retryComparison}><RefreshCw aria-hidden="true" /></Button>
-                                    : status === "checking" ? null
-                                    : matched?.coverage === "full" && matchedUrl ? (
-                                      <Button asChild variant="outline" size="sm">
-                                        <a href={matchedUrl} target="_blank" rel="noopener noreferrer" aria-label={t("pr.dialog.existingCommentFor", { file: reviewCommentPath(comment.file) })}>
-                                          <ExternalLink aria-hidden="true" />{t("pr.dialog.existingComment")}
-                                        </a>
+                                    : status === "checking" || published || matched?.coverage === "full" ? null
+                                    : reviewerActions && matched?.coverage === "partial" ? (
+                                      <Button type="button" variant="outline" size="sm" actionTone="neutral" className="shrink-0" aria-label={t("pr.dialog.publishFor", { file: reviewCommentPath(comment.file) })} title={status === "publishing" ? t("pr.dialog.publishing") : t("pr.dialog.publishAddition")} disabled={!onPublishComment || pendingAction != null || checkingPublication} onClick={() => openCommentEditor(comment, index)}>
+                                        {status === "publishing" ? <Loader2 aria-hidden="true" className="animate-spin" /> : <Send aria-hidden="true" />}
+                                        {status === "publishing" ? t("pr.dialog.publishing") : t("pr.dialog.publishAddition")}
                                       </Button>
-                                    ) : reviewerActions && matched?.coverage === "partial" ? (
-                                      <Button type="button" variant="outline" size="sm" actionTone="neutral" className="shrink-0" aria-label={t("pr.dialog.publishFor", { file: reviewCommentPath(comment.file) })} title={published ? t("pr.dialog.published") : status === "publishing" ? t("pr.dialog.publishing") : t("pr.dialog.publishAddition")} disabled={!onPublishComment || pendingAction != null || checkingPublication || published} onClick={() => openCommentEditor(comment, index)}>
-                                        {status === "publishing" ? <Loader2 aria-hidden="true" className="animate-spin" /> : published ? <CheckCircle2 aria-hidden="true" /> : <Send aria-hidden="true" />}
-                                        {published ? t("pr.dialog.published") : status === "publishing" ? t("pr.dialog.publishing") : t("pr.dialog.publishAddition")}
-                                      </Button>
-                                    ) : reviewerActions && matched?.coverage !== "full" ? (
+                                    ) : reviewerActions ? (
                                       <DropdownMenu>
                                         <DropdownMenuTrigger asChild>
                                           <Button
@@ -371,20 +367,20 @@ export function PullRequestReviewDialog({
                                             size="sm"
                                             actionTone="neutral"
                                             className="shrink-0"
-                                            disabled={!onPublishComment || pendingAction != null || checkingPublication || published}
+                                            disabled={!onPublishComment || pendingAction != null || checkingPublication}
                                             aria-label={t("pr.dialog.publishFor", { file: reviewCommentPath(comment.file) })}
                                             title={publishLabel}
                                           >
-                                            {pendingAction === commentKey(comment, index) ? <Loader2 aria-hidden="true" className="animate-spin" /> : published ? <CheckCircle2 aria-hidden="true" /> : <Send aria-hidden="true" />}
+                                            {status === "publishing" ? <Loader2 aria-hidden="true" className="animate-spin" /> : <Send aria-hidden="true" />}
                                             {publishLabel}
                                           </Button>
                                         </DropdownMenuTrigger>
                                         <DropdownMenuContent align="end" onCloseAutoFocus={(event) => { if (editingComment) event.preventDefault(); }}>
-                                          <DropdownMenuItem disabled={pendingAction != null || checkingPublication || published} onSelect={() => void publishComment(comment, index, comment.comment)}>
+                                          <DropdownMenuItem disabled={pendingAction != null || checkingPublication} onSelect={() => void publishComment(comment, index, comment.comment)}>
                                             <Send aria-hidden="true" />
                                             {t("pr.dialog.sendAsIs")}
                                           </DropdownMenuItem>
-                                          <DropdownMenuItem disabled={pendingAction != null || checkingPublication || published} onSelect={() => openCommentEditor(comment, index)}>
+                                          <DropdownMenuItem disabled={pendingAction != null || checkingPublication} onSelect={() => openCommentEditor(comment, index)}>
                                             <Pencil aria-hidden="true" />
                                             {t("pr.dialog.editAndSend")}
                                           </DropdownMenuItem>

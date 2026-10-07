@@ -891,8 +891,9 @@ describe("MyPullRequestsPage", () => {
       { ...markdownReview.result!.comments[0], comment: "Guard this operation before retrying before the next attempt." },
     ));
     await waitFor(() => expect(screen.queryByRole("dialog", { name: "Edit review comment" })).not.toBeInTheDocument());
-    await waitFor(() => expect(publishButton).toHaveAttribute("data-tooltip", "Published"));
-    expect(publishButton).toBeDisabled();
+    expect(screen.queryByRole("button", { name: "Publish comment for src/retry.ts" })).not.toBeInTheDocument();
+    expect(screen.getAllByText("Published")).toHaveLength(1);
+    expect(screen.getByRole("link", { name: "Existing comment for src/retry.ts" })).toHaveAttribute("href", `${pullRequests[0].url}/overview?commentId=11`);
     const nextPublishButton = screen.getByRole("button", { name: "Publish comment for src/timeout.ts" });
     fireEvent.keyDown(nextPublishButton, { key: "ArrowDown" });
     fireEvent.click(await screen.findByRole("menuitem", { name: "Send as is" }));
@@ -900,7 +901,7 @@ describe("MyPullRequestsPage", () => {
       expect.objectContaining({ pullRequestId: "7", latestCommit: "commit-7" }),
       markdownReview.result!.comments[1],
     ));
-    await waitFor(() => expect(nextPublishButton).toBeDisabled());
+    await waitFor(() => expect(screen.queryByRole("button", { name: "Publish comment for src/timeout.ts" })).not.toBeInTheDocument());
     expect(screen.getByRole("button", { name: "Re-run review" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Needs work" })).not.toBeDisabled();
     expect(screen.getByRole("button", { name: "Needs work" }).querySelector("svg")).toBeInTheDocument();
@@ -956,6 +957,7 @@ describe("MyPullRequestsPage", () => {
     expect(duplicateCard.lastElementChild).toContainElement(existing);
     expect(duplicateCard.firstElementChild).toContainElement(screen.getByRole("link", { name: "src/timeout.ts:18" }));
     const partialStatus = screen.getByRole("status", { name: "Comment status for src/retry.ts" });
+    expect(within(partialStatus.closest("li")!).getByText("An existing discussion partially covers this finding. You can publish the missing clarification as a reply.")).toBeInTheDocument();
     expect(partialStatus.closest("li")!.lastElementChild).toContainElement(screen.getByRole("link", { name: "Existing comment for src/retry.ts" }));
     expect(screen.getByRole("link", { name: "Existing comment for src/retry.ts" })).toHaveAttribute("href", `${pullRequests[0].url}/overview?commentId=12`);
     const publishClarification = screen.getByRole("button", { name: "Publish comment for src/retry.ts" });
@@ -987,9 +989,16 @@ describe("MyPullRequestsPage", () => {
     await waitFor(() => expect(publishCommentMock).toHaveBeenLastCalledWith(expect.objectContaining({ pullRequestId: "7" }), {
       ...completedReview.result!.comments[0], comment: "Wait for pending requests before shutdown.", parentCommentId: 21,
     }));
-    expect(screen.getByText("Publishing…", { selector: "span" })).toHaveAttribute("aria-label", "Comment status for src/retry.ts");
+    expect(screen.getAllByText("Publishing…")).toHaveLength(1);
+    expect(screen.getByText("Publishing…").closest("button")).toHaveAttribute("aria-label", "Publish comment for src/retry.ts");
     finishPublication({ commentId: 13 });
     await waitFor(() => expect(screen.getByRole("status", { name: "Comment status for src/retry.ts" })).toHaveTextContent("Published"));
+    expect(screen.queryByRole("button", { name: "Publish comment for src/retry.ts" })).not.toBeInTheDocument();
+    expect(screen.getAllByText("Published")).toHaveLength(1);
+    expect(screen.getAllByRole("link", { name: "Existing comment for src/retry.ts" })).toHaveLength(1);
+    expect(screen.getByRole("link", { name: "Existing comment for src/retry.ts" })).toHaveAttribute("href", `${pullRequests[0].url}/overview?commentId=13`);
+    const publishedCard = screen.getByRole("status", { name: "Comment status for src/retry.ts" }).closest("li")!;
+    expect(within(publishedCard).queryByText("An existing discussion partially covers this finding. You can publish the missing clarification as a reply.")).not.toBeInTheDocument();
     expect(getCommentMatchesMock).toHaveBeenCalledWith(expect.objectContaining({
       integrationId: "bitbucket-1", projectKey: "DEMO", repositorySlug: "sample-repository",
       pullRequestId: "7", comments: completedReview.result!.comments,

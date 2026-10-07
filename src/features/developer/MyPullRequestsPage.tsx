@@ -632,7 +632,7 @@ export function MyPullRequestsPage() {
 
   async function publishReviewComment(pullRequest: MyPullRequest, comment: PullRequestPublishableComment) {
     try {
-      await publishPullRequestComment(pullRequest, comment);
+      return await publishPullRequestComment(pullRequest, comment);
     } catch (reason) {
       if (typeof reason === "object" && reason !== null && "code" in reason) {
         if (reason.code === "comment_comparison_failed") throw new Error(t("pr.dialog.publicationCheckError"));
