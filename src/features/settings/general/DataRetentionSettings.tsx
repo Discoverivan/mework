@@ -10,7 +10,7 @@ import { Separator } from "@/components/ui/separator";
 import { useI18n } from "@/i18n/context";
 import type { DataRetentionSettings as Settings, RetentionUnit } from "@/shared/contracts/data-retention";
 
-const FIELDS = ["reviewHistory", "syncHistory", "removedTasks"] as const;
+const FIELDS = ["reviewHistory", "syncHistory", "removedTasks", "diagnosticLogs"] as const;
 const UNITS: RetentionUnit[] = ["minutes", "hours", "days", "months"];
 const MAXIMUM: Record<RetentionUnit, number> = { minutes: 5_256_000, hours: 87_600, days: 3650, months: 120 };
 
@@ -30,6 +30,7 @@ export function DataRetentionSettings() {
       reviewHistory: update("reviewHistory"),
       syncHistory: update("syncHistory"),
       removedTasks: update("removedTasks"),
+      diagnosticLogs: update("diagnosticLogs"),
     };
   }, []);
 
@@ -67,13 +68,13 @@ export function DataRetentionSettings() {
     </CardHeader>
     <CardContent className="@container/retention flex flex-col gap-4 px-4 pb-3.5">
       {draft ? <>
-        <div className="flex flex-col gap-4 p-1 @min-[40rem]/retention:flex-row">
+        <div className="flex flex-col gap-4 p-1 @min-[56rem]/retention:flex-row">
           {FIELDS.map((field, index) => {
             const period = draft[field];
             const max = MAXIMUM[period.unit];
             const label = t(`dataRetention.${field}`);
             return <Fragment key={field}>
-              {index > 0 ? <Separator orientation="vertical" className="hidden h-auto self-stretch @min-[40rem]/retention:block" /> : null}
+              {index > 0 ? <Separator orientation="vertical" className="hidden h-auto self-stretch @min-[56rem]/retention:block" /> : null}
               <div role="group" aria-labelledby={`retention-${field}-label`}
               className="grid w-fit grid-cols-[3.5rem_auto] gap-x-2 gap-y-2.5 [&>div[role=group]]:contents [&_[id$='-label']]:col-span-2">
               <ManualNumberField id={`retention-${field}`} label={label}

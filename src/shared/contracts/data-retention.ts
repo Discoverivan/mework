@@ -9,4 +9,5 @@ export interface DataRetentionSettings {
   reviewHistory: RetentionPeriod;
   syncHistory: RetentionPeriod;
   removedTasks: RetentionPeriod;
+  diagnosticLogs: RetentionPeriod;
 }

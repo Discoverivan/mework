@@ -57,7 +57,7 @@ vi.mock("@/components/shared/update-install", () => ({
 
 describe("GeneralSettingsPage", () => {
   beforeEach(() => {
-    invokeMock.mockResolvedValue({ reviewHistory: { value: 7, unit: "days" }, syncHistory: { value: 7, unit: "days" }, removedTasks: { value: 7, unit: "days" } });
+    invokeMock.mockResolvedValue({ reviewHistory: { value: 7, unit: "days" }, syncHistory: { value: 7, unit: "days" }, removedTasks: { value: 7, unit: "days" }, diagnosticLogs: { value: 7, unit: "days" } });
     vi.clearAllMocks();
     const initialSettings = {
       language: "english",
