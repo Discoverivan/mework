@@ -246,7 +246,7 @@ describe("TokenBurnerPage", () => {
     render(<I18nProvider><TokenBurnerPage /></I18nProvider>);
     fireEvent.click(await screen.findByRole("button", { name: "Settings" }));
     const settingsPanel = screen.getByLabelText("Daily target (tokens)").closest("div.rounded-lg.border");
-    expect(settingsPanel).toHaveClass("bg-muted/50");
+    expect(settingsPanel).toHaveClass("bg-card");
     expect(settingsPanel).toContainElement(screen.getByRole("textbox", { name: "Delay between reviews" }));
     expect(settingsPanel?.querySelectorAll('[data-orientation="horizontal"]')).toHaveLength(1);
     fireEvent.click(screen.getByRole("combobox", { name: "Scale" }));
