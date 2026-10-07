@@ -47,7 +47,7 @@
 
 ## shadcn/ui design system rules
 
-- Use symmetric `p-4` (16 px) padding for empty states and standalone informational panels, and for compact settings subforms. Keep smaller spacing only for embedded table/filter rows; do not copy indentation or leading separators from nested settings rows into peer fields.
+- Use `px-4 py-3` (16 px horizontal, 12 px vertical) padding for empty states and standalone informational messages. Use `p-4` for compact settings subforms. Keep smaller spacing for embedded table/filter rows; do not copy indentation or leading separators from nested settings rows into peer fields.
 - Before implementing any UI or styling change, load and follow your agent's shadcn/ui skill if available; otherwise consult the official shadcn/ui documentation. In both cases, apply the project-specific constraints below where they are more specific.
 - `components.json` is the source of truth for shadcn/ui CLI configuration. Keep `style: "default"`, CSS variables enabled, the Lucide icon library, and the configured `@/*` aliases in sync with the repository.
 - Components are source-owned under `src/components/ui`. Add or refresh them with `npx shadcn@latest add <component>` only after checking the current official component documentation, then review the generated diff before keeping it.

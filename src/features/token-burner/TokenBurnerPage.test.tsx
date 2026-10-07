@@ -270,7 +270,7 @@ describe("TokenBurnerPage", () => {
     expect(await screen.findByRole("combobox", { name: "AI provider" })).toHaveTextContent("Use defaults");
     const activity = screen.getByRole("heading", { name: "Activity" }).closest(".rounded-lg.border");
     expect(activity).toContainElement(screen.getByRole("button", { name: "Start" }));
-    expect(screen.getByText("No pull request is being analyzed right now.").parentElement).toHaveClass("rounded-md", "border", "p-4");
+    expect(screen.getByText("No pull request is being analyzed right now.").parentElement).toHaveClass("rounded-md", "border", "px-4", "py-3");
     const repository = screen.getByRole("combobox", { name: "Repository" });
     await waitFor(() => expect(repository).toBeEnabled());
     fireEvent.click(repository);

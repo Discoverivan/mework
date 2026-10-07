@@ -523,7 +523,7 @@ export function TokenBurnerPage() {
         </CardHeader>
         <CardContent className="flex flex-col gap-4 px-4 pb-3.5 pt-0">
           {currentIterations.length === 0 && completedIterations.length === 0 ? (
-            <div className="flex flex-col gap-3 rounded-md border p-4">
+            <div className="flex flex-col gap-3 rounded-md border px-4 py-3">
               <p className="flex items-center gap-2 text-sm text-muted-foreground">{state === "running" ? <Loader2 className="size-4 animate-spin" aria-hidden="true" /> : null}{t(state === "running" ? "tokenBurner.findingPullRequest" : state === "no_prs" ? "tokenBurner.noAssignedPullRequests" : "tokenBurner.noActiveWork")}</p>
             </div>
           ) : null}

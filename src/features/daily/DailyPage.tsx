@@ -891,7 +891,7 @@ export function DailyPage() {
       ) : null}
       {!loadingProjects && !error && projects.length === 0 ? (
         <Card>
-          <CardContent className="p-4 text-sm text-muted-foreground"><p>{t("daily.configureTeam")}</p></CardContent>
+          <CardContent className="px-4 py-3 text-sm text-muted-foreground"><p>{t("daily.configureTeam")}</p></CardContent>
         </Card>
       ) : null}
 
@@ -1082,7 +1082,7 @@ export function DailyPage() {
                 </CardContent>
               </Card>
             ) : (
-              <Card><CardContent className="p-4 text-sm text-muted-foreground"><p>{t("daily.selectMember")}</p></CardContent></Card>
+              <Card><CardContent className="px-4 py-3 text-sm text-muted-foreground"><p>{t("daily.selectMember")}</p></CardContent></Card>
             )}
           </section>
         </div>
