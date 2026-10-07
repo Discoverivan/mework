@@ -1463,7 +1463,7 @@ export function ManagedProjectsSettings({
                       <div className="min-w-48 flex-1">
                         <div className="flex min-h-5 items-center gap-2">
                           <p className="font-medium leading-5">{label}</p>
-                          <Badge variant="outline" className="px-1.5 py-0 text-[10px] leading-4">
+                          <Badge variant="outline" className="bg-card px-1.5 py-0 text-[10px] leading-4">
                             {member.tags[0] || t("teams.roleNotSelected")}
                           </Badge>
                         </div>
