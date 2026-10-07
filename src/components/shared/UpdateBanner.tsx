@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Clock3, NotebookText } from "lucide-react";
 
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -6,7 +6,6 @@ import { Button } from "@/components/ui/button";
 import { StatusToast } from "./StatusToast";
 import { ReleaseNotesDialog } from "./ReleaseNotesDialog";
 import { loadAvailableUpdateReleaseNotes, type ReleaseNote } from "@/release-notes";
-import { mockReleaseNotes } from "@/release-notes/mock";
 import { checkForAvailableUpdate } from "./update-check";
 import { installAvailableUpdate } from "./update-install";
 import { dismissUpdateNotice, useDismissedUpdateVersion } from "./update-notice";
@@ -24,11 +23,19 @@ export function UpdateBanner({ enabled, updateVersion, developmentBuild = import
   const dismissedVersion = useDismissedUpdateVersion();
   const [installing, setInstalling] = useState(false);
   const [error, setError] = useState<string>();
-  const [developmentNotice, setDevelopmentNotice] = useState(false);
+  const [developmentNotice, setDevelopmentNotice] = useState<"install" | "notes" | null>(null);
   const [notes, setNotes] = useState<ReleaseNote[]>([]);
   const [notesOpen, setNotesOpen] = useState(false);
   const [loadingNotes, setLoadingNotes] = useState(false);
   const [notesError, setNotesError] = useState(false);
+  const noteLanguage = language === "russian" ? "ru" : "en";
+
+  useEffect(() => {
+    if (!enabled || !updateVersion || updateVersion === dismissedVersion || developmentBuild || mockMode) return;
+    void loadAvailableUpdateReleaseNotes(updateVersion, noteLanguage).catch(() => {
+      // A failed prefetch is retried when the user opens the notes.
+    });
+  }, [enabled, updateVersion, dismissedVersion, developmentBuild, mockMode, noteLanguage]);
 
   if (!enabled || !updateVersion || updateVersion === dismissedVersion) return null;
 
@@ -37,8 +44,8 @@ export function UpdateBanner({ enabled, updateVersion, developmentBuild = import
   }
 
   async function installUpdate() {
-    if (developmentBuild) {
-      setDevelopmentNotice(true);
+    if (developmentBuild || mockMode) {
+      setDevelopmentNotice("install");
       return;
     }
     setInstalling(true);
@@ -56,13 +63,15 @@ export function UpdateBanner({ enabled, updateVersion, developmentBuild = import
 
   async function openReleaseNotes() {
     if (!updateVersion) return;
+    if (developmentBuild || mockMode) {
+      setNotesError(false);
+      setDevelopmentNotice("notes");
+      return;
+    }
     setLoadingNotes(true);
     setNotesError(false);
     try {
-      const noteLanguage = language === "russian" ? "ru" : "en";
-      const releases = import.meta.env.DEV && mockMode
-        ? mockReleaseNotes(noteLanguage)
-        : await loadAvailableUpdateReleaseNotes(updateVersion, noteLanguage);
+      const releases = await loadAvailableUpdateReleaseNotes(updateVersion, noteLanguage);
       if (releases.length === 0) throw new Error("No release notes");
       setNotes(releases);
       setNotesOpen(true);
@@ -95,9 +104,9 @@ export function UpdateBanner({ enabled, updateVersion, developmentBuild = import
         </Alert>
       </div>
       <ReleaseNotesDialog open={notesOpen} onOpenChange={setNotesOpen} releases={notes} />
-      <StatusToast message={notesError ? t("releaseNotes.loadError") : developmentNotice ? t("update.developmentInstallBlocked") : undefined}
+      <StatusToast message={notesError ? t("releaseNotes.loadError") : developmentNotice ? t(developmentNotice === "install" ? "update.developmentInstallBlocked" : "releaseNotes.developmentViewBlocked") : undefined}
         variant="error" onDismiss={() => {
-          setDevelopmentNotice(false);
+          setDevelopmentNotice(null);
           setNotesError(false);
         }} />
     </>

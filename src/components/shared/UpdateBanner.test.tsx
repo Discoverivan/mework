@@ -22,6 +22,7 @@ describe("UpdateBanner", () => {
   beforeEach(() => {
     localStorage.clear();
     vi.clearAllMocks();
+    loadAvailableUpdateReleaseNotesMock.mockResolvedValue([]);
   });
 
   it("shows the background-detected version and checks again only when the user installs", async () => {
@@ -46,18 +47,13 @@ describe("UpdateBanner", () => {
   it("shows a development notice instead of checking or installing the update", async () => {
     render(<UpdateBanner enabled updateVersion="0.1.5" developmentBuild />);
     fireEvent.click(await screen.findByRole("button", { name: "Update" }));
-    expect(screen.getByRole("alert")).toHaveTextContent("This is mework-dev. Installing updates is not allowed in the development version.");
+    expect(screen.getByRole("alert")).toHaveTextContent("Installing updates is not allowed in the development version.");
     expect(checkForAvailableUpdateMock).not.toHaveBeenCalled();
     expect(screen.getByRole("button", { name: "Update" })).toHaveAttribute("data-action-tone", "edit");
-    loadAvailableUpdateReleaseNotesMock.mockResolvedValue([
-      { version: "0.1.5", language: "en", markdown: "- Example newest change." },
-      { version: "0.1.4", language: "en", markdown: "- Example earlier change." },
-    ]);
     fireEvent.click(screen.getByRole("button", { name: "Release notes" }));
-    expect(await screen.findByRole("heading", { name: "What's new" })).toBeInTheDocument();
-    expect(loadAvailableUpdateReleaseNotesMock).toHaveBeenCalledWith("0.1.5", "en");
-    expect(screen.getByText("Example newest change.").compareDocumentPosition(screen.getByText("Example earlier change.")) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Close" }));
+    expect(screen.getByRole("alert")).toHaveTextContent("Viewing release notes is not available in the development version.");
+    expect(loadAvailableUpdateReleaseNotesMock).not.toHaveBeenCalled();
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     expect(installAvailableUpdateMock).not.toHaveBeenCalled();
   });
 

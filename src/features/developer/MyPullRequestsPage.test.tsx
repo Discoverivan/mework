@@ -485,6 +485,8 @@ describe("MyPullRequestsPage", () => {
     await screen.findByRole("heading", { name: "Example pull request" });
 
     fireEvent.click(screen.getByRole("button", { name: "Filters" }));
+    await waitFor(() => expect(screen.getByRole("dialog")).toHaveFocus());
+    expect(screen.queryByRole("tooltip")).not.toBeInTheDocument();
     expect(screen.getByRole("radio", { name: "Deny" })).toBeChecked();
     expect(screen.getByRole("radio", { name: "Allow" })).not.toBeChecked();
     fireEvent.click(screen.getByRole("button", { name: "Add author filter" }));
@@ -743,6 +745,8 @@ describe("MyPullRequestsPage", () => {
     expect(within(card).getByRole("button", { name: "Review decision" })).toBeDisabled();
     fireEvent.click(within(card).getByRole("button", { name: "AI review results" }));
     const dialog = await screen.findByRole("dialog", { name: "AI review results" });
+    await waitFor(() => expect(dialog).toHaveFocus());
+    expect(screen.queryByRole("tooltip")).not.toBeInTheDocument();
     expect(within(dialog).getByRole("button", { name: "Approve" })).toBeDisabled();
     expect(within(dialog).getByRole("button", { name: "Needs work" })).toBeDisabled();
     const invalidateCounts = vi.fn();

@@ -74,6 +74,7 @@ vi.mock("../release-notes", () => ({
   prefetchOlderReleaseNotes: vi.fn(),
   markReleaseNotesSeen: markReleaseNotesSeenMock,
   listReleaseNotesVersions: vi.fn(),
+  loadAvailableUpdateReleaseNotes: vi.fn().mockResolvedValue([]),
 }));
 
 vi.mock("@tauri-apps/plugin-updater", () => ({ check: updaterCheckMock }));
@@ -327,21 +328,15 @@ describe("mework application shell", () => {
     expect(releaseNotesButton.querySelector("svg.lucide-notebook-text")).not.toBeNull();
     expect(releaseNotesButton.nextElementSibling).toBe(screen.getByRole("button", { name: "View on GitHub" }));
     fireEvent.click(releaseNotesButton);
-    expect(await screen.findByRole("heading", { name: "Release notes" })).toBeInTheDocument();
-    expect(await screen.findByText("Browse release notes by version from About.")).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Older release" }));
-    expect(await screen.findByRole("heading", { name: "Fixed" })).toBeInTheDocument();
-    expect(await screen.findByText("Previously loaded notes remain readable without a network connection.")).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "Removed" })).toBeInTheDocument();
-    expect(screen.getByText("Removed an unused example shortcut.")).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Close" }));
+    expect(screen.getByRole("alert")).toHaveTextContent("Viewing release notes is not available in the development version.");
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     expect(window.location.hash).toBe("#settings/application-info");
     await waitFor(() => expect(updaterCheckMock).toHaveBeenCalledOnce());
     expect(await screen.findByText("New version 0.1.5 is available")).toHaveClass("application-update-title");
     expect(screen.getAllByText("New version 0.1.5 is available")).toHaveLength(1);
     expect(screen.getByRole("button", { name: "Update" })).toHaveAttribute("data-action-tone", "edit");
     fireEvent.click(screen.getByRole("button", { name: "Update" }));
-    expect(screen.getByRole("alert")).toHaveTextContent("This is mework-dev. Installing updates is not allowed in the development version.");
+    expect(screen.getByRole("alert")).toHaveTextContent("Installing updates is not allowed in the development version.");
     expect(document.querySelector(".sidebar-update-badge")).not.toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Later" }));
     expect(document.querySelector(".sidebar-update-badge")).toBeNull();
@@ -387,7 +382,7 @@ describe("mework application shell", () => {
     expect(await screen.findByText(/^Last checked: today,/)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Update" })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Update" }));
-    expect(screen.getByRole("alert")).toHaveTextContent("This is mework-dev. Installing updates is not allowed in the development version.");
+    expect(screen.getByRole("alert")).toHaveTextContent("Installing updates is not allowed in the development version.");
     expect(updaterCheckMock).not.toHaveBeenCalled();
     emitAppEvent(APP_EVENT.updateAvailabilityChanged, {
       availableVersion: null,

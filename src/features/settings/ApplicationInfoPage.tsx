@@ -16,7 +16,6 @@ import { clearDismissedUpdateNotice, dismissUpdateNotice, useDismissedUpdateVers
 import { useI18n } from "@/i18n/context";
 import { EMPTY_UPDATE_AVAILABILITY, type UpdateAvailabilitySnapshot } from "@/shared/contracts/updates";
 import { listReleaseNotesVersions, loadAvailableUpdateReleaseNotes, loadReleaseNoteVersion, prefetchOlderReleaseNotes, type ReleaseNote } from "@/release-notes";
-import { mockReleaseNotes } from "@/release-notes/mock";
 
 const GITHUB_URL = "https://github.com/Discoverivan/mework";
 
@@ -39,6 +38,7 @@ export function ApplicationInfoPage({
 }: ApplicationInfoPageProps) {
   const { t, language } = useI18n();
   const noteLanguage = language === "russian" ? "ru" : "en";
+  const developmentBuild = import.meta.env.DEV || mockMode || version === "dev";
   const [checkingUpdates, setCheckingUpdates] = useState(false);
   const [localUpdateAvailability, setLocalUpdateAvailability] = useState(EMPTY_UPDATE_AVAILABILITY);
   const [localAvailableUpdate, setLocalAvailableUpdate] = useState<Update | null>(null);
@@ -59,6 +59,13 @@ export function ApplicationInfoPage({
     : localUpdateAvailability;
   const availableUpdate = onAvailableUpdateChange ? sharedAvailableUpdate ?? null : localAvailableUpdate;
   const availableUpdateVersion = availableUpdate?.version ?? updateAvailability.availableVersion;
+  useEffect(() => {
+    if (!availableUpdateVersion || developmentBuild) return;
+    void loadAvailableUpdateReleaseNotes(availableUpdateVersion, noteLanguage).catch(() => {
+      // Keep background failures silent; opening the notes can retry.
+    });
+  }, [availableUpdateVersion, developmentBuild, noteLanguage]);
+
   const publishUpdateAvailability = useCallback((snapshot: UpdateAvailabilitySnapshot) => {
     setLocalUpdateAvailability(snapshot);
     emitAppEvent(APP_EVENT.updateAvailabilityChanged, snapshot);
@@ -157,7 +164,7 @@ export function ApplicationInfoPage({
   }
 
   async function handleInstallUpdate() {
-    if (import.meta.env.DEV || mockMode || version === "dev") {
+    if (developmentBuild) {
       setUpdateInstallError(t("update.developmentInstallBlocked"));
       return;
     }
@@ -175,22 +182,17 @@ export function ApplicationInfoPage({
   }
 
   async function handleOpenReleaseNotes() {
+    if (blockDevelopmentReleaseNotes()) return;
     setUpcomingReleaseNotes(null);
     setLoadingReleaseNotes(true);
     setReleaseNotesError(false);
     try {
-      if (import.meta.env.DEV && mockMode) {
-        const notes = mockReleaseNotes(noteLanguage);
-        setReleaseNotesVersions(notes.map((note) => note.version));
-        setSelectedReleaseNote(notes[0]);
-      } else {
-        const versions = await listReleaseNotesVersions();
-        if (versions.length === 0) throw new Error("No release notes");
-        const note = await loadReleaseNoteVersion(versions[0], noteLanguage);
-        setReleaseNotesVersions(versions);
-        setSelectedReleaseNote(note);
-        prefetchOlderReleaseNotes(versions, note.version, noteLanguage);
-      }
+      const versions = await listReleaseNotesVersions();
+      if (versions.length === 0) throw new Error("No release notes");
+      const note = await loadReleaseNoteVersion(versions[0], noteLanguage);
+      setReleaseNotesVersions(versions);
+      setSelectedReleaseNote(note);
+      prefetchOlderReleaseNotes(versions, note.version, noteLanguage);
       setReleaseNotesOpen(true);
     } catch {
       setReleaseNotesError(true);
@@ -201,12 +203,11 @@ export function ApplicationInfoPage({
 
   async function handleOpenUpdateReleaseNotes() {
     if (!availableUpdateVersion) return;
+    if (blockDevelopmentReleaseNotes()) return;
     setLoadingReleaseNotes(true);
     setReleaseNotesError(false);
     try {
-      const notes = import.meta.env.DEV && mockMode
-        ? mockReleaseNotes(noteLanguage)
-        : await loadAvailableUpdateReleaseNotes(availableUpdateVersion, noteLanguage);
+      const notes = await loadAvailableUpdateReleaseNotes(availableUpdateVersion, noteLanguage);
       if (notes.length === 0) throw new Error("No release notes");
       setUpcomingReleaseNotes(notes);
       setReleaseNotesOpen(true);
@@ -218,20 +219,26 @@ export function ApplicationInfoPage({
   }
 
   async function handleNavigateReleaseNotes(version: string) {
+    if (blockDevelopmentReleaseNotes()) return;
     setLoadingReleaseNotes(true);
     setReleaseNotesError(false);
     try {
-      const note = import.meta.env.DEV && mockMode
-        ? mockReleaseNotes(noteLanguage).find((item) => item.version === version)
-        : await loadReleaseNoteVersion(version, noteLanguage);
+      const note = await loadReleaseNoteVersion(version, noteLanguage);
       if (!note) throw new Error("No release notes");
       setSelectedReleaseNote(note);
-      if (!mockMode) prefetchOlderReleaseNotes(releaseNotesVersions, note.version, noteLanguage);
+      prefetchOlderReleaseNotes(releaseNotesVersions, note.version, noteLanguage);
     } catch {
       setReleaseNotesError(true);
     } finally {
       setLoadingReleaseNotes(false);
     }
+  }
+
+  function blockDevelopmentReleaseNotes(): boolean {
+    if (!developmentBuild) return false;
+    setReleaseNotesError(false);
+    setUpdateInstallError(t("releaseNotes.developmentViewBlocked"));
+    return true;
   }
 
   const selectedNoteIndex = selectedReleaseNote ? releaseNotesVersions.indexOf(selectedReleaseNote.version) : -1;
