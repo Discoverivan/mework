@@ -10,7 +10,7 @@ import { Hint } from "@/components/ui/tooltip";
 import { Separator } from "@/components/ui/separator";
 import { useI18n } from "@/i18n/context";
 import type { DataRetentionSettings as Settings, LogSizeUnit, RetentionMode, RetentionUnit } from "@/shared/contracts/data-retention";
-import "./DataRetentionSettings.css";
+import { SettingsReveal } from "./SettingsReveal";
 
 const FIELDS = ["reviewHistory", "syncHistory", "removedTasks", "diagnosticLogs"] as const;
 const UNITS: RetentionUnit[] = ["minutes", "hours", "days", "months"];
@@ -29,6 +29,7 @@ export function DataRetentionSettings() {
   const [loading, setLoading] = useState(true);
   const [loadRevision, setLoadRevision] = useState(0);
   const [expanded, setExpanded] = useState(false);
+  const [draftRevision, setDraftRevision] = useState(0);
   const validityHandlers = useMemo(() => {
     const update = (field: typeof FIELDS[number]) => (value: boolean) =>
       setValid((current) => current[field] === value ? current : { ...current, [field]: value });
@@ -72,6 +73,12 @@ export function DataRetentionSettings() {
         <CardDescription className="leading-snug">{t("dataRetention.description")}</CardDescription>
       </div>
       <div className="flex shrink-0 items-center gap-2">
+      <Button type="button" variant="outline" size="sm" disabled={saving || (!changed && !invalid)} onClick={() => {
+        setDraft(saved);
+        setValid({});
+        setDraftRevision((value) => value + 1);
+        setNotice(null);
+      }}>{t("settings.common.cancel")}</Button>
       <Button type="button" size="sm" actionTone="edit" onClick={() => void save()} disabled={!changed || saving || Boolean(invalid)}>
         {saving ? <Loader2 className="animate-spin" aria-hidden="true" /> : null}{t("settings.common.save")}
       </Button>
@@ -84,9 +91,8 @@ export function DataRetentionSettings() {
       </Button>
       </div>
     </CardHeader>
-    <div className="data-retention-reveal" data-expanded={expanded}>
-    <div className="min-h-0 overflow-hidden" aria-hidden={!expanded} inert={!expanded}>
-    <CardContent id="data-retention-details" className="@container/retention flex flex-col gap-4 px-4 pb-3.5">
+    <SettingsReveal open={expanded} id="data-retention-details">
+    <CardContent key={draftRevision} className="@container/retention flex flex-col gap-4 px-4 pb-3.5">
       {draft ? <>
         <div className="flex flex-col">
           {FIELDS.map((field) => {
@@ -157,8 +163,7 @@ export function DataRetentionSettings() {
         </div>
       </> : loading ? <Loader2 className="size-4 animate-spin text-muted-foreground" aria-label={t("dataRetention.loading")} /> : <Button type="button" variant="outline" size="sm" className="w-fit" onClick={() => { setNotice(null); setLoadRevision((value) => value + 1); }}>{t("tokenBurner.retry")}</Button>}
     </CardContent>
-    </div>
-    </div>
+    </SettingsReveal>
     {notice ? <StatusToast message={t(`dataRetention.${notice}`)} variant={notice === "saved" ? "success" : "error"} onDismiss={() => setNotice(null)} /> : null}
   </Card>;
 }

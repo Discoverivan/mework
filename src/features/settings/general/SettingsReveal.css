@@ -1,17 +1,17 @@
-.data-retention-reveal {
+.settings-section-reveal {
   display: grid;
   grid-template-rows: 0fr;
   opacity: 0;
   transition: grid-template-rows 200ms ease-out, opacity 200ms ease-out;
 }
 
-.data-retention-reveal[data-expanded="true"] {
+.settings-section-reveal[data-expanded="true"] {
   grid-template-rows: 1fr;
   opacity: 1;
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .data-retention-reveal {
+  .settings-section-reveal {
     transition: none;
   }
 }

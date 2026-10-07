@@ -128,6 +128,8 @@ describe("GeneralSettingsPage", () => {
     const unsubscribe = subscribeAppEvent(APP_EVENT.extraFunctionsEnabledChanged, onChanged);
     render(<I18nProvider><GeneralSettingsPage /></I18nProvider>);
     const master = await screen.findByRole("switch", { name: "Extra functions" });
+    expect(screen.queryByRole("switch", { name: "Model-testing" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Show extra function settings" }));
     const toggle = screen.getByRole("switch", { name: "Model-testing" });
     expect(master).not.toBeChecked();
     expect(toggle).toBeChecked();
@@ -156,6 +158,7 @@ describe("GeneralSettingsPage", () => {
     );
 
     expect(await screen.findByRole("switch", { name: "Notifications" })).toBeChecked();
+    fireEvent.click(screen.getByRole("button", { name: "Show notification settings" }));
     const uiSelect = screen.getByRole("combobox", { name: "UI" });
     expect(uiSelect).toHaveTextContent("English");
     expect(screen.getByRole("combobox", { name: "Appearance" })).toHaveTextContent("System");
@@ -242,6 +245,7 @@ describe("GeneralSettingsPage", () => {
       </I18nProvider>,
     );
 
+    fireEvent.click(await screen.findByRole("button", { name: "Show notification settings" }));
     const testButton = await screen.findByRole("button", { name: "Test Task tracker notification" });
     expect(testButton).toHaveAttribute("data-tooltip", "Test Task tracker notification");
     expect(testButton.querySelector("svg.lucide-bell-ring")).not.toBeNull();
@@ -286,6 +290,7 @@ describe("GeneralSettingsPage", () => {
     });
     render(<GeneralSettingsPage />);
     const notificationsCard = screen.getByRole("switch", { name: "Notifications" }).closest(".rounded-lg.border.bg-card");
+    fireEvent.click(await screen.findByRole("button", { name: "Show notification settings" }));
     const allowButton = await screen.findByRole("button", { name: "Allow notifications" });
     expect(notificationsCard).toContainElement(allowButton);
     fireEvent.click(allowButton);

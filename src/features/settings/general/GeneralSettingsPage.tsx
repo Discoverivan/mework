@@ -1,4 +1,4 @@
-import { AlertTriangle, BellRing, CheckCircle2, RefreshCw } from "lucide-react";
+import { AlertTriangle, BellRing, CheckCircle2, ChevronDown, RefreshCw } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -26,6 +26,7 @@ import {
 import { useI18n } from "@/i18n/context";
 import { AppLanguage } from "@/i18n/types";
 import { DataRetentionSettings } from "./DataRetentionSettings";
+import { SettingsReveal } from "./SettingsReveal";
 import { APP_EVENT, emitAppEvent } from "@/app/app-events";
 
 function errorMessage(error: unknown, fallback: string): string {
@@ -36,6 +37,8 @@ function errorMessage(error: unknown, fallback: string): string {
 export function GeneralSettingsPage() {
   const { appearanceSaving, buttonStyle, buttonStyleSaving, language, themePreference, t, updateAppearance, updateButtonStyle } = useI18n();
   const [settings, setSettings] = useState<GeneralSettings | null>(null);
+  const [notificationsExpanded, setNotificationsExpanded] = useState(false);
+  const [extraFunctionsExpanded, setExtraFunctionsExpanded] = useState(false);
   const [terminalPreferences, setTerminalPreferences] = useState<CommandBoardTerminalPreferences | null>(null);
   const [terminalLoading, setTerminalLoading] = useState(true);
   const [terminalSaving, setTerminalSaving] = useState(false);
@@ -377,6 +380,7 @@ export function GeneralSettingsPage() {
                 {t("general.notificationsDescription")}
               </CardDescription>
             </div>
+            <div className="flex shrink-0 items-center gap-2">
             <Switch
               id="general-notifications-enabled"
               size="md"
@@ -384,7 +388,18 @@ export function GeneralSettingsPage() {
               onCheckedChange={(checked) => void handlePreferencesChange({ notificationsEnabled: checked })}
               disabled={loading || saving}
             />
+            <Button type="button" variant="outline" size="icon" className="size-9" disabled={saving}
+              aria-expanded={notificationsExpanded} aria-controls="general-notification-details"
+              aria-label={t(notificationsExpanded ? "general.collapseNotifications" : "general.expandNotifications")}
+              title={t(notificationsExpanded ? "general.collapseNotifications" : "general.expandNotifications")}
+              onClick={() => setNotificationsExpanded((value) => !value)}>
+              <ChevronDown className={`transition-transform duration-200 motion-reduce:transition-none ${notificationsExpanded ? "rotate-180" : ""}`} aria-hidden="true" />
+            </Button>
+            </div>
           </div>
+        </CardHeader>
+        <SettingsReveal open={notificationsExpanded} id="general-notification-details">
+        <CardContent className="space-y-4 px-4 pb-3.5">
           {permissionBlocked ? (
             <Alert variant="destructive" role="alert" aria-live="polite">
               <AlertTriangle className="size-4" aria-hidden="true" />
@@ -524,7 +539,8 @@ export function GeneralSettingsPage() {
               />
             </div>
           </div>
-        </CardHeader>
+        </CardContent>
+        </SettingsReveal>
         <span className="sr-only" role="status" aria-live="polite">
           {testedNotification ? t("general.testSent") : ""}
         </span>
@@ -538,11 +554,23 @@ export function GeneralSettingsPage() {
               <Label htmlFor="general-extra-functions-enabled" alignment="inline" className="text-base font-semibold leading-tight">{t("general.extraFunctions")}</Label>
               <CardDescription className="mt-1 leading-snug">{t("general.extraFunctionsDescription")}</CardDescription>
             </div>
+            <div className="flex shrink-0 items-center gap-2">
             <Switch id="general-extra-functions-enabled" size="md"
               checked={settings?.extraFunctionsEnabled ?? false}
               onCheckedChange={(checked) => void handlePreferencesChange({ extraFunctionsEnabled: checked })}
               disabled={loading || saving} />
+            <Button type="button" variant="outline" size="icon" className="size-9" disabled={saving}
+              aria-expanded={extraFunctionsExpanded} aria-controls="general-extra-function-details"
+              aria-label={t(extraFunctionsExpanded ? "general.collapseExtraFunctions" : "general.expandExtraFunctions")}
+              title={t(extraFunctionsExpanded ? "general.collapseExtraFunctions" : "general.expandExtraFunctions")}
+              onClick={() => setExtraFunctionsExpanded((value) => !value)}>
+              <ChevronDown className={`transition-transform duration-200 motion-reduce:transition-none ${extraFunctionsExpanded ? "rotate-180" : ""}`} aria-hidden="true" />
+            </Button>
+            </div>
           </div>
+        </CardHeader>
+        <SettingsReveal open={extraFunctionsExpanded} id="general-extra-function-details">
+        <CardContent className="px-4 pb-3.5">
           <div className="border-t pt-4">
             <div className="flex items-center justify-between gap-4 pl-4">
               <div className="min-w-0">
@@ -560,7 +588,8 @@ export function GeneralSettingsPage() {
               />
             </div>
           </div>
-        </CardHeader>
+        </CardContent>
+        </SettingsReveal>
       </Card>
     </section>
   );
