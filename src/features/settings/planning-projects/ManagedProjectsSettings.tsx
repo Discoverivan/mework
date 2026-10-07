@@ -1232,6 +1232,7 @@ export function ManagedProjectsSettings({
                 </Button>
               </div>
               </div>
+              <div className="grid gap-3 pl-4">
               <Separator />
               <div className="flex flex-wrap items-center justify-between gap-4">
                 <Label alignment="inline" htmlFor={`default-task-sprint-${detailProject.id}`}>{t("teams.defaultSprint")}</Label>
@@ -1260,6 +1261,9 @@ export function ManagedProjectsSettings({
                   <p className="mt-1 text-xs text-muted-foreground">{t("teams.epicJqlDescription")}</p>
                 </div>
                 <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto sm:max-w-xl sm:flex-1">
+                  <Button type="button" variant="outline" onClick={() => void handleCheckEpicLinkJql()} disabled={controlsDisabled || epicPreviewLoading || !epicLinkJql.trim()}>
+                    {epicPreviewLoading ? t("settings.common.checking") : t("teams.check")}
+                  </Button>
                   <Input
                     className="min-w-0 flex-1 basis-48"
                     id={`epic-link-jql-${detailProject.id}`}
@@ -1274,9 +1278,6 @@ export function ManagedProjectsSettings({
                     placeholder="project = DEMO AND issuetype = Epic"
                     disabled={controlsDisabled}
                   />
-                  <Button type="button" variant="outline" onClick={() => void handleCheckEpicLinkJql()} disabled={controlsDisabled || epicPreviewLoading || !epicLinkJql.trim()}>
-                    {epicPreviewLoading ? t("settings.common.checking") : t("teams.check")}
-                  </Button>
                 </div>
               </div>
               <Separator />
@@ -1308,6 +1309,7 @@ export function ManagedProjectsSettings({
                   <AlertDescription>{teamSaveError}</AlertDescription>
                 </Alert>
               ) : null}
+              </div>
             </section>
 
             <Dialog open={epicPreviewOpen} onOpenChange={setEpicPreviewOpen}>
