@@ -9,10 +9,11 @@ vi.mock("@tauri-apps/api/core", () => ({ invoke: invokeMock }));
 it("loads retention settings and saves a changed history limit", async () => {
   Element.prototype.scrollIntoView = vi.fn();
   const settings = {
-    reviewHistory: { value: 7, unit: "days" },
-    syncHistory: { value: 7, unit: "days" },
-    removedTasks: { value: 7, unit: "days" },
-    diagnosticLogs: { value: 7, unit: "days" },
+    reviewHistory: { mode: "period", value: 7, unit: "days" },
+    syncHistory: { mode: "period", value: 7, unit: "days" },
+    removedTasks: { mode: "period", value: 7, unit: "days" },
+    diagnosticLogs: { mode: "period", value: 7, unit: "days" },
+    diagnosticLogMaxMiB: 100,
   };
   invokeMock.mockImplementation(async (command, args) => command === "data_retention_settings" ? settings : args.settings);
   render(<I18nProvider><DataRetentionSettings /></I18nProvider>);
@@ -35,8 +36,18 @@ it("loads retention settings and saves a changed history limit", async () => {
   fireEvent.click(screen.getByRole("combobox", { name: "PR review history unit" }));
   fireEvent.click(screen.getByRole("option", { name: "Hours" }));
   fireEvent.change(logs, { target: { value: "14" } });
+  fireEvent.click(screen.getByRole("combobox", { name: "Diagnostic logs retention" }));
+  fireEvent.click(screen.getByRole("option", { name: "Keep indefinitely" }));
+  fireEvent.click(screen.getByRole("combobox", { name: "Diagnostic log size policy" }));
+  fireEvent.click(screen.getByRole("option", { name: "No size limit" }));
+  fireEvent.click(screen.getByRole("combobox", { name: "Removed tasks retention" }));
+  fireEvent.click(screen.getByRole("option", { name: "Do not keep" }));
   fireEvent.click(screen.getByRole("button", { name: "Save" }));
-  await waitFor(() => expect(invokeMock).toHaveBeenCalledWith("data_retention_settings_save", { settings: { ...settings, reviewHistory: { value: 1234, unit: "hours" }, diagnosticLogs: { value: 14, unit: "days" } } }));
+  await waitFor(() => expect(invokeMock).toHaveBeenCalledWith("data_retention_settings_save", { settings: { ...settings,
+    reviewHistory: { mode: "period", value: 1234, unit: "hours" },
+    removedTasks: { ...settings.removedTasks, mode: "disabled" },
+    diagnosticLogs: { mode: "indefinite", value: 14, unit: "days" }, diagnosticLogMaxMiB: null,
+  } }));
   expect(screen.getByRole("combobox", { name: "PR review history unit" })).toHaveTextContent("Hours");
   await waitFor(() => expect(screen.getByRole("button", { name: "Save" })).toBeDisabled());
 });

@@ -28,8 +28,17 @@ impl RetentionUnit {
     }
 }
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum RetentionMode {
+    Disabled,
+    Period,
+    Indefinite,
+}
+
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 pub struct RetentionPeriod {
+    pub mode: RetentionMode,
     pub value: u32,
     pub unit: RetentionUnit,
 }
@@ -39,11 +48,27 @@ impl<'de> Deserialize<'de> for RetentionPeriod {
         #[derive(Deserialize)]
         #[serde(untagged)]
         enum StoredPeriod {
-            Period { value: u32, unit: RetentionUnit },
+            Period {
+                value: u32,
+                unit: RetentionUnit,
+                mode: Option<RetentionMode>,
+            },
             LegacyDays(u32),
         }
         Ok(match StoredPeriod::deserialize(deserializer)? {
-            StoredPeriod::Period { value, unit } => Self { value, unit },
+            StoredPeriod::Period { value, unit, mode } => Self {
+                mode: mode.unwrap_or(if value == 0 {
+                    RetentionMode::Indefinite
+                } else {
+                    RetentionMode::Period
+                }),
+                value: if mode.is_none() && value == 0 {
+                    7
+                } else {
+                    value
+                },
+                unit,
+            },
             StoredPeriod::LegacyDays(value) => Self::days(value),
         })
     }
@@ -52,14 +77,21 @@ impl<'de> Deserialize<'de> for RetentionPeriod {
 impl RetentionPeriod {
     fn days(value: u32) -> Self {
         Self {
-            value,
+            mode: if value == 0 {
+                RetentionMode::Indefinite
+            } else {
+                RetentionMode::Period
+            },
+            value: if value == 0 { 7 } else { value },
             unit: RetentionUnit::Days,
         }
     }
 
     fn cutoff(&self, now: OffsetDateTime) -> Result<Option<OffsetDateTime>, String> {
-        if self.value == 0 {
-            return Ok(None);
+        match self.mode {
+            RetentionMode::Disabled => return Ok(Some(now)),
+            RetentionMode::Indefinite => return Ok(None),
+            RetentionMode::Period => {}
         }
         let cutoff = match self.unit {
             RetentionUnit::Minutes => now.checked_sub(TimeDuration::minutes(self.value.into())),
@@ -94,6 +126,8 @@ pub struct DataRetentionSettings {
     #[serde(alias = "removedTaskDays")]
     pub removed_tasks: RetentionPeriod,
     pub diagnostic_logs: RetentionPeriod,
+    #[serde(rename = "diagnosticLogMaxMiB")]
+    pub diagnostic_log_max_mib: Option<u32>,
 }
 
 impl Default for DataRetentionSettings {
@@ -103,6 +137,7 @@ impl Default for DataRetentionSettings {
             sync_history: RetentionPeriod::days(7),
             removed_tasks: RetentionPeriod::days(7),
             diagnostic_logs: RetentionPeriod::days(7),
+            diagnostic_log_max_mib: Some(100),
         }
     }
 }
@@ -129,11 +164,40 @@ fn validate(settings: &DataRetentionSettings) -> Result<(), String> {
         &settings.diagnostic_logs,
     ]
     .into_iter()
-    .any(|period| period.value > period.unit.maximum())
-    {
+    .any(|period| {
+        period.value > period.unit.maximum()
+            || (period.mode == RetentionMode::Period && period.value == 0)
+    }) {
         return Err("retention period exceeds the supported limit".to_owned());
     }
+    if settings
+        .diagnostic_log_max_mib
+        .is_some_and(|value| value == 0 || value > 1_048_576)
+    {
+        return Err("invalid diagnostic log size limit".to_owned());
+    }
     Ok(())
+}
+
+pub async fn sync_history_enabled(pool: &SqlitePool) -> Result<bool, sqlx::Error> {
+    Ok(settings(pool)
+        .await
+        .map_err(sqlx::Error::Protocol)?
+        .sync_history
+        .mode
+        != RetentionMode::Disabled)
+}
+
+pub async fn prune_review_history(pool: &SqlitePool) -> Result<(), String> {
+    let period = settings(pool).await?.review_history;
+    let cutoff = if period.mode == RetentionMode::Disabled {
+        Some(i64::MAX)
+    } else {
+        period
+            .cutoff(OffsetDateTime::now_utc())?
+            .map(|cutoff| (cutoff.unix_timestamp_nanos() / 1_000_000) as i64)
+    };
+    crate::application::developer_review::prune_old_reviews(pool, cutoff).await
 }
 
 pub async fn save_settings(
@@ -143,14 +207,15 @@ pub async fn save_settings(
     validate(&settings)?;
     let json = serde_json::to_string(&settings)
         .map_err(|_| "failed to serialize data retention settings".to_owned())?;
-    repositories::upsert_setting(pool, SETTINGS_KEY, &json, 1)
+    repositories::upsert_setting(pool, SETTINGS_KEY, &json, 2)
         .await
         .map_err(|_| "failed to save data retention settings".to_owned())?;
-    clean_up_logs(&settings.diagnostic_logs).await;
+    clean_up(pool).await?;
     Ok(settings)
 }
 
-async fn clean_up_logs(period: &RetentionPeriod) {
+pub async fn configure_logs(settings: &DataRetentionSettings) {
+    let period = &settings.diagnostic_logs;
     let cutoff = match period.cutoff(OffsetDateTime::now_utc()) {
         Ok(cutoff) => cutoff,
         Err(_) => {
@@ -158,8 +223,14 @@ async fn clean_up_logs(period: &RetentionPeriod) {
             return;
         }
     };
-    let result =
-        tokio::task::spawn_blocking(move || crate::application::logging::clean_up(cutoff)).await;
+    let enabled = period.mode != RetentionMode::Disabled;
+    let max_bytes = settings
+        .diagnostic_log_max_mib
+        .map(|value| u64::from(value) * 1024 * 1024);
+    let result = tokio::task::spawn_blocking(move || {
+        crate::application::logging::configure(enabled, max_bytes, cutoff)
+    })
+    .await;
     if !matches!(result, Ok(Ok(()))) {
         eprintln!("Diagnostic log cleanup failed");
     }
@@ -167,21 +238,19 @@ async fn clean_up_logs(period: &RetentionPeriod) {
 
 pub async fn clean_up(pool: &SqlitePool) -> Result<(), String> {
     let settings = settings(pool).await?;
-    clean_up_logs(&settings.diagnostic_logs).await;
+    configure_logs(&settings).await;
     let now = OffsetDateTime::now_utc();
-    let review_cutoff = settings
-        .review_history
-        .cutoff(now)?
-        .map(|cutoff| (cutoff.unix_timestamp_nanos() / 1_000_000) as i64);
-    crate::application::developer_review::prune_old_reviews(pool, review_cutoff).await?;
+    prune_review_history(pool).await?;
     let mut transaction = pool.begin().await.map_err(db_error)?;
     if let Some(cutoff) = settings.sync_history.cutoff(now)? {
-        sqlx::query("DELETE FROM sync_runs WHERE finished_at IS NOT NULL AND status IN ('succeeded', 'failed') AND datetime(finished_at) < datetime(?, 'unixepoch')")
+        sqlx::query("DELETE FROM sync_runs WHERE finished_at IS NOT NULL AND status IN ('succeeded', 'failed') AND (? OR datetime(finished_at) < datetime(?, 'unixepoch'))")
+            .bind(settings.sync_history.mode == RetentionMode::Disabled)
             .bind(cutoff.unix_timestamp())
             .execute(&mut *transaction).await.map_err(db_error)?;
     }
     if let Some(cutoff) = settings.removed_tasks.cutoff(now)? {
-        sqlx::query("DELETE FROM task_monitor_issues WHERE present = 0 AND datetime(observed_at) < datetime(?, 'unixepoch')")
+        sqlx::query("DELETE FROM task_monitor_issues WHERE present = 0 AND (? OR datetime(observed_at) < datetime(?, 'unixepoch'))")
+            .bind(settings.removed_tasks.mode == RetentionMode::Disabled)
             .bind(cutoff.unix_timestamp())
             .execute(&mut *transaction).await.map_err(db_error)?;
     }
@@ -253,19 +322,24 @@ mod tests {
                 sync_history: RetentionPeriod::days(12),
                 removed_tasks: RetentionPeriod::days(0),
                 diagnostic_logs: RetentionPeriod::days(7),
+                diagnostic_log_max_mib: Some(100),
             }
         );
         let settings = DataRetentionSettings {
             review_history: RetentionPeriod {
+                mode: RetentionMode::Period,
                 value: 1,
                 unit: RetentionUnit::Months,
             },
             sync_history: RetentionPeriod {
+                mode: RetentionMode::Period,
                 value: 1,
                 unit: RetentionUnit::Hours,
             },
             diagnostic_logs: RetentionPeriod::days(14),
+            diagnostic_log_max_mib: None,
             removed_tasks: RetentionPeriod {
+                mode: RetentionMode::Period,
                 value: 1,
                 unit: RetentionUnit::Minutes,
             },
@@ -364,6 +438,77 @@ mod tests {
             .await
             .unwrap(),
             usage
+        );
+        let mut disabled = DataRetentionSettings::default();
+        disabled.review_history.mode = RetentionMode::Disabled;
+        disabled.sync_history.mode = RetentionMode::Disabled;
+        disabled.removed_tasks.mode = RetentionMode::Disabled;
+        disabled.diagnostic_logs.mode = RetentionMode::Disabled;
+        sqlx::query("INSERT INTO sync_runs (id, integration_id, job_kind, status, started_at, finished_at) VALUES ('recent', 'example-integration', 'example', 'succeeded', datetime('now'), datetime('now'))")
+            .execute(&pool).await.unwrap();
+        sqlx::query("INSERT INTO task_monitor_issues (monitor_id, issue_id, issue_key, summary, status, priority, issue_url, present, observed_at) VALUES ('example-monitor', 'EXAMPLE-3', 'EXAMPLE-3', 'Example task', 'Open', '', 'https://example.invalid', 0, datetime('now'))")
+            .execute(&pool).await.unwrap();
+        save_settings(&pool, disabled).await.unwrap();
+        assert_eq!(
+            sqlx::query_scalar::<_, i64>(
+                "SELECT COUNT(*) FROM sync_runs WHERE status = 'succeeded'"
+            )
+            .fetch_one(&pool)
+            .await
+            .unwrap(),
+            0
+        );
+        assert_eq!(
+            sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM sync_runs WHERE status = 'running'")
+                .fetch_one(&pool)
+                .await
+                .unwrap(),
+            1
+        );
+        assert_eq!(
+            sqlx::query_scalar::<_, i64>(
+                "SELECT COUNT(*) FROM task_monitor_issues WHERE present = 0"
+            )
+            .fetch_one(&pool)
+            .await
+            .unwrap(),
+            0
+        );
+        assert_eq!(
+            sqlx::query_scalar::<_, i64>(
+                "SELECT COUNT(*) FROM task_monitor_issues WHERE present = 1"
+            )
+            .fetch_one(&pool)
+            .await
+            .unwrap(),
+            1
+        );
+        crate::application::polling::checkpoint::record_successful_page(
+            &pool,
+            "example-integration",
+            None,
+            "example-checkpoint",
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            sqlx::query_scalar::<_, i64>(
+                "SELECT COUNT(*) FROM sync_runs WHERE status = 'succeeded'"
+            )
+            .fetch_one(&pool)
+            .await
+            .unwrap(),
+            0
+        );
+        assert_eq!(
+            crate::application::polling::checkpoint::current_checkpoint(
+                &pool,
+                "example-integration"
+            )
+            .await
+            .unwrap()
+            .as_deref(),
+            Some("example-checkpoint")
         );
     }
 }
