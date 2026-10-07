@@ -242,6 +242,8 @@ describe("ManagedProjectsSettings task creation settings", () => {
       },
       boardId: "board-1",
     })));
+    expect(await screen.findByRole("combobox", { name: "Default sprint for task creation" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Hide Platform team project details" })).toHaveAttribute("aria-expanded", "true");
   });
 
   it("waits for boards before opening step two and allows returning with Back", async () => {

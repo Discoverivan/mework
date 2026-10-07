@@ -684,8 +684,7 @@ export function ManagedProjectsSettings({
       setProjects((current) => replaceProject(current, saved));
       formSession.current += 1;
       setBoardsLoading(false);
-      setForm(null);
-      setDetailProject(saved);
+      openDetail(saved);
     } catch (error) {
       const message = commandError(error);
       setSaveError(/permission|forbidden|denied/i.test(message)
@@ -955,6 +954,7 @@ export function ManagedProjectsSettings({
       {!loading && projects.length > 0 ? (
         <div className="flex w-full flex-col gap-3" role="list" aria-label={t("teams.list")}>
           {projects.map((project) => {
+            const detailsExpanded = detailExpanded && detailProject?.id === project.id;
             return (
               <div key={project.id} role="listitem" aria-label={project.projectName} className="w-full">
                 <Card className="w-full">
@@ -1002,13 +1002,13 @@ export function ManagedProjectsSettings({
                           variant="ghost"
                           size="icon"
                           className="size-8 [&_svg]:size-[18px]"
-                          onClick={() => detailExpanded && detailProject?.id === project.id ? setDetailExpanded(false) : openDetail(project)}
+                          onClick={() => detailsExpanded ? setDetailExpanded(false) : openDetail(project)}
                           disabled={controlsDisabled}
-                          aria-expanded={detailExpanded && detailProject?.id === project.id}
-                          aria-label={t(detailExpanded && detailProject?.id === project.id ? "teams.closeDetails" : "teams.openDetails", { team: project.projectName })}
-                          title={t(detailExpanded && detailProject?.id === project.id ? "teams.closeDetails" : "teams.openDetails", { team: project.projectName })}
+                          aria-expanded={detailsExpanded}
+                          aria-label={t(detailsExpanded ? "teams.closeDetails" : "teams.openDetails", { team: project.projectName })}
+                          title={t(detailsExpanded ? "teams.closeDetails" : "teams.openDetails", { team: project.projectName })}
                         >
-                          <ChevronDown className={`transition-transform duration-200 motion-reduce:transition-none ${detailExpanded && detailProject?.id === project.id ? "rotate-180" : ""}`} aria-hidden="true" />
+                          <ChevronDown className={`transition-transform duration-200 motion-reduce:transition-none ${detailsExpanded ? "rotate-180" : ""}`} aria-hidden="true" />
                         </Button>
                       </div>
                     </div>
