@@ -100,7 +100,7 @@ export function DataRetentionSettings() {
             const max = MAXIMUM[period.unit];
             const label = t(`dataRetention.${field}`);
             return <Fragment key={field}>
-              <div className="pl-4"><Separator /></div>
+              <div className={field === FIELDS[0] ? undefined : "pl-4"}><Separator /></div>
               <div role="group" aria-labelledby={`retention-${field}-label`}
               className="flex flex-wrap items-center justify-between gap-x-4 gap-y-3 py-3 pl-4 last:pb-0">
               <Hint content={t(`dataRetention.${field}Help`)}><span id={`retention-${field}-label`} className="text-sm font-medium leading-none">{label}</span></Hint>
