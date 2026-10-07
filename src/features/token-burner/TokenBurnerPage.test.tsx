@@ -246,6 +246,7 @@ describe("TokenBurnerPage", () => {
     render(<I18nProvider><TokenBurnerPage /></I18nProvider>);
     fireEvent.click(await screen.findByRole("button", { name: "Settings" }));
     const settingsPanel = screen.getByLabelText("Daily target (tokens)").closest("div.rounded-lg.border");
+    expect(settingsPanel).toHaveClass("bg-muted/50");
     expect(settingsPanel).toContainElement(screen.getByRole("textbox", { name: "Delay between reviews" }));
     expect(settingsPanel?.querySelectorAll('[data-orientation="horizontal"]')).toHaveLength(1);
     fireEvent.click(screen.getByRole("combobox", { name: "Scale" }));
@@ -270,7 +271,7 @@ describe("TokenBurnerPage", () => {
     expect(await screen.findByRole("combobox", { name: "AI provider" })).toHaveTextContent("Use defaults");
     const activity = screen.getByRole("heading", { name: "Activity" }).closest(".rounded-lg.border");
     expect(activity).toContainElement(screen.getByRole("button", { name: "Start" }));
-    expect(screen.getByText("No pull request is being analyzed right now.").parentElement).toHaveClass("rounded-md", "border", "px-4", "py-3");
+    expect(screen.getByText("No pull request is being analyzed right now.").parentElement).toHaveClass("rounded-md", "border", "bg-muted/50", "px-4", "py-3");
     const repository = screen.getByRole("combobox", { name: "Repository" });
     await waitFor(() => expect(repository).toBeEnabled());
     fireEvent.click(repository);

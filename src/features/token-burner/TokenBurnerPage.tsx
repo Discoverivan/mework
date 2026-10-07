@@ -523,12 +523,12 @@ export function TokenBurnerPage() {
         </CardHeader>
         <CardContent className="flex flex-col gap-4 px-4 pb-3.5 pt-0">
           {currentIterations.length === 0 && completedIterations.length === 0 ? (
-            <div className="flex flex-col gap-3 rounded-md border px-4 py-3">
+            <div className="flex flex-col gap-3 rounded-md border bg-muted/50 px-4 py-3">
               <p className="flex items-center gap-2 text-sm text-muted-foreground">{state === "running" ? <Loader2 className="size-4 animate-spin" aria-hidden="true" /> : null}{t(state === "running" ? "tokenBurner.findingPullRequest" : state === "no_prs" ? "tokenBurner.noAssignedPullRequests" : "tokenBurner.noActiveWork")}</p>
             </div>
           ) : null}
           {currentIterations.map((iteration) => (
-            <div key={iteration.id} className="flex flex-col gap-3 rounded-md border p-4">
+            <div key={iteration.id} className="flex flex-col gap-3 rounded-md border bg-muted/50 p-4">
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div className="min-w-0"><p className="font-medium">PR #{iteration.pullRequestId} — {iteration.repositoryName}</p><p className="truncate text-sm text-muted-foreground">{iteration.pullRequestTitle}</p></div>
                 <ModelTestingStatus status="running" label={t("tokenBurner.statusRunning")} />
@@ -578,7 +578,7 @@ export function TokenBurnerPage() {
         }}>
           <DialogHeader className="px-1"><DialogTitle className="text-base leading-tight">{t("tokenBurner.settings")}</DialogTitle></DialogHeader>
           <DialogBody className="m-0 p-1">
-            <Card>
+            <Card className="bg-muted/50 shadow-none">
               <CardContent className="flex flex-col gap-3 p-4">
                 <div className="flex flex-wrap items-center justify-between gap-4">
                   <div className="min-w-0 flex-1">
