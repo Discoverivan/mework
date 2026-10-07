@@ -720,7 +720,7 @@ export function ManagedProjectsSettings({
   }
 
   function cancelTaskCreationChanges() {
-    if (!detailProject || controlsDisabled || epicPreviewLoading) return;
+    if (!detailProject || controlsDisabled || epicPreviewLoading || !taskCreationChanged) return;
     setDefaultTaskSprintId(detailProject.defaultTaskSprintId ?? "");
     setDefaultTaskSprintName(detailProject.defaultTaskSprintName ?? "");
     setDefaultEpicLinkKey(detailProject.defaultEpicLinkKey ?? "");
@@ -1224,7 +1224,7 @@ export function ManagedProjectsSettings({
                 <p className="text-sm text-muted-foreground">{t("teams.taskSettingsDescription")}</p>
               </div>
               <div className="ml-auto flex shrink-0 items-center gap-2">
-                <Button type="button" size="sm" variant="outline" onClick={cancelTaskCreationChanges} disabled={controlsDisabled || epicPreviewLoading}>
+                <Button type="button" size="sm" variant="outline" onClick={cancelTaskCreationChanges} disabled={controlsDisabled || epicPreviewLoading || !taskCreationChanged}>
                   {t("settings.common.cancel")}
                 </Button>
                 <Button type="button" size="sm" actionTone="edit" onClick={() => void handleSaveTaskCreationSettings()} disabled={controlsDisabled || epicPreviewLoading || !taskCreationChanged}>

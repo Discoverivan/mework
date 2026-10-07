@@ -338,16 +338,19 @@ describe("ManagedProjectsSettings task creation settings", () => {
       epicLinkJql: "project = DEMO AND issuetype = Epic",
     })));
     await waitFor(() => expect(screen.getByRole("button", { name: "Save" })).toBeDisabled());
+    expect(screen.getByRole("button", { name: "Cancel" })).toBeDisabled();
     fireEvent.change(screen.getByLabelText("Epic link JQL"), {
       target: { value: "project = DEMO" },
     });
     fireEvent.click(screen.getByRole("combobox", { name: "Default sprint for task creation" }));
     fireEvent.click(screen.getByRole("option", { name: "No default sprint" }));
+    expect(screen.getByRole("button", { name: "Cancel" })).toBeEnabled();
     fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
     expect(screen.getByLabelText("Epic link JQL")).toHaveValue("project = DEMO AND issuetype = Epic");
     expect(screen.getByRole("combobox", { name: "Default sprint for task creation" })).toHaveTextContent("Platform Sprint");
     expect(screen.getByRole("combobox", { name: "Default Epic link for task creation" })).toHaveTextContent("Example epic");
     expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Cancel" })).toBeDisabled();
 
     fireEvent.click(screen.getByRole("button", { name: "Edit Example Member" }));
     const memberForm = within(await screen.findByRole("dialog"));
