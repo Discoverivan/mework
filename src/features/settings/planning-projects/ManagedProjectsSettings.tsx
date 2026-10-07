@@ -1269,6 +1269,30 @@ export function ManagedProjectsSettings({
               <Separator />
               <div className="flex flex-wrap items-center justify-between gap-4">
                 <div className="min-w-0 flex-1 basis-48">
+                  <Label alignment="inline" htmlFor={`default-epic-link-${detailProject.id}`}>{t("teams.defaultEpic")}</Label>
+                  <p className="mt-1 text-xs text-muted-foreground">{t("teams.defaultEpicDescription")}</p>
+                </div>
+                  <div className="max-w-full">
+                    <Select value={defaultEpicLinkKey || NO_SELECTION} onValueChange={(value) => {
+                      const nextKey = value === NO_SELECTION ? "" : value;
+                      const selected = epicPreviewIssues.find((issue) => issue.key === nextKey);
+                      setDefaultEpicLinkKey(nextKey);
+                      setDefaultEpicLinkSummary(selected?.summary ?? (nextKey ? defaultEpicLinkSummary : ""));
+                    }} disabled={controlsDisabled}>
+                      <SelectTrigger id={`default-epic-link-${detailProject.id}`} aria-label={t("teams.defaultEpic")}><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value={NO_SELECTION}>{t("teams.noDefaultEpic")}</SelectItem>
+                        {defaultEpicLinkKey && !epicPreviewIssues.some((issue) => issue.key === defaultEpicLinkKey) ? (
+                          <SelectItem value={defaultEpicLinkKey}>{defaultEpicLinkSummary || defaultEpicLinkKey}</SelectItem>
+                        ) : null}
+                        {epicPreviewIssues.map((issue) => <SelectItem key={issue.key} value={issue.key}>{issue.key} — {issue.summary}</SelectItem>)}
+                      </SelectContent>
+                    </Select>
+                  </div>
+              </div>
+              <Separator />
+              <div className="flex flex-wrap items-center justify-between gap-4">
+                <div className="min-w-0 flex-1 basis-48">
                   <Label alignment="inline" htmlFor={`epic-link-jql-${detailProject.id}`}>{t("teams.epicJql")}</Label>
                   <p className="mt-1 text-xs text-muted-foreground">{t("teams.epicJqlDescription")}</p>
                 </div>
@@ -1291,30 +1315,6 @@ export function ManagedProjectsSettings({
                     disabled={controlsDisabled}
                   />
                 </div>
-              </div>
-              <Separator />
-              <div className="flex flex-wrap items-center justify-between gap-4">
-                <div className="min-w-0 flex-1 basis-48">
-                  <Label alignment="inline" htmlFor={`default-epic-link-${detailProject.id}`}>{t("teams.defaultEpic")}</Label>
-                  <p className="mt-1 text-xs text-muted-foreground">{t("teams.defaultEpicDescription")}</p>
-                </div>
-                  <div className="max-w-full">
-                    <Select value={defaultEpicLinkKey || NO_SELECTION} onValueChange={(value) => {
-                      const nextKey = value === NO_SELECTION ? "" : value;
-                      const selected = epicPreviewIssues.find((issue) => issue.key === nextKey);
-                      setDefaultEpicLinkKey(nextKey);
-                      setDefaultEpicLinkSummary(selected?.summary ?? (nextKey ? defaultEpicLinkSummary : ""));
-                    }} disabled={controlsDisabled}>
-                      <SelectTrigger id={`default-epic-link-${detailProject.id}`} aria-label={t("teams.defaultEpic")}><SelectValue /></SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value={NO_SELECTION}>{t("teams.noDefaultEpic")}</SelectItem>
-                        {defaultEpicLinkKey && !epicPreviewIssues.some((issue) => issue.key === defaultEpicLinkKey) ? (
-                          <SelectItem value={defaultEpicLinkKey}>{defaultEpicLinkSummary || defaultEpicLinkKey}</SelectItem>
-                        ) : null}
-                        {epicPreviewIssues.map((issue) => <SelectItem key={issue.key} value={issue.key}>{issue.key} — {issue.summary}</SelectItem>)}
-                      </SelectContent>
-                    </Select>
-                  </div>
               </div>
               {teamSaveError ? (
                 <Alert variant="destructive" role="alert">
