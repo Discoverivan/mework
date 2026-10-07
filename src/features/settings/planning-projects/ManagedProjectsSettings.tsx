@@ -1232,8 +1232,8 @@ export function ManagedProjectsSettings({
                 </Button>
               </div>
               </div>
-              <div className="grid gap-3 pl-4">
               <Separator />
+              <div className="grid gap-3 pl-4">
               <div className="flex flex-wrap items-center justify-between gap-4">
                 <Label alignment="inline" htmlFor={`default-task-sprint-${detailProject.id}`}>{t("teams.defaultSprint")}</Label>
                 <div className="grid gap-2">
