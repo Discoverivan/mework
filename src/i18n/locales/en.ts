@@ -587,7 +587,7 @@ export const en = {
   "general.buttonStyleQuiet": "Minimal",
   "general.buttonStyleFilled": "Filled",
   "general.terminal": "Terminal",
-  "general.terminalDescription": "Choose which terminal opens scripts from Command Board. New tabs are used when the terminal supports them; otherwise a new window opens.",
+  "general.terminalDescription": "Choose the terminal for running scripts and commands.",
   "general.terminalSystem": "Default terminal",
   "general.terminalSystemUnavailable": "Default terminal (unavailable)",
   "general.terminalOptionUnavailable": "{name} (not available)",

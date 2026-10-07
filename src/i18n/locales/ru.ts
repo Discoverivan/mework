@@ -589,7 +589,7 @@ export const ru: Record<TranslationKey, string> = {
   "general.buttonStyleQuiet": "Без заливки",
   "general.buttonStyleFilled": "С заливкой",
   "general.terminal": "Терминал",
-  "general.terminalDescription": "Выберите терминал для открытия сценариев с командной панели. Если терминал поддерживает вкладки, откроется новая вкладка; в остальных случаях — новое окно.",
+  "general.terminalDescription": "Выберите терминал для запуска скриптов и команд.",
   "general.terminalSystem": "Терминал по умолчанию",
   "general.terminalSystemUnavailable": "Терминал по умолчанию (недоступен)",
   "general.terminalOptionUnavailable": "{name} (недоступен)",
