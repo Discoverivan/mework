@@ -327,7 +327,7 @@ describe("SettingsPage integrations smoke tests", () => {
     expect(actions.getByRole("heading", { name: "Defaults" }).compareDocumentPosition(
       actions.getByRole("heading", { name: "Pull request review" }),
     ) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(screen.getByText("Choose the AI model and instructions for each action. Actions use defaults unless you select another provider.")).toBeVisible();
+    expect(screen.getByText("Customize AI behavior for each action.")).toBeVisible();
     expect(screen.queryByRole("heading", { name: "Data integrations" })).not.toBeInTheDocument();
     expect(await screen.findByRole("group", { name: "Codex CLI AI provider" })).toHaveTextContent("Connected");
 

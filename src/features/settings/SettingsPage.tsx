@@ -343,7 +343,7 @@ export function SettingsPage({ section = "integrations", focusActivity, mockMode
         .catch(() => {
           if (!active) return;
           if (!getCachedAiSettings()) setAiData(UNAVAILABLE_AI_DATA);
-          setAiError(t("settings.error.loadCodex"));
+          setAiError(t("settings.error.loadAiSettings"));
         })
         .finally(() => {
           if (active) setLoading(false);
