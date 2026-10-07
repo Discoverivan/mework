@@ -738,6 +738,11 @@ async fn poll_monitor<R: Runtime>(
     } else {
         None
     };
+    let keep_removed = crate::application::data_retention::settings(pool)
+        .await?
+        .removed_tasks
+        .mode
+        != crate::application::data_retention::RetentionMode::Disabled;
     let mut transaction = pool
         .begin()
         .await
@@ -828,6 +833,13 @@ async fn poll_monitor<R: Runtime>(
     .execute(&mut *transaction)
     .await
     .map_err(|_| "Task tracker monitor could not be updated".to_owned())?;
+    if !keep_removed {
+        sqlx::query("DELETE FROM task_monitor_issues WHERE monitor_id = ? AND present = 0")
+            .bind(id)
+            .execute(&mut *transaction)
+            .await
+            .map_err(|_| "Removed task cleanup failed".to_owned())?;
+    }
     transaction
         .commit()
         .await

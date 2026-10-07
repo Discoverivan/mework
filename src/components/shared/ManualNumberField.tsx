@@ -17,13 +17,14 @@ interface ManualNumberFieldProps {
   max: number;
   scale?: number;
   allowDecimals?: boolean;
+  minVisibleDigits?: number;
   disabled?: boolean;
   errors: { required: string; number: string; range: string; whole?: string };
   onChange: (value: number) => void;
   onValidityChange?: (valid: boolean) => void;
 }
 
-export function ManualNumberField({ id, label, labelledBy, description, value, min, max, scale = 1, allowDecimals = false, disabled = false, errors, onChange, onValidityChange }: ManualNumberFieldProps) {
+export function ManualNumberField({ id, label, labelledBy, description, value, min, max, scale = 1, allowDecimals = false, minVisibleDigits, disabled = false, errors, onChange, onValidityChange }: ManualNumberFieldProps) {
   const [draft, setDraft] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [showError, setShowError] = useState(false);
@@ -60,7 +61,10 @@ export function ManualNumberField({ id, label, labelledBy, description, value, m
     <Popover open={!disabled && showError && Boolean(error)} onOpenChange={setShowError}>
       <PopoverAnchor asChild><Input
         id={id}
-        className={cn("h-9 w-12 min-w-full", error && "border-destructive ring-1 ring-destructive focus-visible:ring-destructive")}
+        className={cn("h-9", minVisibleDigits === undefined ? "w-12 min-w-full" : "w-auto min-w-0 tabular-nums", error && "border-destructive ring-1 ring-destructive focus-visible:ring-destructive")}
+        style={minVisibleDigits === undefined ? undefined : {
+          width: `calc(${Math.max(minVisibleDigits, (draft ?? String(value)).length)}ch + 1.5rem + 2px)`,
+        }}
         type="text"
         inputMode={allowDecimals ? "decimal" : "numeric"}
         autoComplete="off"

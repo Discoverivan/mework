@@ -19,6 +19,7 @@ pub async fn record_successful_page(
     checkpoint_before: Option<&str>,
     checkpoint_after: &str,
 ) -> Result<(), sqlx::Error> {
+    let keep_history = crate::application::data_retention::sync_history_enabled(pool).await?;
     let mut transaction = pool.begin().await?;
     let updated = sqlx::query(
         "UPDATE integrations
@@ -38,23 +39,25 @@ pub async fn record_successful_page(
         return Err(sqlx::Error::RowNotFound);
     }
 
-    sqlx::query(
-        "INSERT INTO sync_runs
+    if keep_history {
+        sqlx::query(
+            "INSERT INTO sync_runs
             (id, integration_id, job_kind, status, started_at, finished_at,
              checkpoint_before, checkpoint_after, pages, counters_json)
          VALUES (?, ?, ?, ?, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'),
                  strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), ?, ?, ?, ?)",
-    )
-    .bind(uuid::Uuid::now_v7().to_string())
-    .bind(integration_id)
-    .bind("jira_issue_poll")
-    .bind("succeeded")
-    .bind(checkpoint_before)
-    .bind(checkpoint_after)
-    .bind(1_i64)
-    .bind("{}")
-    .execute(&mut *transaction)
-    .await?;
+        )
+        .bind(uuid::Uuid::now_v7().to_string())
+        .bind(integration_id)
+        .bind("jira_issue_poll")
+        .bind("succeeded")
+        .bind(checkpoint_before)
+        .bind(checkpoint_after)
+        .bind(1_i64)
+        .bind("{}")
+        .execute(&mut *transaction)
+        .await?;
+    }
 
     transaction.commit().await
 }
@@ -65,6 +68,9 @@ pub async fn record_failed_page(
     checkpoint_before: &str,
     error_code: &str,
 ) -> Result<(), sqlx::Error> {
+    if !crate::application::data_retention::sync_history_enabled(pool).await? {
+        return Ok(());
+    }
     sqlx::query(
         "INSERT INTO sync_runs
             (id, integration_id, job_kind, status, started_at, finished_at,
