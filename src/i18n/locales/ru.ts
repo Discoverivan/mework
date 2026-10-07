@@ -891,7 +891,7 @@ export const ru: Record<TranslationKey, string> = {
   "teams.confirmDeleteTeam": "Удалить команду",
   "teams.confirmDeleteMember": "Удалить участника команды",
   "teams.deleteTeamConfirmation": "Удалить команду {team} из mework? Сохранённые настройки команды и её локальные пространства планирования будут удалены. Данные Jira и Confluence останутся без изменений.",
-  "teams.deleteMemberConfirmation": "Удалить участника {member} из сохранённого списка этой команды? Его учётная запись Jira останется без изменений.",
+  "teams.deleteMemberConfirmation": "Удалить участника {member} из сохранённого списка участников Jira-проекта? Этот список общий для всех настроенных команд проекта. Его учётная запись Jira останется без изменений.",
   "teams.deleting": "Удаление…",
   "teams.editTeamAction": "Изменить команду {team}",
   "teams.deleteTeamAction": "Удалить команду {team}",
