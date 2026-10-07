@@ -17,7 +17,7 @@ const Tooltip = ({ children, ...props }: React.ComponentProps<typeof TooltipPrim
 const TooltipTrigger = React.forwardRef<
   React.ElementRef<typeof TooltipPrimitive.Trigger>,
   React.ComponentPropsWithoutRef<typeof TooltipPrimitive.Trigger>
->(({ onClick, onFocus, onPointerMove, onKeyDown, ...props }, ref) => {
+>(({ onClick, onFocus, onPointerDown, onPointerMove, onKeyDown, ...props }, ref) => {
   const suppressRestoredFocus = React.useRef(false)
   return <TooltipPrimitive.Trigger
     {...props}
@@ -32,6 +32,11 @@ const TooltipTrigger = React.forwardRef<
       if (suppressRestoredFocus.current || event.currentTarget.getAttribute("aria-expanded") === "true") {
         event.preventDefault()
       }
+      suppressRestoredFocus.current = false
+    }}
+    onPointerDown={(event) => {
+      onPointerDown?.(event)
+      if (event.button === 0) suppressRestoredFocus.current = true
     }}
     onPointerMove={(event) => {
       onPointerMove?.(event)
@@ -44,6 +49,10 @@ const TooltipTrigger = React.forwardRef<
     onKeyDown={(event) => {
       onKeyDown?.(event)
       if (!event.defaultPrevented && event.key === "Tab") suppressRestoredFocus.current = false
+      // Selects and menus can open without a click, including when their handler prevents default.
+      if (event.currentTarget.hasAttribute("aria-expanded") && ["Enter", " ", "ArrowDown", "ArrowUp"].includes(event.key)) {
+        suppressRestoredFocus.current = true
+      }
     }}
   />
 })
