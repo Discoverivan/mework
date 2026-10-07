@@ -1337,7 +1337,6 @@ export function ManagedProjectsSettings({
               </Alert>
             ) : null}
 
-            <Separator />
             <section className="grid gap-1" aria-label={t("teams.members")}>
             <div className="flex items-center justify-between gap-3">
               <h3 className="font-semibold">{t("teams.members")}</h3>
