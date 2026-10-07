@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ManagedProjectsSettings } from "./ManagedProjectsSettings";
@@ -78,6 +78,37 @@ beforeEach(() => {
 });
 
 describe("ManagedProjectsSettings task creation settings", () => {
+  it("confirms removal of a member and team after allowing cancellation", async () => {
+    listMembersMock.mockResolvedValue([{
+      accountId: "user-1", displayName: "Example Member", tags: ["backend"], active: true,
+    }]);
+    render(<ManagedProjectsSettings jiraIntegrations={[{
+      id: "jira-1", kind: "jira", baseUrl: "https://jira.example.invalid", enabled: true, capabilities: {},
+    }]} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Open Platform team project details" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Delete Example Member" }));
+    let confirmation = within(await screen.findByRole("dialog", { name: "Remove team member" }));
+    fireEvent.click(confirmation.getByRole("button", { name: "Cancel" }));
+    expect(removePlanningTeamMember).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Delete Example Member" }));
+    confirmation = within(await screen.findByRole("dialog", { name: "Remove team member" }));
+    fireEvent.click(confirmation.getByRole("button", { name: "Delete" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    expect(removePlanningTeamMember).toHaveBeenCalledWith("team-1", "user-1");
+    expect(screen.queryByRole("button", { name: "Delete Example Member" })).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Delete Platform team" }));
+    confirmation = within(await screen.findByRole("dialog", { name: "Delete team" }));
+    fireEvent.click(confirmation.getByRole("button", { name: "Cancel" }));
+    expect(deleteManagedProject).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Delete Platform team" }));
+    confirmation = within(await screen.findByRole("dialog", { name: "Delete team" }));
+    fireEvent.click(confirmation.getByRole("button", { name: "Delete" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    expect(deleteManagedProject).toHaveBeenCalledWith("team-1");
+    expect(screen.queryByRole("button", { name: "Delete Platform team" })).not.toBeInTheDocument();
+  });
+
   it("shows the saved board and saves or closes editing without waiting for board choices", async () => {
     render(
       <ManagedProjectsSettings
@@ -238,6 +269,14 @@ describe("ManagedProjectsSettings task creation settings", () => {
   });
 
   it("checks Epic link JQL and persists sprint and JQL defaults per team", async () => {
+    saveProjectMock.mockResolvedValue({
+      ...project,
+      defaultTaskSprintId: "sprint-1",
+      defaultTaskSprintName: "Platform Sprint",
+      defaultEpicLinkKey: "DEMO-EPIC-1",
+      defaultEpicLinkSummary: "Example epic",
+      epicLinkJql: "project = DEMO AND issuetype = Epic",
+    });
     listMembersMock.mockResolvedValue([{
       accountId: "user-1",
       displayName: "Example Member",
@@ -263,6 +302,7 @@ describe("ManagedProjectsSettings task creation settings", () => {
 
     fireEvent.click(await screen.findByRole("button", { name: "Open Platform team project details" }));
     expect(await screen.findByLabelText("Task creation settings")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
     const editMemberButton = await screen.findByRole("button", { name: "Edit Example Member" });
     expect(editMemberButton.querySelector("svg.lucide-pencil")).not.toBeNull();
     const deleteMemberButton = screen.getByRole("button", { name: "Delete Example Member" });
@@ -296,5 +336,31 @@ describe("ManagedProjectsSettings task creation settings", () => {
       defaultEpicLinkSummary: "Example epic",
       epicLinkJql: "project = DEMO AND issuetype = Epic",
     })));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Save" })).toBeDisabled());
+    expect(screen.getByRole("button", { name: "Cancel" })).toBeDisabled();
+    fireEvent.change(screen.getByLabelText("Epic link JQL"), {
+      target: { value: "project = DEMO" },
+    });
+    fireEvent.click(screen.getByRole("combobox", { name: "Default sprint for task creation" }));
+    fireEvent.click(screen.getByRole("option", { name: "No default sprint" }));
+    expect(screen.getByRole("button", { name: "Cancel" })).toBeEnabled();
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(screen.getByLabelText("Epic link JQL")).toHaveValue("project = DEMO AND issuetype = Epic");
+    expect(screen.getByRole("combobox", { name: "Default sprint for task creation" })).toHaveTextContent("Platform Sprint");
+    expect(screen.getByRole("combobox", { name: "Default Epic link for task creation" })).toHaveTextContent("Example epic");
+    expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Cancel" })).toBeDisabled();
+
+    fireEvent.click(screen.getByRole("button", { name: "Edit Example Member" }));
+    const memberForm = within(await screen.findByRole("dialog"));
+    expect(memberForm.getByRole("button", { name: "Save" })).toBeDisabled();
+    fireEvent.change(memberForm.getByLabelText("Alias (optional)"), { target: { value: "Example Alias" } });
+    expect(memberForm.getByRole("button", { name: "Save" })).toBeEnabled();
+    vi.mocked(addPlanningTeamMember).mockResolvedValue({
+      accountId: "user-1", displayName: "Example Member", alias: "Example Alias", tags: ["backend"], active: true,
+    });
+    fireEvent.click(memberForm.getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    expect(screen.getByText("Example Alias")).toBeInTheDocument();
   });
 });

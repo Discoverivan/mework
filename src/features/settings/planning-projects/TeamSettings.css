@@ -1,0 +1,28 @@
+.team-settings-reveal {
+  display: grid;
+  grid-template-rows: 1fr;
+  animation: team-settings-open 200ms ease-out;
+}
+
+.team-settings-content,
+.team-member-form {
+  --secondary: var(--background);
+  --secondary-foreground: var(--foreground);
+}
+
+@keyframes team-settings-open {
+  from {
+    grid-template-rows: 0fr;
+    opacity: 0;
+  }
+  to {
+    grid-template-rows: 1fr;
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .team-settings-reveal {
+    animation: none;
+  }
+}
