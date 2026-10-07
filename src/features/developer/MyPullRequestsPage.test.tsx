@@ -450,6 +450,31 @@ describe("MyPullRequestsPage", () => {
     expect(screen.getByRole("heading", { name: "Example documentation change" })).toBeInTheDocument();
   });
 
+  it("keeps configured filters visible when a deny list is long", async () => {
+    const repositoryBlacklist = Array.from(
+      { length: 15 },
+      (_, index) => `EXAMPLE/repository-${String(index + 1).padStart(2, "0")}`,
+    );
+    getSettingsMock.mockResolvedValue({
+      ...emptySettings,
+      projectBlacklist: ["EXAMPLE"],
+      repositoryBlacklist,
+    });
+    await renderFlatPage();
+
+    fireEvent.click(screen.getByRole("button", { name: "Filters" }));
+    const dialog = screen.getByRole("dialog", { name: "Filters" });
+    const projectList = within(dialog).getByRole("list", { name: "Deny project filters" });
+    const repositoryList = within(dialog).getByRole("list", { name: "Deny repository filters" });
+
+    expect(projectList).toHaveTextContent("EXAMPLE");
+    expect(repositoryList).toHaveTextContent(repositoryBlacklist[repositoryBlacklist.length - 1]);
+    expect(within(dialog).getByRole("heading", { name: "Project filters" }).closest(".pr-filter-group"))
+      .toHaveClass("shrink-0");
+    expect(within(dialog).getByRole("heading", { name: "Repository filters" }).closest(".pr-filter-group"))
+      .toHaveClass("shrink-0");
+  });
+
   it("opens filters and applies a creator filter after saving", async () => {
     await renderFlatPage();
     await screen.findByRole("heading", { name: "Example pull request" });
