@@ -83,17 +83,17 @@ describe("ManagedProjectsSettings task creation settings", () => {
       id: "jira-1", kind: "jira", baseUrl: "https://jira.example.invalid", enabled: true, capabilities: {},
     }]} />);
     fireEvent.click(await screen.findByRole("button", { name: "Open Platform team project details" }));
-    await screen.findByRole("combobox", { name: "Default sprint for task creation" });
+    await screen.findByRole("combobox", { name: "Default sprint" });
     const reveal = container.querySelector(".team-settings-reveal")!;
     expect(reveal).toHaveAttribute("data-expanded", "true");
     fireEvent.click(screen.getByRole("button", { name: "Hide Platform team project details" }));
     expect(reveal).toBeInTheDocument();
     expect(reveal).toHaveAttribute("data-expanded", "false");
     expect(reveal.firstElementChild).toHaveAttribute("inert");
-    expect(screen.queryByRole("combobox", { name: "Default sprint for task creation" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("combobox", { name: "Default sprint" })).not.toBeInTheDocument();
     await waitFor(() => expect(reveal).not.toBeInTheDocument());
     fireEvent.click(screen.getByRole("button", { name: "Open Platform team project details" }));
-    expect(await screen.findByRole("combobox", { name: "Default sprint for task creation" })).toBeInTheDocument();
+    expect(await screen.findByRole("combobox", { name: "Default sprint" })).toBeInTheDocument();
   });
 
   it("confirms removal of a member and team after allowing cancellation", async () => {
@@ -242,7 +242,7 @@ describe("ManagedProjectsSettings task creation settings", () => {
       },
       boardId: "board-1",
     })));
-    expect(await screen.findByRole("combobox", { name: "Default sprint for task creation" })).toBeInTheDocument();
+    expect(await screen.findByRole("combobox", { name: "Default sprint" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Hide Platform team project details" })).toHaveAttribute("aria-expanded", "true");
   });
 
@@ -329,7 +329,7 @@ describe("ManagedProjectsSettings task creation settings", () => {
     expect(deleteMemberButton.querySelector("svg.lucide-trash-2")).not.toBeNull();
     await waitFor(() => expect(listSprintsMock).toHaveBeenCalledWith("team-1"));
 
-    fireEvent.click(screen.getByRole("combobox", { name: "Default sprint for task creation" }));
+    fireEvent.click(screen.getByRole("combobox", { name: "Default sprint" }));
     fireEvent.click(screen.getByRole("option", { name: "Platform Sprint" }));
     fireEvent.change(screen.getByLabelText("Epic link JQL"), {
       target: { value: "project = DEMO AND issuetype = Epic" },
@@ -344,7 +344,7 @@ describe("ManagedProjectsSettings task creation settings", () => {
       jql: "project = DEMO AND issuetype = Epic",
     }));
     fireEvent.click(screen.getByRole("button", { name: "Close" }));
-    fireEvent.click(screen.getByRole("combobox", { name: "Default Epic link for task creation" }));
+    fireEvent.click(screen.getByRole("combobox", { name: "Default epic" }));
     fireEvent.click(screen.getByRole("option", { name: /DEMO-EPIC-1/ }));
 
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
@@ -361,13 +361,13 @@ describe("ManagedProjectsSettings task creation settings", () => {
     fireEvent.change(screen.getByLabelText("Epic link JQL"), {
       target: { value: "project = DEMO" },
     });
-    fireEvent.click(screen.getByRole("combobox", { name: "Default sprint for task creation" }));
+    fireEvent.click(screen.getByRole("combobox", { name: "Default sprint" }));
     fireEvent.click(screen.getByRole("option", { name: "No default sprint" }));
     expect(screen.getByRole("button", { name: "Cancel" })).toBeEnabled();
     fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
     expect(screen.getByLabelText("Epic link JQL")).toHaveValue("project = DEMO AND issuetype = Epic");
-    expect(screen.getByRole("combobox", { name: "Default sprint for task creation" })).toHaveTextContent("Platform Sprint");
-    expect(screen.getByRole("combobox", { name: "Default Epic link for task creation" })).toHaveTextContent("Example epic");
+    expect(screen.getByRole("combobox", { name: "Default sprint" })).toHaveTextContent("Platform Sprint");
+    expect(screen.getByRole("combobox", { name: "Default epic" })).toHaveTextContent("Example epic");
     expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Cancel" })).toBeDisabled();
 
