@@ -109,6 +109,10 @@ function repositoryOptionLabel(repository: BitbucketRepository): string {
   return `${repositoryOptionKey(repository)} · ${repository.repositoryName}`;
 }
 
+function creatorOptionValue(user: BitbucketUser): string | undefined {
+  return user.displayName ?? user.name ?? user.slug;
+}
+
 function equalsIgnoreCase(left: string, right: string): boolean {
   return left.trim().toLocaleLowerCase() === right.trim().toLocaleLowerCase();
 }
@@ -422,14 +426,14 @@ export function MyPullRequestsPage() {
     !draftSettings[filterField(filterTab, "repository")].some((value) => equalsIgnoreCase(value, repositoryOptionKey(repository))),
   );
   const availableCreators = creatorSearchResults.filter((user) => {
-    const displayName = user.displayName ?? user.name ?? user.slug;
+    const displayName = creatorOptionValue(user);
     return !!displayName && !draftSettings[filterField(filterTab, "creator")].some((value) => equalsIgnoreCase(value, displayName));
   });
   const repositorySearchMatch = availableRepositories.find((repository) =>
     equalsIgnoreCase(repositoryOptionKey(repository), repositoryInput),
   );
   const creatorSearchMatch = availableCreators.find((user) =>
-    Boolean(user.displayName && equalsIgnoreCase(user.displayName, creatorInput)),
+    equalsIgnoreCase(creatorOptionValue(user) ?? "", creatorInput),
   );
   const filteredPullRequests = pullRequests.filter((pullRequest) => matchesSettings(pullRequest, settings));
   const visiblePullRequests = sortPullRequestsByUpdatedDate(
@@ -1043,9 +1047,9 @@ export function MyPullRequestsPage() {
                           value={creatorInput}
                           onChange={(event) => setCreatorInput(event.target.value)}
                           onKeyDown={(event) => {
-                            if (event.key === "Enter" && creatorSearchMatch?.displayName) {
+                            if (event.key === "Enter" && creatorSearchMatch) {
                               event.preventDefault();
-                              addValue("creator", creatorSearchMatch.displayName);
+                              addValue("creator", creatorOptionValue(creatorSearchMatch));
                             }
                           }}
                           placeholder={t("pr.filters.creatorPlaceholder")}
@@ -1055,7 +1059,7 @@ export function MyPullRequestsPage() {
                         {availableCreators.length > 0 ? (
                           <ul aria-label={t("pr.filters.creatorResults")} className="flex max-h-[min(18rem,40vh)] flex-col gap-1 overflow-y-auto overscroll-contain pr-1">
                             {availableCreators.map((user) => {
-                              const displayName = user.displayName ?? user.name ?? user.slug;
+                              const displayName = creatorOptionValue(user);
                               if (!displayName) return null;
                               const account = user.name ?? user.slug;
                               return (

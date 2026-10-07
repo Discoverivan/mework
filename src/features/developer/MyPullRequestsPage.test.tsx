@@ -473,7 +473,7 @@ describe("MyPullRequestsPage", () => {
     expect(await screen.findByRole("button", { name: "Remove SAMPLE from Deny project filters" })).toBeInTheDocument();
   });
 
-  it("opens filters and applies a creator filter after saving", async () => {
+  it("selects an author filter with Enter and applies it after saving", async () => {
     await renderFlatPage();
     await screen.findByRole("heading", { name: "Example pull request" });
 
@@ -483,7 +483,8 @@ describe("MyPullRequestsPage", () => {
     fireEvent.click(screen.getByRole("button", { name: "Add author filter" }));
     fireEvent.change(screen.getByRole("textbox", { name: "Author filters" }), { target: { value: "Test Author A" } });
     await waitFor(() => expect(searchUsersMock).toHaveBeenCalledWith("Test Author A"));
-    fireEvent.click(screen.getByRole("button", { name: "Test Author A (test-author-a)" }));
+    await screen.findByRole("button", { name: "Test Author A (test-author-a)" });
+    fireEvent.keyDown(screen.getByRole("textbox", { name: "Author filters" }), { key: "Enter" });
     expect(screen.getByRole("button", { name: "Save" })).toBeEnabled();
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
 
