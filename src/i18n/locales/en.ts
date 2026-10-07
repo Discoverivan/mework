@@ -701,7 +701,7 @@ export const en = {
   "tokenBurner.unit.millions": "Millions",
   "tokenBurner.delayHelp.seconds": "From 0 to {max} seconds.",
   "tokenBurner.delayHelp.minutes": "From 0 to {max} minutes.",
-  "tokenBurner.delayHelp.hours": "From 0 to {max} hour.",
+  "tokenBurner.delayHelp.hours": "From 0 to {max} hours.",
   "tokenBurner.delayWholeSeconds": "The delay must resolve to a whole number of seconds.",
   "tokenBurner.timeUnit": "Unit",
   "tokenBurner.unit.seconds": "Seconds",

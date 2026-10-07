@@ -260,9 +260,13 @@ describe("TokenBurnerPage", () => {
     fireEvent.change(delay, { target: { value: "3" } });
     fireEvent.click(screen.getByRole("combobox", { name: "Unit" }));
     fireEvent.click(screen.getByRole("option", { name: "Minutes" }));
-    expect(screen.getByText("From 0 to 60 minutes.")).toBeInTheDocument();
+    expect(screen.getByText("From 0 to 1,440 minutes.")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("combobox", { name: "Unit" }));
+    fireEvent.click(screen.getByRole("option", { name: "Hours" }));
+    expect(screen.getByText("From 0 to 24 hours.")).toBeInTheDocument();
+    fireEvent.change(delay, { target: { value: "24" } });
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
-    await waitFor(() => expect(saveSettingsMock).toHaveBeenCalledWith({ ...initialSnapshot.settings, dailyTarget: 1001, delayBetweenRequestsSeconds: 180 }));
+    await waitFor(() => expect(saveSettingsMock).toHaveBeenCalledWith({ ...initialSnapshot.settings, dailyTarget: 1001, delayBetweenRequestsSeconds: 86_400 }));
     await waitFor(() => expect(screen.queryByRole("dialog", { name: "Settings" })).not.toBeInTheDocument());
   });
 

@@ -703,7 +703,7 @@ export const ru: Record<TranslationKey, string> = {
   "tokenBurner.unit.millions": "Миллионы",
   "tokenBurner.delayHelp.seconds": "От 0 до {max} секунд.",
   "tokenBurner.delayHelp.minutes": "От 0 до {max} минут.",
-  "tokenBurner.delayHelp.hours": "От 0 до {max} часа.",
+  "tokenBurner.delayHelp.hours": "От 0 до {max} часов.",
   "tokenBurner.delayWholeSeconds": "Задержка должна соответствовать целому числу секунд.",
   "tokenBurner.timeUnit": "Единица",
   "tokenBurner.unit.seconds": "Секунды",

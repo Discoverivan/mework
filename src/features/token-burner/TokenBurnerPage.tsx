@@ -44,6 +44,7 @@ const DEFAULT_SETTINGS: TokenBurnerSettings = {
 };
 
 const DELAY_UNITS = { seconds: 1, minutes: 60, hours: 3600 } as const;
+const MAX_DELAY_SECONDS = 24 * 60 * 60;
 type DelayUnit = keyof typeof DELAY_UNITS;
 const TOKEN_UNITS = { tokens: 1, thousands: 1000, millions: 1_000_000 } as const;
 type TokenUnit = keyof typeof TOKEN_UNITS;
@@ -327,11 +328,11 @@ export function TokenBurnerPage() {
     max: (100_000_000 / TOKEN_UNITS[targetUnit]).toLocaleString(locale),
   });
   const delayHelp = t(`tokenBurner.delayHelp.${delayUnit}`, {
-    max: (3600 / DELAY_UNITS[delayUnit]).toLocaleString(locale),
+    max: (MAX_DELAY_SECONDS / DELAY_UNITS[delayUnit]).toLocaleString(locale),
   });
   const settingsValid = dailyTargetValid && delayValid
     && Number.isSafeInteger(targetTokens) && targetTokens >= 1000 && targetTokens <= 100_000_000
-    && Number.isSafeInteger(delaySeconds) && delaySeconds >= 0 && delaySeconds <= 3600;
+    && Number.isSafeInteger(delaySeconds) && delaySeconds >= 0 && delaySeconds <= MAX_DELAY_SECONDS;
 
   function openSettings() {
     const seconds = settings.delayBetweenRequestsSeconds;
@@ -361,7 +362,7 @@ export function TokenBurnerPage() {
     setDelayAmount(amount);
     setDelayUnit(unit);
     const seconds = scaleWholeNumber(amount, DELAY_UNITS[unit]);
-    if (Number.isSafeInteger(seconds) && seconds >= 0 && seconds <= 3600) {
+    if (Number.isSafeInteger(seconds) && seconds >= 0 && seconds <= MAX_DELAY_SECONDS) {
       setSettingsDraft((current) => ({ ...current, delayBetweenRequestsSeconds: seconds }));
     }
   }
@@ -613,9 +614,9 @@ export function TokenBurnerPage() {
                   </div>
                   <div className="flex w-full items-center gap-3 sm:w-auto">
                     <ManualNumberField id="burner-request-delay" labelledBy="burner-request-delay-label" label={t("tokenBurner.delayBetweenRequests")}
-                      description={delayHelp} value={delayAmount} min={0} max={3600} scale={DELAY_UNITS[delayUnit]} allowDecimals
+                      description={delayHelp} value={delayAmount} min={0} max={MAX_DELAY_SECONDS} scale={DELAY_UNITS[delayUnit]} allowDecimals
                       disabled={settingsSaving} onValidityChange={setDelayValid}
-                      errors={{ required: t("forms.numberRequired"), number: t("forms.numberInvalid"), range: t("forms.numberRange", { min: 0, max: 3600 / DELAY_UNITS[delayUnit] }), whole: t("tokenBurner.delayWholeSeconds") }}
+                      errors={{ required: t("forms.numberRequired"), number: t("forms.numberInvalid"), range: t("forms.numberRange", { min: 0, max: MAX_DELAY_SECONDS / DELAY_UNITS[delayUnit] }), whole: t("tokenBurner.delayWholeSeconds") }}
                       onChange={(amount) => changeDelay(amount, delayUnit)} />
                     <span id="burner-delay-unit-label" className="sr-only">{t("tokenBurner.timeUnit")}</span>
                     <Select value={delayUnit} onValueChange={(unit) => changeDelay(delayAmount, unit as DelayUnit)} disabled={settingsSaving}>
