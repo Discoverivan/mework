@@ -579,9 +579,8 @@ export function TokenBurnerPage() {
           <DialogHeader className="px-1"><DialogTitle className="text-base leading-tight">{t("tokenBurner.settings")}</DialogTitle></DialogHeader>
           <DialogBody className="m-0 p-1">
             <Card>
-              <CardContent className="flex flex-col gap-3 px-4 pb-3.5 pt-4">
-                <Separator />
-                <div className="flex flex-wrap items-center justify-between gap-4 pl-4">
+              <CardContent className="flex flex-col gap-3 p-4">
+                <div className="flex flex-wrap items-center justify-between gap-4">
                   <div className="min-w-0 flex-1">
                     <Label id="burner-daily-target-label" htmlFor="burner-daily-target" alignment="inline" className="font-medium">{t("tokenBurner.dailyTargetField")}</Label>
                     <CardDescription className="mt-1 text-xs leading-snug">{t("tokenBurner.dailyTargetHelp")}</CardDescription>
@@ -599,8 +598,8 @@ export function TokenBurnerPage() {
                     </Select>
                   </div>
                 </div>
-                <div className="pl-4"><Separator /></div>
-                <div className="flex flex-wrap items-center justify-between gap-4 pl-4">
+                <Separator />
+                <div className="flex flex-wrap items-center justify-between gap-4">
                   <div className="min-w-0 flex-1">
                     <Label id="burner-request-delay-label" htmlFor="burner-request-delay" alignment="inline" className="font-medium">{t("tokenBurner.delayBetweenRequests")}</Label>
                     <CardDescription className="mt-1 text-xs leading-snug">{t("tokenBurner.delayHelp")}</CardDescription>

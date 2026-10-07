@@ -1313,7 +1313,7 @@ export function SettingsPage({ section = "integrations", focusActivity, mockMode
         <div aria-label={t("settings.data.aria")} className="flex w-full flex-col gap-3">
           {!loading && integrations.length === 0 ? (
             <Card className="w-full">
-              <CardContent className="flex items-center px-4 py-3 text-sm text-muted-foreground">{t("settings.data.empty")}</CardContent>
+              <CardContent className="flex items-center p-4 text-sm text-muted-foreground">{t("settings.data.empty")}</CardContent>
             </Card>
           ) : null}
           {PROVIDERS.filter((candidate) => integrations.some((integration) => integration.kind === candidate.kind)).map((candidate) => {
