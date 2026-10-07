@@ -3,8 +3,10 @@
 import { readFileSync } from "node:fs";
 import { fireEvent, render, screen } from "@testing-library/react";
 import { expect, it } from "vitest";
+import { Trash2 } from "lucide-react";
 
 import { Button } from "./button";
+import { CreateButton } from "@/components/shared/CreateButton";
 import { ToggleGroup, ToggleGroupItem } from "./toggle-group";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogTitle } from "./alert-dialog";
 
@@ -24,7 +26,9 @@ it("applies the minimal action style to form and confirmation buttons", () => {
       <Button actionTone="edit">Save</Button>
       <Button variant="outline">Cancel</Button>
       <Button variant="outline" actionTone="add">Add item</Button>
+      <CreateButton />
       <Button variant="outline" actionTone="delete">Delete item</Button>
+      <Button variant="outline" actionTone="delete"><Trash2 aria-hidden="true" />Remove</Button>
       <Button variant="default" aria-pressed="true">Selected filter</Button>
       <Button variant="outline" role="combobox" className="example-selector">Select sprint</Button>
       <div className="app-dialog-content"><div className="app-dialog-sections">
@@ -70,13 +74,20 @@ it("applies the minimal action style to form and confirmation buttons", () => {
     fireEvent.click(screen.getByRole("button", { name: "Apply" }));
     expect(applied).toBe(true);
     document.documentElement.dataset.buttonStyle = "filled";
+    expect(getComputedStyle(screen.getByRole("button", { name: "Create" }).querySelector("svg")!).marginLeft).toBe("-3px");
+    expect(getComputedStyle(screen.getByRole("button", { name: "Remove" }).querySelector("svg")!).marginLeft).toBe("-3px");
     expect(getComputedStyle(navigation).height).toBe("36px");
     expect(getComputedStyle(navigation).paddingLeft).toBe("12px");
     expect(getComputedStyle(navigation).color).toBe("rgb(255, 255, 255)");
     expect(getComputedStyle(screen.getByRole("button", { name: "Apply" })).borderWidth).toBe("1px");
+    for (const name of ["Apply", "Save", "Cancel", "Add item", "Delete item", "Create", "Remove"]) {
+      const appearance = getComputedStyle(screen.getByRole("button", { name }));
+      expect(appearance.borderColor).toBe("rgba(0, 0, 0, 0)");
+    }
     const apply = screen.getByRole("button", { name: "Apply" });
     const save = screen.getByRole("button", { name: "Save" });
     const cancel = screen.getByRole("button", { name: "Cancel" });
+    expect(getComputedStyle(save).background).toBe("var(--secondary)");
     expect(getComputedStyle(save).backgroundColor).toBe(getComputedStyle(cancel).backgroundColor);
     expect(getComputedStyle(save).color).toBe(getComputedStyle(cancel).color);
     expect(getComputedStyle(screen.getByRole("button", { name: "Add item" })).getPropertyValue("--app-action-color")).toBe("var(--success)");
@@ -95,5 +106,42 @@ it("applies the minimal action style to form and confirmation buttons", () => {
     style.remove();
     if (previousStyle === undefined) delete document.documentElement.dataset.buttonStyle;
     else document.documentElement.dataset.buttonStyle = previousStyle;
+  }
+});
+
+it("keeps filter actions compact with distinct Filled backgrounds", () => {
+  const css = readFileSync("src/index.css", "utf8");
+  const style = document.createElement("style");
+  style.textContent = css.slice(css.indexOf(":root,"), css.indexOf("@layer base")) + css.slice(css.indexOf(".app-icon-button,"));
+  document.head.append(style);
+  const previousStyle = document.documentElement.dataset.buttonStyle;
+  const previousTheme = document.documentElement.dataset.theme;
+  document.documentElement.dataset.buttonStyle = "filled";
+  document.documentElement.dataset.theme = "light";
+  try {
+    render(<div className="pr-filter-group"><div style={{ background: "var(--muted)" }}>
+      <CreateButton label="Add" aria-label="Add filter" />
+    </div><Button size="sm" variant="ghost" actionTone="delete" aria-label="Remove filter"><Trash2 aria-hidden="true" />Remove</Button></div>);
+    const addFilter = screen.getByRole("button", { name: "Add filter" });
+    // jsdom retains custom properties in the background shorthand.
+    expect(getComputedStyle(addFilter).background).toBe("var(--card)");
+    expect(getComputedStyle(addFilter).background).not.toBe(getComputedStyle(addFilter.parentElement!).background);
+    for (const button of [addFilter, screen.getByRole("button", { name: "Remove filter" })]) {
+      expect(getComputedStyle(button).height).toBe("24px");
+      expect(getComputedStyle(button).paddingRight).toBe("8px");
+      expect(getComputedStyle(button).fontSize).toBe("13px");
+      expect(getComputedStyle(button.querySelector("svg")!).width).toBe("14px");
+    }
+    document.documentElement.dataset.buttonStyle = "quiet";
+    expect(getComputedStyle(addFilter).height).toBe("28px");
+    expect(getComputedStyle(addFilter).minHeight).toBe("28px");
+    expect(getComputedStyle(addFilter).paddingRight).toBe("6px");
+    expect(getComputedStyle(addFilter).backgroundColor).toBe("rgba(0, 0, 0, 0)");
+  } finally {
+    style.remove();
+    if (previousStyle === undefined) delete document.documentElement.dataset.buttonStyle;
+    else document.documentElement.dataset.buttonStyle = previousStyle;
+    if (previousTheme === undefined) delete document.documentElement.dataset.theme;
+    else document.documentElement.dataset.theme = previousTheme;
   }
 });

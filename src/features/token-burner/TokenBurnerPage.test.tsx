@@ -245,8 +245,13 @@ describe("TokenBurnerPage", () => {
   it("saves a scaled token target and a manual delay in canonical units", async () => {
     render(<I18nProvider><TokenBurnerPage /></I18nProvider>);
     fireEvent.click(await screen.findByRole("button", { name: "Settings" }));
+    const settingsPanel = screen.getByLabelText("Daily target (tokens)").closest("div.rounded-lg.border");
+    expect(settingsPanel).toHaveClass("bg-card");
+    expect(settingsPanel).toContainElement(screen.getByRole("textbox", { name: "Delay between reviews" }));
+    expect(settingsPanel?.querySelectorAll('[data-orientation="horizontal"]')).toHaveLength(1);
     fireEvent.click(screen.getByRole("combobox", { name: "Scale" }));
     fireEvent.click(screen.getByRole("option", { name: "Thousands" }));
+    expect(screen.getByText("From 1 to 100,000 thousand tokens.")).toBeInTheDocument();
     fireEvent.change(screen.getByLabelText("Daily target (tokens)"), { target: { value: "1.001" } });
     const delay = screen.getByRole("textbox", { name: "Delay between reviews" });
     fireEvent.change(delay, { target: { value: "oops" } });
@@ -255,8 +260,13 @@ describe("TokenBurnerPage", () => {
     fireEvent.change(delay, { target: { value: "3" } });
     fireEvent.click(screen.getByRole("combobox", { name: "Unit" }));
     fireEvent.click(screen.getByRole("option", { name: "Minutes" }));
+    expect(screen.getByText("From 0 to 1,440 minutes.")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("combobox", { name: "Unit" }));
+    fireEvent.click(screen.getByRole("option", { name: "Hours" }));
+    expect(screen.getByText("From 0 to 24 hours.")).toBeInTheDocument();
+    fireEvent.change(delay, { target: { value: "24" } });
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
-    await waitFor(() => expect(saveSettingsMock).toHaveBeenCalledWith({ ...initialSnapshot.settings, dailyTarget: 1001, delayBetweenRequestsSeconds: 180 }));
+    await waitFor(() => expect(saveSettingsMock).toHaveBeenCalledWith({ ...initialSnapshot.settings, dailyTarget: 1001, delayBetweenRequestsSeconds: 86_400 }));
     await waitFor(() => expect(screen.queryByRole("dialog", { name: "Settings" })).not.toBeInTheDocument());
   });
 
@@ -267,6 +277,7 @@ describe("TokenBurnerPage", () => {
     expect(await screen.findByRole("combobox", { name: "AI provider" })).toHaveTextContent("Use defaults");
     const activity = screen.getByRole("heading", { name: "Activity" }).closest(".rounded-lg.border");
     expect(activity).toContainElement(screen.getByRole("button", { name: "Start" }));
+    expect(screen.getByText("No pull request is being analyzed right now.").parentElement).toHaveClass("rounded-md", "border", "bg-background", "px-4", "py-3");
     const repository = screen.getByRole("combobox", { name: "Repository" });
     await waitFor(() => expect(repository).toBeEnabled());
     fireEvent.click(repository);

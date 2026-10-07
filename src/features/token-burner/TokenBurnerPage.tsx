@@ -44,6 +44,7 @@ const DEFAULT_SETTINGS: TokenBurnerSettings = {
 };
 
 const DELAY_UNITS = { seconds: 1, minutes: 60, hours: 3600 } as const;
+const MAX_DELAY_SECONDS = 24 * 60 * 60;
 type DelayUnit = keyof typeof DELAY_UNITS;
 const TOKEN_UNITS = { tokens: 1, thousands: 1000, millions: 1_000_000 } as const;
 type TokenUnit = keyof typeof TOKEN_UNITS;
@@ -148,7 +149,7 @@ function settingsError(error: unknown): string {
 
 export function TokenBurnerPage() {
   const { triggerRef, alignOffset, onOpenChange } = useInfoPopoverAnchor();
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   const [snapshot, setSnapshot] = useState<TokenBurnerSnapshot | null>(null);
   const [settings, setSettings] = useState<TokenBurnerSettings>(DEFAULT_SETTINGS);
   const [repositories, setRepositories] = useState<{ key: string; name: string }[]>([]);
@@ -322,9 +323,16 @@ export function TokenBurnerPage() {
     || settingsDraft.repository !== settings.repository;
   const delaySeconds = scaleWholeNumber(delayAmount, DELAY_UNITS[delayUnit]);
   const targetTokens = scaleWholeNumber(targetAmount, TOKEN_UNITS[targetUnit]);
+  const dailyTargetHelp = t(`tokenBurner.dailyTargetHelp.${targetUnit}`, {
+    min: (1000 / TOKEN_UNITS[targetUnit]).toLocaleString(locale),
+    max: (100_000_000 / TOKEN_UNITS[targetUnit]).toLocaleString(locale),
+  });
+  const delayHelp = t(`tokenBurner.delayHelp.${delayUnit}`, {
+    max: (MAX_DELAY_SECONDS / DELAY_UNITS[delayUnit]).toLocaleString(locale),
+  });
   const settingsValid = dailyTargetValid && delayValid
     && Number.isSafeInteger(targetTokens) && targetTokens >= 1000 && targetTokens <= 100_000_000
-    && Number.isSafeInteger(delaySeconds) && delaySeconds >= 0 && delaySeconds <= 3600;
+    && Number.isSafeInteger(delaySeconds) && delaySeconds >= 0 && delaySeconds <= MAX_DELAY_SECONDS;
 
   function openSettings() {
     const seconds = settings.delayBetweenRequestsSeconds;
@@ -354,7 +362,7 @@ export function TokenBurnerPage() {
     setDelayAmount(amount);
     setDelayUnit(unit);
     const seconds = scaleWholeNumber(amount, DELAY_UNITS[unit]);
-    if (Number.isSafeInteger(seconds) && seconds >= 0 && seconds <= 3600) {
+    if (Number.isSafeInteger(seconds) && seconds >= 0 && seconds <= MAX_DELAY_SECONDS) {
       setSettingsDraft((current) => ({ ...current, delayBetweenRequestsSeconds: seconds }));
     }
   }
@@ -522,9 +530,13 @@ export function TokenBurnerPage() {
           {selectedRepository ? <CardDescription>{selectedRepository.name}</CardDescription> : null}
         </CardHeader>
         <CardContent className="flex flex-col gap-4 px-4 pb-3.5 pt-0">
-          {currentIterations.length === 0 && completedIterations.length === 0 ? <p className="flex items-center gap-2 text-sm text-muted-foreground">{state === "running" ? <Loader2 className="size-4 animate-spin" aria-hidden="true" /> : null}{t(state === "running" ? "tokenBurner.findingPullRequest" : state === "no_prs" ? "tokenBurner.noAssignedPullRequests" : "tokenBurner.noActiveWork")}</p> : null}
+          {currentIterations.length === 0 && completedIterations.length === 0 ? (
+            <div className="flex flex-col gap-3 rounded-md border bg-background px-4 py-3">
+              <p className="flex items-center gap-2 text-sm text-muted-foreground">{state === "running" ? <Loader2 className="size-4 animate-spin" aria-hidden="true" /> : null}{t(state === "running" ? "tokenBurner.findingPullRequest" : state === "no_prs" ? "tokenBurner.noAssignedPullRequests" : "tokenBurner.noActiveWork")}</p>
+            </div>
+          ) : null}
           {currentIterations.map((iteration) => (
-            <div key={iteration.id} className="flex flex-col gap-3 rounded-md border p-4">
+            <div key={iteration.id} className="flex flex-col gap-3 rounded-md border bg-background p-4">
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div className="min-w-0"><p className="font-medium">PR #{iteration.pullRequestId} — {iteration.repositoryName}</p><p className="truncate text-sm text-muted-foreground">{iteration.pullRequestTitle}</p></div>
                 <ModelTestingStatus status="running" label={t("tokenBurner.statusRunning")} />
@@ -574,37 +586,48 @@ export function TokenBurnerPage() {
         }}>
           <DialogHeader className="px-1"><DialogTitle className="text-base leading-tight">{t("tokenBurner.settings")}</DialogTitle></DialogHeader>
           <DialogBody className="m-0 p-1">
-            <div className="space-y-4">
-              <div className="flex flex-wrap items-start gap-3">
-                <ManualNumberField id="burner-daily-target" label={t("tokenBurner.dailyTargetField")}
-                  description={t("tokenBurner.dailyTargetHelp")} value={targetAmount} min={1000} max={100_000_000} scale={TOKEN_UNITS[targetUnit]} allowDecimals
-                  disabled={settingsSaving} onValidityChange={setDailyTargetValid}
-                  errors={{ required: t("forms.numberRequired"), number: t("forms.numberInvalid"), range: t("forms.numberRange", { min: 1000 / TOKEN_UNITS[targetUnit], max: 100_000_000 / TOKEN_UNITS[targetUnit] }), whole: t("tokenBurner.targetWholeTokens") }}
-                  onChange={(amount) => changeTarget(amount, targetUnit)} />
-                <div className="grid w-fit gap-2.5">
-                  <span id="burner-target-unit-label" className="px-1 text-sm font-medium leading-none">{t("tokenBurner.tokenUnit")}</span>
-                  <Select value={targetUnit} onValueChange={(unit) => changeTarget(targetAmount, unit as TokenUnit)} disabled={settingsSaving}>
-                    <SelectTrigger aria-labelledby="burner-target-unit-label" className="h-9"><SelectValue /></SelectTrigger>
-                    <SelectContent>{(Object.keys(TOKEN_UNITS) as TokenUnit[]).map((unit) => <SelectItem key={unit} value={unit}>{t(`tokenBurner.unit.${unit}`)}</SelectItem>)}</SelectContent>
-                  </Select>
+            <Card className="shadow-none">
+              <CardContent className="flex flex-col gap-3 p-4">
+                <div className="flex flex-wrap items-center justify-between gap-4">
+                  <div className="min-w-0 flex-1">
+                    <Label id="burner-daily-target-label" htmlFor="burner-daily-target" alignment="inline" className="font-medium">{t("tokenBurner.dailyTargetField")}</Label>
+                    <CardDescription className="mt-1 text-xs leading-snug">{dailyTargetHelp}</CardDescription>
+                  </div>
+                  <div className="flex w-full items-center gap-3 sm:w-auto">
+                    <ManualNumberField id="burner-daily-target" labelledBy="burner-daily-target-label" label={t("tokenBurner.dailyTargetField")}
+                      description={dailyTargetHelp} value={targetAmount} min={1000} max={100_000_000} scale={TOKEN_UNITS[targetUnit]} allowDecimals
+                      disabled={settingsSaving} onValidityChange={setDailyTargetValid}
+                      errors={{ required: t("forms.numberRequired"), number: t("forms.numberInvalid"), range: t("forms.numberRange", { min: 1000 / TOKEN_UNITS[targetUnit], max: 100_000_000 / TOKEN_UNITS[targetUnit] }), whole: t("tokenBurner.targetWholeTokens") }}
+                      onChange={(amount) => changeTarget(amount, targetUnit)} />
+                    <span id="burner-target-unit-label" className="sr-only">{t("tokenBurner.tokenUnit")}</span>
+                    <Select value={targetUnit} onValueChange={(unit) => changeTarget(targetAmount, unit as TokenUnit)} disabled={settingsSaving}>
+                      <SelectTrigger aria-labelledby="burner-target-unit-label" className="h-9"><SelectValue /></SelectTrigger>
+                      <SelectContent>{(Object.keys(TOKEN_UNITS) as TokenUnit[]).map((unit) => <SelectItem key={unit} value={unit}>{t(`tokenBurner.unit.${unit}`)}</SelectItem>)}</SelectContent>
+                    </Select>
+                  </div>
                 </div>
-              </div>
-              <div className="flex flex-wrap items-start gap-3">
-                <ManualNumberField id="burner-request-delay" label={t("tokenBurner.delayBetweenRequests")}
-                  description={t("tokenBurner.delayHelp")} value={delayAmount} min={0} max={3600} scale={DELAY_UNITS[delayUnit]} allowDecimals
-                  disabled={settingsSaving} onValidityChange={setDelayValid}
-                  errors={{ required: t("forms.numberRequired"), number: t("forms.numberInvalid"), range: t("forms.numberRange", { min: 0, max: 3600 / DELAY_UNITS[delayUnit] }), whole: t("tokenBurner.delayWholeSeconds") }}
-                  onChange={(amount) => changeDelay(amount, delayUnit)} />
-                <div className="grid w-fit gap-2.5">
-                  <span id="burner-delay-unit-label" className="px-1 text-sm font-medium leading-none">{t("tokenBurner.timeUnit")}</span>
-                  <Select value={delayUnit} onValueChange={(unit) => changeDelay(delayAmount, unit as DelayUnit)} disabled={settingsSaving}>
-                    <SelectTrigger aria-labelledby="burner-delay-unit-label" className="h-9"><SelectValue /></SelectTrigger>
-                    <SelectContent>{(Object.keys(DELAY_UNITS) as DelayUnit[]).map((unit) => <SelectItem key={unit} value={unit}>{t(`tokenBurner.unit.${unit}`)}</SelectItem>)}</SelectContent>
-                  </Select>
+                <Separator />
+                <div className="flex flex-wrap items-center justify-between gap-4">
+                  <div className="min-w-0 flex-1">
+                    <Label id="burner-request-delay-label" htmlFor="burner-request-delay" alignment="inline" className="font-medium">{t("tokenBurner.delayBetweenRequests")}</Label>
+                    <CardDescription className="mt-1 text-xs leading-snug">{delayHelp}</CardDescription>
+                  </div>
+                  <div className="flex w-full items-center gap-3 sm:w-auto">
+                    <ManualNumberField id="burner-request-delay" labelledBy="burner-request-delay-label" label={t("tokenBurner.delayBetweenRequests")}
+                      description={delayHelp} value={delayAmount} min={0} max={MAX_DELAY_SECONDS} scale={DELAY_UNITS[delayUnit]} allowDecimals
+                      disabled={settingsSaving} onValidityChange={setDelayValid}
+                      errors={{ required: t("forms.numberRequired"), number: t("forms.numberInvalid"), range: t("forms.numberRange", { min: 0, max: MAX_DELAY_SECONDS / DELAY_UNITS[delayUnit] }), whole: t("tokenBurner.delayWholeSeconds") }}
+                      onChange={(amount) => changeDelay(amount, delayUnit)} />
+                    <span id="burner-delay-unit-label" className="sr-only">{t("tokenBurner.timeUnit")}</span>
+                    <Select value={delayUnit} onValueChange={(unit) => changeDelay(delayAmount, unit as DelayUnit)} disabled={settingsSaving}>
+                      <SelectTrigger aria-labelledby="burner-delay-unit-label" className="h-9"><SelectValue /></SelectTrigger>
+                      <SelectContent>{(Object.keys(DELAY_UNITS) as DelayUnit[]).map((unit) => <SelectItem key={unit} value={unit}>{t(`tokenBurner.unit.${unit}`)}</SelectItem>)}</SelectContent>
+                    </Select>
+                  </div>
                 </div>
-              </div>
-              {savingError ? <Alert variant="destructive"><AlertDescription>{savingError}</AlertDescription></Alert> : null}
-            </div>
+              </CardContent>
+            </Card>
+            {savingError ? <Alert className="mt-4" variant="destructive"><AlertDescription>{savingError}</AlertDescription></Alert> : null}
           </DialogBody>
           <DialogFooter className="px-1">
             <Button data-dialog-cancel type="button" variant="outline" onClick={() => setSettingsOpen(false)}>{t("tokenBurner.cancel")}</Button>

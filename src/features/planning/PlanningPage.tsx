@@ -104,7 +104,7 @@ export function PlanningPage() {
             description={t("planning.description")}
           />
           <Card>
-            <CardContent className={cn("grid max-w-2xl gap-4 sm:grid-cols-2", !loadingProjects && !error && projects.length === 0 ? "py-3" : "pt-6")}>
+            <CardContent className={cn("grid max-w-2xl gap-4 sm:grid-cols-2", !loadingProjects && !error && projects.length === 0 ? "px-4 py-3" : "pt-6")}>
               {loadingProjects ? <p role="status" className="sm:col-span-2">{t("planning.loadingProjects")}</p> : null}
               {error === "projects" ? <Alert variant="destructive" role="alert" className="sm:col-span-2"><AlertDescription>{t("planning.projectsError")}</AlertDescription></Alert> : null}
               {!loadingProjects && !error && projects.length === 0 ? <p className="text-sm text-muted-foreground sm:col-span-2">{t("planning.noProjects")}</p> : null}

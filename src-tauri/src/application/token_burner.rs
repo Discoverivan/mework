@@ -41,6 +41,7 @@ const KEYRING_SERVICE: &str = if cfg!(debug_assertions) {
 const PAGE_SIZE: u64 = 100;
 const MAX_REPOSITORIES: usize = 500;
 const MAX_DIFF_BYTES: usize = 1_000_000;
+const MAX_DELAY_SECONDS: u32 = 24 * 60 * 60;
 
 static SCHEDULER_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
 
@@ -167,7 +168,7 @@ pub async fn save_settings(
 
 fn validate_settings(settings: &TokenBurnerSettings) -> Result<(), String> {
     if !(1_000..=100_000_000).contains(&settings.daily_target)
-        || settings.delay_between_requests_seconds > 3_600
+        || settings.delay_between_requests_seconds > MAX_DELAY_SECONDS
         || settings
             .repository
             .as_ref()
@@ -1427,7 +1428,7 @@ mod tests {
                 .unwrap();
         let settings = TokenBurnerSettings {
             daily_target: 1_000,
-            delay_between_requests_seconds: 30,
+            delay_between_requests_seconds: MAX_DELAY_SECONDS,
             ..TokenBurnerSettings::default()
         };
         save_settings(&pool, settings.clone()).await.unwrap();

@@ -899,7 +899,7 @@ export function ManagedProjectsSettings({
 
       {!loading && !loadError && projects.length === 0 ? (
         <Card>
-          <CardContent className="py-3 text-sm text-muted-foreground">
+          <CardContent className="px-4 py-3 text-sm text-muted-foreground">
             <p>{t("teams.empty")}</p>
           </CardContent>
         </Card>

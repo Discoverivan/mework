@@ -429,8 +429,10 @@ describe("MyPullRequestsPage", () => {
     await renderFlatPage();
     await screen.findByRole("heading", { name: "Example pull request" });
     fireEvent.click(screen.getByRole("button", { name: "Filters" }));
+    expect(within(screen.getByRole("dialog", { name: "Filters" })).getAllByText("No Deny rules")).toHaveLength(3);
     expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
     fireEvent.click(screen.getByRole("radio", { name: "Allow" }));
+    expect(within(screen.getByRole("dialog", { name: "Filters" })).getAllByText("No Allow rules")).toHaveLength(3);
     expect(screen.getByRole("button", { name: "Save" })).toBeEnabled();
     fireEvent.click(screen.getByRole("radio", { name: "Deny" }));
     expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
@@ -448,6 +450,27 @@ describe("MyPullRequestsPage", () => {
     await waitFor(() => expect(saveSettingsMock).toHaveBeenLastCalledWith(emptySettings));
     expect(await screen.findByRole("heading", { name: "Example pull request" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Example documentation change" })).toBeInTheDocument();
+  });
+
+  it("offers only projects that have not been added to the current filter list", async () => {
+    searchProjectsMock.mockResolvedValue([
+      { integrationId: "bitbucket-1", projectKey: "DEMO", projectName: "Example Project" },
+      { integrationId: "bitbucket-1", projectKey: "SAMPLE", projectName: "Sample Project" },
+    ]);
+    await renderFlatPage();
+    await screen.findByRole("heading", { name: "Example pull request" });
+    fireEvent.click(screen.getByRole("button", { name: "Filters" }));
+    const addProject = screen.getByRole("button", { name: "Add project filter" });
+    expect(addProject).toHaveTextContent("Add");
+    fireEvent.click(addProject);
+    fireEvent.change(screen.getByRole("textbox", { name: "Project filters" }), { target: { value: "Project" } });
+    fireEvent.click(await screen.findByRole("button", { name: "DEMO (Example Project)" }));
+    fireEvent.click(addProject);
+    fireEvent.change(screen.getByRole("textbox", { name: "Project filters" }), { target: { value: "Project" } });
+    const remainingProject = await screen.findByRole("button", { name: "SAMPLE (Sample Project)" });
+    expect(screen.queryByRole("button", { name: "DEMO (Example Project)" })).not.toBeInTheDocument();
+    fireEvent.click(remainingProject);
+    expect(await screen.findByRole("button", { name: "Remove SAMPLE from Deny project filters" })).toBeInTheDocument();
   });
 
   it("keeps configured filters visible when a deny list is long", async () => {
@@ -475,7 +498,7 @@ describe("MyPullRequestsPage", () => {
       .toHaveClass("shrink-0");
   });
 
-  it("opens filters and applies a creator filter after saving", async () => {
+  it("selects an author filter with Enter and applies it after saving", async () => {
     await renderFlatPage();
     await screen.findByRole("heading", { name: "Example pull request" });
 
@@ -483,9 +506,10 @@ describe("MyPullRequestsPage", () => {
     expect(screen.getByRole("dialog", { name: "Filters" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
     fireEvent.click(screen.getByRole("button", { name: "Add author filter" }));
-    fireEvent.change(screen.getByRole("textbox", { name: "Creator filters" }), { target: { value: "Test Author A" } });
+    fireEvent.change(screen.getByRole("textbox", { name: "Author filters" }), { target: { value: "Test Author A" } });
     await waitFor(() => expect(searchUsersMock).toHaveBeenCalledWith("Test Author A"));
-    fireEvent.click(screen.getByRole("button", { name: "Test Author A (test-author-a)" }));
+    await screen.findByRole("button", { name: "Test Author A (test-author-a)" });
+    fireEvent.keyDown(screen.getByRole("textbox", { name: "Author filters" }), { key: "Enter" });
     expect(screen.getByRole("button", { name: "Save" })).toBeEnabled();
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
 
@@ -515,7 +539,7 @@ describe("MyPullRequestsPage", () => {
     expect(screen.getByRole("radio", { name: "Deny" })).toBeChecked();
     expect(screen.getByRole("radio", { name: "Allow" })).not.toBeChecked();
     fireEvent.click(screen.getByRole("button", { name: "Add author filter" }));
-    fireEvent.change(screen.getByRole("textbox", { name: "Creator filters" }), { target: { value: "Test Author A" } });
+    fireEvent.change(screen.getByRole("textbox", { name: "Author filters" }), { target: { value: "Test Author A" } });
     await waitFor(() => expect(searchUsersMock).toHaveBeenCalledWith("Test Author A"));
     fireEvent.click(await screen.findByRole("button", { name: "Test Author A (test-author-a)" }));
 

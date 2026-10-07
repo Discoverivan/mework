@@ -124,7 +124,7 @@ export function InboxPage({ onReady }: { onReady?: () => void }) {
 
       {!loading && !error && items.length === 0 ? (
         <Card className="inbox-empty">
-          <CardContent className="py-3 text-sm text-muted-foreground">
+          <CardContent className="px-4 py-3 text-sm text-muted-foreground">
             <p>{t("inbox.empty")}</p>
           </CardContent>
         </Card>

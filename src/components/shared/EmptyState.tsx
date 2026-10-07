@@ -10,7 +10,7 @@ interface EmptyStateProps {
 
 export function EmptyState({ titleId, title, description, hint, icon }: EmptyStateProps) {
   return (
-    <div role="status" aria-labelledby={titleId} className="flex items-center gap-3 rounded-lg border border-dashed border-border bg-card px-6 py-3">
+    <div role="status" aria-labelledby={titleId} className="flex items-center gap-3 rounded-lg border border-border bg-card px-4 py-3">
       <div className="min-w-0 flex-1 space-y-1">
         <h2 id={titleId} className="text-sm font-medium text-foreground">{title}</h2>
         <p className="text-sm text-muted-foreground">{description}</p>
