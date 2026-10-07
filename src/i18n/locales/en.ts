@@ -15,6 +15,8 @@ export const en = {
   "teams.closeDetails": "Hide {team} project details",
   "forms.storedSecretHelp": "Leave blank to keep the saved token, or enter a replacement.",
   "dataRetention.title": "Data retention",
+  "dataRetention.expand": "Show retention settings",
+  "dataRetention.collapse": "Hide retention settings",
   "dataRetention.unitFor": "{field} unit",
   "dataRetention.minutes": "Minutes",
   "dataRetention.hours": "Hours",

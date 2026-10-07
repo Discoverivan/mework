@@ -17,6 +17,8 @@ it("loads retention settings and saves a changed history limit", async () => {
   };
   invokeMock.mockImplementation(async (command, args) => command === "data_retention_settings" ? settings : args.settings);
   render(<I18nProvider><DataRetentionSettings /></I18nProvider>);
+  expect(screen.queryByRole("textbox", { name: "PR review history" })).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "Show retention settings" }));
   const history = await screen.findByRole("textbox", { name: "PR review history" });
   expect(history).toHaveValue("7");
   const compactWidth = history.style.width;
@@ -28,6 +30,9 @@ it("loads retention settings and saves a changed history limit", async () => {
   expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
   fireEvent.change(history, { target: { value: "30" } });
   expect(history.style.width).not.toBe(compactWidth);
+  fireEvent.click(screen.getByRole("button", { name: "Hide retention settings" }));
+  fireEvent.click(screen.getByRole("button", { name: "Show retention settings" }));
+  expect(screen.getByRole("textbox", { name: "PR review history" })).toHaveValue("30");
   fireEvent.change(history, { target: { value: "7" } });
   expect(history.style.width).toBe(compactWidth);
   fireEvent.change(history, { target: { value: "1234" } });

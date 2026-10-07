@@ -17,6 +17,8 @@ export const ru: Record<TranslationKey, string> = {
   "teams.closeDetails": "Скрыть сведения о проекте команды {team}",
   "forms.storedSecretHelp": "Оставьте пустым, чтобы сохранить токен, или введите новый.",
   "dataRetention.title": "Хранение данных",
+  "dataRetention.expand": "Показать настройки хранения",
+  "dataRetention.collapse": "Скрыть настройки хранения",
   "dataRetention.unitFor": "Единица измерения: {field}",
   "dataRetention.minutes": "Минуты",
   "dataRetention.hours": "Часы",

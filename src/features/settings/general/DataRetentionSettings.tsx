@@ -1,6 +1,6 @@
 import { Fragment, useEffect, useMemo, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { Loader2 } from "lucide-react";
+import { ChevronDown, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { ManualNumberField } from "@/components/shared/ManualNumberField";
@@ -10,6 +10,7 @@ import { Hint } from "@/components/ui/tooltip";
 import { Separator } from "@/components/ui/separator";
 import { useI18n } from "@/i18n/context";
 import type { DataRetentionSettings as Settings, LogSizeUnit, RetentionMode, RetentionUnit } from "@/shared/contracts/data-retention";
+import "./DataRetentionSettings.css";
 
 const FIELDS = ["reviewHistory", "syncHistory", "removedTasks", "diagnosticLogs"] as const;
 const UNITS: RetentionUnit[] = ["minutes", "hours", "days", "months"];
@@ -27,6 +28,7 @@ export function DataRetentionSettings() {
   const [notice, setNotice] = useState<"loadError" | "saveError" | "saved" | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadRevision, setLoadRevision] = useState(0);
+  const [expanded, setExpanded] = useState(false);
   const validityHandlers = useMemo(() => {
     const update = (field: typeof FIELDS[number]) => (value: boolean) =>
       setValid((current) => current[field] === value ? current : { ...current, [field]: value });
@@ -69,11 +71,22 @@ export function DataRetentionSettings() {
         <CardTitle className="text-base font-semibold leading-tight">{t("dataRetention.title")}</CardTitle>
         <CardDescription className="leading-snug">{t("dataRetention.description")}</CardDescription>
       </div>
-      <Button type="button" size="sm" actionTone="edit" className="shrink-0" onClick={() => void save()} disabled={!changed || saving || Boolean(invalid)}>
+      <div className="flex shrink-0 items-center gap-2">
+      <Button type="button" size="sm" actionTone="edit" onClick={() => void save()} disabled={!changed || saving || Boolean(invalid)}>
         {saving ? <Loader2 className="animate-spin" aria-hidden="true" /> : null}{t("settings.common.save")}
       </Button>
+      <Button type="button" variant="outline" size="icon" className="size-9" disabled={saving}
+        aria-expanded={expanded} aria-controls="data-retention-details"
+        aria-label={t(expanded ? "dataRetention.collapse" : "dataRetention.expand")}
+        title={t(expanded ? "dataRetention.collapse" : "dataRetention.expand")}
+        onClick={() => setExpanded((value) => !value)}>
+        <ChevronDown className={`transition-transform duration-200 motion-reduce:transition-none ${expanded ? "rotate-180" : ""}`} aria-hidden="true" />
+      </Button>
+      </div>
     </CardHeader>
-    <CardContent className="@container/retention flex flex-col gap-4 px-4 pb-3.5">
+    <div className="data-retention-reveal" data-expanded={expanded}>
+    <div className="min-h-0 overflow-hidden" aria-hidden={!expanded} inert={!expanded}>
+    <CardContent id="data-retention-details" className="@container/retention flex flex-col gap-4 px-4 pb-3.5">
       {draft ? <>
         <div className="flex flex-col">
           {FIELDS.map((field) => {
@@ -143,7 +156,9 @@ export function DataRetentionSettings() {
           })}
         </div>
       </> : loading ? <Loader2 className="size-4 animate-spin text-muted-foreground" aria-label={t("dataRetention.loading")} /> : <Button type="button" variant="outline" size="sm" className="w-fit" onClick={() => { setNotice(null); setLoadRevision((value) => value + 1); }}>{t("tokenBurner.retry")}</Button>}
-      {notice ? <StatusToast message={t(`dataRetention.${notice}`)} variant={notice === "saved" ? "success" : "error"} onDismiss={() => setNotice(null)} /> : null}
     </CardContent>
+    </div>
+    </div>
+    {notice ? <StatusToast message={t(`dataRetention.${notice}`)} variant={notice === "saved" ? "success" : "error"} onDismiss={() => setNotice(null)} /> : null}
   </Card>;
 }
