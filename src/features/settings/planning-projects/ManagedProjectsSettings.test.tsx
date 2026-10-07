@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ManagedProjectsSettings } from "./ManagedProjectsSettings";
@@ -272,6 +272,7 @@ describe("ManagedProjectsSettings task creation settings", () => {
 
     fireEvent.click(await screen.findByRole("button", { name: "Open Platform team project details" }));
     expect(await screen.findByLabelText("Task creation settings")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
     const editMemberButton = await screen.findByRole("button", { name: "Edit Example Member" });
     expect(editMemberButton.querySelector("svg.lucide-pencil")).not.toBeNull();
     const deleteMemberButton = screen.getByRole("button", { name: "Delete Example Member" });
@@ -305,7 +306,7 @@ describe("ManagedProjectsSettings task creation settings", () => {
       defaultEpicLinkSummary: "Example epic",
       epicLinkJql: "project = DEMO AND issuetype = Epic",
     })));
-    await waitFor(() => expect(screen.getByRole("button", { name: "Cancel" })).toBeEnabled());
+    await waitFor(() => expect(screen.getByRole("button", { name: "Save" })).toBeDisabled());
     fireEvent.change(screen.getByLabelText("Epic link JQL"), {
       target: { value: "project = DEMO" },
     });
@@ -315,5 +316,18 @@ describe("ManagedProjectsSettings task creation settings", () => {
     expect(screen.getByLabelText("Epic link JQL")).toHaveValue("project = DEMO AND issuetype = Epic");
     expect(screen.getByRole("combobox", { name: "Default sprint for task creation" })).toHaveTextContent("Platform Sprint");
     expect(screen.getByRole("combobox", { name: "Default Epic link for task creation" })).toHaveTextContent("Example epic");
+    expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
+
+    fireEvent.click(screen.getByRole("button", { name: "Edit Example Member" }));
+    const memberForm = within(await screen.findByRole("dialog"));
+    expect(memberForm.getByRole("button", { name: "Save" })).toBeDisabled();
+    fireEvent.change(memberForm.getByLabelText("Alias (optional)"), { target: { value: "Example Alias" } });
+    expect(memberForm.getByRole("button", { name: "Save" })).toBeEnabled();
+    vi.mocked(addPlanningTeamMember).mockResolvedValue({
+      accountId: "user-1", displayName: "Example Member", alias: "Example Alias", tags: ["backend"], active: true,
+    });
+    fireEvent.click(memberForm.getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    expect(screen.getByText("Example Alias")).toBeInTheDocument();
   });
 });

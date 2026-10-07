@@ -4,9 +4,15 @@
   animation: team-settings-open 200ms ease-out;
 }
 
-.task-creation-settings {
+.task-creation-settings,
+.team-member-panel {
   --secondary: var(--card);
   --secondary-foreground: var(--card-foreground);
+}
+
+.team-member-form {
+  --secondary: var(--background);
+  --secondary-foreground: var(--foreground);
 }
 
 @keyframes team-settings-open {

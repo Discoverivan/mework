@@ -163,6 +163,18 @@ function formForProject(project: ManagedProjectSettings): ManagedProjectForm {
   };
 }
 
+function taskCreationDefaults(settings: Pick<ManagedProjectSettings,
+  "defaultTaskSprintId" | "defaultTaskSprintName" | "defaultEpicLinkKey" | "defaultEpicLinkSummary" | "epicLinkJql"
+>) {
+  return {
+    defaultTaskSprintId: settings.defaultTaskSprintId || undefined,
+    defaultTaskSprintName: settings.defaultTaskSprintId ? settings.defaultTaskSprintName || undefined : undefined,
+    defaultEpicLinkKey: settings.defaultEpicLinkKey || undefined,
+    defaultEpicLinkSummary: settings.defaultEpicLinkKey ? settings.defaultEpicLinkSummary || undefined : undefined,
+    epicLinkJql: settings.epicLinkJql?.trim() ?? "",
+  };
+}
+
 function value(input: string | undefined): string {
   return input?.trim() ?? "";
 }
@@ -400,6 +412,14 @@ export function ManagedProjectsSettings({
   const controlsDisabled = action !== null || teamSaving;
   const formSession = useRef(0);
   const dismissDisabled = action !== null || teamSaving;
+  const taskCreationDraft = taskCreationDefaults({
+    defaultTaskSprintId, defaultTaskSprintName, defaultEpicLinkKey, defaultEpicLinkSummary, epicLinkJql,
+  });
+  const taskCreationChanged = detailProject !== null
+    && JSON.stringify(taskCreationDraft) !== JSON.stringify(taskCreationDefaults(detailProject));
+  const memberChanged = selectedSearchMember !== null && (!editingMemberAccountId
+    || memberRole !== (selectedSearchMember.tags[0] ?? "")
+    || memberAlias.trim() !== (selectedSearchMember.alias?.trim() ?? ""));
 
   function closeTeamForm() {
     if (dismissDisabled) return;
@@ -471,6 +491,10 @@ export function ManagedProjectsSettings({
 
   function closeMemberDialog() {
     if (teamSaving) return;
+    resetMemberDialog();
+  }
+
+  function resetMemberDialog() {
     setMemberDialogOpen(false);
     setEditingMemberAccountId(null);
     setSelectedSearchMember(null);
@@ -661,11 +685,10 @@ export function ManagedProjectsSettings({
   }
 
   async function handleSaveTaskCreationSettings() {
-    if (!detailProject || teamSaving) return;
+    if (!detailProject || controlsDisabled || epicPreviewLoading || !taskCreationChanged) return;
     setTeamSaving(true);
     setTeamSaveError(null);
     try {
-      const selectedSprint = taskSprints.find((sprint) => sprint.id === defaultTaskSprintId);
       const saved = await saveManagedProject({
         id: detailProject.id,
         integrationId: detailProject.integrationId,
@@ -680,11 +703,7 @@ export function ManagedProjectsSettings({
         competencyFieldId: detailProject.competencyFieldId,
         subtaskIssueTypeId: detailProject.subtaskIssueTypeId,
         defaultTeamPresetId: detailProject.defaultTeamPresetId,
-        defaultTaskSprintId: defaultTaskSprintId || undefined,
-        defaultTaskSprintName: selectedSprint?.name ?? (defaultTaskSprintId ? defaultTaskSprintName : undefined),
-        defaultEpicLinkKey: defaultEpicLinkKey || undefined,
-        defaultEpicLinkSummary: defaultEpicLinkKey ? (defaultEpicLinkSummary || undefined) : undefined,
-        epicLinkJql: epicLinkJql.trim(),
+        ...taskCreationDraft,
         enabled: detailProject.enabled,
       });
       setProjects((current) => replaceProject(current, saved));
@@ -785,7 +804,7 @@ export function ManagedProjectsSettings({
   }
 
   async function handleSaveMemberDialog() {
-    if (!detailProject || !selectedSearchMember || !memberRole || teamSaving) return;
+    if (!detailProject || !selectedSearchMember || !memberRole || controlsDisabled || !memberChanged) return;
     if (!editingMemberAccountId) {
       await handleAddTeamMember();
       return;
@@ -802,7 +821,7 @@ export function ManagedProjectsSettings({
         role: memberRole,
       });
       setConfiguredMembers((current) => current.map((member) => member.accountId === saved.accountId ? saved : member));
-      closeMemberDialog();
+      resetMemberDialog();
     } catch (error) {
       setTeamSaveError(t("teams.saveMemberError", { error: commandError(error) }));
     } finally {
@@ -1251,7 +1270,7 @@ export function ManagedProjectsSettings({
                 <Button className="bg-card" type="button" variant="outline" onClick={cancelTaskCreationChanges} disabled={controlsDisabled || epicPreviewLoading}>
                   {t("settings.common.cancel")}
                 </Button>
-                <Button className="bg-card" type="button" actionTone="edit" onClick={() => void handleSaveTaskCreationSettings()} disabled={controlsDisabled || epicPreviewLoading}>
+                <Button className="bg-card" type="button" actionTone="edit" onClick={() => void handleSaveTaskCreationSettings()} disabled={controlsDisabled || epicPreviewLoading || !taskCreationChanged}>
                   {teamSaving ? t("settings.common.saving") : t("teams.saveTaskSettings")}
                 </Button>
               </div>
@@ -1283,7 +1302,7 @@ export function ManagedProjectsSettings({
               </Alert>
             ) : null}
 
-            <section className="grid gap-2" aria-label={t("teams.members")}>
+            <section className="grid gap-1" aria-label={t("teams.members")}>
             <div className="flex items-center justify-between gap-3">
               <h3 className="font-semibold">{t("teams.members")}</h3>
               <Button type="button" size="sm" actionTone="add" onClick={openAddMemberDialog} disabled={controlsDisabled}>{t("teams.addMember")}</Button>
@@ -1299,6 +1318,7 @@ export function ManagedProjectsSettings({
               <div className="grid gap-2">
               <Input
                 id="team-member-search"
+                className="bg-card"
                 value={memberSearch}
                 onChange={(event) => {
                   setMemberSearch(event.target.value);
@@ -1320,14 +1340,14 @@ export function ManagedProjectsSettings({
                 </Alert>
               ) : null}
               {memberSearchResults.length > 0 && !selectedSearchMember ? (
-                <div role="listbox" aria-label={t("teams.memberSearchResults")} className="grid gap-1 rounded-md border p-1">
+                <div role="listbox" aria-label={t("teams.memberSearchResults")} className="grid gap-1 rounded-md border bg-card p-1">
                   {memberSearchResults.map((member) => (
                     <button
                       key={member.accountId}
                       type="button"
                       role="option"
                       aria-selected={false}
-                      className="rounded px-3 py-2 text-left hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                      className="rounded bg-background px-3 py-2 text-left hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                       onClick={() => {
                         setSelectedSearchMember(member);
                         setMemberRole("");
@@ -1347,7 +1367,7 @@ export function ManagedProjectsSettings({
             ) : null}
 
             {selectedSearchMember ? (
-              <div className="grid gap-3 rounded-md border p-3">
+              <div className="team-member-form grid gap-3 rounded-md border bg-card p-4">
                 <div>
                   <p className="font-medium">{selectedSearchMember.displayName}</p>
                   <p className="text-sm text-muted-foreground">{selectedSearchMember.accountId}</p>
@@ -1384,7 +1404,7 @@ export function ManagedProjectsSettings({
                   >
                     {t("settings.common.cancel")}
                   </Button>
-                  <Button type="button" actionTone={editingMemberAccountId ? "edit" : "add"} onClick={() => void handleSaveMemberDialog()} disabled={!memberRole || controlsDisabled}>
+                  <Button type="button" actionTone={editingMemberAccountId ? "edit" : "add"} onClick={() => void handleSaveMemberDialog()} disabled={!memberRole || controlsDisabled || !memberChanged}>
                     {teamSaving ? t("settings.common.saving") : editingMemberAccountId ? t("settings.common.save") : t("teams.addMemberAction")}
                   </Button>
                 </DialogFooter>
@@ -1404,7 +1424,7 @@ export function ManagedProjectsSettings({
                       ) : null}
                       <div
                         data-team-member-id={member.accountId}
-                        className={`flex flex-wrap items-center gap-2 rounded-md border p-2 transition ${draggingMemberAccountId === member.accountId ? "opacity-60" : ""}`}
+                        className={`team-member-panel flex flex-wrap items-center gap-2 rounded-md border bg-background p-2 transition ${draggingMemberAccountId === member.accountId ? "opacity-60" : ""}`}
                       >
                       <Hint content={t("teams.dragToReorder")}><span
                         className="cursor-grab touch-none text-muted-foreground active:cursor-grabbing"
