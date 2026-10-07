@@ -1310,6 +1310,7 @@ export function ManagedProjectsSettings({
                 </Alert>
               ) : null}
               </div>
+              <Separator />
             </section>
 
             <Dialog open={epicPreviewOpen} onOpenChange={setEpicPreviewOpen}>
