@@ -75,14 +75,14 @@ export function DataRetentionSettings() {
     <CardContent className="@container/retention flex flex-col gap-4 px-4 pb-3.5">
       {draft ? <>
         <div className="flex flex-col">
-          {FIELDS.map((field, index) => {
+          {FIELDS.map((field) => {
             const period = draft[field];
             const max = MAXIMUM[period.unit];
             const label = t(`dataRetention.${field}`);
             return <Fragment key={field}>
-              {index > 0 ? <Separator /> : null}
+              <Separator />
               <div role="group" aria-labelledby={`retention-${field}-label`}
-              className="flex flex-wrap items-center justify-between gap-x-4 gap-y-3 py-3">
+              className="flex flex-wrap items-center justify-between gap-x-4 gap-y-3 py-3 pl-4">
               <Hint content={t(`dataRetention.${field}Help`)}><span id={`retention-${field}-label`} className="text-sm font-medium leading-none">{label}</span></Hint>
               <div className="flex flex-wrap items-center gap-3">
               <Select value={period.mode} disabled={saving} onValueChange={(mode) => {
@@ -107,7 +107,10 @@ export function DataRetentionSettings() {
                 <SelectContent>{UNITS.map((unit) => <SelectItem key={unit} value={unit}>{t(`dataRetention.${unit}`)}</SelectItem>)}</SelectContent>
               </Select>
               </div> : null}
-              {field === "diagnosticLogs" && period.mode !== "disabled" ? <>
+              </div>
+              {field === "diagnosticLogs" && period.mode !== "disabled" ? <div className="flex basis-full flex-wrap items-center justify-between gap-x-4 gap-y-3">
+                <Hint content={t("dataRetention.logSizeHelp")}><span id="retention-log-size-label" className="text-sm font-medium leading-none">{t("dataRetention.logSize")}</span></Hint>
+                <div className="flex flex-wrap items-center gap-3">
                 <Select value={draft.diagnosticLogMaxMiB === null ? "unlimited" : "limited"} disabled={saving} onValueChange={(mode) => {
                   setValid((current) => ({ ...current, diagnosticLogMaxMiB: true }));
                   setDraft((current) => current && { ...current, diagnosticLogMaxMiB: mode === "unlimited" ? null : 100 });
@@ -119,7 +122,6 @@ export function DataRetentionSettings() {
                   </SelectContent>
                 </Select>
                 {draft.diagnosticLogMaxMiB !== null ? <div className="flex items-center gap-2">
-                  <span id="retention-log-size-label" className="sr-only">{t("dataRetention.logSize")}</span>
                   <ManualNumberField id="retention-log-size" label={t("dataRetention.logSize")} labelledBy="retention-log-size-label" description={t("dataRetention.logSizeHelp")}
                     value={draft.diagnosticLogMaxMiB} min={1} max={MAX_LOG_MIB} minVisibleDigits={1} disabled={saving}
                     onChange={(value) => setDraft((current) => current && { ...current, diagnosticLogMaxMiB: value })}
@@ -127,8 +129,8 @@ export function DataRetentionSettings() {
                     errors={{ required: t("forms.numberRequired"), number: t("forms.numberInvalid"), range: t("forms.numberRange", { min: 1, max: MAX_LOG_MIB }), whole: t("forms.numberInvalid") }} />
                   <span className="text-sm text-muted-foreground">{t("dataRetention.mib")}</span>
                 </div> : null}
-              </> : null}
-              </div>
+                </div>
+              </div> : null}
               {period.mode === "disabled" ? <p className="basis-full text-sm text-muted-foreground">{t(field === "diagnosticLogs" ? "dataRetention.logsDisabledHelp" : "dataRetention.historyDisabledHelp")}</p> : null}
             </div>
             </Fragment>;
