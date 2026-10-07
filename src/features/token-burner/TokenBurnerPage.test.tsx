@@ -245,6 +245,9 @@ describe("TokenBurnerPage", () => {
   it("saves a scaled token target and a manual delay in canonical units", async () => {
     render(<I18nProvider><TokenBurnerPage /></I18nProvider>);
     fireEvent.click(await screen.findByRole("button", { name: "Settings" }));
+    const settingsPanel = screen.getByLabelText("Daily target (tokens)").closest("div.rounded-md.border");
+    expect(settingsPanel).toContainElement(screen.getByRole("textbox", { name: "Delay between reviews" }));
+    expect(settingsPanel?.querySelector('[data-orientation="horizontal"]')).toBeInTheDocument();
     fireEvent.click(screen.getByRole("combobox", { name: "Scale" }));
     fireEvent.click(screen.getByRole("option", { name: "Thousands" }));
     fireEvent.change(screen.getByLabelText("Daily target (tokens)"), { target: { value: "1.001" } });

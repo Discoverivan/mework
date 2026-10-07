@@ -578,8 +578,8 @@ export function TokenBurnerPage() {
         }}>
           <DialogHeader className="px-1"><DialogTitle className="text-base leading-tight">{t("tokenBurner.settings")}</DialogTitle></DialogHeader>
           <DialogBody className="m-0 p-1">
-            <div className="space-y-4">
-              <div className="flex flex-wrap items-start gap-3">
+            <div className="rounded-md border">
+              <div className="flex flex-wrap items-start gap-3 p-4">
                 <ManualNumberField id="burner-daily-target" label={t("tokenBurner.dailyTargetField")}
                   description={t("tokenBurner.dailyTargetHelp")} value={targetAmount} min={1000} max={100_000_000} scale={TOKEN_UNITS[targetUnit]} allowDecimals
                   disabled={settingsSaving} onValidityChange={setDailyTargetValid}
@@ -593,7 +593,8 @@ export function TokenBurnerPage() {
                   </Select>
                 </div>
               </div>
-              <div className="flex flex-wrap items-start gap-3">
+              <Separator />
+              <div className="flex flex-wrap items-start gap-3 p-4">
                 <ManualNumberField id="burner-request-delay" label={t("tokenBurner.delayBetweenRequests")}
                   description={t("tokenBurner.delayHelp")} value={delayAmount} min={0} max={3600} scale={DELAY_UNITS[delayUnit]} allowDecimals
                   disabled={settingsSaving} onValidityChange={setDelayValid}
@@ -607,8 +608,8 @@ export function TokenBurnerPage() {
                   </Select>
                 </div>
               </div>
-              {savingError ? <Alert variant="destructive"><AlertDescription>{savingError}</AlertDescription></Alert> : null}
             </div>
+            {savingError ? <Alert className="mt-4" variant="destructive"><AlertDescription>{savingError}</AlertDescription></Alert> : null}
           </DialogBody>
           <DialogFooter className="px-1">
             <Button data-dialog-cancel type="button" variant="outline" onClick={() => setSettingsOpen(false)}>{t("tokenBurner.cancel")}</Button>
