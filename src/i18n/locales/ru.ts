@@ -23,7 +23,7 @@ export const ru: Record<TranslationKey, string> = {
   "dataRetention.days": "Дни",
   "dataRetention.months": "Месяцы",
   "dataRetention.loading": "Загрузка настроек хранения данных…",
-  "dataRetention.description": "Для каждого типа выберите срок, бессрочное хранение или отключение истории. Очистка при запуске, ежедневно и при сохранении настроек. Текущие данные и активные запуски сохраняются.",
+  "dataRetention.description": "Настройте хранение локальной истории и диагностических логов.",
   "dataRetention.modeFor": "Режим хранения: {field}",
   "dataRetention.period": "Хранить заданный срок",
   "dataRetention.indefinite": "Хранить бессрочно",

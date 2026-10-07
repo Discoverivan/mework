@@ -21,7 +21,7 @@ export const en = {
   "dataRetention.days": "Days",
   "dataRetention.months": "Months",
   "dataRetention.loading": "Loading data retention settings…",
-  "dataRetention.description": "Choose a retention period, keep indefinitely, or disable history for each type. Cleanup runs at startup, daily, and when settings are saved. Current data and active runs are preserved.",
+  "dataRetention.description": "Manage retention of local history and diagnostic logs.",
   "dataRetention.modeFor": "{field} retention",
   "dataRetention.period": "Keep for a period",
   "dataRetention.indefinite": "Keep indefinitely",
