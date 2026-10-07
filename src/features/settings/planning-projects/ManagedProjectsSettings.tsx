@@ -1337,7 +1337,7 @@ export function ManagedProjectsSettings({
             <section className="grid gap-1" aria-label={t("teams.members")}>
             <div className="flex items-center justify-between gap-3">
               <h3 className="font-semibold">{t("teams.members")}</h3>
-              <Button type="button" size="sm" actionTone="add" onClick={openAddMemberDialog} disabled={controlsDisabled}>{t("teams.addMember")}</Button>
+              <CreateButton label={t("teams.addMemberAction")} aria-label={t("teams.addMember")} title={t("teams.addMember")} onClick={openAddMemberDialog} disabled={controlsDisabled} />
             </div>
             <Dialog open={memberDialogOpen} onOpenChange={(open) => { if (open) setMemberDialogOpen(true); else closeMemberDialog(); }}>
               <DialogContent>
