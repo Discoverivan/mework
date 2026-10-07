@@ -1053,6 +1053,7 @@ export const ru: Record<TranslationKey, string> = {
   "pr.filters.projects": "Фильтры проектов",
   "pr.filters.projectPlaceholder": "Поиск проекта Bitbucket",
   "pr.filters.addProject": "Добавить фильтр проекта",
+  "pr.filters.add": "Добавить",
   "pr.filters.searchingProjects": "Поиск проектов…",
   "pr.filters.projectResults": "Результаты поиска проектов Bitbucket",
   "pr.filters.projectList": "Фильтры проектов: {list}",

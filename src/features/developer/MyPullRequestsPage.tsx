@@ -415,10 +415,20 @@ export function MyPullRequestsPage() {
     };
   }, [creatorInput, settingsOpen, filterSearch]);
 
-  const repositorySearchMatch = repositorySearchResults.find((repository) =>
+  const availableProjects = projectSearchResults.filter((project) =>
+    !draftSettings[filterField(filterTab, "project")].some((value) => equalsIgnoreCase(value, project.projectKey)),
+  );
+  const availableRepositories = repositorySearchResults.filter((repository) =>
+    !draftSettings[filterField(filterTab, "repository")].some((value) => equalsIgnoreCase(value, repositoryOptionKey(repository))),
+  );
+  const availableCreators = creatorSearchResults.filter((user) => {
+    const displayName = user.displayName ?? user.name ?? user.slug;
+    return !!displayName && !draftSettings[filterField(filterTab, "creator")].some((value) => equalsIgnoreCase(value, displayName));
+  });
+  const repositorySearchMatch = availableRepositories.find((repository) =>
     equalsIgnoreCase(repositoryOptionKey(repository), repositoryInput),
   );
-  const creatorSearchMatch = creatorSearchResults.find((user) =>
+  const creatorSearchMatch = availableCreators.find((user) =>
     Boolean(user.displayName && equalsIgnoreCase(user.displayName, creatorInput)),
   );
   const filteredPullRequests = pullRequests.filter((pullRequest) => matchesSettings(pullRequest, settings));
@@ -868,7 +878,7 @@ export function MyPullRequestsPage() {
                 }
               }}
               aria-label={t("pr.filters.lists")}
-              className="pr-filter-mode grid grid-cols-2 gap-1 rounded-lg bg-muted p-1"
+              className="pr-filter-mode grid shrink-0 grid-cols-2 gap-1 rounded-lg bg-muted p-1"
             >
               <ToggleGroupItem
                 value="blacklist"
@@ -886,7 +896,7 @@ export function MyPullRequestsPage() {
               </ToggleGroupItem>
             </ToggleGroup>
 
-            <Card className="pr-filter-group overflow-hidden shadow-none">
+            <Card className="pr-filter-group shrink-0 overflow-hidden shadow-none">
               <CardHeader className="bg-muted px-3 py-1">
                 <div className="flex items-center justify-between gap-3">
                   <CardTitle className="min-w-0 flex-1 text-[15px] font-normal leading-normal">{t("pr.filters.projects")}</CardTitle>
@@ -896,7 +906,7 @@ export function MyPullRequestsPage() {
                       if (open) setProjectInput("");
                     }}>
                       <PopoverTrigger asChild>
-                        <CreateButton type="button" variant="outline" className="h-7" aria-label={t("pr.filters.addProject")} />
+                        <CreateButton label={t("pr.filters.add")} type="button" variant="outline" className="h-7" aria-label={t("pr.filters.addProject")} />
                       </PopoverTrigger>
                       <PopoverContent align="end" aria-label={t("pr.filters.addProject")} className="flex w-[min(24rem,calc(100vw-2rem))] flex-col gap-3">
                         <Label htmlFor={`${filterTab}-project-input`}>{t("pr.filters.projects")}</Label>
@@ -908,9 +918,9 @@ export function MyPullRequestsPage() {
                         />
                         {projectSearchLoading ? <p role="status" className="text-sm text-muted-foreground">{t("pr.filters.searchingProjects")}</p> : null}
                         {projectSearchError ? <p role="alert" className="text-sm text-destructive">{projectSearchError}</p> : null}
-                        {projectSearchResults.length > 0 ? (
+                        {availableProjects.length > 0 ? (
                           <ul aria-label={t("pr.filters.projectResults")} className="flex max-h-[min(18rem,40vh)] flex-col gap-1 overflow-y-auto overscroll-contain pr-1">
-                            {projectSearchResults.map((project) => (
+                            {availableProjects.map((project) => (
                               <li key={`${project.integrationId}:${project.projectKey}`}>
                                 <button type="button" aria-label={`${project.projectKey} (${project.projectName})`} className="w-full cursor-pointer rounded-md border px-3 py-2 text-left text-sm hover:text-primary focus-visible:text-primary" onClick={() => addValue("project", project.projectKey)}>
                                   <span className="font-medium">{project.projectKey}</span>
@@ -947,7 +957,7 @@ export function MyPullRequestsPage() {
               )}
             </Card>
 
-            <Card className="pr-filter-group overflow-hidden shadow-none">
+            <Card className="pr-filter-group shrink-0 overflow-hidden shadow-none">
               <CardHeader className="bg-muted px-3 py-1">
                 <div className="flex items-center justify-between gap-3">
                   <CardTitle className="min-w-0 flex-1 text-[15px] font-normal leading-normal">{t("pr.filters.repositories")}</CardTitle>
@@ -957,7 +967,7 @@ export function MyPullRequestsPage() {
                       if (open) setRepositoryInput("");
                     }}>
                       <PopoverTrigger asChild>
-                        <CreateButton type="button" variant="outline" className="h-7" aria-label={t("pr.filters.addRepository")} />
+                        <CreateButton label={t("pr.filters.add")} type="button" variant="outline" className="h-7" aria-label={t("pr.filters.addRepository")} />
                       </PopoverTrigger>
                       <PopoverContent align="end" aria-label={t("pr.filters.addRepository")} className="flex w-[min(24rem,calc(100vw-2rem))] flex-col gap-3">
                         <Label htmlFor={`${filterTab}-repository-input`}>{t("pr.filters.repositories")}</Label>
@@ -975,9 +985,9 @@ export function MyPullRequestsPage() {
                         />
                         {repositorySearchLoading ? <p role="status" className="text-sm text-muted-foreground">{t("pr.filters.searchingRepositories")}</p> : null}
                         {repositorySearchError ? <p role="alert" className="text-sm text-destructive">{repositorySearchError}</p> : null}
-                        {repositorySearchResults.length > 0 ? (
+                        {availableRepositories.length > 0 ? (
                           <ul aria-label={t("pr.filters.repositoryResults")} className="flex max-h-[min(18rem,40vh)] flex-col gap-1 overflow-y-auto overscroll-contain pr-1">
-                            {repositorySearchResults.map((repository) => (
+                            {availableRepositories.map((repository) => (
                               <li key={repositoryOptionKey(repository)}>
                                 <button type="button" aria-label={repositoryOptionLabel(repository)} className="w-full cursor-pointer rounded-md border px-3 py-2 text-left text-sm hover:text-primary focus-visible:text-primary" onClick={() => addValue("repository", repositoryOptionKey(repository))}>
                                   <span className="font-medium">{repositoryOptionKey(repository)}</span>
@@ -1014,7 +1024,7 @@ export function MyPullRequestsPage() {
               )}
             </Card>
 
-            <Card className="pr-filter-group overflow-hidden shadow-none">
+            <Card className="pr-filter-group shrink-0 overflow-hidden shadow-none">
               <CardHeader className="bg-muted px-3 py-1">
                 <div className="flex items-center justify-between gap-3">
                   <CardTitle className="min-w-0 flex-1 text-[15px] font-normal leading-normal">{t("pr.filters.creators")}</CardTitle>
@@ -1024,7 +1034,7 @@ export function MyPullRequestsPage() {
                       if (open) setCreatorInput("");
                     }}>
                       <PopoverTrigger asChild>
-                        <CreateButton type="button" variant="outline" className="h-7" aria-label={t("pr.filters.addCreator")} />
+                        <CreateButton label={t("pr.filters.add")} type="button" variant="outline" className="h-7" aria-label={t("pr.filters.addCreator")} />
                       </PopoverTrigger>
                       <PopoverContent align="end" aria-label={t("pr.filters.addCreator")} className="flex w-[min(24rem,calc(100vw-2rem))] flex-col gap-3">
                         <Label htmlFor={`${filterTab}-creator-input`}>{t("pr.filters.creators")}</Label>
@@ -1042,9 +1052,9 @@ export function MyPullRequestsPage() {
                         />
                         {creatorSearchLoading ? <p role="status" className="text-sm text-muted-foreground">{t("pr.filters.searchingCreators")}</p> : null}
                         {creatorSearchError ? <p role="alert" className="text-sm text-destructive">{creatorSearchError}</p> : null}
-                        {creatorSearchResults.length > 0 ? (
+                        {availableCreators.length > 0 ? (
                           <ul aria-label={t("pr.filters.creatorResults")} className="flex max-h-[min(18rem,40vh)] flex-col gap-1 overflow-y-auto overscroll-contain pr-1">
-                            {creatorSearchResults.map((user) => {
+                            {availableCreators.map((user) => {
                               const displayName = user.displayName ?? user.name ?? user.slug;
                               if (!displayName) return null;
                               const account = user.name ?? user.slug;

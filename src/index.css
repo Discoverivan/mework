@@ -270,17 +270,18 @@
   :root[data-button-style="filled"] .app-action-text:not(:where(.app-shell aside *)):not([data-button-variant="link"]) {
     border-width: 1px;
     border-style: solid;
-    border-color: var(--input);
-    background: var(--background);
-    color: var(--foreground);
+    border-color: transparent;
+    background: var(--secondary);
+    color: var(--secondary-foreground);
   }
 
   :root[data-button-style="filled"] .app-action-text:not(:where(.app-shell aside *)):not([data-button-variant="link"]):not(:disabled):is(:hover, :focus-visible) {
+    background: color-mix(in srgb, var(--app-action-color) 14%, var(--secondary));
     color: var(--app-action-color);
   }
 
   :root[data-button-style="filled"] .app-action-text:not(:where(.app-shell aside *)):not([data-button-variant="link"]):is([data-action-tone="edit"], [data-action-tone="success"], [data-action-tone="warning"], [data-action-tone="delete"], [data-button-variant="destructive"]):not(:disabled):is(:hover, :focus-visible) {
-    border-color: var(--app-action-color);
+    border-color: transparent;
     background: var(--app-action-color);
     color: var(--primary-foreground);
   }
@@ -291,6 +292,12 @@
 
   :root[data-button-style="filled"] .app-action-text:not(:where(.app-shell aside *)):not([data-button-variant="link"]):is([data-action-tone="delete"], [data-button-variant="destructive"]):not(:disabled):is(:hover, :focus-visible) {
     color: var(--destructive-foreground);
+  }
+
+  /* Compensate for empty icon edges beside action labels. */
+  :root[data-button-style="filled"] .app-create-button > svg,
+  :root[data-button-style="filled"] .app-action-text > svg:is(.lucide-trash, .lucide-trash-2):first-child {
+    margin-left: -3px;
   }
 
   /* Creation actions use the same restrained fill as standalone plus buttons. */
@@ -348,10 +355,32 @@
     height: 16px;
   }
 
-  :root[data-button-style="filled"][data-theme="dark"] .pr-filter-group :is(.app-icon-button, .app-action-text)[data-action-tone="add"] {
+  :root[data-button-style] .pr-filter-group .app-action-text {
+    gap: 6px;
+    font-size: 13px;
+    line-height: 18px;
+  }
+
+  :root[data-button-style="filled"] .pr-filter-group .app-action-text {
+    height: 24px;
+    padding: 2px 8px;
+  }
+
+  :root[data-button-style="quiet"] .pr-filter-group .app-action-text {
+    height: 28px;
+    min-height: 28px;
+    padding: 2px 6px;
+  }
+
+  :root[data-button-style] .pr-filter-group .app-action-text svg {
+    width: 14px;
+    height: 14px;
+  }
+
+  :root[data-button-style="filled"] .pr-filter-group :is(.app-icon-button, .app-action-text)[data-action-tone="add"] {
     background: var(--card);
   }
 
-  :root[data-button-style="filled"][data-theme="dark"] .pr-filter-group :is(.app-icon-button, .app-action-text)[data-action-tone="add"]:not(:disabled):is(:hover, :focus-visible) {
+  :root[data-button-style="filled"] .pr-filter-group :is(.app-icon-button, .app-action-text)[data-action-tone="add"]:not(:disabled):is(:hover, :focus-visible) {
     background: color-mix(in srgb, var(--app-action-color) 14%, var(--card));
   }
