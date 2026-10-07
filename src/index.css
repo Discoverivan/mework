@@ -256,6 +256,7 @@
 
   :root[data-button-style="quiet"] .app-dialog-actions {
     gap: 0.5rem;
+    margin-block-start: 0.25rem;
   }
 
   :root[data-button-style="quiet"] .app-dialog-actions .app-action-text {
