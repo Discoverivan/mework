@@ -741,6 +741,9 @@ fn prune_logs(
     budget: Option<u64>,
     active: Option<&Path>,
 ) -> std::io::Result<()> {
+    if cutoff.is_none() && budget.is_none() {
+        return Ok(());
+    }
     let mut files = Vec::new();
     for entry in fs::read_dir(directory)? {
         let entry = entry?;

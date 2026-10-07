@@ -490,6 +490,9 @@ pub async fn start<R: Runtime>(
 }
 
 async fn start_or_retry_session(pool: &SqlitePool, settings_json: &str) -> Result<String, String> {
+    // Match snapshot's day-scoped history before selecting a retry. Moving an
+    // older session to today would leave its iterations outside today's usage.
+    clear_previous_day_history(pool).await?;
     let mut transaction = pool.begin().await.map_err(db_read_error)?;
     let latest: Option<(String, String)> = sqlx::query_as(
         "SELECT id, status FROM token_burner_sessions ORDER BY started_at DESC LIMIT 1",
@@ -1346,7 +1349,10 @@ mod tests {
             .await
             .unwrap();
         let settings = serde_json::to_string(&TokenBurnerSettings::default()).unwrap();
+        sqlx::query("INSERT INTO token_burner_sessions (id, status, started_at, settings_json) VALUES ('previous-day', 'error', strftime('%Y-%m-%dT%H:%M:%fZ','now','-1 day'), ?)")
+            .bind(&settings).execute(&pool).await.unwrap();
         let session_id = start_or_retry_session(&pool, &settings).await.unwrap();
+        assert_ne!(session_id, "previous-day");
         for (id, status, tokens, reserved) in [
             ("success", "completed", 100, 0),
             ("retry", "failed", 25, 50),
