@@ -37,6 +37,7 @@ function errorMessage(error: unknown, fallback: string): string {
 export function GeneralSettingsPage() {
   const { appearanceSaving, buttonStyle, buttonStyleSaving, language, themePreference, t, updateAppearance, updateButtonStyle } = useI18n();
   const [settings, setSettings] = useState<GeneralSettings | null>(null);
+  const [languageExpanded, setLanguageExpanded] = useState(false);
   const [notificationsExpanded, setNotificationsExpanded] = useState(false);
   const [extraFunctionsExpanded, setExtraFunctionsExpanded] = useState(false);
   const [terminalPreferences, setTerminalPreferences] = useState<CommandBoardTerminalPreferences | null>(null);
@@ -230,13 +231,23 @@ export function GeneralSettingsPage() {
       ) : null}
 
       <Card>
-        <CardHeader className="px-4 pb-0 pt-3.5">
-          <CardTitle className="text-base font-semibold leading-tight">{t("general.language")}</CardTitle>
-          <CardDescription className="mt-1 leading-snug">
-            {t("general.languageDescription")}
-          </CardDescription>
+        <CardHeader className="flex flex-row items-center justify-between gap-3 space-y-0 px-4 py-3.5">
+          <div className="min-w-0">
+            <CardTitle className="text-base font-semibold leading-tight">{t("general.language")}</CardTitle>
+            <CardDescription className="mt-1 leading-snug">
+              {t("general.languageDescription")}
+            </CardDescription>
+          </div>
+          <Button type="button" variant="outline" size="icon" className="size-9 shrink-0" disabled={saving || appearanceSaving}
+            aria-expanded={languageExpanded} aria-controls="general-language-details"
+            aria-label={t(languageExpanded ? "general.collapseLanguage" : "general.expandLanguage")}
+            title={t(languageExpanded ? "general.collapseLanguage" : "general.expandLanguage")}
+            onClick={() => setLanguageExpanded((value) => !value)}>
+            <ChevronDown className={`transition-transform duration-200 motion-reduce:transition-none ${languageExpanded ? "rotate-180" : ""}`} aria-hidden="true" />
+          </Button>
         </CardHeader>
-        <CardContent className="flex flex-col gap-3 px-4 pb-3.5 pt-4">
+        <SettingsReveal open={languageExpanded} id="general-language-details">
+        <CardContent className="flex flex-col gap-3 px-4 pb-3.5">
           <Separator />
           <div className="flex flex-wrap items-center justify-between gap-4 pl-4">
             <div className="min-w-0">
@@ -279,6 +290,7 @@ export function GeneralSettingsPage() {
             </div>
           </div>
         </CardContent>
+        </SettingsReveal>
       </Card>
 
       <Card>
