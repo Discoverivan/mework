@@ -28,6 +28,8 @@ describe("native event bridge", () => {
     const listener = vi.fn();
     const taskTrackerListener = vi.fn();
     const burnerListener = vi.fn();
+    const membersListener = vi.fn();
+    const unsubscribeMembers = subscribeAppEvent(APP_EVENT.teamMembersChanged, membersListener);
     const unsubscribe = subscribeAppEvent(APP_EVENT.reviewerPullRequestsUpdated, listener);
     const unsubscribeTaskTracker = subscribeAppEvent(APP_EVENT.taskTrackerUpdated, taskTrackerListener);
     const unsubscribeBurner = subscribeAppEvent(APP_EVENT.tokenBurnerChanged, burnerListener);
@@ -41,13 +43,17 @@ describe("native event bridge", () => {
       status: "idle", tokensUsedToday: 0, activeForMs: 0, previousSessionInterrupted: false, activeIterations: [], completedIterations: [],
     };
     nativeListeners.get("token_burner_changed")?.({ payload: burner });
+    const members = { managedProjectId: "example-team", members: [] };
+    nativeListeners.get("team_members_changed")?.({ payload: members });
 
     expect(listener).toHaveBeenCalledWith(page);
     expect(taskTrackerListener).toHaveBeenCalledWith(monitors);
     expect(burnerListener).toHaveBeenCalledWith(burner);
+    expect(membersListener).toHaveBeenCalledWith(members);
     stop();
     unsubscribe();
     unsubscribeTaskTracker();
     unsubscribeBurner();
+    unsubscribeMembers();
   });
 });

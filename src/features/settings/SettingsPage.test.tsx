@@ -445,6 +445,8 @@ describe("SettingsPage integrations smoke tests", () => {
     render(<SettingsPage section="ai" />);
 
     const provider = within(await screen.findByRole("group", { name: "Codex CLI AI provider" }));
+    expect(provider.getByText("0.142.5")).toBeInTheDocument();
+    expect(provider.queryByText("codex-cli 0.142.5")).not.toBeInTheDocument();
     fireEvent.click(provider.getByRole("button", { name: "Refresh Codex CLI configuration" }));
 
     await waitFor(() => expect(refreshAiSettingsMock).toHaveBeenCalledOnce());
@@ -498,7 +500,17 @@ describe("SettingsPage integrations smoke tests", () => {
     const selectedOption = screen.getByRole("option", { name: "Not selected" });
     expect(selectedOption).toHaveAttribute("data-state", "checked");
     expect(selectedOption.querySelector("svg.lucide-check")).toBeNull();
-    expect(screen.getByTestId("ai-provider-group-separator")).toBeInTheDocument();
+    expect(screen.getByTestId("ai-provider-cli-group-label")).toHaveTextContent("CLI");
+    expect(screen.getByTestId("ai-provider-api-group-label")).toHaveTextContent("API");
+    fireEvent.click(selectedOption);
+    const action = within(screen.getByRole("region", { name: "Task creation" }));
+    fireEvent.click(action.getByRole("combobox", { name: "AI provider" }));
+    const inheritedOption = screen.getByRole("option", { name: "Use defaults" });
+    expect(inheritedOption).toHaveAttribute("data-state", "checked");
+    expect(screen.getByTestId("ai-provider-cli-group-label")).toHaveTextContent("CLI");
+    expect(screen.getByTestId("ai-provider-api-group-label")).toHaveTextContent("API");
+    fireEvent.click(inheritedOption);
+    fireEvent.click(defaultAiSettings().getByRole("combobox", { name: "AI provider" }));
     fireEvent.click(screen.getByRole("option", { name: "OpenAI-compatible API · https://api.example.invalid/v1" }));
 
     expect(defaultAiSettings().getByRole("combobox", { name: "Model" })).toHaveTextContent("example-model");
@@ -560,17 +572,29 @@ describe("SettingsPage integrations smoke tests", () => {
     await waitFor(() => expect(saveAiSettingsMock).toHaveBeenCalledWith(expect.objectContaining({ provider: "open-code-cli", model: "example/sample-model" })));
   });
 
-  it("selects Pi CLI and saves the model reported by the CLI", async () => {
+  it("shows model validation at the Pi field and saves a corrected selection", async () => {
     getAiSettingsMock.mockResolvedValue({
       ...codexAiSettings,
       providers: [...codexAiSettings.providers, {
-        id: "pi-cli", name: "Pi CLI", status: "connected", available: true, models: ["example/sample-model"],
+        id: "pi-cli", name: "Pi CLI", status: "connected", available: true, models: ["example/sample-model", "example/updated-model"],
       }],
     });
+    saveAiSettingsMock.mockRejectedValueOnce({ message: "Selected AI model is invalid", scope: "default", field: "model" });
     render(<SettingsPage section="ai" />);
     await screen.findByRole("group", { name: "Pi CLI AI provider" });
     selectAiProvider("Pi CLI");
-    await waitFor(() => expect(saveAiSettingsMock).toHaveBeenCalledWith(expect.objectContaining({ provider: "pi-cli", model: "example/sample-model" })));
+    fireEvent.click(defaultAiSettings().getByRole("combobox", { name: "Model" }));
+    fireEvent.click(screen.getByRole("option", { name: "example/sample-model" }));
+    const model = defaultAiSettings().getByRole("combobox", { name: "Model" });
+    await waitFor(() => expect(model).toHaveAttribute("aria-invalid", "true"));
+    expect(model).toHaveClass("border-destructive");
+    expect(await screen.findByRole("alert")).toHaveTextContent("This model is unavailable.");
+    expect(defaultAiSettings().queryByText(/Unable to save AI settings/)).not.toBeInTheDocument();
+
+    fireEvent.click(model);
+    fireEvent.click(screen.getByRole("option", { name: "example/updated-model" }));
+    await waitFor(() => expect(saveAiSettingsMock).toHaveBeenLastCalledWith(expect.objectContaining({ provider: "pi-cli", model: "example/updated-model" })));
+    expect(model).toHaveAttribute("aria-invalid", "false");
   });
 
   it("shows the prefilled Hermes CLI as missing in mock mode", async () => {

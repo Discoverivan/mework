@@ -1,0 +1,25 @@
+/* Radix hides viewport scrollbars in an injected, unlayered stylesheet.
+   Match the viewport with higher specificity to keep the native scrollbar. */
+.select-scroll-viewport[data-radix-select-viewport] {
+  scrollbar-width: thin;
+  scrollbar-color: var(--input) transparent;
+  -ms-overflow-style: auto;
+}
+
+.select-scroll-viewport[data-radix-select-viewport]::-webkit-scrollbar {
+  display: block;
+  width: 8px;
+}
+
+.select-scroll-viewport[data-radix-select-viewport]::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.select-scroll-viewport[data-radix-select-viewport]::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: var(--input);
+}
+
+.select-scroll-viewport[data-radix-select-viewport]::-webkit-scrollbar-thumb:hover {
+  background: var(--muted-foreground);
+}

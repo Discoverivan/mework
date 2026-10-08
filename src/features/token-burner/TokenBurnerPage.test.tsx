@@ -334,10 +334,11 @@ describe("TokenBurnerPage", () => {
     await act(async () => completeAiSave());
 
     // Retain the draft after a transient save failure and let the user retry it directly.
-    saveAiSettingsMock.mockRejectedValueOnce(new Error("Example save failure"));
+    saveAiSettingsMock.mockRejectedValueOnce({ message: "Example save failure", scope: null, field: null });
     fireEvent.click(screen.getByRole("combobox", { name: "AI provider" }));
     fireEvent.click(screen.getByRole("option", { name: "Use defaults" }));
     const retrySave = await screen.findByRole("button", { name: "Retry saving" });
+    expect(screen.getByText(/Example save failure/)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Start" })).toBeDisabled();
     saveAiSettingsMock.mockImplementation(async (settings) => ({ ...(await aiSettingsMock()), settings }));
     fireEvent.click(retrySave);

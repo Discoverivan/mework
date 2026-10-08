@@ -338,14 +338,64 @@ pub async fn load(pool: &SqlitePool) -> Result<AiSettings, String> {
     Ok(settings)
 }
 
-pub async fn save(pool: &SqlitePool, mut settings: AiSettings) -> Result<(), String> {
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum AiSettingsScope {
+    Default,
+    TaskCreation,
+    PullRequestReview,
+    TokenBurner,
+    SprintSummary,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum AiSettingsField {
+    Provider,
+    Model,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AiSettingsSaveError {
+    pub message: String,
+    pub scope: Option<AiSettingsScope>,
+    pub field: Option<AiSettingsField>,
+}
+
+impl From<String> for AiSettingsSaveError {
+    fn from(message: String) -> Self {
+        Self {
+            message,
+            scope: None,
+            field: None,
+        }
+    }
+}
+
+impl AiSettingsSaveError {
+    fn field(scope: AiSettingsScope, field: AiSettingsField) -> Self {
+        let message = match field {
+            AiSettingsField::Provider => "Selected AI provider is unavailable",
+            AiSettingsField::Model => "Selected AI model is invalid",
+        }
+        .to_owned();
+        Self {
+            message,
+            scope: Some(scope),
+            field: Some(field),
+        }
+    }
+}
+
+pub async fn save(pool: &SqlitePool, mut settings: AiSettings) -> Result<(), AiSettingsSaveError> {
     settings.normalize_action_retries();
     validate_settings(pool, &settings).await?;
     let value = serde_json::to_string(&settings)
         .map_err(|_| "failed to serialize AI settings".to_owned())?;
     repositories::upsert_setting(pool, AI_SETTINGS_KEY, &value, AI_SETTINGS_SCHEMA_VERSION)
         .await
-        .map_err(|_| "failed to save AI settings".to_owned())
+        .map_err(|_| AiSettingsSaveError::from("failed to save AI settings".to_owned()))
 }
 
 pub async fn save_openai_compatible_provider(
@@ -823,7 +873,10 @@ fn validate_selected_settings(
     Ok(())
 }
 
-async fn validate_settings(pool: &SqlitePool, settings: &AiSettings) -> Result<(), String> {
+async fn validate_settings(
+    pool: &SqlitePool,
+    settings: &AiSettings,
+) -> Result<(), AiSettingsSaveError> {
     let retry_values = [
         Some(settings.retries.default),
         settings.retries.actions.task_creation,
@@ -836,40 +889,80 @@ async fn validate_settings(pool: &SqlitePool, settings: &AiSettings) -> Result<(
         .flatten()
         .any(|retries| retries > MAX_AI_RETRIES)
     {
-        return Err(format!("AI retries must be between 0 and {MAX_AI_RETRIES}"));
+        return Err(format!("AI retries must be between 0 and {MAX_AI_RETRIES}").into());
     }
-    let providers = dto(pool).await?.providers;
+    let page = dto(pool).await?;
+    validate_changed_selections(settings, &page.settings, &page.providers)
+}
+
+fn validate_changed_selections(
+    settings: &AiSettings,
+    previous: &AiSettings,
+    providers: &[AiProviderDto],
+) -> Result<(), AiSettingsSaveError> {
     if settings.provider.is_some() {
-        validate_provider_selection(
-            settings.provider,
-            settings.provider_instance_id.as_deref(),
-            &settings.model,
-            &providers,
-            "Select an AI provider before saving",
-        )?;
+        if settings.provider != previous.provider
+            || settings.provider_instance_id != previous.provider_instance_id
+            || settings.model != previous.model
+        {
+            validate_provider_selection(
+                settings.provider,
+                settings.provider_instance_id.as_deref(),
+                &settings.model,
+                providers,
+            )
+            .map_err(|field| AiSettingsSaveError::field(AiSettingsScope::Default, field))?;
+        }
     } else if settings.task_creation.is_none()
         && settings.pull_request_review.is_none()
         && settings.token_burner.is_none()
         && settings.sprint_summary.is_none()
     {
-        return Err("Select an AI provider before saving".to_owned());
+        return Err(AiSettingsSaveError::field(
+            AiSettingsScope::Default,
+            AiSettingsField::Provider,
+        ));
     }
-    for profile in [
-        settings.task_creation.as_ref(),
-        settings.pull_request_review.as_ref(),
-        settings.token_burner.as_ref(),
-        settings.sprint_summary.as_ref(),
-    ]
-    .into_iter()
-    .flatten()
-    {
-        validate_provider_selection(
-            Some(profile.provider),
-            profile.provider_instance_id.as_deref(),
-            &profile.model,
-            &providers,
-            "Select an AI provider before saving",
-        )?;
+    // Preserve unrelated saved profiles even when their provider catalog changes.
+    // Every profile is still checked against live providers before running an activity.
+    for (scope, profile, saved) in [
+        (
+            AiSettingsScope::TaskCreation,
+            &settings.task_creation,
+            &previous.task_creation,
+        ),
+        (
+            AiSettingsScope::PullRequestReview,
+            &settings.pull_request_review,
+            &previous.pull_request_review,
+        ),
+        (
+            AiSettingsScope::TokenBurner,
+            &settings.token_burner,
+            &previous.token_burner,
+        ),
+        (
+            AiSettingsScope::SprintSummary,
+            &settings.sprint_summary,
+            &previous.sprint_summary,
+        ),
+    ] {
+        if let Some(profile) = profile {
+            let selection_unchanged = saved.as_ref().is_some_and(|saved| {
+                saved.provider == profile.provider
+                    && saved.provider_instance_id == profile.provider_instance_id
+                    && saved.model == profile.model
+            });
+            if !selection_unchanged {
+                validate_provider_selection(
+                    Some(profile.provider),
+                    profile.provider_instance_id.as_deref(),
+                    &profile.model,
+                    providers,
+                )
+                .map_err(|field| AiSettingsSaveError::field(scope, field))?;
+            }
+        }
     }
     Ok(())
 }
@@ -879,28 +972,24 @@ fn validate_provider_selection(
     instance_id: Option<&str>,
     model: &str,
     providers: &[AiProviderDto],
-    missing_provider_error: &str,
-) -> Result<(), String> {
-    if model.trim().is_empty() {
-        return Err("Selected AI model is invalid".to_owned());
+) -> Result<(), AiSettingsField> {
+    let provider = provider.ok_or(AiSettingsField::Provider)?;
+    let provider_status = providers
+        .iter()
+        .find(|item| {
+            item.id == provider
+                && (provider != AiProviderId::OpenAiCompatible
+                    || item.instance_id.as_deref() == Some(instance_id.unwrap_or("legacy")))
+        })
+        .ok_or(AiSettingsField::Provider)?;
+    if !provider_status.available || provider_status.status != AiProviderStatus::Connected {
+        return Err(AiSettingsField::Provider);
     }
-    let provider = provider.ok_or_else(|| missing_provider_error.to_owned())?;
-    let Some(provider_status) = providers.iter().find(|item| {
-        item.id == provider
-            && (provider != AiProviderId::OpenAiCompatible
-                || item.instance_id.as_deref() == Some(instance_id.unwrap_or("legacy")))
-    }) else {
-        return Err("Selected AI provider is unavailable".to_owned());
-    };
-    if !provider_status.available
-        || provider_status.status != AiProviderStatus::Connected
-        || !provider_status.models.iter().any(|known| known == model)
-    {
-        return Err("Selected AI model is invalid".to_owned());
+    if model.trim().is_empty() || !provider_status.models.iter().any(|known| known == model) {
+        return Err(AiSettingsField::Model);
     }
     Ok(())
 }
-
 fn openai_credential_store() -> Box<dyn CredentialStore> {
     Box::new(OsKeyring::new(AI_KEYRING_SERVICE))
 }
@@ -1470,6 +1559,40 @@ mod tests {
     use sqlx::sqlite::SqlitePoolOptions;
 
     #[test]
+    fn accepts_a_new_pi_selection_with_an_unchanged_unavailable_activity() {
+        let previous = AiSettings {
+            token_burner: Some(super::AiSettingsProfile {
+                provider: AiProviderId::OpenAiCompatible,
+                provider_instance_id: Some("example-api".to_owned()),
+                model: "retired-example-model".to_owned(),
+                reasoning: AiReasoning::Medium,
+                fast_mode: false,
+            }),
+            ..AiSettings::default()
+        };
+        let settings = AiSettings {
+            provider: Some(AiProviderId::PiCli),
+            model: "openai/example-model".to_owned(),
+            ..previous.clone()
+        };
+        let providers = vec![AiProviderDto {
+            id: AiProviderId::PiCli,
+            instance_id: None,
+            name: "Pi CLI".to_owned(),
+            status: AiProviderStatus::Connected,
+            available: true,
+            models: vec![settings.model.clone()],
+            executable_path: None,
+            version: None,
+            base_url: None,
+            allow_insecure_tls: None,
+            message: None,
+        }];
+        super::validate_changed_selections(&settings, &previous, &providers).unwrap();
+        assert_eq!(settings.token_burner, previous.token_burner);
+    }
+
+    #[test]
     fn mock_ai_defaults_to_codex_when_both_cli_providers_are_connected() {
         let connected = |id, name: &str, models: &[&str]| AiProviderDto {
             id,
@@ -2010,11 +2133,11 @@ mod tests {
         let mut permissions = fs::metadata(&binary).unwrap().permissions();
         permissions.set_mode(0o755);
         fs::set_permissions(&binary, permissions).unwrap();
-        std::env::set_var("MEWORK_CODEX_BIN", &binary);
+        std::env::set_var("MEWORK_CODEX_CLI_BIN", &binary);
 
         let provider = inspect_codex_cli();
 
-        std::env::remove_var("MEWORK_CODEX_BIN");
+        std::env::remove_var("MEWORK_CODEX_CLI_BIN");
         assert_eq!(provider.id, AiProviderId::CodexCli);
         assert_eq!(provider.status, AiProviderStatus::Connected);
         assert!(provider.available);

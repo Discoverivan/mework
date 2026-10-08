@@ -2466,7 +2466,7 @@ mod tests {
         let _env_lock = crate::application::ai::test_process_env_lock()
             .lock()
             .unwrap();
-        std::env::set_var("MEWORK_CODEX_BIN", &codex);
+        std::env::set_var("MEWORK_CODEX_CLI_BIN", &codex);
 
         let request = PullRequestReviewRequest {
             integration_id: "bitbucket-1".to_owned(),
@@ -2548,7 +2548,7 @@ mod tests {
         assert!(fs::read_to_string(root.join("prompt.txt"))
             .unwrap()
             .contains("return true"));
-        std::env::remove_var("MEWORK_CODEX_BIN");
+        std::env::remove_var("MEWORK_CODEX_CLI_BIN");
 
         let claude = root.join("claude");
         fs::write(
@@ -2559,7 +2559,7 @@ mod tests {
         let mut permissions = fs::metadata(&claude).unwrap().permissions();
         permissions.set_mode(0o755);
         fs::set_permissions(&claude, permissions).unwrap();
-        std::env::set_var("MEWORK_CLAUDE_BIN", &claude);
+        std::env::set_var("MEWORK_CLAUDE_CODE_CLI_BIN", &claude);
         let claude_settings = AiSettings {
             provider: Some(AiProviderId::ClaudeCodeCli),
             provider_instance_id: None,
@@ -2576,7 +2576,7 @@ mod tests {
             ai_prompts::REVIEW_DEFAULT,
         )
         .unwrap();
-        std::env::remove_var("MEWORK_CLAUDE_BIN");
+        std::env::remove_var("MEWORK_CLAUDE_CODE_CLI_BIN");
         assert!(fs::read_to_string(root.join("claude-input.txt"))
             .unwrap()
             .contains("return true"));

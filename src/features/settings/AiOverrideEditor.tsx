@@ -1,6 +1,8 @@
 import { Label } from "@/components/ui/label";
+import { FieldValidationHint } from "@/components/shared/FieldValidationHint";
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useI18n } from "@/i18n/context";
+import { AiProviderSelectContent } from "./AiProviderSelectContent";
 import type { AiProvider, AiReasoning, AiSettingsProfile } from "@/shared/contracts/settings";
 
 const AI_REASONING_OPTIONS: AiReasoning[] = ["minimal", "low", "medium", "high", "xhigh"];
@@ -44,6 +46,7 @@ export function AiOverrideEditor({
   unavailableLabel,
   onChange,
   disabled,
+  fieldErrors,
 }: {
   idPrefix: string;
   profile: AiSettingsProfile | null | undefined;
@@ -56,6 +59,7 @@ export function AiOverrideEditor({
   unavailableLabel: string;
   onChange: (profile: AiSettingsProfile | null) => void;
   disabled: boolean;
+  fieldErrors?: Partial<Record<"provider" | "model", string>>;
 }) {
   const selected = providers.find((candidate) => candidate.id === profile?.provider
     && (candidate.id !== "openai-compatible" || (candidate.instanceId ?? "legacy") === (profile.providerInstanceId ?? "legacy")));
@@ -78,22 +82,19 @@ export function AiOverrideEditor({
           };
           onChange(next);
         }} disabled={disabled}>
-          <SelectTrigger id={`${idPrefix}-provider`} aria-labelledby={`${idPrefix}-provider-label`} className="h-9"><SelectValue /></SelectTrigger>
-          <SelectContent>
-            <SelectItem value="__inherit__">{inheritedLabel}</SelectItem>
-            {providers.map((candidate) => (
-              <SelectItem key={candidate.instanceId ?? candidate.id} value={candidate.instanceId ?? candidate.id} disabled={!candidate.available}>
-                {candidate.name}{candidate.name === "OpenAI-compatible API" && candidate.baseUrl ? ` · ${candidate.baseUrl}` : ""}{candidate.available ? "" : ` (${unavailableLabel})`}
-              </SelectItem>
-            ))}
-          </SelectContent>
+          <FieldValidationHint error={fieldErrors?.provider}>
+            <SelectTrigger id={`${idPrefix}-provider`} aria-labelledby={`${idPrefix}-provider-label`} className="h-9"><SelectValue /></SelectTrigger>
+          </FieldValidationHint>
+          <AiProviderSelectContent providers={providers} fallbackValue="__inherit__" fallbackLabel={inheritedLabel} unavailableLabel={unavailableLabel} />
         </Select>
       </div>
       {profile && selected ? <>
         <div className="grid min-w-0 max-w-full gap-2.5">
           <Label className="translate-x-1" id={`${idPrefix}-model-label`}>{modelLabel}</Label>
           <Select value={profile.model} onValueChange={(model) => onChange({ ...profile, model })} disabled={disabled || selected.models.length === 0}>
-            <SelectTrigger id={`${idPrefix}-model`} aria-labelledby={`${idPrefix}-model-label`} className="h-9"><SelectValue placeholder={noModelsLabel} /></SelectTrigger>
+            <FieldValidationHint error={fieldErrors?.model}>
+              <SelectTrigger id={`${idPrefix}-model`} aria-labelledby={`${idPrefix}-model-label`} className="h-9"><SelectValue placeholder={noModelsLabel} /></SelectTrigger>
+            </FieldValidationHint>
             <SelectContent>{selected.models.map((model) => <SelectItem key={model} value={model}>{model}</SelectItem>)}</SelectContent>
           </Select>
         </div>

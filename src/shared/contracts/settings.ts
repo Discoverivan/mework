@@ -25,6 +25,20 @@ export interface AiSettingsProfile {
 
 export type AiActivity = "taskCreation" | "pullRequestReview" | "tokenBurner" | "sprintSummary";
 
+export interface AiSettingsSaveError {
+  message: string;
+  scope: "default" | AiActivity | null;
+  field: "provider" | "model" | null;
+}
+
+export function isAiSettingsFieldError(value: unknown): value is AiSettingsSaveError & { scope: "default" | AiActivity; field: "provider" | "model" } {
+  if (!value || typeof value !== "object") return false;
+  const error = value as Partial<AiSettingsSaveError>;
+  return typeof error.message === "string"
+    && ["default", "taskCreation", "pullRequestReview", "tokenBurner", "sprintSummary"].includes(error.scope ?? "")
+    && (error.field === "provider" || error.field === "model");
+}
+
 export interface AiRetrySettings {
   default: number;
   actions: Record<AiActivity, number | null>;

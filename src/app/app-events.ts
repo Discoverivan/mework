@@ -4,10 +4,12 @@ import type { MyPullRequestPage, PullRequestReviewChangedEvent } from "@/shared/
 import type { TaskTrackerMonitor } from "@/shared/contracts/task-tracker";
 import type { TokenBurnerSnapshot } from "@/shared/contracts/token-burner";
 import type { UpdateAvailabilitySnapshot } from "@/shared/contracts/updates";
+import type { TeamMembersChangedEvent } from "@/shared/contracts/planning";
 import type { TaskTrackerReadStateChanged } from "@/features/product/task-tracker-read-state";
 import type { PullRequestDisplayScope, PullRequestQuickFilter } from "@/features/developer/display-options";
 
 export const APP_EVENT = {
+  teamMembersChanged: "team-members:changed",
   integrationsChanged: "integrations:changed",
   integrationsHealthRefreshed: "integrations:health-refreshed",
   aiSettingsChanged: "ai-settings:changed",
@@ -26,6 +28,7 @@ export const APP_EVENT = {
 } as const;
 
 interface AppEventMap {
+  [APP_EVENT.teamMembersChanged]: TeamMembersChangedEvent;
   [APP_EVENT.integrationsChanged]: undefined;
   [APP_EVENT.integrationsHealthRefreshed]: IntegrationRedacted[];
   [APP_EVENT.aiSettingsChanged]: AiSettingsPageData;

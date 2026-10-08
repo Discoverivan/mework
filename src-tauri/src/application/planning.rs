@@ -336,6 +336,13 @@ pub struct TeamMemberDto {
     pub display_order: i64,
 }
 
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TeamMembersChangedEvent {
+    pub managed_project_id: String,
+    pub members: Vec<TeamMemberDto>,
+}
+
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TeamMemberSearchRequest {

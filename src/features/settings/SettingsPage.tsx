@@ -1,4 +1,6 @@
 import { Hint } from "@/components/ui/tooltip";
+import { FieldValidationHint } from "@/components/shared/FieldValidationHint";
+import { isAiSettingsFieldError, type AiSettingsSaveError } from "@/shared/contracts/settings";
 import { AlertTriangle, CheckCircle2, Circle, CircleHelp, Loader2, Pencil, RefreshCw, Sparkles, Trash2 } from "lucide-react";
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import {
@@ -11,6 +13,7 @@ import { PageHeader } from "@/components/shared/PageHeader";
 import { ActionSettingsSection } from "./prompts/ActionSettingsSection";
 import { AiRetriesField } from "./AiRetriesField";
 import { AiModeSelect, AiOverrideEditor } from "./AiOverrideEditor";
+import { AiProviderSelectContent } from "./AiProviderSelectContent";
 import { Card, CardContent, CardDescription, CardHeader } from "@/components/ui/card";
 import { CreateButton } from "@/components/shared/CreateButton";
 import { Button } from "@/components/ui/button";
@@ -19,7 +22,7 @@ import { StoredSecretInput } from "@/components/shared/StoredSecretInput";
 import { Label } from "@/components/ui/label";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Separator } from "@/components/ui/separator";
-import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectSeparator, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 import { APP_EVENT, emitAppEvent, subscribeAppEvent } from "@/app/app-events";
 import {
@@ -226,6 +229,11 @@ function aiProviderReady(provider: AiProvider | undefined, model: string): boole
     && provider.models.includes(model);
 }
 
+function aiProviderVersion(provider: AiProvider): string | undefined {
+  return provider.version?.match(/\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?/)?.[0];
+}
+
+
 export type SettingsSection = "general" | "ai" | "integrations" | "projects";
 type AiSettingsScope = "default" | "taskCreation" | "pullRequestReview" | "tokenBurner" | "sprintSummary";
 type AiActivity = Exclude<AiSettingsScope, "default">;
@@ -238,7 +246,7 @@ const AI_ACTION_PREFIXES: Record<AiActivity, string> = {
 };
 
 function aiProviderMessage(provider: AiProvider | undefined, t: ReturnType<typeof useI18n>["t"]): string | undefined {
-  const keys = ["settings.pi.notFound", "settings.pi.unavailable", "settings.pi.updateRequired", "settings.pi.configure", "settings.opencode.notFound", "settings.opencode.unavailable", "settings.opencode.unsupported", "settings.opencode.configure"] as const;
+  const keys = ["settings.pi.notFound", "settings.pi.unavailable", "settings.pi.updateRequired", "settings.pi.configure", "settings.pi.subscriptionEmpty", "settings.pi.subscriptionAuthRequired", "settings.pi.subscriptionUnavailable", "settings.opencode.notFound", "settings.opencode.unavailable", "settings.opencode.unsupported", "settings.opencode.configure"] as const;
   const key = keys.find((key) => key === provider?.message);
   return key ? t(key) : provider?.message;
 }
@@ -270,6 +278,7 @@ export function SettingsPage({ section = "integrations", focusActivity, mockMode
   const [aiSaving, setAiSaving] = useState(false);
   const [aiSavingScopes, setAiSavingScopes] = useState<AiSettingsScope[]>([]);
   const [aiError, setAiError] = useState<string | null>(null);
+  const [aiFieldError, setAiFieldError] = useState<AiSettingsSaveError | null>(null);
   const [aiSaveNotice, setAiSaveNotice] = useState<{ key: TranslationKey; revision: number } | null>(null);
   const [instructionsSaving, setInstructionsSaving] = useState(false);
   const [instructionsLoading, setInstructionsLoading] = useState(false);
@@ -334,6 +343,7 @@ export function SettingsPage({ section = "integrations", focusActivity, mockMode
         setLoading(false);
       }
       setAiError(null);
+      setAiFieldError(null);
       void getAiSettings()
         .then((loadedAiData) => {
           if (!active) return;
@@ -382,6 +392,7 @@ export function SettingsPage({ section = "integrations", focusActivity, mockMode
     return subscribeAppEvent(APP_EVENT.aiSettingsChanged, (updated) => {
       setAiData(updated);
       setAiError(null);
+      setAiFieldError(null);
     });
   }, [section]);
 
@@ -558,6 +569,7 @@ export function SettingsPage({ section = "integrations", focusActivity, mockMode
       setAiSaving(true);
       setAiSaveNotice(null);
       setAiError(null);
+      setAiFieldError(null);
       void saveAiSettings(aiDraft).then((saved) => {
         if (aiSaveRevisionRef.current !== revision) return;
         setAiData(saved);
@@ -567,6 +579,11 @@ export function SettingsPage({ section = "integrations", focusActivity, mockMode
       }).catch((saveError) => {
         if (aiSaveRevisionRef.current !== revision) return;
         aiFailedDraftRef.current = aiDraft;
+        if (isAiSettingsFieldError(saveError)) {
+          setAiFieldError(saveError);
+          setAiStatusScope(saveError.scope);
+          return;
+        }
         if (aiStatusScope !== "default" && !aiDraft[aiStatusScope] && aiData.settings[aiStatusScope]) {
           setAiDraft((current) => ({
             ...current,
@@ -601,6 +618,7 @@ export function SettingsPage({ section = "integrations", focusActivity, mockMode
           }));
           setAiStatusScope(action === "default" ? "default" : action);
           setAiError(null);
+          setAiFieldError(null);
         }} />;
   }
 
@@ -618,6 +636,7 @@ export function SettingsPage({ section = "integrations", focusActivity, mockMode
         unavailableLabel={t("settings.ai.unavailableSuffix")}
         onChange={(profile) => updateAiProfile(action, profile)}
         disabled={aiLoading || aiSavingScopes.includes(action)}
+        fieldErrors={{ provider: aiFieldMessage(action, "provider"), model: aiFieldMessage(action, "model") }}
       />
       {aiDraft[action] ? renderRetries(action) : null}
       {renderAiStatus(action)}
@@ -686,6 +705,7 @@ export function SettingsPage({ section = "integrations", focusActivity, mockMode
     setAiDraft((current) => ({ ...current, [field]: value }));
     setAiStatusScope(field === "taskCreation" || field === "pullRequestReview" || field === "tokenBurner" || field === "sprintSummary" ? field : "default");
     setAiError(null);
+    setAiFieldError(null);
   }
 
   function updateAiProfile(field: AiActivity, profile: AiSettingsProfile | null) {
@@ -699,6 +719,7 @@ export function SettingsPage({ section = "integrations", focusActivity, mockMode
     }));
     setAiStatusScope(field);
     setAiError(null);
+    setAiFieldError(null);
   }
 
   function updateAiProvider(value: string) {
@@ -717,9 +738,17 @@ export function SettingsPage({ section = "integrations", focusActivity, mockMode
     });
     setAiStatusScope("default");
     setAiError(null);
+    setAiFieldError(null);
+  }
+
+  function aiFieldMessage(scope: AiSettingsScope, field: "provider" | "model") {
+    return aiFieldError?.scope === scope && aiFieldError.field === field
+      ? t(field === "model" ? "settings.ai.modelInvalid" : "settings.ai.providerInvalid")
+      : undefined;
   }
 
   function renderAiStatus(scope: AiSettingsScope) {
+    if (aiFieldError?.scope === scope) return null;
     if (aiStatusScope !== scope) return null;
     const profile = scope === "taskCreation" ? aiDraft.taskCreation
       : scope === "pullRequestReview" ? aiDraft.pullRequestReview
@@ -1078,9 +1107,9 @@ export function SettingsPage({ section = "integrations", focusActivity, mockMode
                           <div role="group" aria-label={`${candidate.name} AI provider`} className="flex min-h-14 min-w-0 flex-wrap items-center gap-3 py-3">
                             <div className="min-w-0 flex-1">
                               <p className="truncate text-[13.5px]">{candidate.name}</p>
-                              {candidate.baseUrl || candidate.version || candidate.message ? (
-                                <Hint content={candidate.baseUrl ?? aiProviderMessage(candidate, t) ?? candidate.version}><p className="truncate text-xs text-muted-foreground">
-                                  {candidate.baseUrl ?? aiProviderMessage(candidate, t) ?? candidate.version}
+                              {candidate.baseUrl || aiProviderVersion(candidate) || candidate.message ? (
+                                <Hint content={candidate.baseUrl ?? aiProviderMessage(candidate, t) ?? aiProviderVersion(candidate)}><p className="truncate text-xs text-muted-foreground">
+                                  {candidate.baseUrl ?? aiProviderMessage(candidate, t) ?? aiProviderVersion(candidate)}
                                 </p></Hint>
                               ) : null}
                             </div>
@@ -1124,41 +1153,22 @@ export function SettingsPage({ section = "integrations", focusActivity, mockMode
                 <div className="grid min-w-0 max-w-full gap-2.5">
                   <Label className="translate-x-1" id="ai-provider-label">{t("settings.ai.provider")}</Label>
                   <Select value={selectedAiProvider?.instanceId ?? aiDraft.provider ?? "__none__"} onValueChange={updateAiProvider} disabled={aiData === null || aiLoading || aiSavingScopes.includes("default")}>
-                    <SelectTrigger id="ai-provider" aria-labelledby="ai-provider-label" className="h-9">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="__none__">{t("settings.ai.notSelected")}</SelectItem>
-                      {cliProviders.length > 0 ? (
-                        <SelectGroup>
-                          <SelectLabel className="cursor-default py-1 pl-2 pr-2 text-xs font-medium text-muted-foreground">{t("settings.aiProviders.cliGroup")}</SelectLabel>
-                          {cliProviders.map((candidate) => (
-                            <SelectItem key={candidate.instanceId ?? candidate.id} value={candidate.instanceId ?? candidate.id} disabled={!candidate.available}>
-                              {candidate.name}{candidate.available ? "" : ` (${t("settings.ai.unavailableSuffix")})`}
-                            </SelectItem>
-                          ))}
-                        </SelectGroup>
-                      ) : null}
-                      {cliProviders.length > 0 && apiProviders.length > 0 ? <SelectSeparator data-testid="ai-provider-group-separator" /> : null}
-                      {apiProviders.length > 0 ? (
-                        <SelectGroup>
-                          <SelectLabel className="cursor-default py-1 pl-2 pr-2 text-xs font-medium text-muted-foreground">{t("settings.aiProviders.apiGroup")}</SelectLabel>
-                          {apiProviders.map((candidate) => (
-                            <SelectItem key={candidate.instanceId ?? candidate.id} value={candidate.instanceId ?? candidate.id} disabled={!candidate.available}>
-                              {candidate.name}{candidate.name === "OpenAI-compatible API" && candidate.baseUrl ? ` · ${candidate.baseUrl}` : ""}{candidate.available ? "" : ` (${t("settings.ai.unavailableSuffix")})`}
-                            </SelectItem>
-                          ))}
-                        </SelectGroup>
-                      ) : null}
-                    </SelectContent>
+                    <FieldValidationHint error={aiFieldMessage("default", "provider")}>
+                      <SelectTrigger id="ai-provider" aria-labelledby="ai-provider-label" className="h-9">
+                        <SelectValue />
+                      </SelectTrigger>
+                    </FieldValidationHint>
+                    <AiProviderSelectContent providers={aiData.providers} fallbackValue="__none__" fallbackLabel={t("settings.ai.notSelected")} />
                   </Select>
                 </div>
                 <div className="grid min-w-0 max-w-full gap-2.5">
                   <Label className="translate-x-1" id="ai-model-label">{t("settings.ai.model")}</Label>
                   <Select value={aiDraft.model} onValueChange={(value) => updateAiSetting("model", value)} disabled={!aiDraft.provider || !selectedAiProvider || aiSavingScopes.includes("default") || (selectedAiProvider.models.length === 0)}>
-                    <SelectTrigger id="ai-model" aria-labelledby="ai-model-label" className="h-9">
-                      <SelectValue placeholder={t("settings.ai.noModels", { provider: selectedAiProvider?.name ?? t("settings.ai.selectedProvider") })} />
-                    </SelectTrigger>
+                    <FieldValidationHint error={aiFieldMessage("default", "model")}>
+                      <SelectTrigger id="ai-model" aria-labelledby="ai-model-label" className="h-9">
+                        <SelectValue placeholder={t("settings.ai.noModels", { provider: selectedAiProvider?.name ?? t("settings.ai.selectedProvider") })} />
+                      </SelectTrigger>
+                    </FieldValidationHint>
                     <SelectContent>
                       {(selectedAiProvider?.models ?? []).map((model) => <SelectItem key={model} value={model}>{model}</SelectItem>)}
                     </SelectContent>

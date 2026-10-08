@@ -2,6 +2,8 @@ import type { DailyWorkspace } from "@/shared/contracts/developer";
 import type { ManagedProject } from "@/shared/contracts/planning";
 import { listManagedProjects } from "../planning/api";
 import { loadDailyWorkspace } from "./api";
+import { APP_EVENT, subscribeAppEvent } from "@/app/app-events";
+import { readUpdatedTeamMembers } from "../planning/team-members-state";
 
 const workspaceCache = new Map<string, DailyWorkspace>();
 const latestWorkspaceKeyByProject = new Map<string, string>();
@@ -10,6 +12,14 @@ let projectsRequest: Promise<ManagedProject[]> | undefined;
 const workspaceRequests = new Map<string, Promise<DailyWorkspace>>();
 const workspaceSelections = new Map<string, symbol>();
 let prefetchRequest: Promise<void> | undefined;
+
+subscribeAppEvent(APP_EVENT.teamMembersChanged, ({ managedProjectId, members }) => {
+  for (const [key, workspace] of workspaceCache) {
+    if (workspace.managedProjectId === managedProjectId) {
+      workspaceCache.set(key, { ...workspace, members });
+    }
+  }
+});
 
 export function refreshManagedProjectsCache(): Promise<ManagedProject[]> {
   if (projectsRequest) return projectsRequest;
@@ -27,7 +37,10 @@ export function refreshDailyWorkspaceCache(projectId: string, sprintId?: string,
   const key = cacheKey(projectId, sprintId ?? "");
   let request = workspaceRequests.get(key);
   if (!request) {
-    request = loadDailyWorkspace(projectId, sprintId).then((workspace) => {
+    request = loadDailyWorkspace(projectId, sprintId).then((loaded) => {
+      // An in-flight Jira response may contain members read before the local edit.
+      const members = readUpdatedTeamMembers(projectId);
+      const workspace = members ? { ...loaded, members } : loaded;
       cacheDailyWorkspace(workspace, false);
       return workspace;
     }).finally(() => { if (workspaceRequests.get(key) === request) workspaceRequests.delete(key); });
@@ -80,6 +93,8 @@ export function writeDailyWorkspaceCache(workspace: DailyWorkspace): void {
 }
 
 function cacheDailyWorkspace(workspace: DailyWorkspace, selectWorkspace: boolean): void {
+  const members = readUpdatedTeamMembers(workspace.managedProjectId);
+  if (members) workspace = { ...workspace, members };
   const key = cacheKey(workspace.managedProjectId, workspace.selectedSprintId);
   workspaceCache.set(key, workspace);
   if (selectWorkspace || !latestWorkspaceKeyByProject.has(workspace.managedProjectId)) {

@@ -1,6 +1,8 @@
 import type { TranslationKey } from "./en";
 
 export const ru: Record<TranslationKey, string> = {
+  "settings.ai.modelInvalid": "Эта модель недоступна. Обновите провайдера и выберите доступную модель.",
+  "settings.ai.providerInvalid": "Этот провайдер недоступен. Обновите его или выберите подключённого провайдера.",
   "daily.changeStatusHint": "Изменить статус",
   "tokenBurner.statusHelp.idle": "Сессия проверки моделей не запущена.",
   "tokenBurner.statusHelp.running": "Поиск pull request и выполнение AI-проверок.",
@@ -67,6 +69,9 @@ export const ru: Record<TranslationKey, string> = {
   "settings.pi.unavailable": "Не удалось проверить Pi CLI. Убедитесь, что Pi и Node.js запускаются из терминала.",
   "settings.pi.updateRequired": "Обновите Pi CLI: эта версия не поддерживает изолированный запуск без инструментов, расширений и файлов контекста.",
   "settings.pi.configure": "Pi не сообщил о доступных моделях. Откройте Pi, войдите через /login, настройте модель и обновите список.",
+  "settings.pi.subscriptionEmpty": "Аккаунт ChatGPT не сообщил о моделях, поддерживаемых этой версией Pi. Обновите Pi и список провайдеров.",
+  "settings.pi.subscriptionAuthRequired": "Не удалось авторизовать подписку ChatGPT. Откройте Pi, заново подключите OpenAI (ChatGPT subscription) через /login и обновите список.",
+  "settings.pi.subscriptionUnavailable": "Не удалось проверить модели, доступные аккаунту ChatGPT. Обновите список провайдеров или Pi. Общий каталог OpenAI скрыт до успешной проверки.",
 
   "settings.prompts.modeBuiltIn": "Встроенная",
   "settings.prompts.modeCustom": "Своя",

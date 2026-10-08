@@ -63,6 +63,10 @@ it("loads retention settings and saves a changed history limit", async () => {
   fireEvent.change(screen.getByRole("textbox", { name: "Total log size" }), { target: { value: "2" } });
   fireEvent.click(screen.getByRole("combobox", { name: "Removed tasks retention" }));
   fireEvent.click(screen.getByRole("option", { name: "Do not keep" }));
+  expect(screen.getByRole("combobox", { name: "Removed tasks retention" })).toHaveAttribute(
+    "data-tooltip", "Removes eligible history when saved. Current data and active runs remain available.",
+  );
+  expect(screen.queryByText("Removes eligible history when saved. Current data and active runs remain available.")).not.toBeInTheDocument();
   fireEvent.click(screen.getByRole("button", { name: "Save" }));
   await waitFor(() => expect(invokeMock).toHaveBeenCalledWith("data_retention_settings_save", { settings: { ...settings,
     reviewHistory: { mode: "period", value: 1234, unit: "hours" },

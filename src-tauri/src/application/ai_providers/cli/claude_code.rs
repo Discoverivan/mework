@@ -312,7 +312,7 @@ mod tests {
             permissions.set_mode(0o755);
             fs::set_permissions(&binary, permissions).unwrap();
         }
-        std::env::set_var("MEWORK_CLAUDE_BIN", &binary);
+        std::env::set_var("MEWORK_CLAUDE_CODE_CLI_BIN", &binary);
 
         let provider = inspect();
         let output = run_structured(
@@ -323,7 +323,7 @@ mod tests {
         )
         .unwrap();
 
-        std::env::remove_var("MEWORK_CLAUDE_BIN");
+        std::env::remove_var("MEWORK_CLAUDE_CODE_CLI_BIN");
         assert_eq!(provider.status, AiProviderStatus::Connected);
         assert_eq!(provider.models, vec!["sonnet", "opus", "haiku"]);
         assert_eq!(provider.version.as_deref(), Some("2.1.0"));

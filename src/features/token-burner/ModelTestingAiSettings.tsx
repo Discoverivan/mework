@@ -6,7 +6,7 @@ import { AiOverrideEditor } from "@/features/settings/AiOverrideEditor";
 import { AiRetriesField } from "@/features/settings/AiRetriesField";
 import { saveAiSettings } from "@/features/settings/api";
 import { useI18n } from "@/i18n/context";
-import type { AiSettings, AiSettingsPageData, AiSettingsProfile } from "@/shared/contracts/settings";
+import { isAiSettingsFieldError, type AiSettings, type AiSettingsPageData, type AiSettingsProfile } from "@/shared/contracts/settings";
 
 function modelTestingDraft(settings: AiSettings) {
   return { profile: settings.tokenBurner ?? null, retries: settings.retries.actions.tokenBurner };
@@ -18,6 +18,7 @@ export function ModelTestingAiSettings({ data, disabled, onPendingChange }: { da
   const { profile, retries } = draft;
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [fieldErrors, setFieldErrors] = useState<Partial<Record<"provider" | "model", string>>>({});
   const [saved, setSaved] = useState(false);
   const [failedDraft, setFailedDraft] = useState<string | null>(null);
   const savedKey = JSON.stringify(modelTestingDraft(data.settings));
@@ -53,6 +54,7 @@ export function ModelTestingAiSettings({ data, disabled, onPendingChange }: { da
       setSaving(true);
       setSaved(false);
       setError(null);
+      setFieldErrors({});
       void saveAiSettings({
         ...data.settings,
         tokenBurner: profile,
@@ -66,7 +68,15 @@ export function ModelTestingAiSettings({ data, disabled, onPendingChange }: { da
       }).catch((failure: unknown) => {
         if (mounted.current) {
           setFailedDraft(draftKey);
-          setError(t("settings.error.saveAi", { error: failure instanceof Error ? failure.message : String(failure) }));
+          if (isAiSettingsFieldError(failure)) {
+            const message = t(failure.field === "model" ? "settings.ai.modelInvalid" : "settings.ai.providerInvalid");
+            if (failure.scope === "tokenBurner") setFieldErrors({ [failure.field]: message });
+            else setError(t("settings.error.saveAi", { error: message }));
+          } else {
+            const message = failure && typeof failure === "object" && "message" in failure && typeof failure.message === "string"
+              ? failure.message : String(failure);
+            setError(t("settings.error.saveAi", { error: message }));
+          }
         }
       }).finally(() => { if (mounted.current) setSaving(false); });
     }, 250);
@@ -76,6 +86,7 @@ export function ModelTestingAiSettings({ data, disabled, onPendingChange }: { da
   function changeProfile(next: AiSettingsProfile | null) {
     setDraft({ profile: next, retries: next ? retries ?? data.settings.retries.default : null });
     setError(null);
+    setFieldErrors({});
     setSaved(false);
     setFailedDraft(null);
   }
@@ -94,10 +105,12 @@ export function ModelTestingAiSettings({ data, disabled, onPendingChange }: { da
         unavailableLabel={t("settings.ai.unavailableSuffix")}
         onChange={changeProfile}
         disabled={disabled || loading || saving}
+        fieldErrors={fieldErrors}
       />
       {profile ? <AiRetriesField id="model-testing-ai-retries" value={retries ?? data.settings.retries.default} disabled={disabled || loading || saving} onChange={(value) => {
         setDraft((current) => ({ ...current, retries: value }));
         setError(null);
+        setFieldErrors({});
         setSaved(false);
         setFailedDraft(null);
       }} /> : null}

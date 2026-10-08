@@ -1,5 +1,5 @@
 use sqlx::SqlitePool;
-use tauri::State;
+use tauri::{AppHandle, Emitter, State};
 
 use crate::application::planning::{
     self, ApplyAndLockRequest, EpicLinkJqlIssueDto, EpicLinkJqlPreviewRequest, JiraBoardDto,
@@ -199,27 +199,56 @@ pub async fn planning_team_members_search(
 
 #[tauri::command]
 pub async fn planning_team_member_add(
+    app: AppHandle,
     state: State<'_, SqlitePool>,
     request: TeamMemberAddRequest,
 ) -> Result<TeamMemberDto, PlanningCommandError> {
-    planning::add_team_member(&state, request).await
+    let project_id = request.managed_project_id.clone();
+    let saved = planning::add_team_member(&state, request).await?;
+    emit_team_members_changed(&app, &state, &project_id).await;
+    Ok(saved)
 }
 
 #[tauri::command]
 pub async fn planning_team_member_remove(
+    app: AppHandle,
     state: State<'_, SqlitePool>,
     managed_project_id: String,
     account_id: String,
 ) -> Result<(), PlanningCommandError> {
-    planning::remove_team_member(&state, &managed_project_id, &account_id).await
+    planning::remove_team_member(&state, &managed_project_id, &account_id).await?;
+    emit_team_members_changed(&app, &state, &managed_project_id).await;
+    Ok(())
 }
 
 #[tauri::command]
 pub async fn planning_team_member_reorder(
+    app: AppHandle,
     state: State<'_, SqlitePool>,
     request: TeamMemberReorderRequest,
 ) -> Result<Vec<TeamMemberDto>, PlanningCommandError> {
-    planning::reorder_team_members(&state, request).await
+    let project_id = request.managed_project_id.clone();
+    let saved = planning::reorder_team_members(&state, request).await?;
+    let _ = app.emit(
+        "team_members_changed",
+        planning::TeamMembersChangedEvent {
+            managed_project_id: project_id,
+            members: saved.clone(),
+        },
+    );
+    Ok(saved)
+}
+
+async fn emit_team_members_changed(app: &AppHandle, pool: &SqlitePool, project_id: &str) {
+    if let Ok(members) = planning::list_configured_team_members(pool, project_id).await {
+        let _ = app.emit(
+            "team_members_changed",
+            planning::TeamMembersChangedEvent {
+                managed_project_id: project_id.to_owned(),
+                members,
+            },
+        );
+    }
 }
 
 #[tauri::command]

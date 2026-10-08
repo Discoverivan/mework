@@ -325,6 +325,26 @@ mod tests {
 
 pub(crate) fn local_cli_command(path: impl AsRef<OsStr>) -> Command {
     let binary = Path::new(path.as_ref());
+    #[cfg(windows)]
+    let mut command = if binary
+        .extension()
+        .is_some_and(|extension| extension.eq_ignore_ascii_case("ps1"))
+    {
+        let powershell = env::var_os("SystemRoot")
+            .map(PathBuf::from)
+            .map(|root| root.join("System32/WindowsPowerShell/v1.0/powershell.exe"))
+            .unwrap_or_else(|| PathBuf::from("powershell.exe"));
+        let mut command = Command::new(powershell);
+        command
+            .args(["-NoLogo", "-NoProfile", "-NonInteractive", "-File"])
+            .arg(binary);
+        // Honor the saved execution policy, including for GUI launches from a shell.
+        command.env_remove("PSExecutionPolicyPreference");
+        command
+    } else {
+        Command::new(binary)
+    };
+    #[cfg(not(windows))]
     let mut command = Command::new(binary);
     // npm shebangs need Node; GUI launches may not inherit the shell PATH.
     // Prefer the runtime beside the selected CLI, then the inherited PATH.
@@ -336,6 +356,15 @@ pub(crate) fn local_cli_command(path: impl AsRef<OsStr>) -> Command {
         .collect::<Vec<_>>();
     if let Some(path) = env::var_os("PATH") {
         paths.extend(env::split_paths(&path));
+    }
+    let node_name = if cfg!(windows) { "node.exe" } else { "node" };
+    if !paths
+        .iter()
+        .any(|directory| usable_cli_path(&directory.join(node_name)).is_some())
+    {
+        if let Some(runtime) = discovery::fnm_node_directory() {
+            paths.push(runtime);
+        }
     }
     #[cfg(not(windows))]
     paths.extend([

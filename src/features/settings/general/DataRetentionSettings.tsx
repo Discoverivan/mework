@@ -109,7 +109,8 @@ export function DataRetentionSettings() {
                 setValid((current) => ({ ...current, [field]: true }));
                 setDraft((current) => current && { ...current, [field]: { ...current[field], mode: mode as RetentionMode } });
               }}>
-                <SelectTrigger className="h-9 w-fit" aria-label={t("dataRetention.modeFor", { field: label })}><SelectValue /></SelectTrigger>
+                <SelectTrigger className="h-9 w-fit" aria-label={t("dataRetention.modeFor", { field: label })}
+                  title={period.mode === "disabled" ? t(field === "diagnosticLogs" ? "dataRetention.logsDisabledHelp" : "dataRetention.historyDisabledHelp") : undefined}><SelectValue /></SelectTrigger>
                 <SelectContent>{MODES.map((mode) => <SelectItem key={mode} value={mode}>{t(`dataRetention.${mode}`)}</SelectItem>)}</SelectContent>
               </Select>
               {period.mode === "period" ? <div className="flex items-center gap-2">
@@ -156,7 +157,6 @@ export function DataRetentionSettings() {
                 </div> : null}
                 </div>
               </div> : null}
-              {period.mode === "disabled" ? <p className="basis-full text-sm text-muted-foreground">{t(field === "diagnosticLogs" ? "dataRetention.logsDisabledHelp" : "dataRetention.historyDisabledHelp")}</p> : null}
             </div>
             </Fragment>;
           })}

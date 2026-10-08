@@ -145,6 +145,11 @@ export interface TeamMember {
   displayOrder?: number;
 }
 
+export interface TeamMembersChangedEvent {
+  managedProjectId: string;
+  members: TeamMember[];
+}
+
 export interface TeamMemberSearchInput {
   managedProjectId: string;
   query: string;

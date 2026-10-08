@@ -1,10 +1,25 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { expect, it, vi } from "vitest";
 import { Label } from "./label";
-import { Select, SelectTrigger, SelectValue } from "./select";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./select";
 import { Input } from "./input";
 import { Button } from "./button";
 import { Textarea } from "./textarea";
+
+it("keeps the final option selectable in a long menu", () => {
+  Element.prototype.scrollIntoView = vi.fn();
+  const changed = vi.fn();
+  render(<Select onValueChange={changed}>
+    <SelectTrigger aria-label="Example model"><SelectValue placeholder="Choose example model" /></SelectTrigger>
+    <SelectContent>{Array.from({ length: 50 }, (_, index) =>
+      <SelectItem key={index} value={`example-${index}`}>Example option {index + 1}</SelectItem>,
+    )}</SelectContent>
+  </Select>);
+  fireEvent.click(screen.getByRole("combobox", { name: "Example model" }));
+  fireEvent.click(screen.getByRole("option", { name: "Example option 50" }));
+  expect(changed).toHaveBeenCalledWith("example-49");
+  expect(screen.getByRole("combobox", { name: "Example model" })).toHaveTextContent("Example option 50");
+});
 
 it("marks hover only over the fields themselves while keeping their labels", () => {
   const entered = vi.fn();
