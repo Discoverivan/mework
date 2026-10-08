@@ -1,20 +1,40 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, expect, it, vi } from "vitest";
 import type { PromptSettings } from "@/shared/contracts/settings";
-import { getPromptSettings, savePromptSettings } from "./api";
+import { getPromptSettings, savePromptSettings, saveReviewFixExamples } from "./api";
 import { ActionSettingsSection } from "./ActionSettingsSection";
 
-vi.mock("./api", () => ({ getCachedPromptSettings: vi.fn().mockReturnValue(null), getPromptSettings: vi.fn(), savePromptSettings: vi.fn() }));
+vi.mock("./api", () => ({ getCachedPromptSettings: vi.fn().mockReturnValue(null), getPromptSettings: vi.fn(), savePromptSettings: vi.fn(), saveReviewFixExamples: vi.fn() }));
 
 const settings: PromptSettings = {
   action: "pullRequestReview", instructions: "Review concrete defects.", instructionsHash: "example-instructions-hash", defaultInstructions: "Review concrete defects.",
-  protectedRules: "Return the required JSON object.", customized: false,
+  protectedRules: "Return the required JSON object.", customized: false, includeFixExamples: false,
 };
 
 beforeEach(() => {
   vi.clearAllMocks();
   vi.mocked(getPromptSettings).mockResolvedValue([settings]);
   vi.mocked(savePromptSettings).mockImplementation(async (_, instructions) => ({ ...settings, instructions: instructions ?? settings.defaultInstructions, customized: instructions !== null }));
+  vi.mocked(saveReviewFixExamples).mockImplementation(async (enabled) => ({ ...settings, includeFixExamples: enabled }));
+});
+
+it("saves the review fix-example preference and restores it when settings reopen", async () => {
+  const view = render(<ActionSettingsSection />);
+  const toggle = await screen.findByRole("combobox", { name: "Suggest fixes" });
+  expect(toggle).toHaveTextContent("Disabled");
+  fireEvent.click(toggle);
+  fireEvent.click(screen.getByRole("option", { name: "Enabled" }));
+  await waitFor(() => expect(toggle).toHaveTextContent("Enabled"));
+  expect(saveReviewFixExamples).toHaveBeenLastCalledWith(true);
+  view.unmount();
+  vi.mocked(getPromptSettings).mockResolvedValue([{ ...settings, includeFixExamples: true }]);
+  render(<ActionSettingsSection />);
+  const restored = await screen.findByRole("combobox", { name: "Suggest fixes" });
+  expect(restored).toHaveTextContent("Enabled");
+  fireEvent.click(restored);
+  fireEvent.click(screen.getByRole("option", { name: "Disabled" }));
+  await waitFor(() => expect(restored).toHaveTextContent("Disabled"));
+  expect(saveReviewFixExamples).toHaveBeenLastCalledWith(false);
 });
 
 it("chooses custom instructions per action and switches back to the built-in prompt", async () => {

@@ -38,3 +38,7 @@ export function getPromptSettings(): Promise<PromptSettings[]> {
 export function savePromptSettings(action: PromptAction, instructions: string | null): Promise<PromptSettings> {
   return invoke<PromptSettings>("ai_prompt_settings_save", { action, instructions }).then(applySaved);
 }
+
+export function saveReviewFixExamples(enabled: boolean): Promise<PromptSettings> {
+  return invoke<PromptSettings>("ai_review_fix_examples_save", { enabled }).then(applySaved);
+}

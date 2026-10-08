@@ -699,6 +699,14 @@ pub enum AiActivity {
     SprintSummary,
 }
 
+// Read the selected profile without probing providers; cached work needs no live AI connection.
+pub(crate) async fn stored_settings_for_activity(
+    pool: &SqlitePool,
+    activity: AiActivity,
+) -> Result<AiSettings, String> {
+    Ok(effective_settings(load(pool).await?, activity))
+}
+
 pub async fn settings_for_activity(
     pool: &SqlitePool,
     activity: AiActivity,

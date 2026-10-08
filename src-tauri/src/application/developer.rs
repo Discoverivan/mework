@@ -1393,7 +1393,6 @@ pub async fn publish_pull_request_comment(
             &request.repository_slug,
             pull_request_id,
             &request.latest_commit,
-            "publication",
         ))
         .map_err(|_| command_error("invalid_input", "Invalid comparison scope", false))?;
         let checked = super::review_comment_matches::compare(

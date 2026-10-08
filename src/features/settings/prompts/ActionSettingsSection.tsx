@@ -14,7 +14,7 @@ import { APP_EVENT, subscribeAppEvent } from "@/app/app-events";
 import { useI18n } from "@/i18n/context";
 import type { TranslationKey } from "@/i18n/locales/en";
 import type { PromptAction, PromptSettings } from "@/shared/contracts/settings";
-import { getCachedPromptSettings, getPromptSettings, savePromptSettings } from "./api";
+import { getCachedPromptSettings, getPromptSettings, savePromptSettings, saveReviewFixExamples } from "./api";
 
 const actionLabels: Record<PromptAction, TranslationKey> = {
   pullRequestReview: "settings.ai.pullRequestReview",
@@ -97,6 +97,18 @@ export function ActionSettingsSection({ defaults, renderModelSettings, renderAct
     finally { setSaving(false); }
   }
 
+  async function toggleFixExamples(enabled: boolean) {
+    if (saving) return;
+    setSaving(true);
+    setSaveError(false);
+    try {
+      const saved = await saveReviewFixExamples(enabled);
+      setSettings((values) => values.map((value) => value.action === saved.action ? saved : value));
+      onSaved?.();
+    } catch { setSaveError(true); }
+    finally { setSaving(false); }
+  }
+
   const invalid = !draft.trim() || [...draft].length > 20_000;
   return <TooltipProvider delayDuration={300}><section aria-labelledby="ai-actions-title" className="flex flex-col gap-4">
     <header className="flex flex-col gap-1">
@@ -117,6 +129,23 @@ export function ActionSettingsSection({ defaults, renderModelSettings, renderAct
               <div className="flex flex-wrap items-start gap-4">
                 {renderModelSettings?.(action)}
                 {renderActionOptions?.(action)}
+                {action === "pullRequestReview" && value ? <div role="group" aria-labelledby="ai-review-fix-examples-label" className="grid w-fit gap-2.5">
+                  <Label id="ai-review-fix-examples-label">{t("settings.ai.reviewFixExamples")}</Label>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <div>
+                        <Select value={value.includeFixExamples ? "enabled" : "disabled"} disabled={saving} onValueChange={(mode) => { void toggleFixExamples(mode === "enabled"); }}>
+                          <SelectTrigger id="ai-review-fix-examples" aria-labelledby="ai-review-fix-examples-label" className="h-9"><SelectValue /></SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="disabled">{t("settings.ai.reviewFixExamplesDisabled")}</SelectItem>
+                            <SelectItem value="enabled">{t("settings.ai.reviewFixExamplesEnabled")}</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    </TooltipTrigger>
+                    <TooltipContent>{t("settings.ai.reviewFixExamplesHelp")}</TooltipContent>
+                  </Tooltip>
+                </div> : null}
                 {value ? <div role="group" aria-labelledby={`ai-prompt-mode-${action}-label`} className="grid w-fit gap-2.5">
                   <Label className="translate-x-1" id={`ai-prompt-mode-${action}-label`}>{t("settings.ai.instructions")}</Label>
                   <div className="flex items-center gap-1">

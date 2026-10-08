@@ -10,6 +10,17 @@ pub async fn ai_prompt_settings(
 }
 
 #[tauri::command]
+pub async fn ai_review_fix_examples_save(
+    app: AppHandle,
+    state: State<'_, SqlitePool>,
+    enabled: bool,
+) -> Result<PromptSettings, String> {
+    let saved = ai_prompts::save_review_fix_examples(&state, enabled).await?;
+    let _ = app.emit("ai_prompt_settings_changed", &saved);
+    Ok(saved)
+}
+
+#[tauri::command]
 pub async fn ai_prompt_settings_save(
     app: AppHandle,
     state: State<'_, SqlitePool>,

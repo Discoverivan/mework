@@ -23,6 +23,7 @@ vi.mock("./prompts/api", () => ({
   getCachedPromptSettings: vi.fn().mockReturnValue([]),
   getPromptSettings: vi.fn().mockResolvedValue([]),
   savePromptSettings: vi.fn(),
+  saveReviewFixExamples: vi.fn(),
 }));
 
 vi.mock("./planning-projects/api", () => ({
