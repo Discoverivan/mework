@@ -115,7 +115,10 @@ pub async fn save_review_fix_examples(
 }
 
 pub fn instructions_hash(instructions: &str) -> String {
-    format!("{:x}", Sha256::digest(instructions.as_bytes()))
+    Sha256::digest(instructions.as_bytes())
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect()
 }
 
 pub async fn load(pool: &SqlitePool, action: PromptAction) -> Result<String, String> {
@@ -206,6 +209,14 @@ pub fn task_prompt(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn preserves_instructions_hash_format() {
+        assert_eq!(
+            instructions_hash("example"),
+            "50d858e0985ecc7f60418aaf0cc5ab587f42c2570a884095a9e8ccacd0f6545c"
+        );
+    }
 
     #[tokio::test]
     async fn persists_review_fix_examples_without_replacing_custom_instructions() {
