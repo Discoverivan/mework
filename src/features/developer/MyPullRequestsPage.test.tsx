@@ -854,9 +854,9 @@ describe("MyPullRequestsPage", () => {
       execution: { provider: "codex-cli", providerName: "Codex CLI", providerInstanceId: null, model: "example-review-model", reasoning: "high", mode: "fast" },
       result: {
         ...completedReview.result!,
-        summary: `${completedReview.result!.summary}\n\n- **Check shutdown order**\n- Keep \`retry\` guarded`,
+        summary: `${completedReview.result!.summary}\n\n- **Check shutdown order**\n- Keep \`retry\` guarded\n\nFirst explanation line\nSecond explanation line  \nFinal explanation line\n\nSeparate explanation paragraph`,
         comments: completedReview.result!.comments.map((comment, index) => index === 1
-          ? { ...comment, file: `src://${comment.file}`, comment: `${comment.comment}\n\n1. Check the timer\n2. Retry safely` }
+          ? { ...comment, file: `src://${comment.file}`, comment: `${comment.comment}\n\n1. Check the timer\n   Continue checking\n2. Retry safely\n\nUse the same version; for example: \`\`\`kotlin\nretry(item, "v1")\n\`\`\`\n\n| Version | Action |\n| --- | --- |\n| v1 | ~~Replace~~ Keep |\n\n- [x] Preserve version` }
           : { ...comment, file: `dst://${comment.file}` }),
       },
     };
@@ -897,7 +897,21 @@ describe("MyPullRequestsPage", () => {
     expect(dialog).toHaveTextContent("AI comments");
     expect(screen.getByText("Check shutdown order").tagName).toBe("STRONG");
     expect(screen.getByText("Check shutdown order").closest("li")?.parentElement?.tagName).toBe("UL");
-    expect(screen.getByText("Check the timer").closest("li")?.parentElement?.tagName).toBe("OL");
+    const listItem = within(dialog).getByText(/^Check the timer/).closest("li");
+    expect(listItem?.parentElement?.tagName).toBe("OL");
+    expect(listItem?.querySelectorAll("br")).toHaveLength(1);
+    const explanation = within(dialog).getByText(/^First explanation line/);
+    expect(explanation.tagName).toBe("P");
+    expect(explanation.querySelectorAll("br")).toHaveLength(2);
+    expect(explanation).not.toHaveClass("whitespace-pre-wrap");
+    expect(within(dialog).getByText("Separate explanation paragraph").tagName).toBe("P");
+    const codeExample = within(dialog).getByText('retry(item, "v1")');
+    expect(codeExample.tagName).toBe("CODE");
+    expect(codeExample).toHaveClass("language-kotlin");
+    expect(codeExample.parentElement?.tagName).toBe("PRE");
+    expect(within(dialog).getByRole("table")).toHaveTextContent("Version");
+    expect(within(dialog).getByText("Replace").tagName).toBe("DEL");
+    expect(within(dialog).getByRole("checkbox")).toBeChecked();
     expect(screen.queryByText("Blocker (0)")).not.toBeInTheDocument();
     expect(screen.getByText("High (1)").closest("details")).toHaveAttribute("open");
     expect(screen.getByText("Medium (1)").closest("details")).toHaveAttribute("open");
