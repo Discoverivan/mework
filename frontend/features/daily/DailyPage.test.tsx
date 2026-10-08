@@ -144,6 +144,7 @@ describe("DailyPage smoke test", () => {
   });
 
   it("saves the assignee dropdown layout and keeps task selection working after reopening", async () => {
+    Element.prototype.scrollIntoView = vi.fn();
     const page = render(<DailyPage />);
     const tasks = await screen.findByRole("region", { name: "Selected member tasks" });
     expect(tasks.parentElement).not.toHaveClass("daily-workspace-layout-top");
@@ -159,7 +160,12 @@ describe("DailyPage smoke test", () => {
     expect(within(screen.getByRole("combobox", { name: "Assignees" })).getByText("TA")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("combobox", { name: "Assignees" }));
     expect(within(screen.getByRole("option", { name: /Test Author A/ })).getByText("TA")).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("option", { name: /Other assignees/ }));
+    const selectedAssignee = screen.getByRole("option", { name: /Test Author A/ });
+    await waitFor(() => expect(selectedAssignee).toHaveFocus());
+    fireEvent.keyDown(selectedAssignee, { key: "o" });
+    const otherAssignees = screen.getByRole("option", { name: /Other assignees/ });
+    await waitFor(() => expect(otherAssignees).toHaveFocus());
+    fireEvent.keyDown(otherAssignees, { key: "Enter" });
     expect(await within(tasks).findByText("DEMO-3")).toBeInTheDocument();
     page.unmount();
     render(<DailyPage />);

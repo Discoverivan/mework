@@ -1,6 +1,7 @@
 import { createContext, useContext, useState, type HTMLAttributes, type KeyboardEvent, type PointerEvent, type ReactNode } from "react";
 
 const MenuInputContext = createContext({ keyboard: false, setKeyboard: (_value: boolean) => {} });
+const NAVIGATION_KEYS = new Set(["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "Home", "End", "PageUp", "PageDown", "Enter"]);
 
 export function MenuInputProvider({ children }: { children: ReactNode }) {
   const [keyboard, setKeyboard] = useState(false);
@@ -15,7 +16,7 @@ export function useMenuInput<T extends HTMLElement>(props: Pick<HTMLAttributes<T
     "data-keyboard-navigation": keyboard,
     onKeyDownCapture(event: KeyboardEvent<T>) {
       if (!event.altKey && !event.ctrlKey && !event.metaKey
-        && (event.key.length === 1 || ["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "Home", "End", "PageUp", "PageDown", "Enter"].includes(event.key))) setKeyboard(true);
+        && (event.key.length === 1 || NAVIGATION_KEYS.has(event.key))) setKeyboard(true);
       props.onKeyDownCapture?.(event);
     },
     onPointerDownCapture(event: PointerEvent<T>) {

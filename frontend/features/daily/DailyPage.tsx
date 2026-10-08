@@ -768,7 +768,7 @@ export function DailyPage() {
             </SelectTrigger>
             <SelectContent>
               {owners.map((owner) => (
-                <SelectItem key={owner.id} value={owner.id}>
+                <SelectItem key={owner.id} value={owner.id} textValue={owner.label}>
                   <TaskOwnerLabel owner={owner} managedProjectId={workspace.managedProjectId} />
                 </SelectItem>
               ))}
