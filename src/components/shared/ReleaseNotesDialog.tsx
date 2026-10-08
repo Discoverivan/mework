@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import ReactMarkdown from "react-markdown";
+import { MarkdownContent } from "./MarkdownContent";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogBody, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { useI18n } from "@/i18n/context";
@@ -64,14 +64,9 @@ function ReleaseNotesContent({ releases, mode, navigation }: Pick<ReleaseNotesDi
           {release ? (
             <section aria-label={t("releaseNotes.version", { version: release.version })}>
               <h3 className="text-sm font-semibold text-foreground">{t("releaseNotes.version", { version: release.version })}</h3>
-              <div className="mt-2 text-sm text-muted-foreground [&_h2]:mb-2 [&_h2]:font-semibold [&_h3]:mb-2 [&_h3]:font-semibold [&_p]:mb-2 [&_ul]:mb-2 [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:mb-2 [&_ol]:list-decimal [&_ol]:pl-5 [&_li]:mb-1">
-                <ReactMarkdown skipHtml allowedElements={["h2", "h3", "h4", "p", "ul", "ol", "li", "strong", "em", "code", "pre", "a", "blockquote", "br"]}
-                  components={{ a: ({ href, children }) => href?.startsWith("https://")
-                    ? <a href={href} className="underline underline-offset-2" onClick={(event) => { event.preventDefault(); void openUrl(href); }}>{children}</a>
-                    : <span>{children}</span> }}>
-                  {release.markdown}
-                </ReactMarkdown>
-              </div>
+              <MarkdownContent className="mt-2" onOpenLink={(href) => { void openUrl(href); }}>
+                {release.markdown}
+              </MarkdownContent>
             </section>
           ) : null}
         </div>
