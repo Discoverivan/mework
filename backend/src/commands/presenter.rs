@@ -7,7 +7,8 @@ pub struct PresenterState(pub std::sync::Mutex<Option<Value>>);
 pub const PRESENTER_WINDOW_LABEL: &str = "daily-presenter";
 
 #[tauri::command]
-pub fn open_presenter_view(app: AppHandle) -> Result<(), String> {
+pub async fn open_presenter_view(app: AppHandle) -> Result<(), String> {
+    // WebView2 window creation must run outside a synchronous IPC callback on Windows.
     if let Some(window) = app.get_webview_window(PRESENTER_WINDOW_LABEL) {
         window.show().map_err(|error| error.to_string())?;
         window.set_focus().map_err(|error| error.to_string())?;
@@ -71,9 +72,7 @@ pub fn presenter_view_state(
 #[tauri::command]
 pub fn close_presenter_view(app: AppHandle) -> Result<(), String> {
     if let Some(window) = app.get_webview_window(PRESENTER_WINDOW_LABEL) {
-        window.hide().map_err(|error| error.to_string())?;
+        window.close().map_err(|error| error.to_string())?;
     }
-    app.emit_to("main", "daily-presenter-closed", ())
-        .map_err(|error| error.to_string())?;
     Ok(())
 }

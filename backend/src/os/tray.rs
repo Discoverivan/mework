@@ -1,7 +1,7 @@
 use tauri::{
     menu::{Menu, MenuItem},
     tray::TrayIconBuilder,
-    AppHandle, Manager, Window, WindowEvent,
+    AppHandle, Emitter, Manager, Window, WindowEvent,
 };
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
@@ -60,7 +60,12 @@ pub fn dispatch_menu_command(app: &AppHandle, command: TrayCommand) {
 }
 
 pub fn handle_window_event(window: &Window, event: &WindowEvent) {
-    if window.label() == "daily-presenter" {
+    if window.label() == crate::commands::presenter::PRESENTER_WINDOW_LABEL {
+        if let WindowEvent::Destroyed = event {
+            let _ = window
+                .app_handle()
+                .emit_to("main", "daily-presenter-closed", ());
+        }
         return;
     }
     if let WindowEvent::CloseRequested { api, .. } = event {
