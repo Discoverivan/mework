@@ -5,7 +5,9 @@ use std::{
     time::Duration,
 };
 
+use serde::Deserialize;
 use serde_json::Value;
+use std::io::Write;
 
 use super::{capture_cli_output, local_cli_command};
 use crate::application::ai::{AiProviderDto, AiProviderId, AiProviderStatus};
@@ -86,7 +88,36 @@ fn inspect_at(path: &Path) -> AiProviderDto {
             Some("settings.pi.unavailable"),
         );
     };
-    let models = parse_models(&output);
+    let mut models = parse_models(&output);
+    let mut subscription_message = None;
+    if models.iter().any(|model| model.starts_with("openai/")) {
+        match subscription_models(path) {
+            Ok(subscription) if subscription.status == "not_oauth" => {}
+            Ok(subscription) if subscription.status == "connected" => {
+                let supported = models.clone();
+                models.retain(|model| !model.starts_with("openai/"));
+                models.extend(
+                    subscription
+                        .models
+                        .into_iter()
+                        .filter(|model| supported.contains(model)),
+                );
+                if models.is_empty() {
+                    subscription_message = Some("settings.pi.subscriptionEmpty");
+                }
+            }
+            result => {
+                models.retain(|model| !model.starts_with("openai/"));
+                subscription_message = Some(
+                    if result.is_ok_and(|response| response.status == "auth_required") {
+                        "settings.pi.subscriptionAuthRequired"
+                    } else {
+                        "settings.pi.subscriptionUnavailable"
+                    },
+                );
+            }
+        }
+    }
     let status = if models.is_empty() {
         AiProviderStatus::NotConfigured
     } else {
@@ -97,8 +128,59 @@ fn inspect_at(path: &Path) -> AiProviderDto {
         Some(path),
         version,
         models,
-        (status != AiProviderStatus::Connected).then_some("settings.pi.configure"),
+        subscription_message
+            .or_else(|| (status != AiProviderStatus::Connected).then_some("settings.pi.configure")),
     )
+}
+
+#[derive(Deserialize)]
+struct SubscriptionModels {
+    status: String,
+    models: Vec<String>,
+}
+
+fn subscription_models(path: &Path) -> Result<SubscriptionModels, String> {
+    // The temporary file contains only bundled code, never credentials or prompts.
+    let directory = tempfile::tempdir().map_err(|_| "Pi model adapter is unavailable")?;
+    let extension = directory.path().join("subscription-models.ts");
+    std::fs::File::create(&extension)
+        .and_then(|mut file| file.write_all(include_bytes!("pi-subscription-models.ts")))
+        .map_err(|_| "Pi model adapter is unavailable")?;
+    let mut command = isolated_command(path);
+    command
+        .arg("--extension")
+        .arg(extension)
+        .args(["--mode", "rpc"]);
+    let output = capture_cli_output(
+        command,
+        None,
+        Duration::from_secs(30),
+        "Pi CLI",
+        "subscription_models",
+        None,
+    )?;
+    let response = output
+        .split(|byte| *byte == b'\n')
+        .filter_map(|line| serde_json::from_slice::<Value>(line).ok())
+        .filter_map(|event| {
+            if event["type"] == "extension_ui_request" && event["method"] == "notify" {
+                serde_json::from_str(event["message"].as_str()?).ok()
+            } else {
+                Some(event)
+            }
+        })
+        .find(|event| event["type"] == "mework_subscription_models")
+        .ok_or_else(|| "Pi subscription models are unavailable".to_owned())?;
+    let response: SubscriptionModels = serde_json::from_value(response)
+        .map_err(|_| "Pi subscription model response is invalid")?;
+    if !response
+        .models
+        .iter()
+        .all(|model| model.starts_with("openai/") && valid_identifier(model))
+    {
+        return Err("Pi subscription model response is invalid".to_owned());
+    }
+    Ok(response)
 }
 
 fn provider(
@@ -193,13 +275,13 @@ pub fn resolve_binary() -> Option<PathBuf> {
 
 pub(crate) fn executable_names() -> &'static [&'static str] {
     if cfg!(windows) {
-        &["pi.exe", "pi.cmd"]
+        &["pi.exe", "pi.cmd", "pi.ps1"]
     } else {
         &["pi"]
     }
 }
 
-pub(crate) fn diagnostic_install_paths() -> Vec<(&'static str, PathBuf)> {
+pub(super) fn installation_paths() -> super::discovery::CliInstallationPaths {
     let home = dirs::home_dir();
     let config = dirs::config_dir();
     let local_data = dirs::data_local_dir();
@@ -216,9 +298,14 @@ fn install_paths(
     config: Option<&Path>,
     local_data: Option<&Path>,
     windows: bool,
-) -> Vec<(&'static str, PathBuf)> {
+) -> super::discovery::CliInstallationPaths {
+    let mut priority = Vec::new();
     let mut paths = Vec::new();
     if let Some(home) = home {
+        if windows {
+            priority.push(("managed-install", home.join(".pi/agent/bin/pi.cmd")));
+            priority.push(("managed-install", home.join(".pi/agent/bin/pi.ps1")));
+        }
         paths.push((
             "system-home",
             home.join(if windows {
@@ -244,7 +331,10 @@ fn install_paths(
             ("usr-local", PathBuf::from("/usr/local/bin/pi")),
         ]);
     }
-    paths
+    super::discovery::CliInstallationPaths {
+        priority,
+        additional: paths,
+    }
 }
 
 pub fn run_structured_with_usage(
@@ -365,19 +455,24 @@ mod tests {
         let directory = tempfile::tempdir().unwrap();
         let local_data = directory.path().join("AppData/Local");
         let config = directory.path().join("AppData/Roaming");
-        // The Windows fixture is a script, so use the npm user installation path.
+        // The official Windows installer exposes a Node-backed command wrapper.
         let binary = if cfg!(windows) {
-            config.join("npm/pi.cmd")
+            directory.path().join(".pi/agent/bin/pi.cmd")
         } else {
             directory.path().join(".local/bin/pi")
         };
         let install = binary.parent().unwrap();
         std::fs::create_dir_all(install).unwrap();
+        let subscription = r#"{"type":"mework_subscription_models","status":"connected","models":["openai/sample-model"]}"#;
+        let subscription = serde_json::json!({
+            "type": "extension_ui_request", "method": "notify", "message": subscription,
+        })
+        .to_string();
         let event = r#"{"type":"message_end","message":{"role":"assistant","stopReason":"stop","content":[{"type":"thinking","thinking":"Synthetic reasoning"},{"type":"text","text":"{\"summary\":\"Example task\"}"}],"usage":{"input":12,"output":8,"cacheRead":4,"cacheWrite":2,"totalTokens":26}}}"#;
         #[cfg(windows)]
-        let script = format!("@echo off\nset args=%*\necho %args% | findstr /c:\"--version\" >nul && (echo example-version & exit /b 0)\necho %args% | findstr /c:\"--help\" >nul && (echo {} & exit /b 0)\necho %args% | findstr /c:\"--list-models\" >nul && (echo provider model context max-out thinking images & echo example sample-model 200K 8K yes no & exit /b 0)\nset /p input=\necho {event}\n", ISOLATION_FLAGS.join(" "));
+        let script = format!("@echo off\nset args=%*\necho %args% | findstr /c:\"--version\" >nul && (echo example-version & exit /b 0)\necho %args% | findstr /c:\"--help\" >nul && (echo {} & exit /b 0)\necho %args% | findstr /c:\"--list-models\" >nul && (echo provider model context max-out thinking images & echo openai sample-model 200K 8K yes no & echo openai catalog-only-model 200K 8K yes no & exit /b 0)\necho %args% | findstr /c:\"--mode rpc\" >nul && (echo {subscription} & exit /b 0)\nset /p input=\necho {event}\n", ISOLATION_FLAGS.join(" "));
         #[cfg(not(windows))]
-        let script = format!("#!/usr/bin/env node\ncase \"$*\" in *--version*) echo example-version; exit 0;; *--help*) echo '{}'; exit 0;; *--list-models*) printf 'provider model context max-out thinking images\\nexample sample-model 200K 8K yes no\\n'; exit 0;; esac\ncat >/dev/null\nprintf '%s\\n' '{event}'\n", ISOLATION_FLAGS.join(" "));
+        let script = format!("#!/usr/bin/env node\ncase \"$*\" in *--version*) echo example-version; exit 0;; *--help*) echo '{}'; exit 0;; *--list-models*) printf 'provider model context max-out thinking images\\nopenai sample-model 200K 8K yes no\\nopenai catalog-only-model 200K 8K yes no\\n'; exit 0;; *--mode\\ rpc*) printf '%s\\n' '{subscription}'; exit 0;; esac\ncat >/dev/null\nprintf '%s\\n' '{event}'\n", ISOLATION_FLAGS.join(" "));
         #[cfg(windows)]
         let checks = ISOLATION_FLAGS
             .iter()
@@ -403,18 +498,39 @@ mod tests {
             std::fs::set_permissions(&node, std::fs::Permissions::from_mode(0o755)).unwrap();
             std::fs::set_permissions(&binary, std::fs::Permissions::from_mode(0o755)).unwrap();
         }
-        let resolved = install_paths(
+        let candidates = install_paths(
             Some(directory.path()),
             Some(&config),
             Some(&local_data),
             cfg!(windows),
-        )
-        .into_iter()
-        .find_map(|(_, path)| usable_cli_path(&path))
-        .unwrap();
+        );
+        let resolved = candidates
+            .priority
+            .into_iter()
+            .chain(candidates.additional)
+            .find_map(|(_, path)| usable_cli_path(&path))
+            .unwrap();
         let detected = inspect_at(&resolved);
         assert_eq!(detected.status, AiProviderStatus::Connected);
-        assert_eq!(detected.models, ["example/sample-model"]);
+        assert_eq!(detected.models, ["openai/sample-model"]);
+        #[cfg(windows)]
+        {
+            // Exercise the PowerShell fallback using the same synthetic CLI.
+            let script = install.join("pi.ps1");
+            std::fs::write(
+                &script,
+                "& \"$PSScriptRoot/pi.cmd\" @args\nexit $LASTEXITCODE\n",
+            )
+            .unwrap();
+            let mut command = local_cli_command(&script);
+            command.arg("--version");
+            let output = command.output().unwrap();
+            assert!(output.status.success());
+            assert_eq!(
+                String::from_utf8(output.stdout).unwrap().trim(),
+                "example-version"
+            );
+        }
         let (output, usage) = run_at(
             &resolved,
             &detected.models[0],

@@ -7,6 +7,8 @@ import { listManagedProjects } from "../planning/api";
 import { generateSprintSummary, loadDailyIssueTransitions, loadDailyWorkspace, openPresenterView, publishPresenterState, refreshDailyWorkspace, subscribePresenterState, transitionDailyIssue } from "./api";
 import { clearDailyWorkspaceCacheForTests, prefetchDailyWorkspaces, readDailyWorkspaceCache, refreshDailyWorkspaceCache } from "./cache";
 import { DailyPage } from "./DailyPage";
+import { APP_EVENT, emitAppEvent } from "@/app/app-events";
+import { clearTeamMembersStateForTests } from "../planning/team-members-state";
 
 const { openUrlMock, writeTextMock } = vi.hoisted(() => ({
   openUrlMock: vi.fn(),
@@ -113,6 +115,7 @@ describe("DailyPage smoke test", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     clearDailyWorkspaceCacheForTests();
+    clearTeamMembersStateForTests();
     Object.defineProperty(navigator, "clipboard", {
       configurable: true,
       value: { writeText: writeTextMock },
@@ -136,6 +139,20 @@ describe("DailyPage smoke test", () => {
       presenterStateListener = listener;
       return () => undefined;
     });
+  });
+
+  it("updates mounted sprint tasks and their cache after team member edits", async () => {
+    render(<DailyPage />);
+    expect(await screen.findByRole("heading", { name: "Test Author A" })).toBeInTheDocument();
+    const calls = loadDailyWorkspaceMock.mock.calls.length;
+    const members = [{ ...workspace.members[0], alias: "Example Updated Member" }];
+    act(() => emitAppEvent(APP_EVENT.teamMembersChanged, { managedProjectId: project.id, members }));
+    expect(await screen.findByRole("heading", { name: "Example Updated Member" })).toBeInTheDocument();
+    expect(readDailyWorkspaceCache(project.id)?.members).toEqual(members);
+    expect(loadDailyWorkspaceMock).toHaveBeenCalledTimes(calls);
+    // Reconcile a workspace fetched before the edit using the saved member state.
+    await refreshDailyWorkspaceCache(project.id);
+    expect(readDailyWorkspaceCache(project.id)?.members).toEqual(members);
   });
 
   it("shows a styled loader on the first sprint task visit", async () => {

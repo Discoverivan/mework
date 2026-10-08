@@ -65,6 +65,9 @@ export const en = {
   "settings.pi.unavailable": "Pi CLI could not be checked. Verify that Pi and Node.js run from your terminal.",
   "settings.pi.updateRequired": "Update Pi CLI: this version does not support isolated runs without tools, extensions, and context files.",
   "settings.pi.configure": "No available models were reported by Pi. Open Pi, sign in with /login, configure a model, then refresh.",
+  "settings.pi.subscriptionEmpty": "Your ChatGPT account reported no models supported by this Pi version. Update Pi and refresh the provider list.",
+  "settings.pi.subscriptionAuthRequired": "Your ChatGPT subscription could not be authorized. Open Pi, reconnect OpenAI (ChatGPT subscription) with /login, then refresh.",
+  "settings.pi.subscriptionUnavailable": "The models available to your ChatGPT account could not be checked. Refresh the provider list or update Pi. The general OpenAI catalog is hidden until the check succeeds.",
 
   "settings.prompts.modeBuiltIn": "Built-in",
   "settings.prompts.modeCustom": "Custom",
@@ -600,6 +603,8 @@ export const en = {
   "general.terminalSaveError": "Unable to save terminal preference: {error}",
   "general.notifications": "Notifications",
   "settings.ai.retries": "Retries",
+  "settings.ai.modelInvalid": "This model is unavailable. Refresh the provider and choose an available model.",
+  "settings.ai.providerInvalid": "This provider is unavailable. Refresh it or choose a connected provider.",
   "settings.ai.retriesRequired": "Retries: enter a number from 0 to 10.",
   "settings.ai.retriesInteger": "Retries: enter a whole number without letters or decimal places.",
   "settings.ai.retriesRange": "Retries: the number must be between 0 and 10.",

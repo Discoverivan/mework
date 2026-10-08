@@ -1,5 +1,6 @@
 import { Hint } from "@/components/ui/tooltip";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { APP_EVENT, subscribeAppEvent } from "@/app/app-events";
 import { listen } from "@tauri-apps/api/event";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { ArrowLeft, ArrowRight, CalendarDays, ChevronDown, Copy, ExternalLink, MoreHorizontal, Presentation, RefreshCw, Sparkles, Square } from "lucide-react";
@@ -320,6 +321,10 @@ export function DailyPage() {
   const workspaceRequestRevision = useRef(0);
   const statusRefreshRevision = useRef(0);
 
+  useEffect(() => subscribeAppEvent(APP_EVENT.teamMembersChanged, ({ managedProjectId, members }) => {
+    setWorkspace((current) => current?.managedProjectId === managedProjectId ? { ...current, members } : current);
+  }), []);
+
   useEffect(() => {
     let active = true;
     setLoadingProjects(readManagedProjectsCache() == null);
@@ -383,11 +388,12 @@ export function DailyPage() {
     try {
       const subtasks = await refreshDailyWorkspace(managedProjectId, sprintId);
       if (statusRefreshRevision.current !== revision) return;
-      if (workspace.managedProjectId === managedProjectId && workspace.selectedSprintId === sprintId) {
-        const nextWorkspace = { ...workspace, subtasks };
+      setWorkspace((current) => {
+        if (current?.managedProjectId !== managedProjectId || current.selectedSprintId !== sprintId) return current;
+        const nextWorkspace = { ...current, subtasks };
         writeDailyWorkspaceCache(nextWorkspace);
-        setWorkspace(nextWorkspace);
-      }
+        return nextWorkspace;
+      });
     } catch (reason) {
       if (statusRefreshRevision.current === revision) setError(commandError(reason));
     } finally {

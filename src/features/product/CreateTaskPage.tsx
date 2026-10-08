@@ -1,4 +1,7 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
+import { APP_EVENT, subscribeAppEvent } from "@/app/app-events";
+import { readUpdatedTeamMembers } from "../planning/team-members-state";
+import type { TeamMember } from "@/shared/contracts/planning";
 import { Check, ClipboardList, ExternalLink, LoaderCircle, Pencil, RefreshCw, Sparkles, Trash2 } from "lucide-react";
 
 import { PageHeader } from "@/components/shared/PageHeader";
@@ -318,6 +321,15 @@ function DraftSkeletonCard() {
   );
 }
 
+function taskMembers(members: TeamMember[]): JiraTaskMember[] {
+  return members.filter((member) => member.active).map((member) => ({
+    id: member.accountId,
+    displayName: member.alias?.trim() || member.displayName,
+    avatarUrl: member.avatarUrl,
+    active: member.active,
+  }));
+}
+
 export function CreateTaskPage() {
   const { t } = useI18n();
   const routeContext = useRef(readCreateTaskRouteContext()).current;
@@ -337,6 +349,13 @@ export function CreateTaskPage() {
   const [descriptionImproveErrorCardId, setDescriptionImproveErrorCardId] = useState<string>();
   const [descriptionImproveInFlight, setDescriptionImproveInFlight] = useState(false);
   const generationInFlight = useRef(new Set<string>());
+
+  useEffect(() => subscribeAppEvent(APP_EVENT.teamMembersChanged, ({ managedProjectId, members }) => {
+    setTeamContexts((current) => current[managedProjectId] ? {
+      ...current,
+      [managedProjectId]: { ...current[managedProjectId], members: taskMembers(members), membersLoading: false, membersUnavailable: false },
+    } : current);
+  }), []);
 
   useEffect(() => {
     if (!routeContext.openForm) return;
@@ -409,11 +428,14 @@ export function CreateTaskPage() {
         : [];
       setTeamContexts((current) => {
         const previous = current[selectedTeamId] ?? emptyTeamContext();
+        const updatedMembers = readUpdatedTeamMembers(selectedTeamId);
         return {
           ...current,
           [selectedTeamId]: {
             ...previous,
-            members: membersResult.status === "fulfilled"
+            members: updatedMembers
+              ? taskMembers(updatedMembers)
+              : membersResult.status === "fulfilled"
               ? membersResult.value.filter((member) => member.active)
               : previous.members,
             sprints: sprintsResult.status === "fulfilled" ? availableSprints : previous.sprints,

@@ -1,9 +1,11 @@
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { CreateTaskPage } from "./CreateTaskPage";
 import { createJiraTask, generateTaskDraft, listJiraTaskTeamMembers } from "./create-task-api";
 import { listManagedProjects, listTargetSprints, loadJiraAvatarData, previewEpicLinkJql } from "../planning/api";
+import { APP_EVENT, emitAppEvent } from "@/app/app-events";
+import { clearTeamMembersStateForTests } from "../planning/team-members-state";
 
 vi.mock("./create-task-api", () => ({
   createJiraTask: vi.fn(),
@@ -35,6 +37,7 @@ const secondTeam = {
 };
 
 beforeEach(() => {
+  clearTeamMembersStateForTests();
   vi.clearAllMocks();
   window.localStorage.clear();
   window.location.hash = "";
@@ -60,6 +63,23 @@ beforeEach(() => {
 });
 
 describe("CreateTaskPage", () => {
+  it("updates draft assignee choices after a saved team member change", async () => {
+    generateMock.mockResolvedValue({ summary: "Example task", description: "Example description" });
+    render(<CreateTaskPage />);
+    await waitFor(() => expect(listMembersMock).toHaveBeenCalledWith("team-1"));
+    fireEvent.click(screen.getByRole("button", { name: "Create task" }));
+    fireEvent.change(screen.getByPlaceholderText("Describe your task"), { target: { value: "Example prompt" } });
+    fireEvent.click(screen.getByRole("button", { name: "Create" }));
+    expect(await screen.findByDisplayValue("Example task")).toBeInTheDocument();
+    const calls = listMembersMock.mock.calls.length;
+    act(() => emitAppEvent(APP_EVENT.teamMembersChanged, { managedProjectId: "team-1", members: [
+      { accountId: "example-member", displayName: "Example Member", alias: "Example Alias", active: true, tags: ["backend"], displayOrder: 0 },
+    ] }));
+    fireEvent.click(screen.getByRole("combobox", { name: "Assignee" }));
+    expect(await screen.findByRole("option", { name: "Example Alias" })).toBeInTheDocument();
+    expect(listMembersMock).toHaveBeenCalledTimes(calls);
+  });
+
   it("shows an inviting empty state before the first task is created", async () => {
     render(<CreateTaskPage />);
 

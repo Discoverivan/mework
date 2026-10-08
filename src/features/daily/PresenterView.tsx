@@ -1,4 +1,5 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { APP_EVENT, subscribeAppEvent } from "@/app/app-events";
 import { listen } from "@tauri-apps/api/event";
 import { ArrowLeft, ArrowRight, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -138,6 +139,18 @@ export function PresenterView() {
   const { locale, t } = useI18n();
   const [state, setState] = useState<DailyPresenterState | undefined>(() => readPresenterState());
   const [refreshing, setRefreshing] = useState(false);
+
+  useEffect(() => subscribeAppEvent(APP_EVENT.teamMembersChanged, ({ managedProjectId, members }) => {
+    if (state?.workspace.managedProjectId !== managedProjectId) return;
+    const nextState = {
+      ...state,
+      workspace: { ...state.workspace, members },
+      selectedMemberId: members.some((member) => member.active && member.accountId === state.selectedMemberId)
+        ? state.selectedMemberId : orderedMembers(members)[0]?.accountId ?? "",
+    };
+    setState(nextState);
+    void publishPresenterState(nextState);
+  }), [state]);
 
   useEffect(() => {
     let active = true;

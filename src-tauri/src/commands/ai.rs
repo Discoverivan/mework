@@ -52,9 +52,9 @@ pub async fn agent_cli_diagnostics() -> Result<Vec<ai::AiCliCandidateDiagnostic>
 pub async fn ai_settings_save(
     state: State<'_, SqlitePool>,
     settings: AiSettings,
-) -> Result<AiSettingsPageDto, String> {
+) -> Result<AiSettingsPageDto, ai::AiSettingsSaveError> {
     ai::save(&state, settings).await?;
-    ai::dto(&state).await
+    ai::dto(&state).await.map_err(Into::into)
 }
 
 #[tauri::command]

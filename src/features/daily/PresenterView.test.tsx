@@ -1,9 +1,10 @@
-import { render, screen } from "@testing-library/react";
+import { act, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { DailyPresenterState } from "@/shared/contracts/developer";
 import { PresenterView } from "./PresenterView";
-import { readNativePresenterState, readPresenterState, subscribePresenterState } from "./api";
+import { publishPresenterState, readNativePresenterState, readPresenterState, subscribePresenterState } from "./api";
+import { APP_EVENT, emitAppEvent } from "@/app/app-events";
 
 vi.mock("@tauri-apps/api/event", () => ({
   listen: vi.fn(() => Promise.resolve(() => undefined)),
@@ -101,5 +102,9 @@ describe("PresenterView progress smoke test", () => {
     expect(track?.querySelector(".daily-presenter-progress-segment-closed")).toHaveStyle({ width: "50%" });
     expect(track?.querySelector(".daily-presenter-progress-segment-progress")).toHaveStyle({ width: "20%" });
     expect(track?.querySelector(".daily-presenter-progress-segment-backlog")).toHaveStyle({ width: "30%" });
+    const members = [{ ...state.workspace.members[0], alias: "Example Presenter Member" }];
+    act(() => emitAppEvent(APP_EVENT.teamMembersChanged, { managedProjectId: "managed-1", members }));
+    expect(await screen.findByRole("heading", { name: "Example Presenter Member" })).toBeInTheDocument();
+    expect(publishPresenterState).toHaveBeenCalledWith({ ...state, workspace: { ...state.workspace, members } });
   });
 });

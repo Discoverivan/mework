@@ -384,7 +384,7 @@ function AppContent() {
   }
 
   if (route === "product-daily-presenter") {
-    return <PresenterView />;
+    return <><PresenterView /><SplashScreen visible={false} /></>;
   }
 
   return (

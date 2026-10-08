@@ -1490,7 +1490,7 @@ mod tests {
         let mut permissions = fs::metadata(&binary).unwrap().permissions();
         permissions.set_mode(0o755);
         fs::set_permissions(&binary, permissions).unwrap();
-        std::env::set_var("MEWORK_CLAUDE_BIN", &binary);
+        std::env::set_var("MEWORK_CLAUDE_CODE_CLI_BIN", &binary);
         let settings = AiSettings {
             provider: Some(AiProviderId::ClaudeCodeCli),
             provider_instance_id: None,
@@ -1514,7 +1514,7 @@ mod tests {
         )
         .unwrap();
 
-        std::env::remove_var("MEWORK_CLAUDE_BIN");
+        std::env::remove_var("MEWORK_CLAUDE_CODE_CLI_BIN");
         assert_eq!(draft.summary, "Add example filter");
         assert_eq!(draft.description, "*Goal*\n\nAdd an example filter");
         assert_eq!(
@@ -1553,7 +1553,7 @@ mod tests {
         let mut permissions = fs::metadata(&binary).unwrap().permissions();
         permissions.set_mode(0o755);
         fs::set_permissions(&binary, permissions).unwrap();
-        std::env::set_var("MEWORK_CODEX_BIN", &binary);
+        std::env::set_var("MEWORK_CODEX_CLI_BIN", &binary);
 
         let settings = AiSettings {
             provider: Some(AiProviderId::CodexCli),
@@ -1577,7 +1577,7 @@ mod tests {
         )
         .unwrap();
 
-        std::env::remove_var("MEWORK_CODEX_BIN");
+        std::env::remove_var("MEWORK_CODEX_CLI_BIN");
         assert_eq!(draft.summary, "Add audit filter");
         assert_eq!(
             usage,

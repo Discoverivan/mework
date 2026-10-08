@@ -1,0 +1,96 @@
+@import "./theme.css";
+
+html, body { margin: 0; min-height: 100%; }
+body { background: var(--background); }
+
+.splash-screen, .splash-screen * { box-sizing: border-box; }
+.splash-screen[hidden] { display: none; }
+
+.splash-screen {
+  position: fixed;
+  z-index: 10;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  color: var(--foreground);
+  font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+  font-size: 16px;
+  line-height: 1.5;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  background:
+    radial-gradient(circle at 50% 35%, color-mix(in srgb, var(--accent) 10%, transparent), transparent 34%),
+    var(--background);
+}
+
+.splash-panel {
+  display: grid;
+  width: min(100%, 360px);
+  justify-items: center;
+  gap: 16px;
+  padding: 28px;
+}
+
+.splash-logo {
+  display: block;
+  width: 72px;
+  height: 72px;
+  object-fit: cover;
+  border-radius: 18px;
+}
+
+.splash-copy {
+  display: grid;
+  justify-items: center;
+  gap: 6px;
+  text-align: center;
+}
+
+.splash-copy strong {
+  font-weight: 700;
+  color: var(--card-foreground);
+  font-size: 18px;
+  letter-spacing: -0.01em;
+}
+
+.splash-copy span {
+  color: var(--muted-foreground);
+  font-size: 14px;
+}
+
+.splash-progress-track {
+  position: relative;
+  width: min(100%, 320px);
+  height: 8px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--muted);
+}
+
+.splash-progress-bar {
+  width: 42%;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--primary);
+  box-shadow: 0 0 18px color-mix(in srgb, var(--primary) 42%, transparent);
+  animation: splash-progress 1.35s linear infinite;
+}
+
+@keyframes splash-progress {
+  0% {
+    transform: translateX(-115%);
+  }
+  100% {
+    transform: translateX(275%);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .splash-progress-bar {
+    width: 64%;
+    animation: none;
+    transform: translateX(28%);
+  }
+}
+
