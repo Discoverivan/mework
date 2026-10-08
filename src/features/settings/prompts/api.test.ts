@@ -9,7 +9,7 @@ vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
 it("loads the saved instructions when a save arrives during startup preload", async () => {
   const initial: PromptSettings = {
     action: "pullRequestReview", instructions: "Review concrete defects.",
-    instructionsHash: "example-instructions-hash", defaultInstructions: "Review concrete defects.", protectedRules: "Return JSON.", customized: false,
+    instructionsHash: "example-instructions-hash", defaultInstructions: "Review concrete defects.", protectedRules: "Return JSON.", customized: false, includeFixExamples: false,
   };
   const saved = { ...initial, instructions: "Focus on API compatibility.", customized: true };
   let resolveInitial!: (values: PromptSettings[]) => void;

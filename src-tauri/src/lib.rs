@@ -480,6 +480,7 @@ pub fn run() {
             commands::ai::ai_settings,
             commands::ai::ai_prompt_settings,
             commands::ai::ai_prompt_settings_save,
+            commands::ai::ai_review_fix_examples_save,
             commands::ai::agent_cli_diagnostics,
             commands::ai::ai_settings_save,
             commands::ai::ai_openai_compatible_save,

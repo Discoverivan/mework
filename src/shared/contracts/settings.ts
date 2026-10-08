@@ -9,6 +9,7 @@ export interface PromptSettings {
   defaultInstructions: string;
   protectedRules: string;
   customized: boolean;
+  includeFixExamples: boolean;
 }
 export type AiCliProviderId = Exclude<AiProviderId, "openai-compatible">;
 export type AiProviderStatus = "loading" | "connected" | "not_configured" | "not_found" | "not_authenticated" | "unavailable";
