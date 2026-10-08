@@ -1,6 +1,7 @@
 import { Hint } from "@/components/ui/tooltip";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { APP_EVENT, subscribeAppEvent } from "@/app/app-events";
+import { readUpdatedTeamMembers } from "../planning/team-members-state";
 import { listen } from "@tauri-apps/api/event";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { ArrowLeft, ArrowRight, CalendarDays, ChevronDown, Copy, ExternalLink, MoreHorizontal, Presentation, RefreshCw, Sparkles, Square } from "lucide-react";
@@ -493,7 +494,7 @@ export function DailyPage() {
       if (nextState.workspace.managedProjectId !== managedProjectId) return;
       setSelectedMemberId(nextState.selectedMemberId);
       setWorkspace((current) => current && current.managedProjectId === managedProjectId
-        ? { ...current, members: nextState.workspace.members, subtasks: nextState.workspace.subtasks }
+        ? { ...current, members: readUpdatedTeamMembers(managedProjectId) ?? nextState.workspace.members, subtasks: nextState.workspace.subtasks }
         : current);
     });
   }, [workspace?.managedProjectId]);

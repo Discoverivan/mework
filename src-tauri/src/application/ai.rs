@@ -1560,17 +1560,21 @@ mod tests {
 
     #[test]
     fn accepts_a_new_pi_selection_with_an_unchanged_unavailable_activity() {
-        let mut previous = AiSettings::default();
-        previous.token_burner = Some(super::AiSettingsProfile {
-            provider: AiProviderId::OpenAiCompatible,
-            provider_instance_id: Some("example-api".to_owned()),
-            model: "retired-example-model".to_owned(),
-            reasoning: AiReasoning::Medium,
-            fast_mode: false,
-        });
-        let mut settings = previous.clone();
-        settings.provider = Some(AiProviderId::PiCli);
-        settings.model = "openai/example-model".to_owned();
+        let previous = AiSettings {
+            token_burner: Some(super::AiSettingsProfile {
+                provider: AiProviderId::OpenAiCompatible,
+                provider_instance_id: Some("example-api".to_owned()),
+                model: "retired-example-model".to_owned(),
+                reasoning: AiReasoning::Medium,
+                fast_mode: false,
+            }),
+            ..AiSettings::default()
+        };
+        let settings = AiSettings {
+            provider: Some(AiProviderId::PiCli),
+            model: "openai/example-model".to_owned(),
+            ..previous.clone()
+        };
         let providers = vec![AiProviderDto {
             id: AiProviderId::PiCli,
             instance_id: None,

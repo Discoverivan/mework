@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { useI18n } from "@/i18n/context";
 import type { DailyPresenterState, DailySubtask } from "@/shared/contracts/developer";
 import type { TeamMember } from "@/shared/contracts/planning";
+import { readUpdatedTeamMembers } from "../planning/team-members-state";
 import {
   closePresenterView,
   loadJiraAvatarData,
@@ -39,6 +40,16 @@ function orderedMembers(members: TeamMember[]): TeamMember[] {
       const orderDifference = (left.displayOrder ?? Number.MAX_SAFE_INTEGER) - (right.displayOrder ?? Number.MAX_SAFE_INTEGER);
       return orderDifference || left.displayName.localeCompare(right.displayName);
     });
+}
+
+function reconcilePresenterMembers(state: DailyPresenterState, members = readUpdatedTeamMembers(state.workspace.managedProjectId)): DailyPresenterState {
+  if (!members) return state;
+  return {
+    ...state,
+    workspace: { ...state.workspace, members },
+    selectedMemberId: members.some((member) => member.active && member.accountId === state.selectedMemberId)
+      ? state.selectedMemberId : orderedMembers(members)[0]?.accountId ?? "",
+  };
 }
 
 function formatDate(locale: string): string {
@@ -137,17 +148,15 @@ function TaskCard({ task, taskCount }: { task: DailySubtaskWithPoints; taskCount
 
 export function PresenterView() {
   const { locale, t } = useI18n();
-  const [state, setState] = useState<DailyPresenterState | undefined>(() => readPresenterState());
+  const [state, setState] = useState<DailyPresenterState | undefined>(() => {
+    const saved = readPresenterState();
+    return saved ? reconcilePresenterMembers(saved) : undefined;
+  });
   const [refreshing, setRefreshing] = useState(false);
 
   useEffect(() => subscribeAppEvent(APP_EVENT.teamMembersChanged, ({ managedProjectId, members }) => {
     if (state?.workspace.managedProjectId !== managedProjectId) return;
-    const nextState = {
-      ...state,
-      workspace: { ...state.workspace, members },
-      selectedMemberId: members.some((member) => member.active && member.accountId === state.selectedMemberId)
-        ? state.selectedMemberId : orderedMembers(members)[0]?.accountId ?? "",
-    };
+    const nextState = reconcilePresenterMembers(state, members);
     setState(nextState);
     void publishPresenterState(nextState);
   }), [state]);
@@ -156,12 +165,12 @@ export function PresenterView() {
     let active = true;
     let unlisten: (() => void) | undefined;
     const unsubscribeRendererState = subscribePresenterState((nextState) => {
-      if (active) setState(nextState);
+      if (active) setState(reconcilePresenterMembers(nextState));
     });
     const refreshNativeState = async () => {
       try {
         const nextState = await readNativePresenterState();
-        if (active && nextState) setState(nextState);
+        if (active && nextState) setState(reconcilePresenterMembers(nextState));
       } catch {
         // The renderer state remains available while the native command is unavailable.
       }
@@ -169,7 +178,7 @@ export function PresenterView() {
     void refreshNativeState();
     const nativeStatePoll = window.setInterval(() => void refreshNativeState(), 500);
     void listen<DailyPresenterState>("daily-presenter-update", (event) => {
-      if (active) setState(event.payload);
+      if (active) setState(reconcilePresenterMembers(event.payload));
     }).then((cleanup) => {
       if (active) unlisten = cleanup;
       else cleanup();

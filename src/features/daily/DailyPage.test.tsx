@@ -150,6 +150,8 @@ describe("DailyPage smoke test", () => {
     expect(await screen.findByRole("heading", { name: "Example Updated Member" })).toBeInTheDocument();
     expect(readDailyWorkspaceCache(project.id)?.members).toEqual(members);
     expect(loadDailyWorkspaceMock).toHaveBeenCalledTimes(calls);
+    act(() => presenterStateListener?.({ workspace, selectedMemberId: workspace.members[0].accountId }));
+    expect(screen.getByRole("heading", { name: "Example Updated Member" })).toBeInTheDocument();
     // Reconcile a workspace fetched before the edit using the saved member state.
     await refreshDailyWorkspaceCache(project.id);
     expect(readDailyWorkspaceCache(project.id)?.members).toEqual(members);
