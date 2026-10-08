@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "presenter",
+  "description": "Core window and event access for the Daily presenter",
+  "windows": ["daily-presenter"],
+  "permissions": ["core:default"]
+}

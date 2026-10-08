@@ -341,10 +341,15 @@ describe("DailyPage smoke test", () => {
     fireEvent.click(sprintBoardButton);
     await waitFor(() => expect(openUrlMock).toHaveBeenLastCalledWith("https://jira.example.invalid/secure/RapidBoard.jspa?rapidView=42&projectKey=DEMO&sprint=sprint-0"));
 
+    let finishOpening!: () => void;
+    openPresenterViewMock.mockImplementationOnce(() => new Promise<void>((resolve) => { finishOpening = resolve; }));
     fireEvent.click(presenterButton);
     await waitFor(() => expect(openPresenterViewMock).toHaveBeenCalledTimes(1));
+    expect(presenterButton).toBeDisabled();
+    expect(presenterButton).toHaveAttribute("aria-busy", "true");
     expect(publishPresenterStateMock).toHaveBeenCalled();
-    expect(await screen.findByRole("button", { name: "Stop presenter view" })).toBeInTheDocument();
+    await act(async () => finishOpening());
+    expect(await screen.findByRole("button", { name: "Stop presenter view" })).toBeEnabled();
   });
 
   it("generates and displays a weekly AI summary for the selected sprint", async () => {

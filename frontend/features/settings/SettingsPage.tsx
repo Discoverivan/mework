@@ -296,7 +296,8 @@ export function SettingsPage({ section = "integrations", focusActivity, mockMode
   const [openAiDialogOpen, setOpenAiDialogOpen] = useState(false);
   const [addAiMenuOpen, setAddAiMenuOpen] = useState(false);
   const [selectedAiGroup, setSelectedAiGroup] = useState<"cli" | "api">("cli");
-  const [addingAi, setAddingAi] = useState(false);
+  const [addingAiProvider, setAddingAiProvider] = useState<AiCliProviderId | null>(null);
+  const addingAi = addingAiProvider !== null;
   const [cliInspections, setCliInspections] = useState<Partial<Record<AiCliProviderId, CliInspection>>>({});
   const cliInspectionRevisionRef = useRef<Partial<Record<AiCliProviderId, number>>>({});
   const [cliAddError, setCliAddError] = useState<string | null>(null);
@@ -425,6 +426,9 @@ export function SettingsPage({ section = "integrations", focusActivity, mockMode
   const cliProviders = aiData.providers.filter((provider) => provider.id !== "openai-compatible").sort((a, b) => CLI_PROVIDER_OPTIONS.findIndex((option) => option.id === a.id) - CLI_PROVIDER_OPTIONS.findIndex((option) => option.id === b.id));
   const apiProviders = aiData.providers.filter((provider) => provider.id === "openai-compatible");
   const visibleAiProviders = selectedAiGroup === "cli" ? cliProviders : apiProviders;
+  const pendingCliProvider = selectedAiGroup === "cli"
+    ? CLI_PROVIDER_OPTIONS.find(({ id }) => id === addingAiProvider)
+    : undefined;
   const allCliAdded = CLI_PROVIDER_OPTIONS.every(({ id }) => cliProviders.some((provider) => provider.id === id));
   const cliMenuOptions = CLI_PROVIDER_OPTIONS
     .filter(({ id }) => !cliProviders.some((provider) => provider.id === id))
@@ -775,7 +779,9 @@ export function SettingsPage({ section = "integrations", focusActivity, mockMode
   }
 
   async function handleAddAiProvider(provider: AiCliProviderId) {
-    setAddingAi(true);
+    if (addingAi) return;
+    setAddingAiProvider(provider);
+    setSelectedAiGroup("cli");
     setCliAddError(null);
     try {
       const saved = await addAiCliProvider(provider);
@@ -785,7 +791,7 @@ export function SettingsPage({ section = "integrations", focusActivity, mockMode
     } catch (addError) {
       setCliAddError(t("settings.aiProviders.addError", { error: errorMessage(addError, t("common.unknownError")) }));
     } finally {
-      setAddingAi(false);
+      setAddingAiProvider(null);
     }
   }
 
@@ -1090,7 +1096,7 @@ export function SettingsPage({ section = "integrations", focusActivity, mockMode
               </div>
               <Card className="min-w-0">
                 <CardContent className="px-4 pb-0 pt-0">
-                  {aiData.providers.length === 0 && !loading ? (
+                  {aiData.providers.length === 0 && !loading && !pendingCliProvider ? (
                     <div role="status" aria-labelledby="ai-providers-empty-title" className="flex min-h-14 items-center gap-3 py-2">
                       <div className="min-w-0 flex-1">
                         <h4 id="ai-providers-empty-title" className="text-[15px] font-medium">{t("settings.aiProviders.empty")}</h4>
@@ -1098,7 +1104,7 @@ export function SettingsPage({ section = "integrations", focusActivity, mockMode
                       </div>
                       <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary" aria-hidden="true"><Sparkles className="size-4" /></span>
                     </div>
-                  ) : visibleAiProviders.length === 0 ? (
+                  ) : visibleAiProviders.length === 0 && !pendingCliProvider ? (
                     <p className="flex items-center py-3 text-sm text-muted-foreground">{t(selectedAiGroup === "cli" ? "settings.aiProviders.emptyCli" : "settings.aiProviders.emptyApi")}</p>
                   ) : (
                     <div>
@@ -1136,6 +1142,18 @@ export function SettingsPage({ section = "integrations", focusActivity, mockMode
                       ))}
                     </div>
                   )}
+                  {pendingCliProvider ? (
+                    <>
+                      {visibleAiProviders.length > 0 ? <Separator /> : null}
+                      <div role="group" aria-label={`${pendingCliProvider.name} AI provider`} aria-busy="true" aria-disabled="true" className="flex min-h-14 min-w-0 flex-wrap items-center gap-3 py-3 text-muted-foreground">
+                        <p className="min-w-0 flex-1 truncate text-[13.5px]">{pendingCliProvider.name}</p>
+                        <span role="status" className="ml-auto flex shrink-0 items-center gap-1.5 text-[13px]">
+                          <Loader2 className="size-[18px] animate-spin" aria-hidden="true" />
+                          {t("settings.aiProviders.adding")}
+                        </span>
+                      </div>
+                    </>
+                  ) : null}
                 </CardContent>
               </Card>
               {aiProviderRefreshError ? <p role="alert" className="text-sm text-destructive">{aiProviderRefreshError}</p> : null}
