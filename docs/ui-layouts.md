@@ -87,7 +87,7 @@ interaction → saving/refreshing → ready | error
 
 ### 1.3. Общая компактная шапка страниц
 
-Все top-level разделы используют `src/components/shared/PageHeader.tsx`:
+Все top-level разделы используют `frontend/components/shared/PageHeader.tsx`:
 
 - один `h1` с названием текущего раздела;
 - короткий optional description под title;
@@ -136,7 +136,7 @@ Presenter View is the exception to shell sizing: it is a separate frameless `128
 
 ## 3. Current application shell
 
-Route-independent shell: `src/components/layout/AppShell.tsx`.
+Route-independent shell: `frontend/components/layout/AppShell.tsx`.
 
 ```text
 ┌──────────────────────────────┬──────────────────────────────────────────────┐
@@ -172,7 +172,7 @@ Rules:
 
 ## 4. Inbox
 
-Source: `src/features/inbox/InboxPage.tsx`, route `#inbox`.
+Source: `frontend/features/inbox/InboxPage.tsx`, route `#inbox`.
 
 ```text
 ┌──────────────────────────────────────────────────────────────────────────────┐
@@ -197,7 +197,7 @@ States: loading skeleton/status, empty inbox, loaded list, error alert, paginati
 
 ## 5. Developer / Pull Request Review
 
-Source: `src/features/developer/MyPullRequestsPage.tsx`, route `#developer/pull-requests`.
+Source: `frontend/features/developer/MyPullRequestsPage.tsx`, route `#developer/pull-requests`.
 
 ```text
 ┌──────────────────────────────────────────────────────────────────────────────┐
@@ -231,7 +231,7 @@ Source: `src/features/developer/MyPullRequestsPage.tsx`, route `#developer/pull-
 
 ## 6. Product / Create task
 
-Source: `src/features/product/CreateTaskPage.tsx`, route `#product/create-task`.
+Source: `frontend/features/product/CreateTaskPage.tsx`, route `#product/create-task`.
 
 Create task states:
 
@@ -286,7 +286,7 @@ Rules:
 
 ## Developer / Command Board
 
-Source: `src/features/developer/CommandBoardPage.tsx`, route `#developer/command-board`.
+Source: `frontend/features/developer/CommandBoardPage.tsx`, route `#developer/command-board`.
 
 ```text
 ┌──────────────────────────────────────────────────────────────────────────────┐
@@ -318,7 +318,7 @@ Rules:
 
 ## 7. Product / Daily
 
-Source: `src/features/daily/DailyPage.tsx`, route `#product/daily`.
+Source: `frontend/features/daily/DailyPage.tsx`, route `#product/daily`.
 
 ```text
 ┌──────────────────────────────────────────────────────────────────────────────┐
@@ -362,7 +362,7 @@ Rules:
 
 ## 8. Daily Presenter View
 
-Source: `src/features/daily/PresenterView.tsx`, route `#product/daily/presenter`, native label `daily-presenter`.
+Source: `frontend/features/daily/PresenterView.tsx`, route `#product/daily/presenter`, native label `daily-presenter`.
 
 Canvas: frameless `1280×720`, 16:9.
 
@@ -397,7 +397,7 @@ Rules:
 
 ## 9. Product / Planning
 
-Sources: `src/features/planning/PlanningPage.tsx`, `PlanningWorkspace.tsx`, route `#product/planning`.
+Sources: `frontend/features/planning/PlanningPage.tsx`, `PlanningWorkspace.tsx`, route `#product/planning`.
 
 Entry screen:
 
@@ -432,7 +432,7 @@ Workspace:
 
 ## 10. Settings / Integrations
 
-Source: `src/features/settings/SettingsPage.tsx`, route `#settings/integrations`.
+Source: `frontend/features/settings/SettingsPage.tsx`, route `#settings/integrations`.
 
 ```text
 ┌──────────────────────────────────────────────────────────────────────────────┐
@@ -484,7 +484,7 @@ The AI provider DTO returns status, discovered models, safe URL metadata and the
 
 ## 11. Settings / Team settings
 
-Source: `src/features/settings/planning-projects/ManagedProjectsSettings.tsx`, route `#settings/projects`.
+Source: `frontend/features/settings/planning-projects/ManagedProjectsSettings.tsx`, route `#settings/projects`.
 
 ```text
 ┌──────────────────────────────────────────────────────────────────────────────┐

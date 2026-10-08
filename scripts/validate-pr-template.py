@@ -13,8 +13,8 @@ from pathlib import Path
 
 # Keep in sync with the application paths that trigger release.yml.
 APP_RELEASE_PATHS = (
-    "src/**",
-    "src-tauri/**",
+    "frontend/**",
+    "backend/**",
     "public/**",
     "index.html",
     "package.json",

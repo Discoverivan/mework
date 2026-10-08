@@ -85,6 +85,13 @@ Troubleshooting opens the local `logs` directory. The Rust core writes JSON line
 - Rust stable and the native toolchain required by Tauri 2
 - The repository-pinned Node version from [`.nvmrc`](.nvmrc)
 
+### Project structure
+
+- `frontend/`: React and TypeScript interface rendered in the WebView.
+- `backend/`: Rust core, Tauri configuration, SQLite migrations, and native assets.
+- `backend/src/`: Rust source code; the inner `src` follows Cargo conventions.
+- Root configuration and `scripts/` keep the existing npm commands available.
+
 ### Checks
 
 ```bash
@@ -92,9 +99,9 @@ npm ci
 npm test -- --run
 npm run lint
 npm run build
-cargo fmt --check --manifest-path src-tauri/Cargo.toml
-cargo test --manifest-path src-tauri/Cargo.toml
-cargo check --release --manifest-path src-tauri/Cargo.toml
+cargo fmt --check --manifest-path backend/Cargo.toml
+cargo test --manifest-path backend/Cargo.toml
+cargo check --release --manifest-path backend/Cargo.toml
 ```
 
 These checks do not launch the desktop application. Launch the UI only for an intentional, specific verification:
@@ -103,7 +110,7 @@ These checks do not launch the desktop application. Launch the UI only for an in
 npm run tauri:dev
 ```
 
-The development launcher uses `src-tauri/tauri.dev.conf.json`, the `mework-dev` identity, a separate SQLite database, and a separate OS keyring namespace. Configure integrations through **Settings → Integrations**; never put credentials in `.env` files, source code, SQLite, or test fixtures.
+The development launcher uses `backend/tauri.dev.conf.json`, the `mework-dev` identity, a separate SQLite database, and a separate OS keyring namespace. Configure integrations through **Settings → Integrations**; never put credentials in `.env` files, source code, SQLite, or test fixtures.
 
 To run the local mock scenario with synthetic Jira, Bitbucket, and Confluence data (AI may still use the configured provider), opt in explicitly:
 

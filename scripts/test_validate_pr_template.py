@@ -37,7 +37,7 @@ No migration is required.
 <!-- release-notes:ru -->
 <!-- /release-notes:ru -->
 """.replace("\n", "\r\n")
-        self.assertEqual(VALIDATOR.validate_pr(body, ["src/features/daily/DailyPage.tsx"]), [])
+        self.assertEqual(VALIDATOR.validate_pr(body, ["frontend/features/daily/DailyPage.tsx"]), [])
 
     def test_does_not_require_a_russian_template_block(self) -> None:
         body = """#### Why this change
@@ -96,7 +96,7 @@ No migration is required.
 <!-- release-notes:ru -->
 <!-- /release-notes:ru -->
 """
-        errors = VALIDATOR.validate_pr(body, ["src/App.tsx"])
+        errors = VALIDATOR.validate_pr(body, ["frontend/App.tsx"])
         self.assertTrue(any("require non-empty English release notes" in error for error in errors))
 
     @patch.object(VALIDATOR.urllib.request, "urlopen")
@@ -118,7 +118,7 @@ No migration is required.
 <!-- release-notes:ru -->
 <!-- /release-notes:ru -->
 """
-        self.assertEqual(VALIDATOR.validate_pr(body, ["src/App.tsx"]), [])
+        self.assertEqual(VALIDATOR.validate_pr(body, ["frontend/App.tsx"]), [])
         urlopen.assert_called_once()
 
     def test_accepts_additional_languages_with_localized_categories(self) -> None:
@@ -143,7 +143,7 @@ No migration is required.
 - Générer un résumé.
 <!-- /release-notes:fr -->
 """
-        self.assertEqual(VALIDATOR.validate_pr(body, ["src/App.tsx"]), [])
+        self.assertEqual(VALIDATOR.validate_pr(body, ["frontend/App.tsx"]), [])
 
 
 if __name__ == "__main__":

@@ -247,7 +247,7 @@ These paths are relative to the repository root and should remain valid:
 - [Planning acceptance criteria](../../.hermes/plans/2026-09-04_154551-sample-repository.md#planning-acceptance-criteria)
 - [Current Jira contract references in the plan](../../.hermes/plans/2026-09-04_154551-sample-repository.md#jira-mvp)
 
-The current tree may contain partial Planning contract/API/test scaffolding under `src/shared/contracts/planning.ts`, `src/features/planning/api.ts` and related tests. It does not yet provide a complete executable Planning route/write implementation: there is no `src-tauri/src/application/planning/` production module, backend Planning command implementation, or Planning migration in the current tree. These are planned paths from Tasks 45–55, not proof that the write procedure is available. The first implementation task must add contract fixtures and the ADR specified by Task 44 before treating the write procedure as executable.
+The current tree may contain partial Planning contract/API/test scaffolding under `frontend/shared/contracts/planning.ts`, `frontend/features/planning/api.ts` and related tests. It does not yet provide a complete executable Planning route/write implementation: there is no `backend/src/application/planning/` production module, backend Planning command implementation, or Planning migration in the current tree. These are planned paths from Tasks 45–55, not proof that the write procedure is available. The first implementation task must add contract fixtures and the ADR specified by Task 44 before treating the write procedure as executable.
 
 ## 14. Completion gate for this runbook
 
