@@ -701,6 +701,38 @@ describe("SettingsPage integrations smoke tests", () => {
     expect(defaultAiSettings().getByRole("combobox", { name: "AI provider" })).toHaveTextContent("Not selected");
   });
 
+  it("shows a pending CLI row until adding finishes", async () => {
+    const pi = { id: "pi-cli" as const, name: "Pi CLI", status: "connected" as const, available: true, models: ["example/sample-model"] };
+    const saved = { ...codexAiSettings, providers: [pi] };
+    let finishAdding!: (value: typeof saved) => void;
+    getAiSettingsMock.mockResolvedValue({ ...codexAiSettings, providers: [] });
+    inspectAiCliProviderMock.mockImplementation(async (id) => ({ ...pi, id }));
+    addAiCliProviderMock.mockImplementation(() => new Promise((resolve) => { finishAdding = resolve; }));
+    render(<SettingsPage section="ai" />);
+
+    await screen.findByRole("heading", { name: "No AI providers yet" });
+    fireEvent.pointerDown(screen.getByRole("button", { name: "Add CLI provider" }), { button: 0, ctrlKey: false });
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Pi CLI" }));
+
+    const pending = screen.getByRole("group", { name: "Pi CLI AI provider" });
+    expect(pending).toHaveAttribute("aria-busy", "true");
+    expect(pending).toHaveAttribute("aria-disabled", "true");
+    expect(within(pending).getByRole("status")).toHaveTextContent("Adding…");
+    expect(pending.querySelector("svg.animate-spin")).toBeInTheDocument();
+    expect(within(pending).queryByRole("button")).not.toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "No AI providers yet" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Add CLI provider" })).toBeDisabled();
+    expect(addAiCliProviderMock).toHaveBeenCalledWith("pi-cli");
+
+    await act(async () => finishAdding(saved));
+
+    const connected = screen.getByRole("group", { name: "Pi CLI AI provider" });
+    expect(connected).not.toHaveAttribute("aria-busy");
+    expect(within(connected).getByRole("button", { name: "Delete Pi CLI" })).toBeEnabled();
+    expect(screen.queryByText("Adding…")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Add CLI provider" })).toBeEnabled();
+  });
+
   it("keeps CLI providers in product order and explains unavailable ones", async () => {
     const cleared = { provider: null, model: "", reasoning: "medium" as const, fastMode: false, retries: { default: 0, actions: { taskCreation: null, pullRequestReview: null, tokenBurner: null, sprintSummary: null } } };
     deleteAiProviderMock.mockResolvedValue({ settings: cleared, providers: [] });
