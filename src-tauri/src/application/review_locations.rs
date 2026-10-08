@@ -7,7 +7,7 @@ pub(super) struct ReviewDiff {
 
 fn header_path(value: &str) -> String {
     let value = value.split('\t').next().unwrap_or(value).trim();
-    let decoded = serde_json::from_str::<String>(value).unwrap_or_else(|_| value.to_owned());
+    let decoded = quoted_path(value).unwrap_or_else(|| value.to_owned());
     decoded
         .strip_prefix("a/")
         .or_else(|| decoded.strip_prefix("b/"))
@@ -15,6 +15,65 @@ fn header_path(value: &str) -> String {
         .or_else(|| decoded.strip_prefix("dst://"))
         .unwrap_or(&decoded)
         .to_owned()
+}
+
+// Git quotes paths using C escapes, including octal UTF-8 bytes that JSON
+// strings do not support. Keep the provider's path bytes when decoding them.
+fn quoted_path(value: &str) -> Option<String> {
+    let mut input = value.strip_prefix('"')?.strip_suffix('"')?.bytes();
+    let mut output = Vec::new();
+    while let Some(byte) = input.next() {
+        if byte != b'\\' {
+            output.push(byte);
+            continue;
+        }
+        let escaped = input.next()?;
+        output.push(match escaped {
+            b'0'..=b'3' => {
+                let second = input.next()?.checked_sub(b'0')?;
+                let third = input.next()?.checked_sub(b'0')?;
+                if second > 7 || third > 7 {
+                    return None;
+                }
+                (escaped - b'0') * 64 + second * 8 + third
+            }
+            b'a' => 7,
+            b'b' => 8,
+            b't' => b'\t',
+            b'n' => b'\n',
+            b'v' => 11,
+            b'f' => 12,
+            b'r' => b'\r',
+            b'\\' | b'"' => escaped,
+            _ => return None,
+        });
+    }
+    String::from_utf8(output).ok()
+}
+
+fn git_destination(header: &str) -> Option<String> {
+    // Spaces alone are not quoted by Git. The destination prefix separates
+    // unquoted paths; quoted source paths end at an unescaped quotation mark.
+    let destination = if let Some(source) = header.strip_prefix('"') {
+        let mut escaped = false;
+        let end = source.char_indices().find_map(|(index, character)| {
+            if escaped {
+                escaped = false;
+            } else if character == '\\' {
+                escaped = true;
+            } else if character == '"' {
+                return Some(index);
+            }
+            None
+        })?;
+        source.get(end + 1..)?.trim_start()
+    } else if let Some((_, destination)) = header.split_once(" \"b/") {
+        return Some(header_path(&format!("\"b/{destination}")));
+    } else {
+        let (_, destination) = header.split_once(" b/")?;
+        return Some(header_path(&format!("b/{destination}")));
+    };
+    Some(header_path(destination))
 }
 
 fn range(value: &str) -> Option<(u64, u64)> {
@@ -34,9 +93,12 @@ impl ReviewDiff {
         let mut hunk: Option<(u64, u64, u64)> = None;
         for raw in diff.lines() {
             let mut destination_line = None;
-            if raw.starts_with("diff --git ") {
+            if let Some(header) = raw.strip_prefix("diff --git ") {
                 source.clear();
-                path.clear();
+                path = git_destination(header).unwrap_or_default();
+                if !path.is_empty() {
+                    result.files.entry(path.clone()).or_default();
+                }
                 hunk = None;
             } else if raw.starts_with("@@ ") {
                 let mut parts = raw.split_whitespace();

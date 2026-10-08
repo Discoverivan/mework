@@ -2052,7 +2052,11 @@ mod tests {
 
     #[test]
     fn grounds_review_comments_in_the_reviewed_diff() {
-        let diff = "diff --git a/src/example.rs b/src/example.rs\n--- a/src/example.rs\n+++ b/src/example.rs\n@@ -10,3 +20,4 @@\n begin();\n-old_call();\n+validate_input();\n+new_call();\n end();\n";
+        let diff = concat!(
+            "diff --git a/src/example.rs b/src/example.rs\n--- a/src/example.rs\n+++ b/src/example.rs\n@@ -10,3 +20,4 @@\n begin();\n-old_call();\n+validate_input();\n+new_call();\n end();\n",
+            "diff --git a/assets/old.bin b/assets/new.bin\nsimilarity index 100%\nrename from assets/old.bin\nrename to assets/new.bin\n",
+            "diff --git \"a/src/\\303\\251xample.rs\" \"b/src/\\303\\251xample.rs\"\n--- \"a/src/\\303\\251xample.rs\"\n+++ \"b/src/\\303\\251xample.rs\"\n@@ -1 +1 @@\n-old_call();\n+new_call();\n",
+        );
         let prompt = openai_review_prompt(
             &serde_json::json!({}),
             diff,
@@ -2064,12 +2068,17 @@ mod tests {
         assert!(prompt.contains(" [new:23] end();"));
         let output = br#"{"verdict":"ok","description":"Updates the example handler.","summary":"Check validation and shutdown.","comments":[
             {"severity":"medium","file":"dst://src/example.rs","line":20,"lineText":"validate_input();","comment":"Validate the input type."},
-            {"severity":"low","file":"src/example.rs","line":900,"lineText":"missing_call();","comment":"Clarify the handler contract."}
+            {"severity":"low","file":"src/example.rs","line":900,"lineText":"missing_call();","comment":"Clarify the handler contract."},
+            {"severity":"medium","file":"assets/new.bin","line":null,"lineText":null,"comment":"Update the asset reference."},
+            {"severity":"low","file":"src/\u00e9xample.rs","line":1,"lineText":"new_call();","comment":"Clarify the new call contract."}
         ]}"#;
         let result = super::parse_review_result_in_diff(output, Some(diff)).unwrap();
         assert_eq!(result.comments[0].file, "src/example.rs");
         assert_eq!(result.comments[0].line, Some(21));
         assert_eq!(result.comments[1].line, None);
+        assert_eq!(result.comments[2].file, "assets/new.bin");
+        assert_eq!(result.comments[2].line, None);
+        assert_eq!(result.comments[3].line, Some(1));
         assert!(!serde_json::to_string(&result).unwrap().contains("lineText"));
     }
 
