@@ -306,6 +306,7 @@ export function DailyPage() {
   const [refreshingStatuses, setRefreshingStatuses] = useState(false);
   const [error, setError] = useState<string>();
   const [presenterOpen, setPresenterOpen] = useState(false);
+  const [presenterBusy, setPresenterBusy] = useState(false);
   const [presenterError, setPresenterError] = useState<string>();
   const [taskActionError, setTaskActionError] = useState<string>();
   const [taskActionNotice, setTaskActionNotice] = useState<string>();
@@ -515,19 +516,22 @@ export function DailyPage() {
   }, []);
 
   async function togglePresenter() {
-    if (presenterOpen) {
-      await closePresenterView();
-      setPresenterOpen(false);
-      return;
-    }
-    if (!workspace || !selectedMember || !selectedMemberId) return;
+    if (presenterBusy || (!presenterOpen && (!workspace || !selectedMember || !selectedMemberId))) return;
+    setPresenterBusy(true);
     setPresenterError(undefined);
     try {
-      await publishPresenterState({ workspace, selectedMemberId });
-      await openPresenterView();
-      setPresenterOpen(true);
+      if (presenterOpen) {
+        await closePresenterView();
+        setPresenterOpen(false);
+      } else if (workspace && selectedMemberId) {
+        await publishPresenterState({ workspace, selectedMemberId });
+        await openPresenterView();
+        setPresenterOpen(true);
+      }
     } catch (reason) {
       setPresenterError(commandError(reason));
+    } finally {
+      setPresenterBusy(false);
     }
   }
 
@@ -731,7 +735,8 @@ export function DailyPage() {
             variant={presenterOpen ? "secondary" : "default"}
             size="icon"
             className="h-9 w-9"
-            disabled={!workspace || loadingWorkspace || (!presenterOpen && !selectedMember)}
+            disabled={presenterBusy || !workspace || loadingWorkspace || (!presenterOpen && !selectedMember)}
+            aria-busy={presenterBusy}
             aria-pressed={presenterOpen}
             aria-label={presenterOpen ? t("daily.presenter.stop") : t("daily.presenter.start")}
             title={presenterOpen ? t("daily.presenter.stop") : t("daily.presenter.start")}
