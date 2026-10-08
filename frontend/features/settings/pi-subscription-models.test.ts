@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import subscriptionModels, { loadSubscriptionModels } from "../../../src-tauri/src/application/ai_providers/cli/pi-subscription-models";
+import subscriptionModels, { loadSubscriptionModels } from "../../../backend/src/application/ai_providers/cli/pi-subscription-models";
 
 describe("Pi subscription model discovery", () => {
   it("lists visible account models using Pi's resolved OAuth credential", async () => {

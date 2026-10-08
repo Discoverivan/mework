@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import releaseNotesConfig from "../../src-tauri/release-notes-config.json";
+import releaseNotesConfig from "../../backend/release-notes-config.json";
 
 export interface ReleaseNote {
   version: string;

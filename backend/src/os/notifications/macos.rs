@@ -201,7 +201,7 @@ mod bundle_context_tests {
 
     #[test]
     fn raw_tauri_dev_executable_is_rejected_for_notifications() {
-        let executable = Path::new("/work/src-tauri/target/debug/mework-dev");
+        let executable = Path::new("/work/backend/target/debug/mework-dev");
 
         assert_eq!(
             ensure_bundled_app_executable(executable),

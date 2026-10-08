@@ -19,8 +19,8 @@ on:
     branches:
       - master
     paths:
-      - "src/**"
-      - "src-tauri/**"
+      - "frontend/**"
+      - "backend/**"
       - "public/**"
       - "index.html"
       - "package.json"
@@ -174,7 +174,7 @@ jobs:
       - name: Rust cache
         uses: swatinem/rust-cache@v2
         with:
-          workspaces: ./src-tauri -> target
+          workspaces: ./backend -> target
 
       - name: Set release version and updater endpoint
         shell: bash
@@ -193,7 +193,7 @@ jobs:
           from pathlib import Path
 
           version = sys.argv[1]
-          config_path = Path("src-tauri/tauri.conf.json")
+          config_path = Path("backend/tauri.conf.json")
           config = json.loads(config_path.read_text())
           config["version"] = version
           config["plugins"]["updater"]["endpoints"] = [
@@ -201,7 +201,7 @@ jobs:
           ]
           config_path.write_text(json.dumps(config, indent=2) + "\n")
 
-          cargo_path = Path("src-tauri/Cargo.toml")
+          cargo_path = Path("backend/Cargo.toml")
           cargo = cargo_path.read_text()
           cargo_path.write_text(re.sub(r'(?m)^version = "[^"]+"$', f'version = "{version}"', cargo, count=1))
           PY
@@ -313,17 +313,17 @@ jobs:
         with:
           name: mework-release-bundles-${{ matrix.artifact }}
           path: |
-            src-tauri/target/**/release/bundle/**/*.app.tar.gz
-            src-tauri/target/**/release/bundle/**/*.app.tar.gz.sig
-            src-tauri/target/**/release/bundle/**/*.dmg
-            src-tauri/target/**/release/bundle/**/*.msi
-            src-tauri/target/**/release/bundle/**/*.msi.sig
-            src-tauri/target/**/release/bundle/**/*.msi.zip
-            src-tauri/target/**/release/bundle/**/*.msi.zip.sig
-            src-tauri/target/**/release/bundle/**/*.exe
-            src-tauri/target/**/release/bundle/**/*.exe.sig
-            src-tauri/target/**/release/bundle/**/*.nsis.zip
-            src-tauri/target/**/release/bundle/**/*.nsis.zip.sig
+            backend/target/**/release/bundle/**/*.app.tar.gz
+            backend/target/**/release/bundle/**/*.app.tar.gz.sig
+            backend/target/**/release/bundle/**/*.dmg
+            backend/target/**/release/bundle/**/*.msi
+            backend/target/**/release/bundle/**/*.msi.sig
+            backend/target/**/release/bundle/**/*.msi.zip
+            backend/target/**/release/bundle/**/*.msi.zip.sig
+            backend/target/**/release/bundle/**/*.exe
+            backend/target/**/release/bundle/**/*.exe.sig
+            backend/target/**/release/bundle/**/*.nsis.zip
+            backend/target/**/release/bundle/**/*.nsis.zip.sig
           if-no-files-found: error
           compression-level: 0
           retention-days: 1

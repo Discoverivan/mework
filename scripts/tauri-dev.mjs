@@ -65,7 +65,7 @@ try {
   if (mockMode) {
     const build = spawnSync(
       "cargo",
-      ["build", "--manifest-path", "src-tauri/Cargo.toml", "--bin", "mework-mock-integrations", "--features", "dev-mock-rest"],
+      ["build", "--manifest-path", "backend/Cargo.toml", "--bin", "mework-mock-integrations", "--features", "dev-mock-rest"],
       { cwd: repositoryRoot, env: childEnv, stdio: "inherit" },
     );
     if (build.error) throw build.error;
@@ -73,7 +73,7 @@ try {
 
     const metadata = spawnSync(
       "cargo",
-      ["metadata", "--manifest-path", "src-tauri/Cargo.toml", "--no-deps", "--format-version", "1"],
+      ["metadata", "--manifest-path", "backend/Cargo.toml", "--no-deps", "--format-version", "1"],
       { cwd: repositoryRoot, env: childEnv, encoding: "utf8" },
     );
     if (metadata.error) throw metadata.error;
@@ -94,7 +94,7 @@ try {
       tauriCli,
       "dev",
       "--config",
-      "src-tauri/tauri.dev.conf.json",
+      "backend/tauri.dev.conf.json",
       ...(mockMode ? ["--features", "dev-mock-rest"] : []),
       "--",
       "--bin",

@@ -1,6 +1,7 @@
 /// <reference types="node" />
 
 import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { fireEvent, render, screen } from "@testing-library/react";
 import { expect, it } from "vitest";
 import { Trash2 } from "lucide-react";
@@ -12,7 +13,7 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 
 it("applies the minimal action style to form and confirmation buttons", () => {
   // Use the application's unlayered appearance rules; Tailwind utilities are built by Vite.
-  const css = readFileSync("src/index.css", "utf8");
+  const css = readFileSync(resolve(import.meta.dirname, "../../index.css"), "utf8");
   const style = document.createElement("style");
   style.textContent = ".app-shell { --muted-foreground: rgb(128, 128, 128); } .example-navigation { height: 36px; padding: 8px 12px; color: rgb(255, 255, 255); } .example-selector { background-color: rgb(240, 240, 240); border-color: rgb(100, 100, 100); }" + css.slice(css.indexOf(".app-icon-button,"));
   document.head.append(style);
@@ -112,7 +113,7 @@ it("applies the minimal action style to form and confirmation buttons", () => {
 });
 
 it("keeps filter actions compact with distinct Filled backgrounds", () => {
-  const css = readFileSync("src/index.css", "utf8");
+  const css = readFileSync(resolve(import.meta.dirname, "../../index.css"), "utf8");
   const style = document.createElement("style");
   style.textContent = css.slice(css.indexOf(":root,"), css.indexOf("@layer base")) + css.slice(css.indexOf(".app-icon-button,"));
   document.head.append(style);

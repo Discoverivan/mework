@@ -22,8 +22,8 @@ The current official shadcn/ui Vite, theming, CLI, components, and skills docume
 - Keep `components.json` as the CLI source of truth with the official schema, `style: "default"`, CSS variables enabled, Lucide icons, and aliases rooted at `@/`.
 - Use CSS custom properties for semantic shadcn tokens and expose them through Tailwind v4's `@theme inline` block. New primitives use semantic utilities such as `bg-background`, `text-foreground`, `border-border`, and `ring-ring`.
 - Keep the existing `data-theme` contract. A custom Tailwind `dark` variant targets `[data-theme="dark"]`, while light and dark semantic token values preserve the existing palette. No provider or extra theme package is introduced.
-- Generate source-owned primitives under `src/components/ui` with the official CLI's default/Radix registry: Button, Card, Input, Label, Select, Switch, Badge, Alert, Separator, and Skeleton. Components can be reviewed and customized locally; later migrations must not import a hosted component runtime.
-- Keep `cn` in `src/lib/utils.ts` as the documented `twMerge(clsx(...))` composition helper.
+- Generate source-owned primitives under `frontend/components/ui` with the official CLI's default/Radix registry: Button, Card, Input, Label, Select, Switch, Badge, Alert, Separator, and Skeleton. Components can be reviewed and customized locally; later migrations must not import a hosted component runtime.
+- Keep `cn` in `frontend/lib/utils.ts` as the documented `twMerge(clsx(...))` composition helper.
 - Add only dependencies required by the generated primitives and current Vite integration: Radix primitives used by the selected registry components, Lucide icons, class variance utilities, Tailwind CSS, and Node types for Vite configuration.
 
 ## Consequences

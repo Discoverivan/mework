@@ -6,7 +6,7 @@ coverage/
 .release/
 
 # Rust/Tauri build output
-src-tauri/target/
+backend/target/
 
 # Environment and local secrets
 /.env.dev
