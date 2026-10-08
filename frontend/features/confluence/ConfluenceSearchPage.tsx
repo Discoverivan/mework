@@ -1,5 +1,5 @@
 import { openUrl } from "@tauri-apps/plugin-opener";
-import { ChevronDown, ExternalLink, LoaderCircle, Search } from "lucide-react";
+import { ExternalLink, LoaderCircle, Search } from "lucide-react";
 import { useEffect, useState, type FormEvent } from "react";
 
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { PageHeader } from "@/components/shared/PageHeader";
 import { useI18n } from "@/i18n/context";
 import type { ConfluenceSearchResult } from "@/shared/contracts/confluence";
@@ -15,6 +16,8 @@ import { listManagedProjects } from "@/features/settings/planning-projects/api";
 import type { ManagedProjectSettings } from "@/shared/contracts/settings";
 
 import { searchConfluence } from "./api";
+
+const ALL_SPACES_VALUE = "__all_spaces__";
 
 export function ConfluenceSearchPage() {
   const { locale, t } = useI18n();
@@ -38,7 +41,7 @@ export function ConfluenceSearchPage() {
       );
       setIntegrationId(confluence?.id ?? null);
       const matchingProjects = projects.filter((project) =>
-        project.confluenceSpace?.integrationId === confluence?.id
+        confluence !== undefined && project.confluenceSpace?.integrationId === confluence.id
       );
       setTeamSpaces(matchingProjects);
       setSpaceKey(matchingProjects[0]?.confluenceSpace?.spaceKey ?? "");
@@ -79,26 +82,21 @@ export function ConfluenceSearchPage() {
 
       <form autoComplete="off" className="flex flex-wrap items-end gap-3" onSubmit={submit}>
         {teamSpaces.length > 0 ? (
-          <div className="grid min-w-64 gap-2">
+          <div className="grid min-w-0 max-w-full gap-2">
             <Label htmlFor="confluence-search-space">{t("confluence.scope")}</Label>
-            <div className="relative">
-              <select autoComplete="off"
-                id="confluence-search-space"
-                aria-label={t("confluence.scope")}
-                className="h-10 w-full appearance-none rounded-md border border-input bg-background py-2 pl-3 pr-9 text-sm"
-                value={spaceKey}
-                onChange={(event) => setSpaceKey(event.target.value)}
-                disabled={searching}
-              >
+            <Select value={spaceKey || ALL_SPACES_VALUE} onValueChange={(value) => setSpaceKey(value === ALL_SPACES_VALUE ? "" : value)} disabled={searching}>
+              <SelectTrigger id="confluence-search-space" aria-label={t("confluence.scope")}>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
                 {teamSpaces.map((project) => (
-                  <option key={project.id} value={project.confluenceSpace?.spaceKey}>
+                  <SelectItem key={project.id} value={project.confluenceSpace!.spaceKey}>
                     {project.projectName} · {project.confluenceSpace?.spaceName}
-                  </option>
+                  </SelectItem>
                 ))}
-                <option value="">{t("confluence.allSpaces")}</option>
-              </select>
-              <ChevronDown className="pointer-events-none absolute right-2 top-1/2 size-4 -translate-y-1/2 opacity-50" aria-hidden="true" />
-            </div>
+                <SelectItem value={ALL_SPACES_VALUE}>{t("confluence.allSpaces")}</SelectItem>
+              </SelectContent>
+            </Select>
           </div>
         ) : null}
         <div className="grid min-w-0 flex-1 gap-2">

@@ -1,4 +1,5 @@
 import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Dialog,
   DialogBody,
@@ -76,50 +77,55 @@ export function PullRequestDisplayOptionsDialog({
   }
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-md" aria-describedby={undefined}>
+      {/* Pixel-aligned centering keeps 1 px separators crisp in the native WebView. */}
+      <DialogContent className="max-w-2xl top-[round(nearest,50%,1px)] -translate-y-[round(nearest,50%,1px)]" aria-describedby={undefined}>
         <DialogHeader>
           <DialogTitle>{t("pr.displayOptions")}</DialogTitle>
         </DialogHeader>
-        <DialogBody className="space-y-5">
-          <section className="space-y-3" aria-labelledby="pull-request-automation-options">
-            <h3 id="pull-request-automation-options" className="text-base font-semibold">{t("pr.options.automation")}</h3>
-            <div className="flex items-center justify-between gap-4 rounded-lg border p-4">
-              <div className="min-w-0 flex-1 space-y-1">
-                <Label htmlFor="pull-request-auto-review" alignment="inline" className="text-sm font-semibold leading-tight">{t("pr.aiAutoReview")}</Label>
-                <p className="text-xs text-muted-foreground">{t("pr.options.autoReviewDescription")}</p>
-              </div>
-              <Switch
-                id="pull-request-auto-review"
-                size="md"
-                checked={draftAutoReview}
-                onCheckedChange={setDraftAutoReview}
-                disabled={autoReviewDisabled}
-              />
-            </div>
-          </section>
-          <section className="space-y-3" aria-labelledby="pull-request-display-options">
-            <h3 id="pull-request-display-options" className="text-base font-semibold">{t("pr.options.display")}</h3>
-            <div className="space-y-4 rounded-lg border p-4">
-              <div className="flex flex-wrap items-center justify-between gap-4">
-                <div className="min-w-0 flex-1">
-                  <Label htmlFor="pull-request-sort-order" alignment="inline" className="text-sm font-semibold leading-tight">{t("pr.options.sortOrder")}</Label>
-                </div>
-                <div className="w-full sm:w-auto">
-                  <Select value={draftSort} onValueChange={(value) => setDraftSort(value as PullRequestSortOrder)}>
-                    <SelectTrigger id="pull-request-sort-order" aria-label={t("pr.options.sortOrder")} className="h-9 gap-2 px-3 py-1.5 text-sm"><SelectValue /></SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="newest">{t("pr.options.newestFirst")}</SelectItem>
-                      <SelectItem value="oldest">{t("pr.options.oldestFirst")}</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-              </div>
+        <DialogBody className="m-0 space-y-3 p-1 pb-0">
+          <Card role="region" className="shadow-none" aria-labelledby="pull-request-automation-options">
+            <CardHeader className="px-4 py-3.5">
+              <CardTitle id="pull-request-automation-options" className="text-base font-semibold leading-tight">{t("pr.options.automation")}</CardTitle>
+            </CardHeader>
+            <CardContent className="px-4 pb-4">
               <Separator />
-              <div className="flex flex-wrap items-center justify-between gap-4">
-                <Label htmlFor="pull-request-grouping" alignment="inline" className="min-w-0 text-sm font-semibold leading-tight">{t("pr.options.grouping")}</Label>
-                <div className="w-full sm:w-auto">
+              <div className="flex min-h-9 items-center justify-between gap-3 pl-4 pt-3">
+                <div className="min-w-0 flex-1 space-y-1">
+                  <Label htmlFor="pull-request-auto-review" alignment="inline" className="text-sm font-medium leading-tight">{t("pr.aiAutoReview")}</Label>
+                  <p className="text-xs leading-snug text-muted-foreground">{t("pr.options.autoReviewDescription")}</p>
+                </div>
+                <Switch
+                  id="pull-request-auto-review"
+                  size="sm"
+                  checked={draftAutoReview}
+                  onCheckedChange={setDraftAutoReview}
+                  disabled={autoReviewDisabled}
+                />
+              </div>
+            </CardContent>
+          </Card>
+          <Card role="region" className="shadow-none" aria-labelledby="pull-request-display-options">
+            <CardHeader className="px-4 py-3.5">
+              <CardTitle id="pull-request-display-options" className="text-base font-semibold leading-tight">{t("pr.options.display")}</CardTitle>
+            </CardHeader>
+            <CardContent className="px-4 pb-4">
+              <Separator />
+              <div className="flex min-h-9 flex-wrap items-center justify-between gap-3 py-3 pl-4">
+                <Label htmlFor="pull-request-sort-order" alignment="inline" className="min-w-0 flex-1 text-sm font-medium leading-tight">{t("pr.options.sortOrder")}</Label>
+                <Select value={draftSort} onValueChange={(value) => setDraftSort(value as PullRequestSortOrder)}>
+                  <SelectTrigger id="pull-request-sort-order" aria-label={t("pr.options.sortOrder")} className="h-9"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="newest">{t("pr.options.newestFirst")}</SelectItem>
+                    <SelectItem value="oldest">{t("pr.options.oldestFirst")}</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="pl-4"><Separator /></div>
+              <div role="group" aria-labelledby="pull-request-grouping-label" className="pl-4">
+                <div className="flex min-h-9 flex-wrap items-center justify-between gap-3 py-3 last:pb-0">
+                  <Label id="pull-request-grouping-label" htmlFor="pull-request-grouping" alignment="inline" className="min-w-0 flex-1 text-sm font-medium leading-tight">{t("pr.options.grouping")}</Label>
                   <Select value={draftGrouping} onValueChange={(value) => setDraftGrouping(value as PullRequestGrouping)}>
-                    <SelectTrigger id="pull-request-grouping" aria-label={t("pr.options.grouping")} className="h-9 gap-2 px-3 py-1.5 text-sm"><SelectValue /></SelectTrigger>
+                    <SelectTrigger id="pull-request-grouping" aria-label={t("pr.options.grouping")} className="h-9"><SelectValue /></SelectTrigger>
                     <SelectContent>
                       <SelectItem value="none">{t("pr.options.groupNone")}</SelectItem>
                       <SelectItem value="project">{t("pr.options.groupProject")}</SelectItem>
@@ -127,17 +133,20 @@ export function PullRequestDisplayOptionsDialog({
                     </SelectContent>
                   </Select>
                 </div>
+                {draftGrouping !== "none" ? (
+                  <>
+                    <Separator />
+                    <div className="flex min-h-9 items-center justify-between gap-3 pl-4 pt-3">
+                      <Label htmlFor="expand-pull-request-projects-by-default" alignment="inline" className="min-w-0 flex-1 text-sm font-medium leading-tight">{t("pr.options.expandGroups")}</Label>
+                      <Switch id="expand-pull-request-projects-by-default" size="sm" checked={draftExpand} onCheckedChange={setDraftExpand} />
+                    </div>
+                  </>
+                ) : null}
               </div>
-              {draftGrouping !== "none" ? <><Separator /><div className="flex items-center justify-between gap-6 pl-4">
-                <div>
-                  <Label htmlFor="expand-pull-request-projects-by-default" alignment="inline" className="text-sm font-medium">{t("pr.options.expandGroups")}</Label>
-                </div>
-                <Switch id="expand-pull-request-projects-by-default" size="sm" checked={draftExpand} onCheckedChange={setDraftExpand} />
-              </div></> : null}
-            </div>
-          </section>
+            </CardContent>
+          </Card>
         </DialogBody>
-        <DialogFooter>
+        <DialogFooter className="px-1">
           <Button data-dialog-cancel type="button" variant="outline" actionTone="neutral" onClick={() => onOpenChange(false)}>{t("settings.common.cancel")}</Button>
           <Button type="button" variant="outline" actionTone="edit" onClick={apply} disabled={!hasChanges}>{t("settings.common.save")}</Button>
         </DialogFooter>

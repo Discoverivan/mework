@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { DailyPresenterState, DailyWorkspace } from "@/shared/contracts/developer";
@@ -9,6 +9,7 @@ import { clearDailyWorkspaceCacheForTests, prefetchDailyWorkspaces, readDailyWor
 import { DailyPage } from "./DailyPage";
 import { APP_EVENT, emitAppEvent } from "@/app/app-events";
 import { clearTeamMembersStateForTests } from "../planning/team-members-state";
+import { ASSIGNEES_LAYOUT_STORAGE_KEY } from "./display-options";
 
 const { openUrlMock, writeTextMock } = vi.hoisted(() => ({
   openUrlMock: vi.fn(),
@@ -114,6 +115,7 @@ const workspace: DailyWorkspace = {
 describe("DailyPage smoke test", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    window.localStorage.removeItem(ASSIGNEES_LAYOUT_STORAGE_KEY);
     clearDailyWorkspaceCacheForTests();
     clearTeamMembersStateForTests();
     Object.defineProperty(navigator, "clipboard", {
@@ -139,6 +141,29 @@ describe("DailyPage smoke test", () => {
       presenterStateListener = listener;
       return () => undefined;
     });
+  });
+
+  it("saves the assignee dropdown layout and keeps task selection working after reopening", async () => {
+    const page = render(<DailyPage />);
+    const tasks = await screen.findByRole("region", { name: "Selected member tasks" });
+    expect(tasks.parentElement).not.toHaveClass("daily-workspace-layout-top");
+    fireEvent.click(screen.getByRole("button", { name: "Settings" }));
+    const settings = screen.getByRole("dialog", { name: "Settings" });
+    fireEvent.click(within(settings).getByRole("combobox", { name: "Assignees layout" }));
+    fireEvent.click(screen.getByRole("option", { name: "On top" }));
+    fireEvent.click(within(settings).getByRole("button", { name: "Save" }));
+    expect(tasks.parentElement).toHaveClass("daily-workspace-layout-top");
+    expect(screen.queryByRole("heading", { name: "Assignees" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Open sprint board in Jira" })).not.toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Test Author A" })).toBeInTheDocument();
+    expect(within(screen.getByRole("combobox", { name: "Assignees" })).getByText("TA")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("combobox", { name: "Assignees" }));
+    expect(within(screen.getByRole("option", { name: /Test Author A/ })).getByText("TA")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("option", { name: /Other assignees/ }));
+    expect(await within(tasks).findByText("DEMO-3")).toBeInTheDocument();
+    page.unmount();
+    render(<DailyPage />);
+    expect((await screen.findByRole("region", { name: "Selected member tasks" })).parentElement).toHaveClass("daily-workspace-layout-top");
   });
 
   it("updates mounted sprint tasks and their cache after team member edits", async () => {
@@ -330,12 +355,16 @@ describe("DailyPage smoke test", () => {
       sprintBoardUrlsByAssignee: {},
     });
     fireEvent.click(screen.getByRole("combobox", { name: "Sprint" }));
+    expect(screen.getByRole("option", { name: "Sprint 42 (Active)" })).toHaveAttribute("aria-selected", "true");
     expect(screen.getByRole("option", { name: "Sprint 43 (Future)" })).toBeInTheDocument();
     fireEvent.change(screen.getByRole("searchbox", { name: "Search sprints…" }), { target: { value: "41" } });
     expect(screen.getByRole("option", { name: "Sprint 41 (Closed)" })).toBeInTheDocument();
     expect(screen.queryByRole("option", { name: "Sprint 42 (Active)" })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("option", { name: "Sprint 41 (Closed)" }));
     await waitFor(() => expect(loadDailyWorkspaceMock).toHaveBeenLastCalledWith("managed-1", "sprint-0"));
+    fireEvent.click(screen.getByRole("combobox", { name: "Sprint" }));
+    expect(screen.getByRole("option", { name: "Sprint 41 (Closed)" })).toHaveAttribute("aria-selected", "true");
+    fireEvent.keyDown(screen.getByRole("searchbox", { name: "Search sprints…" }), { key: "Escape" });
     await waitFor(() => expect(screen.getByRole("button", { name: "Open sprint board for this assignee in Jira" })).toBeDisabled());
     expect(screen.getByRole("button", { name: "Open sprint board for this assignee in Jira" }).parentElement).toHaveAttribute("data-tooltip", "No Jira assignee quick filter is available for this person.");
     fireEvent.click(sprintBoardButton);

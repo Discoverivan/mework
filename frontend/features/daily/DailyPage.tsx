@@ -4,7 +4,7 @@ import { APP_EVENT, subscribeAppEvent } from "@/app/app-events";
 import { readUpdatedTeamMembers } from "../planning/team-members-state";
 import { listen } from "@tauri-apps/api/event";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import { ArrowLeft, ArrowRight, CalendarDays, ChevronDown, Copy, ExternalLink, MoreHorizontal, Presentation, RefreshCw, Sparkles, Square } from "lucide-react";
+import { ArrowLeft, ArrowRight, CalendarDays, ChevronDown, Copy, ExternalLink, MoreHorizontal, Presentation, RefreshCw, Settings2, Sparkles, Square } from "lucide-react";
 import { PageHeader } from "@/components/shared/PageHeader";
 import { StatusToast } from "@/components/shared/StatusToast";
 import { useInfoPopoverAnchor } from "@/components/shared/use-info-popover-anchor";
@@ -18,7 +18,8 @@ import { Input } from "@/components/ui/input";
 import { Calendar } from "@/components/ui/calendar";
 import { Textarea } from "@/components/ui/textarea";
 import { Field, FieldGroup, FieldLabel } from "@/components/ui/field";
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Label } from "@/components/ui/label";
+import { Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import type { DateRange } from "react-day-picker";
 import { enGB, ru } from "react-day-picker/locale";
@@ -34,6 +35,7 @@ import {
 import { Separator } from "@/components/ui/separator";
 import { issueStatusBadgeClass } from "@/lib/issue-status-badge";
 import { cn } from "@/lib/utils";
+import { directPointerMoveHover } from "@/lib/direct-pointer-hover";
 import {
   Select,
   SelectContent,
@@ -46,6 +48,7 @@ import type { ManagedProject, TeamMember } from "@/shared/contracts/planning";
 import { closePresenterView, generateSprintSummary, loadDailyIssueTransitions, loadJiraAvatarData, openPresenterView, publishPresenterState, refreshDailyWorkspace, subscribePresenterState, transitionDailyIssue } from "./api";
 import { readDailyWorkspaceCache, readManagedProjectsCache, refreshDailyWorkspaceCache, refreshManagedProjectsCache, writeDailyWorkspaceCache } from "./cache";
 import { dailyStatusTone } from "./status";
+import { readAssigneesLayout, writeAssigneesLayout, type AssigneesLayout } from "./display-options";
 import "./daily.css";
 
 function commandError(error: unknown): string {
@@ -138,6 +141,21 @@ interface TaskOwner {
   id: string;
   label: string;
   member?: TeamMember;
+}
+
+function TaskOwnerLabel({ owner, managedProjectId }: { owner: TaskOwner; managedProjectId: string }) {
+  return (
+    <span className="inline-flex min-w-0 items-center gap-2">
+      {owner.member ? (
+        <MemberAvatar member={owner.member} className="h-5 w-5 shrink-0 text-[10px]" managedProjectId={managedProjectId} />
+      ) : (
+        <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-muted text-xs" aria-hidden="true">
+          {owner.id === UNASSIGNED_ID ? "—" : "+"}
+        </span>
+      )}
+      <span className="truncate">{owner.label}</span>
+    </span>
+  );
 }
 
 function taskOwners(workspace: DailyWorkspace, otherAssigneesLabel: string, unassignedLabel: string): TaskOwner[] {
@@ -292,6 +310,9 @@ function TaskStatusMenu({
 
 export function DailyPage() {
   const { t, language, locale } = useI18n();
+  const [assigneesLayout, setAssigneesLayout] = useState(readAssigneesLayout);
+  const [draftAssigneesLayout, setDraftAssigneesLayout] = useState(assigneesLayout);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [projects, setProjects] = useState<ManagedProject[]>(() => readManagedProjectsCache() ?? []);
   const [selectedProjectId, setSelectedProjectId] = useState<string | undefined>(() => readManagedProjectsCache()?.[0]?.id);
   const [workspace, setWorkspace] = useState<DailyWorkspace | undefined>(() => {
@@ -615,11 +636,52 @@ export function DailyPage() {
   return (
     <section aria-labelledby="daily-title" className="space-y-4">
       <PageHeader
-        className="daily-page-header"
+        className="daily-page-header items-center!"
         title={t("page.sprintTasks")}
         titleId="daily-title"
         description={t("daily.description")}
+        actions={(
+          <Button type="button" variant="outline" onClick={() => {
+            setDraftAssigneesLayout(assigneesLayout);
+            setSettingsOpen(true);
+          }}>
+            <Settings2 data-icon="inline-start" />{t("daily.settings")}
+          </Button>
+        )}
       />
+
+      <Dialog open={settingsOpen} onOpenChange={setSettingsOpen}>
+        <DialogContent aria-describedby={undefined}>
+          <DialogHeader><DialogTitle>{t("daily.settings")}</DialogTitle></DialogHeader>
+          <DialogBody className="m-0 p-1 pb-0">
+            <Card className="shadow-none">
+              <CardContent className="p-4">
+                <div className="flex flex-wrap items-center justify-between gap-4">
+                  <div className="min-w-0 flex-1">
+                    <Label id="daily-assignees-layout-label" htmlFor="daily-assignees-layout" alignment="inline" className="font-medium">{t("daily.assigneesLayout")}</Label>
+                    <CardDescription className="mt-1 text-xs leading-snug">{t("daily.assigneesLayoutDescription")}</CardDescription>
+                  </div>
+                  <Select value={draftAssigneesLayout} onValueChange={(value) => setDraftAssigneesLayout(value as AssigneesLayout)}>
+                    <SelectTrigger id="daily-assignees-layout" aria-labelledby="daily-assignees-layout-label" className="h-9"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="left">{t("daily.assigneesLayout.left")}</SelectItem>
+                      <SelectItem value="top">{t("daily.assigneesLayout.top")}</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </CardContent>
+            </Card>
+          </DialogBody>
+          <DialogFooter className="px-1">
+            <Button data-dialog-cancel type="button" variant="outline" onClick={() => setSettingsOpen(false)}>{t("settings.common.cancel")}</Button>
+            <Button type="button" actionTone="edit" disabled={draftAssigneesLayout === assigneesLayout} onClick={() => {
+              writeAssigneesLayout(draftAssigneesLayout);
+              setAssigneesLayout(draftAssigneesLayout);
+              setSettingsOpen(false);
+            }}>{t("settings.common.save")}</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <div className="flex flex-wrap items-center gap-2">
         {!loadingProjects && projects.length > 0 ? (
@@ -648,10 +710,10 @@ export function DailyPage() {
                 aria-label={t("daily.sprint")}
                 aria-expanded={sprintPickerOpen}
                 disabled={loadingWorkspace}
-                className="h-10 min-w-40 justify-between gap-3 px-3 font-normal"
+                className="h-10 w-fit max-w-full justify-between gap-2 px-3 font-normal data-[pointer-hover=true]:bg-background data-[pointer-hover=true]:text-foreground data-[pointer-hover=true]:data-[state=closed]:enabled:border-primary focus-visible:text-foreground"
               >
                 <span className="truncate">{selectedSprint?.name ?? t("daily.selectSprint")}</span>
-                <ChevronDown aria-hidden="true" className="size-4 shrink-0 text-muted-foreground" />
+                <ChevronDown aria-hidden="true" className="-mr-1 size-4 shrink-0 opacity-50" />
               </Button>
             </PopoverTrigger>
             <PopoverContent align="start" className="w-[min(20rem,calc(100vw-2rem))] p-2">
@@ -679,7 +741,8 @@ export function DailyPage() {
                           type="button"
                           role="option"
                           aria-selected={sprint.id === workspace.selectedSprintId}
-                          className="flex w-full cursor-pointer items-center rounded-sm px-3 py-2 text-left text-sm outline-none hover:bg-accent hover:text-accent-foreground focus-visible:bg-accent focus-visible:text-accent-foreground"
+                          className="flex w-full cursor-pointer select-none items-center rounded-sm px-3 py-1.5 text-left text-sm outline-none data-[pointer-hover=true]:text-primary focus-visible:text-primary aria-selected:bg-primary/10"
+                          {...directPointerMoveHover<HTMLButtonElement>({})}
                           onClick={() => {
                             setSprintPickerOpen(false);
                             if (selectedProjectId) void refreshWorkspace(selectedProjectId, sprint.id);
@@ -696,20 +759,38 @@ export function DailyPage() {
             </PopoverContent>
           </Popover>
         ) : null}
-        <Button
-          type="button"
-          variant="outline"
-          size="icon"
-          className="h-9 w-9"
-          aria-label={t("daily.openSprintBoard")}
-          title={t("daily.openSprintBoard")}
-          disabled={!workspace || loadingWorkspace}
-          onClick={() => {
-            if (workspace) void openJiraIssue(workspace.sprintBoardUrl);
-          }}
-        >
-          <ExternalLink aria-hidden="true" />
-        </Button>
+        {workspace && assigneesLayout === "top" ? (
+          <Select value={selectedMemberId} onValueChange={setSelectedMemberId} disabled={loadingWorkspace || owners.length === 0}>
+            <SelectTrigger id="sprint-tasks-assignee-select" aria-label={t("daily.assignees")}>
+              <SelectValue placeholder={t("daily.selectMember")}>
+                {selectedOwner ? <TaskOwnerLabel owner={selectedOwner} managedProjectId={workspace.managedProjectId} /> : null}
+              </SelectValue>
+            </SelectTrigger>
+            <SelectContent>
+              {owners.map((owner) => (
+                <SelectItem key={owner.id} value={owner.id}>
+                  <TaskOwnerLabel owner={owner} managedProjectId={workspace.managedProjectId} />
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        ) : null}
+        {assigneesLayout === "left" ? (
+          <Button
+            type="button"
+            variant="outline"
+            size="icon"
+            className="h-9 w-9"
+            aria-label={t("daily.openSprintBoard")}
+            title={t("daily.openSprintBoard")}
+            disabled={!workspace || loadingWorkspace}
+            onClick={() => {
+              if (workspace) void openJiraIssue(workspace.sprintBoardUrl);
+            }}
+          >
+            <ExternalLink aria-hidden="true" />
+          </Button>
+        ) : null}
         <div className="ml-auto flex items-center gap-2">
           <Button
             type="button"
@@ -925,44 +1006,46 @@ export function DailyPage() {
         </Card>
       ) : null}
       {workspace && !loadingWorkspace ? (
-        <div className="daily-workspace-layout">
-          <Card className="daily-members-card">
-            <CardHeader className="daily-panel-header">
-              <CardTitle className="text-[15px]">{t("daily.assignees")}</CardTitle>
-            </CardHeader>
-            <CardContent className="daily-members-content">
-              {owners.length === 0 ? (
-                <p className="text-sm text-muted-foreground">{t("daily.noSprintTasks")}</p>
-              ) : (
-                <div className="daily-member-list">
-                  {owners.map((owner) => {
-                    const taskCount = ownerTasks(workspace, owner.id).length;
-                    const selected = selectedMemberId === owner.id;
-                    return (
-                      <button
-                        key={owner.id}
-                        type="button"
-                        aria-pressed={selected}
-                        className={`daily-member-item${selected ? " daily-member-item-selected" : ""}`}
-                        onClick={() => setSelectedMemberId(owner.id)}
-                      >
-                        {owner.member ? (
-                          <MemberAvatar member={owner.member} className="h-8 w-8 shrink-0" managedProjectId={workspace.managedProjectId} />
-                        ) : (
-                          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-muted text-xs font-medium" aria-hidden="true">
-                            {owner.id === UNASSIGNED_ID ? "—" : "+"}
-                          </span>
-                        )}
-                        <span className="min-w-0 flex-1 truncate font-medium">{owner.label}</span>
-                        <span className="daily-member-task-count">{taskCount}</span>
-                        <ArrowRight aria-hidden="true" className="daily-member-arrow" />
-                      </button>
-                    );
-                  })}
-                </div>
-              )}
-            </CardContent>
-          </Card>
+        <div className={cn("daily-workspace-layout", assigneesLayout === "top" && "daily-workspace-layout-top")}>
+          {assigneesLayout === "left" ? (
+            <Card className="daily-members-card">
+              <CardHeader className="daily-panel-header">
+                <CardTitle className="text-[15px]">{t("daily.assignees")}</CardTitle>
+              </CardHeader>
+              <CardContent className="daily-members-content">
+                {owners.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">{t("daily.noSprintTasks")}</p>
+                ) : (
+                  <div className="daily-member-list">
+                    {owners.map((owner) => {
+                      const taskCount = ownerTasks(workspace, owner.id).length;
+                      const selected = selectedMemberId === owner.id;
+                      return (
+                        <button
+                          key={owner.id}
+                          type="button"
+                          aria-pressed={selected}
+                          className={`daily-member-item${selected ? " daily-member-item-selected" : ""}`}
+                          onClick={() => setSelectedMemberId(owner.id)}
+                        >
+                          {owner.member ? (
+                            <MemberAvatar member={owner.member} className="h-8 w-8 shrink-0" managedProjectId={workspace.managedProjectId} />
+                          ) : (
+                            <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-muted text-xs font-medium" aria-hidden="true">
+                              {owner.id === UNASSIGNED_ID ? "—" : "+"}
+                            </span>
+                          )}
+                          <span className="min-w-0 flex-1 truncate font-medium">{owner.label}</span>
+                          <span className="daily-member-task-count">{taskCount}</span>
+                          <ArrowRight aria-hidden="true" className="daily-member-arrow" />
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          ) : null}
 
           <section className="daily-tasks-column" aria-label={t("daily.selectedTasks")}>
             {selectedOwner ? (

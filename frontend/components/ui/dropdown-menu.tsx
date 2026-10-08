@@ -3,11 +3,19 @@ import * as DropdownMenuPrimitive from "@radix-ui/react-dropdown-menu"
 import { Check, ChevronRight, Circle } from "lucide-react"
 
 import { cn } from "@/lib/utils"
+import { directPointerMoveHover } from "@/lib/direct-pointer-hover"
+import { MenuInputProvider, useMenuInput } from "@/lib/menu-input"
 import { Hint } from "@/components/ui/tooltip"
 
-const DropdownMenu = DropdownMenuPrimitive.Root
+const DropdownMenu = (props: React.ComponentProps<typeof DropdownMenuPrimitive.Root>) => (
+  <MenuInputProvider><DropdownMenuPrimitive.Root {...props} /></MenuInputProvider>
+)
 
-const DropdownMenuTrigger = DropdownMenuPrimitive.Trigger
+const DropdownMenuTrigger = React.forwardRef<
+  React.ElementRef<typeof DropdownMenuPrimitive.Trigger>,
+  React.ComponentPropsWithoutRef<typeof DropdownMenuPrimitive.Trigger>
+>((props, ref) => <DropdownMenuPrimitive.Trigger ref={ref} {...props} {...useMenuInput<HTMLButtonElement>(props)} />)
+DropdownMenuTrigger.displayName = DropdownMenuPrimitive.Trigger.displayName
 
 const DropdownMenuGroup = DropdownMenuPrimitive.Group
 
@@ -26,11 +34,13 @@ const DropdownMenuSubTrigger = React.forwardRef<
   <DropdownMenuPrimitive.SubTrigger
     ref={ref}
     className={cn(
-      "flex cursor-pointer select-none items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-none transition-colors hover:bg-primary/10 hover:text-primary focus:bg-primary/10 focus:text-primary data-[highlighted]:bg-primary/10 data-[highlighted]:text-primary data-[state=open]:bg-primary/10 data-[state=open]:text-primary [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0",
+      "flex cursor-pointer select-none items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-none transition-colors data-[pointer-hover=true]:bg-primary/10 data-[pointer-hover=true]:text-primary data-[keyboard-navigation=true]:data-[highlighted]:bg-primary/10 data-[keyboard-navigation=true]:data-[highlighted]:text-primary data-[state=open]:bg-primary/10 data-[state=open]:text-primary [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0",
       inset && "pl-8",
       className
     )}
     {...props}
+    {...useMenuInput<HTMLDivElement>(props)}
+    {...directPointerMoveHover<HTMLDivElement>(props)}
   >
     {children}
     <ChevronRight className="ml-auto" />
@@ -50,6 +60,7 @@ const DropdownMenuSubContent = React.forwardRef<
       className
     )}
     {...props}
+    {...useMenuInput<HTMLDivElement>(props)}
   />
 ))
 DropdownMenuSubContent.displayName =
@@ -68,6 +79,7 @@ const DropdownMenuContent = React.forwardRef<
         className
       )}
       {...props}
+      {...useMenuInput<HTMLDivElement>(props)}
     />
   </DropdownMenuPrimitive.Portal>
 ))
@@ -83,11 +95,13 @@ const DropdownMenuItem = React.forwardRef<
     <DropdownMenuPrimitive.Item
       ref={ref}
       className={cn(
-        "relative flex cursor-pointer select-none items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-none transition-colors hover:bg-primary/10 hover:text-primary focus:bg-primary/10 focus:text-primary data-[highlighted]:bg-primary/10 data-[highlighted]:text-primary data-[disabled]:pointer-events-none data-[disabled]:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0",
+        "relative flex cursor-pointer select-none items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-none transition-colors data-[pointer-hover=true]:bg-primary/10 data-[pointer-hover=true]:text-primary data-[keyboard-navigation=true]:data-[highlighted]:bg-primary/10 data-[keyboard-navigation=true]:data-[highlighted]:text-primary data-[disabled]:pointer-events-none data-[disabled]:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0",
         inset && "pl-8",
         className
       )}
       {...props}
+      {...useMenuInput<HTMLDivElement>(props)}
+      {...directPointerMoveHover<HTMLDivElement>(props)}
     />
   </Hint>
 ))
@@ -100,11 +114,13 @@ const DropdownMenuCheckboxItem = React.forwardRef<
   <DropdownMenuPrimitive.CheckboxItem
     ref={ref}
     className={cn(
-      "relative flex cursor-pointer select-none items-center rounded-sm py-1.5 pl-8 pr-2 text-sm outline-none transition-colors hover:bg-primary/10 hover:text-primary focus:bg-primary/10 focus:text-primary data-[highlighted]:bg-primary/10 data-[highlighted]:text-primary data-[disabled]:pointer-events-none data-[disabled]:opacity-50",
+      "relative flex cursor-pointer select-none items-center rounded-sm py-1.5 pl-8 pr-2 text-sm outline-none transition-colors data-[pointer-hover=true]:bg-primary/10 data-[pointer-hover=true]:text-primary data-[keyboard-navigation=true]:data-[highlighted]:bg-primary/10 data-[keyboard-navigation=true]:data-[highlighted]:text-primary data-[disabled]:pointer-events-none data-[disabled]:opacity-50",
       className
     )}
     checked={checked}
     {...props}
+    {...useMenuInput<HTMLDivElement>(props)}
+    {...directPointerMoveHover<HTMLDivElement>(props)}
   >
     <span className="absolute left-2 flex h-3.5 w-3.5 items-center justify-center">
       <DropdownMenuPrimitive.ItemIndicator>
@@ -124,10 +140,12 @@ const DropdownMenuRadioItem = React.forwardRef<
   <DropdownMenuPrimitive.RadioItem
     ref={ref}
     className={cn(
-      "relative flex cursor-pointer select-none items-center rounded-sm py-1.5 pl-8 pr-2 text-sm outline-none transition-colors hover:bg-primary/10 hover:text-primary focus:bg-primary/10 focus:text-primary data-[highlighted]:bg-primary/10 data-[highlighted]:text-primary data-[disabled]:pointer-events-none data-[disabled]:opacity-50",
+      "relative flex cursor-pointer select-none items-center rounded-sm py-1.5 pl-8 pr-2 text-sm outline-none transition-colors data-[pointer-hover=true]:bg-primary/10 data-[pointer-hover=true]:text-primary data-[keyboard-navigation=true]:data-[highlighted]:bg-primary/10 data-[keyboard-navigation=true]:data-[highlighted]:text-primary data-[disabled]:pointer-events-none data-[disabled]:opacity-50",
       className
     )}
     {...props}
+    {...useMenuInput<HTMLDivElement>(props)}
+    {...directPointerMoveHover<HTMLDivElement>(props)}
   >
     <span className="absolute left-2 flex h-3.5 w-3.5 items-center justify-center">
       <DropdownMenuPrimitive.ItemIndicator>

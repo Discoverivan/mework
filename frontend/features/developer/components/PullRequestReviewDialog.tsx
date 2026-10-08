@@ -247,7 +247,7 @@ export function PullRequestReviewDialog({
       <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-3xl">
         <DialogHeader className="gap-2">
-          <DialogTitle aria-label={t("pr.dialog.results")} className="text-base font-semibold">
+          <DialogTitle aria-label={t("pr.dialog.results")}>
             {pullRequest?.projectKey}/{pullRequest?.repositorySlug} #{pullRequest?.pullRequestId}
           </DialogTitle>
           <div className="flex items-end justify-between gap-3">
