@@ -67,7 +67,7 @@ export function DataRetentionSettings() {
   }
 
   return <Card>
-    <CardHeader className="flex flex-row items-center justify-between gap-3 space-y-0 px-4 py-3.5">
+    <CardHeader variant="section" className="flex flex-row items-center justify-between gap-3 space-y-0">
       <div className="min-w-0 space-y-1.5">
         <CardTitle className="text-base font-semibold leading-tight">{t("dataRetention.title")}</CardTitle>
         <CardDescription className="leading-snug">{t("dataRetention.description")}</CardDescription>
@@ -100,9 +100,9 @@ export function DataRetentionSettings() {
             const max = MAXIMUM[period.unit];
             const label = t(`dataRetention.${field}`);
             return <Fragment key={field}>
-              <div className={field === FIELDS[0] ? undefined : "pl-4"}><Separator /></div>
+              {field !== FIELDS[0] ? <Separator /> : null}
               <div role="group" aria-labelledby={`retention-${field}-label`}
-              className="flex flex-wrap items-center justify-between gap-x-4 gap-y-3 py-3 pl-4 last:pb-0">
+              className="flex flex-wrap items-center justify-between gap-x-4 gap-y-3 py-3 last:pb-0">
               <Hint content={t(`dataRetention.${field}Help`)}><span id={`retention-${field}-label`} className="text-sm font-medium leading-none">{label}</span></Hint>
               <div className="flex flex-wrap items-center gap-3">
               <Select value={period.mode} disabled={saving} onValueChange={(mode) => {

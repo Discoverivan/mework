@@ -28,7 +28,6 @@ import {
   DropdownMenuContent,
   DropdownMenuGroup,
   DropdownMenuItem,
-  DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
@@ -145,7 +144,7 @@ interface TaskOwner {
 
 function TaskOwnerLabel({ owner, managedProjectId }: { owner: TaskOwner; managedProjectId: string }) {
   return (
-    <span className="inline-flex min-w-0 items-center gap-2">
+    <span className="flex min-w-0 items-center gap-2">
       {owner.member ? (
         <MemberAvatar member={owner.member} className="h-5 w-5 shrink-0 text-[10px]" managedProjectId={managedProjectId} />
       ) : (
@@ -710,7 +709,7 @@ export function DailyPage() {
                 aria-label={t("daily.sprint")}
                 aria-expanded={sprintPickerOpen}
                 disabled={loadingWorkspace}
-                className="h-10 w-fit max-w-full justify-between gap-2 px-3 font-normal data-[pointer-hover=true]:bg-background data-[pointer-hover=true]:text-foreground data-[pointer-hover=true]:data-[state=closed]:enabled:border-primary focus-visible:text-foreground"
+                className="h-10 w-fit max-w-full justify-between gap-2 px-3 font-normal"
               >
                 <span className="truncate">{selectedSprint?.name ?? t("daily.selectSprint")}</span>
                 <ChevronDown aria-hidden="true" className="-mr-1 size-4 shrink-0 opacity-50" />
@@ -1009,7 +1008,7 @@ export function DailyPage() {
         <div className={cn("daily-workspace-layout", assigneesLayout === "top" && "daily-workspace-layout-top")}>
           {assigneesLayout === "left" ? (
             <Card className="daily-members-card">
-              <CardHeader className="daily-panel-header">
+              <CardHeader variant="section" className="daily-panel-header">
                 <CardTitle className="text-[15px]">{t("daily.assignees")}</CardTitle>
               </CardHeader>
               <CardContent className="daily-members-content">
@@ -1050,7 +1049,7 @@ export function DailyPage() {
           <section className="daily-tasks-column" aria-label={t("daily.selectedTasks")}>
             {selectedOwner ? (
               <Card data-info-popover-boundary className="daily-selected-member-card">
-                <CardHeader className="daily-selected-member-header">
+                <CardHeader variant="section" className="daily-selected-member-header">
                   <div className="flex min-w-0 items-center gap-3">
                     {selectedMember ? <MemberAvatar member={selectedMember} className="h-9 w-9 shrink-0" managedProjectId={workspace.managedProjectId} /> : null}
                     <div className="min-w-0">
@@ -1103,7 +1102,6 @@ export function DailyPage() {
                   </div>
                 </CardHeader>
                 <CardContent className="daily-task-content">
-                  <h2 id="daily-subtasks-title" className="daily-task-section-title">{t("daily.tasks")}</h2>
                   {selectedSubtasks.length === 0 ? (
                     <p className="text-sm text-muted-foreground">{t("daily.noAssigneeTasks")}</p>
                   ) : (
@@ -1139,9 +1137,7 @@ export function DailyPage() {
                                 <MoreHorizontal aria-hidden="true" />
                               </Button>
                             </DropdownMenuTrigger>
-                            <DropdownMenuContent align="end" className="w-56">
-                              <DropdownMenuLabel>{subtask.key}</DropdownMenuLabel>
-                              <DropdownMenuSeparator className="mx-2 my-1 w-auto bg-border" />
+                            <DropdownMenuContent align="end" className="w-max min-w-0 max-w-[var(--radix-dropdown-menu-content-available-width)]">
                               <DropdownMenuItem onSelect={() => void openJiraIssue(subtask.url)}>
                                 <ExternalLink aria-hidden="true" />
                                 {t("daily.openInJira")}

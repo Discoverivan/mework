@@ -162,7 +162,9 @@ describe("GeneralSettingsPage", () => {
     fireEvent.click(screen.getByRole("button", { name: "Show language settings" }));
     const uiSelect = screen.getByRole("combobox", { name: "UI" });
     expect(uiSelect).toHaveTextContent("English");
-    expect(screen.getByRole("combobox", { name: "Appearance" })).toHaveTextContent("System");
+    expect(screen.getByRole("heading", { name: "Appearance" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Show appearance settings" }));
+    expect(screen.getByRole("combobox", { name: "Theme" })).toHaveTextContent("System");
     const buttonStyleSelect = screen.getByRole("combobox", { name: "Action buttons" });
     expect(buttonStyleSelect).toHaveTextContent("Filled");
     fireEvent.click(buttonStyleSelect);
@@ -188,14 +190,18 @@ describe("GeneralSettingsPage", () => {
     const notificationsCard = screen.getByRole("switch", { name: "Notifications" }).closest(".rounded-lg.border.bg-card");
     expect(notificationsCard).toContainElement(await screen.findByRole("heading", { name: "Notifications are not allowed" }));
 
-    fireEvent.click(screen.getByRole("combobox", { name: "Appearance" }));
+    fireEvent.click(screen.getByRole("combobox", { name: "Theme" }));
     fireEvent.click(screen.getByRole("option", { name: "Dark" }));
     await waitFor(() => expect(document.documentElement).toHaveAttribute("data-theme", "dark"));
     expect(saveAppearanceSettingsMock).toHaveBeenLastCalledWith("english", "dark");
 
-    fireEvent.click(screen.getByRole("combobox", { name: "Appearance" }));
+    fireEvent.click(screen.getByRole("combobox", { name: "Theme" }));
     fireEvent.click(screen.getByRole("option", { name: "Light" }));
     await waitFor(() => expect(document.documentElement).toHaveAttribute("data-theme", "light"));
+    fireEvent.click(screen.getByRole("button", { name: "Hide appearance settings" }));
+    fireEvent.click(screen.getByRole("button", { name: "Show appearance settings" }));
+    expect(screen.getByRole("combobox", { name: "Theme" })).toHaveTextContent("Light");
+    expect(screen.getByRole("combobox", { name: "Action buttons" })).toHaveTextContent("Minimal");
 
     fireEvent.click(screen.getByRole("button", { name: "Open notification settings" }));
     await waitFor(() => expect(openNotificationSettingsMock).toHaveBeenCalledOnce());
@@ -265,7 +271,6 @@ describe("GeneralSettingsPage", () => {
 
     const terminalSelect = await screen.findByRole("combobox", { name: "Terminal" });
     expect(terminalSelect).toHaveTextContent("Default terminal");
-    const appearanceSelect = await screen.findByRole("combobox", { name: "Appearance" });
     fireEvent.click(terminalSelect);
     expect(screen.getByRole("option", { name: "Default terminal" })).toBeInTheDocument();
     expect(screen.getByRole("option", { name: "Kitty" })).toBeInTheDocument();
@@ -273,9 +278,6 @@ describe("GeneralSettingsPage", () => {
     expect(screen.getByRole("option", { name: "Ghostty" })).toBeInTheDocument();
     expect(screen.getByRole("option", { name: "WezTerm" })).toBeInTheDocument();
     expect(screen.getByRole("option", { name: "Alacritty" })).toBeInTheDocument();
-    expect(terminalSelect.parentElement?.parentElement?.className).toBe(
-      appearanceSelect.parentElement?.parentElement?.className,
-    );
     expect(terminalSelect.parentElement?.parentElement?.firstElementChild).toHaveClass("min-w-0", "flex-1");
     fireEvent.click(screen.getByRole("option", { name: "Kitty" }));
 

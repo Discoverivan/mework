@@ -10,6 +10,7 @@
   --color-overlay: var(--overlay);
   --color-card: var(--card);
   --color-card-foreground: var(--card-foreground);
+  --color-control: var(--control-background, var(--secondary));
   --color-popover: var(--popover);
   --color-popover-foreground: var(--popover-foreground);
   --color-primary: var(--primary);
@@ -152,13 +153,14 @@
 
   :root[data-button-style="filled"] .app-icon-button {
     border-color: transparent;
-    background: var(--secondary);
+    background: var(--app-action-background, var(--secondary));
     color: var(--secondary-foreground);
   }
 
   :root[data-button-style="filled"] .app-icon-button:not(:disabled):is(:hover, :focus-visible),
   :root[data-button-style="filled"] .app-icon-button[aria-pressed="true"] {
-    background: color-mix(in srgb, var(--app-action-color) 14%, var(--secondary));
+    background: color-mix(in srgb, var(--app-action-color) 14%, var(--app-action-background, var(--secondary)));
+    border-color: var(--app-action-color);
     color: var(--app-action-color);
   }
 
@@ -211,13 +213,14 @@
   :root[data-button-style="filled"] .app-action-text:not(:where(.app-shell aside *)):not([data-button-variant="link"]) {
     border-width: 1px;
     border-style: solid;
-    border-color: transparent;
-    background: var(--secondary);
+    border-color: var(--input);
+    background: var(--app-action-background, var(--secondary));
     color: var(--secondary-foreground);
   }
 
   :root[data-button-style="filled"] .app-action-text:not(:where(.app-shell aside *)):not([data-button-variant="link"]):not(:disabled):is(:hover, :focus-visible) {
-    background: color-mix(in srgb, var(--app-action-color) 14%, var(--secondary));
+    background: color-mix(in srgb, var(--app-action-color) 14%, var(--app-action-background, var(--secondary)));
+    border-color: var(--app-action-color);
     color: var(--app-action-color);
   }
 
@@ -243,14 +246,14 @@
 
   /* Creation actions use the same restrained fill as standalone plus buttons. */
   :root[data-button-style="filled"] .app-action-text[data-action-tone="add"] {
-    border-color: transparent;
-    background: var(--secondary);
+    border-color: var(--input);
+    background: var(--app-action-background, var(--secondary));
     color: var(--secondary-foreground);
   }
 
   :root[data-button-style="filled"] .app-action-text[data-action-tone="add"]:not(:disabled):is(:hover, :focus-visible) {
-    border-color: transparent;
-    background: color-mix(in srgb, var(--app-action-color) 14%, var(--secondary));
+    background: var(--app-action-background, var(--secondary));
+    border-color: var(--app-action-color);
     color: var(--app-action-color);
   }
 
@@ -297,8 +300,8 @@
   }
 
   :root[data-button-style="filled"] .pr-filter-mode-option[data-state="on"] {
-    background: var(--secondary);
-    color: var(--secondary-foreground);
+    background: var(--primary);
+    color: var(--primary-foreground);
   }
 
   :root[data-button-style] .pr-filter-group .app-icon-button svg {
@@ -328,10 +331,26 @@
     height: 14px;
   }
 
-  :root[data-button-style="filled"] .pr-filter-group :is(.app-icon-button, .app-action-text)[data-action-tone="add"] {
-    background: var(--card);
+  /* Pickers use a surface distinct from both panel bodies and muted headers. */
+  [data-card-header-variant="section"] {
+    --control-background: var(--card);
   }
 
-  :root[data-button-style="filled"] .pr-filter-group :is(.app-icon-button, .app-action-text)[data-action-tone="add"]:not(:disabled):is(:hover, :focus-visible) {
-    background: color-mix(in srgb, var(--app-action-color) 14%, var(--card));
+  /* Filled actions remain distinct from muted section-header surfaces. */
+  :root[data-button-style="filled"] [data-card-header-variant="section"] {
+    --app-action-background: var(--card);
   }
+
+  /* Keep action boundaries visible on background, card and muted surfaces. */
+  :root[data-button-style="filled"] :is(.app-icon-button, .app-action-text):not(:where(.app-shell aside *)):not([data-button-variant="link"]) {
+    border-width: 1px;
+    border-style: solid;
+    border-color: var(--input);
+  }
+
+/* Neutral and creation Filled actions keep a stable fill and signal hover through their border and foreground. */
+:root[data-button-style="filled"] .app-icon-button:not(:where(.app-shell aside *)):not([data-action-tone="edit"]):not([data-action-tone="success"]):not([data-action-tone="warning"]):not([data-action-tone="delete"]):not([data-button-variant="destructive"]):not(:disabled):is(:hover, :focus-visible),
+:root[data-button-style="filled"] .app-action-text:not(:where(.app-shell aside *)):not([data-button-variant="link"]):not([data-action-tone="edit"]):not([data-action-tone="success"]):not([data-action-tone="warning"]):not([data-action-tone="delete"]):not([data-button-variant="destructive"]):not(:disabled):is(:hover, :focus-visible) {
+  background: var(--app-action-background, var(--secondary));
+  border-color: var(--app-action-color);
+}

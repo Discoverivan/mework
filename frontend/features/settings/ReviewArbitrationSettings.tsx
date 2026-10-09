@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import { buttonVariants } from "@/components/ui/button";
+import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { ManualNumberField } from "@/components/shared/ManualNumberField";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { useI18n } from "@/i18n/context";
@@ -51,34 +52,40 @@ export function ReviewArbitrationSettings({ settings, profile, providers, disabl
   reviewCountReset: number;
 }) {
   const { t } = useI18n();
-  return <div className="@container flex flex-col gap-6">
-    {!settings.enabled ? children : <div className="flex flex-col gap-6">
-      <section aria-labelledby="ai-review-arbiter-title" className="flex min-w-0 flex-col gap-4">
-        <h4 id="ai-review-arbiter-title" className="text-sm font-medium">{t("settings.ai.reviewArbiter")}</h4>
-        <div className="ml-4 flex flex-col gap-4">
-          <div className="flex flex-wrap items-start gap-4">
-            <AiOverrideEditor idPrefix="ai-review-arbiter" profile={profile} providers={providers}
-              inheritedLabel={t("settings.ai.inheritDefault")}
-              providerLabel={t("settings.ai.provider")} modelLabel={t("settings.ai.arbiterModel")}
-              reasoningLabel={t("settings.ai.reasoning")} noModelsLabel={t("settings.ai.noModels", { provider: t("settings.ai.selectedProvider") })}
-              unavailableLabel={t("settings.ai.unavailableSuffix")} disabled={disabled} fieldErrors={fieldErrors} onChange={onProfileChange} />
-            {profile ? arbiterRetries : null}
-            {arbiterInstructions}
+  return <div className="@container flex flex-col gap-3">
+    {!settings.enabled ? children : <div className="flex flex-col gap-3">
+      <Card role="region" aria-labelledby="ai-review-arbiter-title" className="min-w-0 bg-background shadow-none">
+        <CardHeader variant="section" className="py-2">
+          <h4 id="ai-review-arbiter-title" className="text-sm font-medium">{t("settings.ai.reviewArbiter")}</h4>
+        </CardHeader>
+        <CardContent className="px-4 py-3">
+          <div className="flex flex-col gap-4">
+            <div className="flex flex-wrap items-start gap-4">
+              <AiOverrideEditor idPrefix="ai-review-arbiter" profile={profile} providers={providers}
+                inheritedLabel={t("settings.ai.inheritDefault")}
+                providerLabel={t("settings.ai.provider")} modelLabel={t("settings.ai.arbiterModel")}
+                reasoningLabel={t("settings.ai.reasoning")} noModelsLabel={t("settings.ai.noModels", { provider: t("settings.ai.selectedProvider") })}
+                unavailableLabel={t("settings.ai.unavailableSuffix")} disabled={disabled} fieldErrors={fieldErrors} onChange={onProfileChange} />
+              {profile ? arbiterRetries : null}
+              {arbiterInstructions}
+            </div>
+            {arbiterStatus}
           </div>
-          {arbiterStatus}
-        </div>
-      </section>
-      <section aria-labelledby="ai-reviewers-title" className="flex min-w-0 flex-col gap-4">
-        <div className="flex flex-wrap items-center gap-3 [&_input]:h-6 [&_input]:w-6 [&_input]:min-w-0 [&_input]:p-0.5 [&_input]:text-center [&_input]:leading-none">
-          <h4 id="ai-reviewers-title" className="text-sm font-medium">{t("settings.ai.independentReviewers")}</h4>
-          <span id="ai-review-count-label" className="sr-only">{t("settings.ai.reviewCount")}</span>
-          <ManualNumberField key={reviewCountReset} id="ai-review-count" label={t("settings.ai.reviewCount")} labelledBy="ai-review-count-label"
-            value={settings.reviewCount} min={2} max={9} disabled={disabled}
-            errors={{ required: t("settings.ai.reviewCountRequired"), number: t("settings.ai.reviewCountInteger"), range: t("settings.ai.reviewCountRange") }}
-            onChange={(reviewCount) => onChange({ ...settings, reviewCount })} onValidityChange={onReviewCountValidityChange} />
-        </div>
-        <div className="ml-4">{children}</div>
-      </section>
+        </CardContent>
+      </Card>
+      <Card role="region" aria-labelledby="ai-reviewers-title" className="min-w-0 bg-background shadow-none">
+        <CardHeader variant="section" className="py-2">
+          <div className="flex flex-wrap items-center gap-3 [&_input]:h-6 [&_input]:w-6 [&_input]:min-w-0 [&_input]:p-0.5 [&_input]:text-center [&_input]:leading-none">
+            <h4 id="ai-reviewers-title" className="text-sm font-medium">{t("settings.ai.independentReviewers")}</h4>
+            <span id="ai-review-count-label" className="sr-only">{t("settings.ai.reviewCount")}</span>
+            <ManualNumberField key={reviewCountReset} id="ai-review-count" label={t("settings.ai.reviewCount")} labelledBy="ai-review-count-label"
+              value={settings.reviewCount} min={2} max={9} disabled={disabled}
+              errors={{ required: t("settings.ai.reviewCountRequired"), number: t("settings.ai.reviewCountInteger"), range: t("settings.ai.reviewCountRange") }}
+              onChange={(reviewCount) => onChange({ ...settings, reviewCount })} onValidityChange={onReviewCountValidityChange} />
+          </div>
+        </CardHeader>
+        <CardContent className="px-4 py-3">{children}</CardContent>
+      </Card>
     </div>}
   </div>;
 }

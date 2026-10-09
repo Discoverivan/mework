@@ -1,13 +1,12 @@
-import { Fragment, useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Eye, Loader2, Pencil, RotateCcw } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Field, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Separator } from "@/components/ui/separator";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Textarea } from "@/components/ui/textarea";
 import { APP_EVENT, subscribeAppEvent } from "@/app/app-events";
@@ -146,8 +145,8 @@ export function ActionSettingsSection({ defaults, renderActionHeader, renderMode
       || (scope === "pullRequestReview" && promptChanged(settings.find((item) => item.action === "reviewArbiter"), savedSettings.find((item) => item.action === "reviewArbiter")))
       || sectionChanged?.(scope);
     const headerControl = renderActionHeader?.(scope);
-    return <header className="flex flex-wrap items-center gap-3">
-      <h3 className="text-sm font-medium">{t(label)}</h3>
+    return <header className="rounded-t-[inherit]"><CardHeader variant="section" className="flex-row flex-wrap items-center gap-3 space-y-0 py-2 last:rounded-b-none">
+      <CardTitle className="text-[15px] font-semibold leading-tight">{t(label)}</CardTitle>
       {headerControl ? <div className="flex min-w-fit flex-1 justify-center">{headerControl}</div> : null}
       <div className="ml-auto flex shrink-0 items-center gap-2">
         <Button type="button" variant="outline" size="sm" disabled={!changed || loading || disabled || saving} onClick={() => cancelSection(scope)}>{t("settings.common.cancel")}</Button>
@@ -155,7 +154,7 @@ export function ActionSettingsSection({ defaults, renderActionHeader, renderMode
           {savingScope === scope ? <Loader2 className="animate-spin" aria-hidden="true" /> : null}{t("settings.common.save")}
         </Button>
       </div>
-    </header>;
+    </CardHeader></header>;
   }
 
   function renderInstructions(value: PromptSettings | undefined) {
@@ -186,59 +185,58 @@ export function ActionSettingsSection({ defaults, renderActionHeader, renderMode
   }
 
   const invalid = !draft.trim() || [...draft].length > 20_000;
-  return <TooltipProvider delayDuration={300}><section aria-labelledby="ai-actions-title" className="flex flex-col gap-4">
+  return <TooltipProvider delayDuration={300}><section aria-labelledby="ai-actions-title" className="flex flex-col gap-3">
     <header className="flex flex-col gap-1">
       <h2 id="ai-actions-title" className="text-lg font-semibold leading-tight">{t("settings.ai.actionsTitle")}</h2>
       <p className="text-sm leading-snug text-muted-foreground">{t("settings.ai.actionsDescription")}</p>
     </header>
-    <Card>
-      <CardContent className="flex flex-col gap-4 px-4 py-4 [&_[id$=-label]]:font-normal">
-        {defaults ? <><section aria-label={t("settings.ai.defaults")} className="flex flex-col gap-4">
-          {sectionHeader("default", "settings.ai.defaults")}
-          {saveError === "default" ? <Alert variant="destructive"><AlertDescription>{t("settings.ai.sectionSaveError")}</AlertDescription></Alert> : null}
-          <div className="ml-4">{defaults}</div>
-        </section><Separator /></> : null}
-        {loadError ? <Alert variant="destructive"><AlertDescription>{t("settings.prompts.loadError")}</AlertDescription></Alert> : null}
-        {(["pullRequestReview", "taskCreation", "sprintSummary"] as const).map((action, index) => {
-          const value = settings.find((item) => item.action === action);
-          const fields = <div className="flex flex-wrap items-start gap-4">
-            {renderModelSettings?.(action)}
-            {renderActionOptions?.(action)}
-            {action === "pullRequestReview" && value ? <div role="group" aria-labelledby="ai-review-fix-examples-label" className="grid w-fit gap-2.5">
-              <Label id="ai-review-fix-examples-label">{t("settings.ai.reviewFixExamples")}</Label>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <div>
-                    <Select value={value.includeFixExamples ? "enabled" : "disabled"} disabled={saving || disabled} onValueChange={(mode) => { void toggleFixExamples(mode === "enabled"); }}>
-                      <SelectTrigger id="ai-review-fix-examples" aria-labelledby="ai-review-fix-examples-label" className="h-9"><SelectValue /></SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="disabled">{t("settings.ai.reviewFixExamplesDisabled")}</SelectItem>
-                        <SelectItem value="enabled">{t("settings.ai.reviewFixExamplesEnabled")}</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                </TooltipTrigger>
-                <TooltipContent>{t("settings.ai.reviewFixExamplesHelp")}</TooltipContent>
-              </Tooltip>
-            </div> : null}
-            {renderInstructions(value)}
-          </div>;
-          return <Fragment key={action}>
-            {index > 0 ? <Separator /> : null}
-            <section className="flex flex-col gap-4" aria-label={t(actionLabels[action])}>
-              {sectionHeader(action, actionLabels[action])}
-              {saveError === action ? <Alert variant="destructive" role="alert"><AlertDescription>{t("settings.ai.sectionSaveError")}</AlertDescription></Alert> : null}
-              <div className="ml-4">{renderActionLayout ? renderActionLayout(action, fields, renderInstructions(settings.find((item) => item.action === "reviewArbiter"))) : fields}</div>
-            </section>
-          </Fragment>;
-        })}
-        {extraAction ? <><Separator /><section id="ai-token-burner-action" className="flex flex-col gap-4" aria-label={t("settings.ai.tokenBurner")}>
-          {sectionHeader("tokenBurner", "settings.ai.tokenBurner")}
-          {saveError === "tokenBurner" ? <Alert variant="destructive"><AlertDescription>{t("settings.ai.sectionSaveError")}</AlertDescription></Alert> : null}
-          <div className="ml-4">{extraAction}</div>
-        </section></> : null}
+    {defaults ? <Card role="region" aria-label={t("settings.ai.defaults")}>
+      {sectionHeader("default", "settings.ai.defaults")}
+      <CardContent className="space-y-3 px-4 py-3 [&_[id$=-label]]:font-normal">
+        {saveError === "default" ? <Alert variant="destructive"><AlertDescription>{t("settings.ai.sectionSaveError")}</AlertDescription></Alert> : null}
+        {defaults}
       </CardContent>
-    </Card>
+    </Card> : null}
+    {loadError ? <Alert variant="destructive"><AlertDescription>{t("settings.prompts.loadError")}</AlertDescription></Alert> : null}
+    {(["pullRequestReview", "taskCreation", "sprintSummary"] as const).map((action) => {
+      const value = settings.find((item) => item.action === action);
+      const fields = <div className="flex flex-wrap items-start gap-4">
+        {renderModelSettings?.(action)}
+        {renderActionOptions?.(action)}
+        {action === "pullRequestReview" && value ? <div role="group" aria-labelledby="ai-review-fix-examples-label" className="grid w-fit gap-2.5">
+          <Label id="ai-review-fix-examples-label">{t("settings.ai.reviewFixExamples")}</Label>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <div>
+                <Select value={value.includeFixExamples ? "enabled" : "disabled"} disabled={saving || disabled} onValueChange={(mode) => { void toggleFixExamples(mode === "enabled"); }}>
+                  <SelectTrigger id="ai-review-fix-examples" aria-labelledby="ai-review-fix-examples-label" className="h-9"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="disabled">{t("settings.ai.reviewFixExamplesDisabled")}</SelectItem>
+                    <SelectItem value="enabled">{t("settings.ai.reviewFixExamplesEnabled")}</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </TooltipTrigger>
+            <TooltipContent>{t("settings.ai.reviewFixExamplesHelp")}</TooltipContent>
+          </Tooltip>
+        </div> : null}
+        {renderInstructions(value)}
+      </div>;
+      return <Card key={action} role="region" aria-label={t(actionLabels[action])}>
+          {sectionHeader(action, actionLabels[action])}
+          <CardContent className="space-y-3 px-4 py-3 [&_[id$=-label]]:font-normal">
+          {saveError === action ? <Alert variant="destructive" role="alert"><AlertDescription>{t("settings.ai.sectionSaveError")}</AlertDescription></Alert> : null}
+          {renderActionLayout ? renderActionLayout(action, fields, renderInstructions(settings.find((item) => item.action === "reviewArbiter"))) : fields}
+          </CardContent>
+        </Card>;
+    })}
+    {extraAction ? <Card id="ai-token-burner-action" role="region" aria-label={t("settings.ai.tokenBurner")}>
+      {sectionHeader("tokenBurner", "settings.ai.tokenBurner")}
+      <CardContent className="space-y-3 px-4 py-3 [&_[id$=-label]]:font-normal">
+        {saveError === "tokenBurner" ? <Alert variant="destructive"><AlertDescription>{t("settings.ai.sectionSaveError")}</AlertDescription></Alert> : null}
+        {extraAction}
+      </CardContent>
+    </Card> : null}
     <Dialog open={editing !== null} onOpenChange={(open) => { if (!open && !saving) setEditing(null); }}>
       <DialogContent className="max-w-5xl" onEscapeKeyDown={(event) => { if (saving) event.preventDefault(); }} onInteractOutside={(event) => { if (saving) event.preventDefault(); }}>
         <DialogHeader>

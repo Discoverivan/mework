@@ -19,11 +19,16 @@ Card.displayName = "Card"
 
 const CardHeader = React.forwardRef<
   HTMLDivElement,
-  React.HTMLAttributes<HTMLDivElement>
->(({ className, ...props }, ref) => (
+  React.HTMLAttributes<HTMLDivElement> & { variant?: "default" | "section" }
+>(({ className, variant = "default", ...props }, ref) => (
   <div
     ref={ref}
-    className={cn("flex flex-col space-y-1.5 p-6", className)}
+    data-card-header-variant={variant}
+    className={cn(
+      "flex flex-col space-y-1.5 p-6",
+      variant === "section" && "rounded-t-[inherit] border-b-0 bg-muted px-4 py-3.5 last:rounded-b-[inherit]",
+      className
+    )}
     {...props}
   />
 ))

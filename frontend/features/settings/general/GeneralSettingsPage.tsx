@@ -38,6 +38,7 @@ export function GeneralSettingsPage() {
   const { appearanceSaving, buttonStyle, buttonStyleSaving, language, themePreference, t, updateAppearance, updateButtonStyle } = useI18n();
   const [settings, setSettings] = useState<GeneralSettings | null>(null);
   const [languageExpanded, setLanguageExpanded] = useState(false);
+  const [appearanceExpanded, setAppearanceExpanded] = useState(false);
   const [notificationsExpanded, setNotificationsExpanded] = useState(false);
   const [extraFunctionsExpanded, setExtraFunctionsExpanded] = useState(false);
   const [terminalPreferences, setTerminalPreferences] = useState<CommandBoardTerminalPreferences | null>(null);
@@ -231,7 +232,7 @@ export function GeneralSettingsPage() {
       ) : null}
 
       <Card>
-        <CardHeader className="flex flex-row items-center justify-between gap-3 space-y-0 px-4 py-3.5">
+        <CardHeader variant="section" className="flex flex-row items-center justify-between gap-3 space-y-0">
           <div className="min-w-0">
             <CardTitle className="text-base font-semibold leading-tight">{t("general.language")}</CardTitle>
             <CardDescription className="mt-1 leading-snug">
@@ -247,9 +248,8 @@ export function GeneralSettingsPage() {
           </Button>
         </CardHeader>
         <SettingsReveal open={languageExpanded} id="general-language-details">
-        <CardContent className="flex flex-col gap-3 px-4 pb-3.5">
-          <Separator />
-          <div className="flex flex-wrap items-center justify-between gap-4 pl-4">
+        <CardContent className="flex flex-col gap-3 px-4 pb-3.5 pt-3.5">
+          <div className="flex flex-wrap items-center justify-between gap-4">
             <div className="min-w-0">
               <Label htmlFor="general-language" alignment="inline" className="font-medium">
                 {t("general.languageUi")}
@@ -268,8 +268,8 @@ export function GeneralSettingsPage() {
               </Select>
             </div>
           </div>
-          <div className="pl-4"><Separator /></div>
-          <div className="flex flex-wrap items-center justify-between gap-4 pl-4">
+          <Separator />
+          <div className="flex flex-wrap items-center justify-between gap-4">
             <div className="min-w-0">
               <Label htmlFor="general-ai-response-language" alignment="inline" className="font-medium">
                 {t("general.aiResponseLanguage")}
@@ -294,10 +294,24 @@ export function GeneralSettingsPage() {
       </Card>
 
       <Card>
-        <CardHeader className="space-y-4 px-4 py-3.5">
+        <CardHeader variant="section" className="flex-row items-center justify-between gap-3 space-y-0">
+          <div className="min-w-0">
+            <CardTitle className="text-base font-semibold leading-tight">{t("general.appearance")}</CardTitle>
+            <CardDescription className="mt-1 leading-snug">{t("general.appearanceDescription")}</CardDescription>
+          </div>
+          <Button type="button" variant="outline" size="icon" className="size-9 shrink-0" disabled={saving || appearanceSaving || buttonStyleSaving}
+            aria-expanded={appearanceExpanded} aria-controls="general-appearance-details"
+            aria-label={t(appearanceExpanded ? "general.collapseAppearance" : "general.expandAppearance")}
+            title={t(appearanceExpanded ? "general.collapseAppearance" : "general.expandAppearance")}
+            onClick={() => setAppearanceExpanded((value) => !value)}>
+            <ChevronDown className={`transition-transform duration-200 motion-reduce:transition-none ${appearanceExpanded ? "rotate-180" : ""}`} aria-hidden="true" />
+          </Button>
+        </CardHeader>
+        <SettingsReveal open={appearanceExpanded} id="general-appearance-details">
+        <CardContent className="space-y-3.5 px-4 py-3.5">
           <div className="flex flex-wrap items-center justify-between gap-4">
-            <div className="-translate-y-px">
-              <Label htmlFor="general-theme" alignment="inline" className="text-base font-semibold leading-tight">
+            <div className="min-w-0 flex-1">
+              <Label htmlFor="general-theme" alignment="inline" className="font-medium">
                 {t("general.theme")}
               </Label>
               <CardDescription className="mt-1 leading-snug">
@@ -315,9 +329,7 @@ export function GeneralSettingsPage() {
               </Select>
             </div>
           </div>
-        </CardHeader>
-        <CardContent className="px-4 pb-3.5 pt-0">
-          <Separator className="mb-3.5" />
+          <Separator />
           <div className="flex flex-wrap items-center justify-between gap-4">
             <div className="min-w-0 flex-1">
               <Label htmlFor="general-button-style" alignment="inline" className="font-medium">{t("general.buttonStyle")}</Label>
@@ -339,10 +351,11 @@ export function GeneralSettingsPage() {
             </div>
           </div>
         </CardContent>
+        </SettingsReveal>
       </Card>
 
       <Card>
-        <CardHeader className="space-y-4 px-4 py-3.5">
+        <CardHeader variant="section" className="space-y-4">
           <div className="flex flex-wrap items-center justify-between gap-4">
             <div className="-translate-y-px min-w-0 flex-1">
               <Label htmlFor="general-terminal" alignment="inline" className="text-base font-semibold leading-tight">
@@ -382,7 +395,7 @@ export function GeneralSettingsPage() {
 
       <DataRetentionSettings />
       <Card>
-        <CardHeader className="space-y-4 px-4 py-3.5">
+        <CardHeader variant="section" className="space-y-4">
           <div className="flex items-center justify-between gap-4">
             <div className="-translate-y-px">
               <Label htmlFor="general-notifications-enabled" alignment="inline" className="text-base font-semibold leading-tight">
@@ -410,7 +423,7 @@ export function GeneralSettingsPage() {
             </div>
           </div>
         </CardHeader>
-        {permissionBlocked || notificationError ? <CardContent className="space-y-4 px-4 pb-3.5">
+        {permissionBlocked || notificationError ? <CardContent className="space-y-4 px-4 py-3.5">
           {permissionBlocked ? (
             <Alert variant="destructive" role="alert" aria-live="polite">
               <AlertTriangle className="size-4" aria-hidden="true" />
@@ -446,8 +459,8 @@ export function GeneralSettingsPage() {
         </CardContent> : null}
         <SettingsReveal open={notificationsExpanded} id="general-notification-details">
         <CardContent className="space-y-4 px-4 pb-3.5">
-          <div className="grid gap-3 border-t pt-4">
-            <div className="flex items-center justify-between gap-4 pl-4">
+          <div className="grid gap-3 pt-4">
+            <div className="flex items-center justify-between gap-4">
               <div>
                 <div className="flex items-center gap-1.5">
                   <Label htmlFor="general-task-tracker-notifications-enabled" alignment="inline" className="font-medium">Task tracker</Label>
@@ -478,8 +491,8 @@ export function GeneralSettingsPage() {
                 disabled={loading || saving || !(settings?.notificationsEnabled ?? true)}
               />
             </div>
-            <div className="pl-4"><Separator /></div>
-            <div className="flex items-center justify-between gap-4 pl-4">
+            <Separator />
+            <div className="flex items-center justify-between gap-4">
               <div>
                 <div className="flex items-center gap-1.5">
                   <Label htmlFor="general-review-notifications-enabled" alignment="inline" className="font-medium">
@@ -514,10 +527,8 @@ export function GeneralSettingsPage() {
                 disabled={loading || saving || !(settings?.notificationsEnabled ?? true)}
               />
             </div>
-            <div className="pl-4">
-              <Separator />
-            </div>
-            <div className="flex items-center justify-between gap-4 pl-4">
+            <Separator />
+            <div className="flex items-center justify-between gap-4">
               <div>
                 <div className="flex items-center gap-1.5">
                   <Label htmlFor="general-authored-notifications-enabled" alignment="inline" className="font-medium">
@@ -562,7 +573,7 @@ export function GeneralSettingsPage() {
 
 
       <Card>
-        <CardHeader className="space-y-4 px-4 py-3.5">
+        <CardHeader variant="section" className="space-y-4">
           <div className="flex items-center justify-between gap-4">
             <div className="-translate-y-px min-w-0">
               <Label htmlFor="general-extra-functions-enabled" alignment="inline" className="text-base font-semibold leading-tight">{t("general.extraFunctions")}</Label>
@@ -584,9 +595,9 @@ export function GeneralSettingsPage() {
           </div>
         </CardHeader>
         <SettingsReveal open={extraFunctionsExpanded} id="general-extra-function-details">
-        <CardContent className="px-4 pb-3.5">
-          <div className="border-t pt-4">
-            <div className="flex items-center justify-between gap-4 pl-4">
+        <CardContent className="px-4 py-3.5">
+          <div>
+            <div className="flex items-center justify-between gap-4">
               <div className="min-w-0">
                 <Label htmlFor="general-model-testing-enabled" alignment="inline" className="font-medium">
                   {t("general.modelTesting")}

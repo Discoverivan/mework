@@ -1038,11 +1038,10 @@ export function SettingsPage({ section = "integrations", focusActivity, mockMode
       {section === "ai" ? (
         <div className="space-y-8">
           <section aria-labelledby="ai-providers-title">
-            <div aria-label={t("settings.aiProviders.aria")} className="space-y-3">
-              <div className="flex flex-wrap items-center gap-3">
+            <Card aria-label={t("settings.aiProviders.aria")} className="min-w-0">
+              <CardHeader variant="section" className="flex-row flex-wrap items-center gap-3 space-y-0 py-2">
                 <div className="min-w-[16rem] flex-1">
-                  <h2 id="ai-providers-title" className="text-lg font-semibold leading-tight">{t("settings.aiProviders.title")}</h2>
-                  <p className="mt-1 text-sm text-muted-foreground">{t("settings.aiProviders.description")}</p>
+                  <h2 id="ai-providers-title" className="text-base font-semibold leading-tight">{t("settings.aiProviders.title")}</h2>
                 </div>
                 <Select value={selectedAiGroup} onValueChange={(value) => setSelectedAiGroup(value as "cli" | "api")}>
                   <SelectTrigger aria-label={t("settings.aiProviders.groups")} className="h-9 shrink-0"><SelectValue /></SelectTrigger>
@@ -1079,8 +1078,7 @@ export function SettingsPage({ section = "integrations", focusActivity, mockMode
                 ) : (
                   <CreateButton iconOnly type="button" variant="ghost" className="ml-auto size-9" aria-label={t("settings.aiProviders.addApi")} title={t("settings.aiProviders.addApi")} onClick={() => openOpenAiCompatibleDialog()} />
                 )}
-              </div>
-              <Card className="min-w-0">
+              </CardHeader>
                 <CardContent className="px-4 pb-0 pt-0">
                   {aiData.providers.length === 0 && !loading && !pendingCliProvider ? (
                     <div role="status" aria-labelledby="ai-providers-empty-title" className="flex min-h-14 items-center gap-3 py-2">
@@ -1110,15 +1108,15 @@ export function SettingsPage({ section = "integrations", focusActivity, mockMode
                                 {aiStatusIcon(candidate.status)}
                                 {t(AI_STATUS_LABEL_KEYS[candidate.status])}
                               </span></Hint>
-                              <Button type="button" size="icon" variant="ghost" className="size-7 [&_svg]:!size-4" aria-label={t("settings.aiProviders.refreshLabel", { provider: candidate.name })} title={t("settings.aiProviders.refreshLabel", { provider: candidate.name })} onClick={() => void handleRefreshAiProvider(candidate)} disabled={refreshingAiProvider !== null || openAiSaving || aiDeleting || aiSaving}>
+                              <Button type="button" size="icon" variant="ghost" className="size-7 [&_svg]:!size-4" aria-label={t("settings.aiProviders.refreshLabel", { provider: candidate.name })} title={t("common.refresh")} onClick={() => void handleRefreshAiProvider(candidate)} disabled={refreshingAiProvider !== null || openAiSaving || aiDeleting || aiSaving}>
                                 <RefreshCw className={cn(refreshingAiProvider === (candidate.instanceId ?? candidate.id) && "animate-spin")} aria-hidden="true" />
                               </Button>
                               {candidate.id === "openai-compatible" ? (
-                                <Button type="button" size="icon" variant="ghost" actionTone="edit" className="size-7 [&_svg]:!size-4" aria-label={t("settings.aiProviders.editLabel", { provider: candidate.baseUrl ?? candidate.name })} title={t("settings.aiProviders.edit")} onClick={() => openOpenAiCompatibleDialog(candidate)} disabled={openAiSaving || aiDeleting || aiSaving}>
+                                <Button type="button" size="icon" variant="ghost" actionTone="edit" className="size-7 [&_svg]:!size-4" aria-label={t("settings.aiProviders.editLabel", { provider: candidate.baseUrl ?? candidate.name })} title={t("common.edit")} onClick={() => openOpenAiCompatibleDialog(candidate)} disabled={openAiSaving || aiDeleting || aiSaving}>
                                   <Pencil aria-hidden="true" />
                                 </Button>
                               ) : null}
-                              <Button type="button" size="icon" variant="ghost" actionTone="delete" className="size-7 text-muted-foreground hover:bg-transparent hover:text-destructive [&_svg]:!size-4" aria-label={t("settings.aiProviders.deleteLabel", { provider: candidate.baseUrl ?? candidate.name })} title={t("settings.aiProviders.delete")} onClick={() => { setAiDeleteError(null); setDeletingAiProvider(candidate); }} disabled={openAiSaving || aiDeleting || aiSaving}>
+                              <Button type="button" size="icon" variant="ghost" actionTone="delete" className="size-7 text-muted-foreground hover:bg-transparent hover:text-destructive [&_svg]:!size-4" aria-label={t("settings.aiProviders.deleteLabel", { provider: candidate.baseUrl ?? candidate.name })} title={t("common.delete")} onClick={() => { setAiDeleteError(null); setDeletingAiProvider(candidate); }} disabled={openAiSaving || aiDeleting || aiSaving}>
                                 <Trash2 aria-hidden="true" />
                               </Button>
                             </div>
@@ -1140,11 +1138,10 @@ export function SettingsPage({ section = "integrations", focusActivity, mockMode
                       </div>
                     </>
                   ) : null}
+                  {aiProviderRefreshError ? <p role="alert" className="pb-3 text-sm text-destructive">{aiProviderRefreshError}</p> : null}
+                  {cliAddError ? <p role="alert" className="pb-3 text-sm text-destructive">{cliAddError}</p> : null}
                 </CardContent>
-              </Card>
-              {aiProviderRefreshError ? <p role="alert" className="text-sm text-destructive">{aiProviderRefreshError}</p> : null}
-              {cliAddError ? <p role="alert" className="text-sm text-destructive">{cliAddError}</p> : null}
-            </div>
+            </Card>
           </section>
 
           <ActionSettingsSection
@@ -1393,7 +1390,7 @@ export function SettingsPage({ section = "integrations", focusActivity, mockMode
                           size="icon"
                           className="size-8"
                           aria-label={t("settings.health.refresh", { provider: candidate.label })}
-                          title={t("settings.health.refresh", { provider: candidate.label })}
+                          title={t("common.refresh")}
                           disabled={healthCheckKind !== null || action !== null}
                           onClick={() => void handleHealthCheck(candidate.kind)}
                         >
@@ -1406,7 +1403,7 @@ export function SettingsPage({ section = "integrations", focusActivity, mockMode
                           actionTone="edit"
                           className="size-8 [&_svg]:size-[18px]"
                           aria-label={t("settings.integration.editLabel", { provider: candidate.label })}
-                          title={t("settings.integration.edit")}
+                          title={t("common.edit")}
                           disabled={healthCheckKind !== null || action !== null}
                           onClick={() => { setSelectedKind(candidate.kind); setError(null); }}
                         >
@@ -1419,7 +1416,7 @@ export function SettingsPage({ section = "integrations", focusActivity, mockMode
                           actionTone="delete"
                           className="size-8 text-muted-foreground hover:bg-transparent hover:text-destructive [&_svg]:size-[18px]"
                           aria-label={t("settings.integration.deleteLabel", { provider: candidate.label })}
-                          title={t("settings.integration.delete")}
+                          title={t("common.delete")}
                           disabled={healthCheckKind !== null || action !== null}
                           onClick={() => { setIntegrationDeleteError(null); setDeletingIntegrationKind(candidate.kind); }}
                         >

@@ -198,8 +198,8 @@ export function PlanningWorkspace({
       ) : null}
       <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_18rem]">
         <Card>
-          <CardHeader><CardTitle className="text-base">{t("planning.source")} · {workspace.sourceSprint.name}</CardTitle></CardHeader>
-          <CardContent className="space-y-2">
+          <CardHeader variant="section"><CardTitle className="text-base">{t("planning.source")} · {workspace.sourceSprint.name}</CardTitle></CardHeader>
+          <CardContent className="pt-3.5 space-y-2">
             {sourceIssues.length === 0 ? <p className="text-sm text-muted-foreground">{t("planning.noSourceIssues")}</p> : null}
             {sourceIssues.map((issue) => (
               <label key={issue.id} className="flex gap-2 rounded-md border p-2 text-sm">
@@ -211,8 +211,8 @@ export function PlanningWorkspace({
           </CardContent>
         </Card>
         <Card>
-          <CardHeader><CardTitle className="text-base">{t("planning.target")} · {workspace.targetSprint.name}</CardTitle></CardHeader>
-          <CardContent className="space-y-3">
+          <CardHeader variant="section"><CardTitle className="text-base">{t("planning.target")} · {workspace.targetSprint.name}</CardTitle></CardHeader>
+          <CardContent className="pt-3.5 space-y-3">
             {issues.length === 0 ? <p className="text-sm text-muted-foreground">{t("planning.noTargetIssues")}</p> : null}
             {issues.map((issue) => (
               <IssuePlanCard

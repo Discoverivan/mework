@@ -942,9 +942,10 @@ describe("MyPullRequestsPage", () => {
     const openInBrowser = screen.getByRole("link", { name: "Open in browser" });
     expect(openInBrowser).toHaveAttribute("href", pullRequests[0].url);
     expect(openInBrowser).toHaveAttribute("data-tooltip", "Open in browser");
-    expect(openInBrowser).toHaveClass("app-action-text", "h-9");
+    expect(openInBrowser).toHaveClass("app-icon-button", "size-8");
+    expect(openInBrowser.parentElement).toContainElement(screen.getByRole("heading", { name: "AI review results" }));
     expect(screen.getByRole("button", { name: "Re-run review" })).toHaveClass("app-action-text", "h-9");
-    expect(openInBrowser).toHaveTextContent("Open in browser");
+    expect(openInBrowser).toHaveTextContent("");
     fireEvent.keyDown(publishButton, { key: "ArrowDown" });
     expect(publishCommentMock).not.toHaveBeenCalled();
     fireEvent.click(await screen.findByRole("menuitem", { name: "Edit and send…" }));
@@ -988,6 +989,47 @@ describe("MyPullRequestsPage", () => {
     fireEvent.click(within(reopenedDialog).getByRole("button", { name: "Re-run review" }));
     await waitFor(() => expect(startReviewMock).toHaveBeenCalledWith(expect.objectContaining({ pullRequestId: "7", activity: "read" })));
     expect(await screen.findByRole("button", { name: "AI review…" })).toBeDisabled();
+  });
+
+  it("publishes independent AI comments concurrently without clearing another comment's editor", async () => {
+    listMyPullRequestsMock.mockResolvedValueOnce({
+      ...firstPage,
+      values: [{ ...pullRequests[0], review: completedReview }, pullRequests[1]],
+    });
+    const publications = new Map<string, (value: { commentId: number }) => void>();
+    publishCommentMock.mockImplementation((_pullRequest, comment) => new Promise((resolve) => {
+      publications.set(comment.file, resolve);
+    }));
+    await renderFlatPage();
+    fireEvent.click(await screen.findByRole("button", { name: "AI review results" }));
+    const first = await screen.findByRole("button", { name: "Publish comment for src/retry.ts" });
+    await waitFor(() => expect(first).toBeEnabled());
+    fireEvent.keyDown(first, { key: "ArrowDown" });
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Send as is" }));
+    await waitFor(() => expect(first).toBeDisabled());
+    const second = screen.getByRole("button", { name: "Publish comment for src/timeout.ts" });
+    expect(second).toBeEnabled();
+    fireEvent.keyDown(second, { key: "ArrowDown" });
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Send as is" }));
+    await waitFor(() => expect(publishCommentMock).toHaveBeenCalledTimes(2));
+    expect(first).toBeDisabled();
+    expect(second).toBeDisabled();
+    const third = screen.getByRole("button", { name: "Publish comment for src/logging.ts" });
+    expect(third).toBeEnabled();
+    fireEvent.keyDown(third, { key: "ArrowDown" });
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Edit and send…" }));
+    const editor = await screen.findByRole("dialog", { name: "Edit review comment" });
+    fireEvent.change(within(editor).getByLabelText("Review comment"), { target: { value: "Example revised finding." } });
+    publications.get("src/timeout.ts")!({ commentId: 21 });
+    await waitFor(() => expect(second).not.toBeInTheDocument());
+    expect(first).toBeDisabled();
+    expect(within(editor).getByLabelText("Review comment")).toHaveValue("Example revised finding.");
+    expect(within(editor).getByRole("button", { name: "Send" })).toBeEnabled();
+    publications.get("src/retry.ts")!({ commentId: 22 });
+    await waitFor(() => expect(first).not.toBeInTheDocument());
+    expect(within(editor).getByLabelText("Review comment")).toHaveValue("Example revised finding.");
+    fireEvent.click(within(editor).getByRole("button", { name: "Cancel" }));
+    expect(screen.getAllByText("Published")).toHaveLength(2);
   });
 
   it("links a covered finding and publishes a missing clarification as a reply", async () => {

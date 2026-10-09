@@ -242,7 +242,7 @@ describe("DailyPage smoke test", () => {
   it("loads the active sprint by default and can select another sprint", async () => {
     render(<DailyPage />);
 
-    expect(await screen.findByRole("heading", { name: "Tasks" })).toBeInTheDocument();
+    expect(await screen.findByRole("region", { name: "Selected member tasks" })).toBeInTheDocument();
     expect(screen.getByRole("combobox", { name: "Team" })).toBeInTheDocument();
     expect(screen.getByRole("combobox", { name: "Sprint" })).toHaveTextContent("Sprint 42");
     expect(screen.queryByText("Unavailable")).not.toBeInTheDocument();
@@ -344,9 +344,8 @@ describe("DailyPage smoke test", () => {
     expect(openParentItem).toHaveTextContent("Open parentDEMO-1");
     expect(openParentItem.querySelector(".flex-col")).toBeInTheDocument();
     const menuSeparators = openParentItem.parentElement?.querySelectorAll('[role="separator"]');
-    expect(menuSeparators).toHaveLength(2);
+    expect(menuSeparators).toHaveLength(1);
     expect(menuSeparators?.[0]).toHaveClass("mx-2", "bg-border");
-    expect(menuSeparators?.[1]).toHaveClass("mx-2", "bg-border");
     fireEvent.click(screen.getByRole("menuitem", { name: "Copy key" }));
     await waitFor(() => expect(writeTextMock).toHaveBeenCalledWith("DEMO-2"));
     expect(screen.getByRole("status")).toHaveTextContent("Copied DEMO-2 to the clipboard.");
@@ -390,7 +389,7 @@ describe("DailyPage smoke test", () => {
 
   it("generates and displays a weekly AI summary for the selected sprint", async () => {
     render(<DailyPage />);
-    await screen.findByRole("heading", { name: "Tasks" });
+    await screen.findByRole("region", { name: "Selected member tasks" });
     fireEvent.click(screen.getByRole("button", { name: "AI Summary" }));
     expect(screen.getByRole("heading", { name: "AI Summary" })).toBeInTheDocument();
     expect(screen.getByRole("combobox", { name: "Sprint" })).toHaveTextContent("Sprint 42");
@@ -423,7 +422,7 @@ describe("DailyPage smoke test", () => {
 
   it("updates the main Daily selection when Presenter changes the member", async () => {
     render(<DailyPage />);
-    await screen.findByRole("heading", { name: "Tasks" });
+    await screen.findByRole("region", { name: "Selected member tasks" });
 
     act(() => {
       presenterStateListener?.({ workspace, selectedMemberId: "test-user-b" });

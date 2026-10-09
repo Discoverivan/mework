@@ -901,7 +901,7 @@ export function MyPullRequestsPage() {
             </ToggleGroup>
 
             <Card className="pr-filter-group shrink-0 overflow-hidden shadow-none">
-              <CardHeader className="bg-muted px-3 py-1">
+              <CardHeader variant="section" className="px-3 py-1">
                 <div className="flex items-center justify-between gap-3">
                   <CardTitle className="min-w-0 flex-1 text-[15px] font-normal leading-normal">{t("pr.filters.projects")}</CardTitle>
                   <div className="flex shrink-0 items-center justify-end">
@@ -962,7 +962,7 @@ export function MyPullRequestsPage() {
             </Card>
 
             <Card className="pr-filter-group shrink-0 overflow-hidden shadow-none">
-              <CardHeader className="bg-muted px-3 py-1">
+              <CardHeader variant="section" className="px-3 py-1">
                 <div className="flex items-center justify-between gap-3">
                   <CardTitle className="min-w-0 flex-1 text-[15px] font-normal leading-normal">{t("pr.filters.repositories")}</CardTitle>
                   <div className="flex shrink-0 items-center justify-end">
@@ -1029,7 +1029,7 @@ export function MyPullRequestsPage() {
             </Card>
 
             <Card className="pr-filter-group shrink-0 overflow-hidden shadow-none">
-              <CardHeader className="bg-muted px-3 py-1">
+              <CardHeader variant="section" className="px-3 py-1">
                 <div className="flex items-center justify-between gap-3">
                   <CardTitle className="min-w-0 flex-1 text-[15px] font-normal leading-normal">{t("pr.filters.creators")}</CardTitle>
                   <div className="flex shrink-0 items-center justify-end">
