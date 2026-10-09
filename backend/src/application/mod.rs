@@ -25,6 +25,7 @@ pub mod notifications;
 pub mod planning;
 pub mod polling;
 pub mod release_notes;
+mod review_arbitration;
 pub mod review_comment_matches;
 mod review_locations;
 pub mod task_tracker;

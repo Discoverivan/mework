@@ -19,19 +19,26 @@ export function PullRequestReviewDetails({ review, inBadge = false }: { review: 
   const execution = review.execution;
   const [open, setOpen] = useState(false);
   const [currentInstructionsHash, setCurrentInstructionsHash] = useState<string>();
+  const [currentArbiterInstructionsHash, setCurrentArbiterInstructionsHash] = useState<string>();
   useEffect(() => {
     if (!open) return;
     let active = true;
     void getPromptSettings().then((values) => {
-      if (active) setCurrentInstructionsHash(values.find((value) => value.action === "pullRequestReview")?.instructionsHash);
+      if (active) {
+        setCurrentInstructionsHash(values.find((value) => value.action === "pullRequestReview")?.instructionsHash);
+        setCurrentArbiterInstructionsHash(values.find((value) => value.action === "reviewArbiter")?.instructionsHash);
+      }
     }).catch(() => {});
     const unsubscribe = subscribeAppEvent(APP_EVENT.aiPromptSettingsChanged, (value) => {
       if (value.action === "pullRequestReview") setCurrentInstructionsHash(value.instructionsHash);
+      if (value.action === "reviewArbiter") setCurrentArbiterInstructionsHash(value.instructionsHash);
     });
     return () => { active = false; unsubscribe(); };
   }, [open]);
-  const instructionsChanged = review.status !== "running" && (currentInstructionsHash !== undefined && execution?.instructionsHash != null
-    ? currentInstructionsHash !== execution.instructionsHash : review.instructionsChanged);
+  const instructionsChanged = review.status !== "running" && ((currentInstructionsHash !== undefined && execution?.instructionsHash != null
+    ? currentInstructionsHash !== execution.instructionsHash : review.instructionsChanged)
+    || (currentArbiterInstructionsHash !== undefined && execution?.arbitration?.arbiter.instructionsHash != null
+      && currentArbiterInstructionsHash !== execution.arbitration.arbiter.instructionsHash));
   return (
     <Popover open={open} onOpenChange={(nextOpen) => { onOpenChange(nextOpen); setOpen(nextOpen); }}>
       <PopoverTrigger asChild>
@@ -49,6 +56,11 @@ export function PullRequestReviewDetails({ review, inBadge = false }: { review: 
               <div className="min-w-0 [overflow-wrap:anywhere]"><dt className="inline whitespace-nowrap">{t("settings.ai.model")}:</dt>{" "}<dd className="inline text-foreground">{execution.model}</dd></div>
               {execution.reasoning != null ? <div className="min-w-0 [overflow-wrap:anywhere]"><dt className="inline whitespace-nowrap">{t("settings.ai.reasoning")}:</dt>{" "}<dd className="inline text-foreground">{execution.reasoning}</dd></div> : null}
               {execution.mode != null ? <div className="min-w-0 [overflow-wrap:anywhere]"><dt className="inline whitespace-nowrap">{t("settings.ai.mode")}:</dt>{" "}<dd className="inline text-foreground">{t(execution.mode === "fast" ? "settings.ai.modeFast" : "settings.ai.modeNormal")}</dd></div> : null}
+              {execution.arbitration ? <>
+                <div className="pt-1 text-foreground">{t("pr.dialog.arbitrationDetails", { count: execution.arbitration.reviewCount })}</div>
+                <div className="min-w-0 [overflow-wrap:anywhere]"><dt className="inline">{t("settings.ai.arbiterProvider")}:</dt>{" "}<dd className="inline text-foreground">{execution.arbitration.arbiter.providerName}</dd></div>
+                <div className="min-w-0 [overflow-wrap:anywhere]"><dt className="inline">{t("settings.ai.arbiterModel")}:</dt>{" "}<dd className="inline text-foreground">{execution.arbitration.arbiter.model}</dd></div>
+              </> : null}
             </dl>
           ) : <p>{t("pr.dialog.executionUnavailable")}</p>}
           {instructionsChanged ? <p className="text-warning">{t("settings.prompts.reviewChanged")}</p> : null}

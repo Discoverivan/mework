@@ -882,7 +882,7 @@ export function MyPullRequestsPage() {
                 }
               }}
               aria-label={t("pr.filters.lists")}
-              className="pr-filter-mode grid shrink-0 grid-cols-2 gap-1 rounded-lg bg-muted p-1"
+              className="pr-filter-mode flex w-full shrink-0 justify-evenly gap-0 rounded-lg bg-muted py-1"
             >
               <ToggleGroupItem
                 value="blacklist"

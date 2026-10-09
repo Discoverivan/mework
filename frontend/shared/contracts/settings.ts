@@ -1,6 +1,6 @@
 export type AiProviderId = "codex-cli" | "claude-code-cli" | "open-code-cli" | "hermes-cli" | "pi-cli" | "openai-compatible";
 
-export type PromptAction = "pullRequestReview" | "taskCreation" | "sprintSummary";
+export type PromptAction = "pullRequestReview" | "reviewArbiter" | "taskCreation" | "sprintSummary";
 
 export interface PromptSettings {
   action: PromptAction;
@@ -24,18 +24,31 @@ export interface AiSettingsProfile {
 }
 
 export type AiActivity = "taskCreation" | "pullRequestReview" | "tokenBurner" | "sprintSummary";
+export type AiActionSettingsScope = "default" | AiActivity;
+
+export interface ActionPromptDraft {
+  instructions: string | null;
+  includeFixExamples: boolean;
+  arbiterInstructions?: string | null;
+}
+
+export interface ActionSettingsSaveResult {
+  ai: AiSettingsPageData;
+  prompt: PromptSettings | null;
+  arbiterPrompt?: PromptSettings | null;
+}
 
 export interface AiSettingsSaveError {
   message: string;
-  scope: "default" | AiActivity | null;
+  scope: "default" | AiActivity | "reviewArbiter" | null;
   field: "provider" | "model" | null;
 }
 
-export function isAiSettingsFieldError(value: unknown): value is AiSettingsSaveError & { scope: "default" | AiActivity; field: "provider" | "model" } {
+export function isAiSettingsFieldError(value: unknown): value is AiSettingsSaveError & { scope: "default" | AiActivity | "reviewArbiter"; field: "provider" | "model" } {
   if (!value || typeof value !== "object") return false;
   const error = value as Partial<AiSettingsSaveError>;
   return typeof error.message === "string"
-    && ["default", "taskCreation", "pullRequestReview", "tokenBurner", "sprintSummary"].includes(error.scope ?? "")
+    && ["default", "taskCreation", "pullRequestReview", "reviewArbiter", "tokenBurner", "sprintSummary"].includes(error.scope ?? "")
     && (error.field === "provider" || error.field === "model");
 }
 
@@ -52,10 +65,19 @@ export interface AiSettings {
   fastMode: boolean;
   taskCreation?: AiSettingsProfile | null;
   pullRequestReview?: AiSettingsProfile | null;
+  reviewArbiter?: AiSettingsProfile | null;
+  reviewArbitration?: ReviewArbitrationSettings;
   tokenBurner?: AiSettingsProfile | null;
   sprintSummary?: AiSettingsProfile | null;
   retries: AiRetrySettings;
 }
+
+export interface ReviewArbitrationSettings {
+  enabled: boolean;
+  reviewCount: number;
+}
+
+export const DEFAULT_REVIEW_ARBITRATION: ReviewArbitrationSettings = { enabled: false, reviewCount: 3 };
 
 export interface AiProvider {
   id: AiProviderId;

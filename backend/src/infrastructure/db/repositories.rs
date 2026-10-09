@@ -175,15 +175,18 @@ pub async fn delete_integration(pool: &SqlitePool, id: &str) -> Result<bool, sql
     Ok(result.rows_affected() == 1)
 }
 
-pub async fn get_setting(pool: &SqlitePool, key: &str) -> Result<Option<String>, sqlx::Error> {
+pub async fn get_setting<'e, E>(pool: E, key: &str) -> Result<Option<String>, sqlx::Error>
+where
+    E: sqlx::Executor<'e, Database = sqlx::Sqlite>,
+{
     sqlx::query_scalar("SELECT value_json FROM settings WHERE key = ?")
         .bind(key)
         .fetch_optional(pool)
         .await
 }
 
-pub async fn upsert_setting(
-    pool: &SqlitePool,
+pub async fn upsert_setting<'e, E: sqlx::Executor<'e, Database = sqlx::Sqlite>>(
+    executor: E,
     key: &str,
     value_json: &str,
     schema_version: i64,
@@ -199,7 +202,7 @@ pub async fn upsert_setting(
     .bind(key)
     .bind(value_json)
     .bind(schema_version)
-    .execute(pool)
+    .execute(executor)
     .await
     .map(|_| ())
 }

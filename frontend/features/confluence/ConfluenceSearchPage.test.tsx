@@ -61,8 +61,6 @@ describe("ConfluenceSearchPage smoke test", () => {
 
     const scope = await screen.findByRole("combobox", { name: "Search scope" });
     expect(screen.getByRole("heading", { name: "Knowledge search" })).toBeInTheDocument();
-    expect(screen.getByText("Search scope").closest("label")).not.toHaveClass("pl-1");
-    expect(screen.getByText("Search query").closest("label")).not.toHaveClass("pl-1");
     fireEvent.click(scope);
     fireEvent.click(screen.getByRole("option", { name: "All Confluence spaces" }));
     expect(scope).toHaveTextContent("All Confluence spaces");

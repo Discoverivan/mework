@@ -112,6 +112,10 @@ pub struct AiSettings {
     #[serde(default)]
     pub pull_request_review: Option<AiSettingsProfile>,
     #[serde(default)]
+    pub review_arbiter: Option<AiSettingsProfile>,
+    #[serde(default)]
+    pub review_arbitration: ReviewArbitrationSettings,
+    #[serde(default)]
     pub token_burner: Option<AiSettingsProfile>,
     #[serde(default)]
     pub sprint_summary: Option<AiSettingsProfile>,
@@ -126,6 +130,22 @@ pub struct AiRetrySettings {
     pub default: u8,
     #[serde(default)]
     pub actions: AiActionRetries,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ReviewArbitrationSettings {
+    pub enabled: bool,
+    pub review_count: u8,
+}
+
+impl Default for ReviewArbitrationSettings {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            review_count: 3,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Default, Deserialize, Serialize, PartialEq, Eq)]
@@ -212,6 +232,8 @@ impl Default for AiSettings {
             fast_mode: false,
             task_creation: None,
             pull_request_review: None,
+            review_arbiter: None,
+            review_arbitration: ReviewArbitrationSettings::default(),
             token_burner: None,
             sprint_summary: None,
             retries: AiRetrySettings::default(),
@@ -338,12 +360,13 @@ pub async fn load(pool: &SqlitePool) -> Result<AiSettings, String> {
     Ok(settings)
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub enum AiSettingsScope {
     Default,
     TaskCreation,
     PullRequestReview,
+    ReviewArbiter,
     TokenBurner,
     SprintSummary,
 }
@@ -396,6 +419,188 @@ pub async fn save(pool: &SqlitePool, mut settings: AiSettings) -> Result<(), AiS
     repositories::upsert_setting(pool, AI_SETTINGS_KEY, &value, AI_SETTINGS_SCHEMA_VERSION)
         .await
         .map_err(|_| AiSettingsSaveError::from("failed to save AI settings".to_owned()))
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ActionPromptDraft {
+    pub instructions: Option<String>,
+    pub include_fix_examples: bool,
+    #[serde(default)]
+    pub arbiter_instructions: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ActionSettingsSaveRequest {
+    pub scope: AiSettingsScope,
+    pub settings: AiSettings,
+    pub prompt: Option<ActionPromptDraft>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ActionSettingsSaveResult {
+    pub ai: AiSettingsPageDto,
+    pub prompt: Option<super::ai_prompts::PromptSettings>,
+    pub arbiter_prompt: Option<super::ai_prompts::PromptSettings>,
+}
+
+fn apply_action_settings(
+    saved: &mut AiSettings,
+    draft: AiSettings,
+    scope: AiSettingsScope,
+) -> Result<(), AiSettingsSaveError> {
+    match scope {
+        AiSettingsScope::Default => {
+            saved.provider = draft.provider;
+            saved.provider_instance_id = draft.provider_instance_id;
+            saved.model = draft.model;
+            saved.reasoning = draft.reasoning;
+            saved.fast_mode = draft.fast_mode;
+            saved.retries.default = draft.retries.default;
+        }
+        AiSettingsScope::TaskCreation => {
+            saved.task_creation = draft.task_creation;
+            saved.retries.actions.task_creation = draft.retries.actions.task_creation;
+        }
+        AiSettingsScope::PullRequestReview => {
+            saved.pull_request_review = draft.pull_request_review;
+            saved.review_arbiter = draft.review_arbiter;
+            saved.review_arbitration = draft.review_arbitration;
+            saved.retries.actions.pull_request_review = draft.retries.actions.pull_request_review;
+        }
+        AiSettingsScope::SprintSummary => {
+            saved.sprint_summary = draft.sprint_summary;
+            saved.retries.actions.sprint_summary = draft.retries.actions.sprint_summary;
+        }
+        AiSettingsScope::TokenBurner => {
+            saved.token_burner = draft.token_burner;
+            saved.retries.actions.token_burner = draft.retries.actions.token_burner;
+        }
+        AiSettingsScope::ReviewArbiter => {
+            return Err("Save the arbiter with the pull request review section"
+                .to_owned()
+                .into())
+        }
+    }
+    saved.normalize_action_retries();
+    Ok(())
+}
+
+pub async fn save_action_settings(
+    pool: &SqlitePool,
+    request: ActionSettingsSaveRequest,
+) -> Result<ActionSettingsSaveResult, AiSettingsSaveError> {
+    use super::ai_prompts::{self, PromptAction};
+    let mut page = dto(pool).await?;
+    let action = match request.scope {
+        AiSettingsScope::PullRequestReview => Some(PromptAction::PullRequestReview),
+        AiSettingsScope::TaskCreation => Some(PromptAction::TaskCreation),
+        AiSettingsScope::SprintSummary => Some(PromptAction::SprintSummary),
+        _ => None,
+    };
+    if action.is_none() && request.prompt.is_some() {
+        return Err("This settings section has no prompt".to_owned().into());
+    }
+    let arbiter_prompt = if let Some(draft) = request
+        .prompt
+        .as_ref()
+        .filter(|_| action == Some(PromptAction::PullRequestReview))
+    {
+        let raw = ai_prompts::serialized_instructions(
+            PromptAction::ReviewArbiter,
+            draft.arbiter_instructions.clone(),
+        )?;
+        let instructions: Option<String> = serde_json::from_str(&raw)
+            .map_err(|_| "Failed to prepare arbiter instructions".to_owned())?;
+        Some((
+            raw,
+            ai_prompts::settings_dto(
+                PromptAction::ReviewArbiter,
+                instructions.unwrap_or_else(|| ai_prompts::ARBITER_DEFAULT.to_owned()),
+                draft.include_fix_examples,
+            ),
+        ))
+    } else {
+        None
+    };
+    let prompt = if let (Some(action), Some(draft)) = (action, request.prompt) {
+        let raw = ai_prompts::serialized_instructions(action, draft.instructions)?;
+        let instructions: Option<String> = serde_json::from_str(&raw)
+            .map_err(|_| "Failed to prepare AI instructions".to_owned())?;
+        let dto = ai_prompts::settings_dto(
+            action,
+            instructions.unwrap_or_else(|| action.default_instructions().to_owned()),
+            action == PromptAction::PullRequestReview && draft.include_fix_examples,
+        );
+        Some((action, raw, dto))
+    } else {
+        None
+    };
+    let mut transaction = pool
+        .begin()
+        .await
+        .map_err(|_| "Failed to save action settings".to_owned())?;
+    let current: Option<String> =
+        sqlx::query_scalar("SELECT value_json FROM settings WHERE key = ?")
+            .bind(AI_SETTINGS_KEY)
+            .fetch_optional(&mut *transaction)
+            .await
+            .map_err(|_| "Failed to load action settings".to_owned())?;
+    let previous = current
+        .map(|raw| serde_json::from_str::<AiSettings>(&raw))
+        .transpose()
+        .map_err(|_| "Invalid stored AI settings".to_owned())?
+        .unwrap_or_else(|| page.settings.clone());
+    let mut settings = previous.clone();
+    apply_action_settings(&mut settings, request.settings, request.scope)?;
+    validate_setting_values(&settings)?;
+    validate_changed_selections(&settings, &previous, &page.providers)?;
+    let raw =
+        serde_json::to_string(&settings).map_err(|_| "Failed to prepare AI settings".to_owned())?;
+    repositories::upsert_setting(
+        &mut *transaction,
+        AI_SETTINGS_KEY,
+        &raw,
+        AI_SETTINGS_SCHEMA_VERSION,
+    )
+    .await
+    .map_err(|_| "Failed to save action settings".to_owned())?;
+    if let Some((action, raw, dto)) = &prompt {
+        repositories::upsert_setting(&mut *transaction, action.key(), raw, 1)
+            .await
+            .map_err(|_| "Failed to save action instructions".to_owned())?;
+        if *action == PromptAction::PullRequestReview {
+            repositories::upsert_setting(
+                &mut *transaction,
+                ai_prompts::REVIEW_FIX_EXAMPLES_KEY,
+                if dto.include_fix_examples {
+                    "true"
+                } else {
+                    "false"
+                },
+                1,
+            )
+            .await
+            .map_err(|_| "Failed to save review formatting".to_owned())?;
+        }
+    }
+    if let Some((raw, _)) = &arbiter_prompt {
+        repositories::upsert_setting(&mut *transaction, PromptAction::ReviewArbiter.key(), raw, 1)
+            .await
+            .map_err(|_| "Failed to save arbiter instructions".to_owned())?;
+    }
+    transaction
+        .commit()
+        .await
+        .map_err(|_| "Failed to save action settings".to_owned())?;
+    page.settings = settings;
+    Ok(ActionSettingsSaveResult {
+        ai: page,
+        prompt: prompt.map(|(_, _, dto)| dto),
+        arbiter_prompt: arbiter_prompt.map(|(_, dto)| dto),
+    })
 }
 
 pub async fn save_openai_compatible_provider(
@@ -494,6 +699,7 @@ pub async fn dto(pool: &SqlitePool) -> Result<AiSettingsPageDto, String> {
             || [
                 &settings.task_creation,
                 &settings.pull_request_review,
+                &settings.review_arbiter,
                 &settings.token_burner,
                 &settings.sprint_summary,
             ]
@@ -646,6 +852,7 @@ pub async fn delete_provider(
     for profile in [
         &mut settings.task_creation,
         &mut settings.pull_request_review,
+        &mut settings.review_arbiter,
         &mut settings.token_burner,
         &mut settings.sprint_summary,
     ] {
@@ -767,6 +974,70 @@ pub async fn settings_for_activity(
     Ok(settings)
 }
 
+// Both roles resolve from one snapshot; an absent override always means global defaults.
+pub(super) fn review_settings_snapshot(settings: AiSettings) -> (AiSettings, AiSettings) {
+    let review = effective_settings(settings.clone(), AiActivity::PullRequestReview);
+    let mut arbiter = settings;
+    if let Some(profile) = arbiter.review_arbiter.clone() {
+        profile.apply_to(&mut arbiter);
+    }
+    (review, arbiter)
+}
+
+pub struct ReviewSettingsSnapshot {
+    pub reviewer: AiSettings,
+    pub arbiter: Option<AiSettings>,
+    pub instructions: String,
+    pub arbiter_instructions: String,
+}
+
+pub async fn settings_for_review(pool: &SqlitePool) -> Result<ReviewSettingsSnapshot, String> {
+    use super::ai_prompts::{self, PromptAction};
+    let page = dto(pool).await?;
+    // Inspect providers before opening the read transaction; then freeze the whole
+    // review section so an atomic Save cannot mix profiles and instructions.
+    let mut transaction = pool
+        .begin()
+        .await
+        .map_err(|_| "Failed to load review settings".to_owned())?;
+    let stored = repositories::get_setting(&mut *transaction, AI_SETTINGS_KEY)
+        .await
+        .map_err(|_| "Failed to load review settings".to_owned())?;
+    let settings = stored
+        .map(|raw| serde_json::from_str::<AiSettings>(&raw))
+        .transpose()
+        .map_err(|_| "Invalid stored AI settings".to_owned())?
+        .unwrap_or(page.settings);
+    let formatting =
+        ai_prompts::fix_examples_rule(ai_prompts::review_fix_examples(&mut *transaction).await?);
+    let instructions = format!(
+        "{}\n\n{formatting}",
+        ai_prompts::load(&mut *transaction, PromptAction::PullRequestReview).await?
+    );
+    let arbiter_instructions = format!(
+        "{}\n\n{formatting}",
+        ai_prompts::load(&mut *transaction, PromptAction::ReviewArbiter).await?
+    );
+    transaction
+        .commit()
+        .await
+        .map_err(|_| "Failed to load review settings".to_owned())?;
+    let (review, arbiter) = review_settings_snapshot(settings);
+    validate_selected_settings(&review, &page.providers)?;
+    let arbiter = if review.review_arbitration.enabled {
+        validate_selected_settings(&arbiter, &page.providers)?;
+        Some(arbiter)
+    } else {
+        None
+    };
+    Ok(ReviewSettingsSnapshot {
+        reviewer: review,
+        arbiter,
+        instructions,
+        arbiter_instructions,
+    })
+}
+
 pub fn is_retryable_provider_error(error: &str) -> bool {
     if error.contains("could not be completed") {
         return true;
@@ -877,6 +1148,17 @@ async fn validate_settings(
     pool: &SqlitePool,
     settings: &AiSettings,
 ) -> Result<(), AiSettingsSaveError> {
+    validate_setting_values(settings)?;
+    let page = dto(pool).await?;
+    validate_changed_selections(settings, &page.settings, &page.providers)
+}
+
+fn validate_setting_values(settings: &AiSettings) -> Result<(), AiSettingsSaveError> {
+    if !(2..=5).contains(&settings.review_arbitration.review_count) {
+        return Err("Independent review count must be between 2 and 5"
+            .to_owned()
+            .into());
+    }
     let retry_values = [
         Some(settings.retries.default),
         settings.retries.actions.task_creation,
@@ -891,8 +1173,7 @@ async fn validate_settings(
     {
         return Err(format!("AI retries must be between 0 and {MAX_AI_RETRIES}").into());
     }
-    let page = dto(pool).await?;
-    validate_changed_selections(settings, &page.settings, &page.providers)
+    Ok(())
 }
 
 fn validate_changed_selections(
@@ -915,6 +1196,7 @@ fn validate_changed_selections(
         }
     } else if settings.task_creation.is_none()
         && settings.pull_request_review.is_none()
+        && settings.review_arbiter.is_none()
         && settings.token_burner.is_none()
         && settings.sprint_summary.is_none()
     {
@@ -940,6 +1222,11 @@ fn validate_changed_selections(
             AiSettingsScope::TokenBurner,
             &settings.token_burner,
             &previous.token_burner,
+        ),
+        (
+            AiSettingsScope::ReviewArbiter,
+            &settings.review_arbiter,
+            &previous.review_arbiter,
         ),
         (
             AiSettingsScope::SprintSummary,
@@ -1541,6 +1828,90 @@ pub fn test_process_env_lock() -> &'static std::sync::Mutex<()> {
 
 #[cfg(test)]
 mod tests {
+    #[tokio::test]
+    async fn saves_only_the_selected_action_with_its_prompt_and_formatting() {
+        let directory = tempfile::tempdir().unwrap();
+        let pool =
+            crate::infrastructure::db::open_database(&directory.path().join("example.sqlite"))
+                .await
+                .unwrap();
+        let profile = super::AiSettingsProfile {
+            provider: super::AiProviderId::OpenAiCompatible,
+            provider_instance_id: None,
+            model: "example-review-model".into(),
+            reasoning: super::AiReasoning::Medium,
+            fast_mode: false,
+        };
+        let saved = super::AiSettings {
+            provider: Some(super::AiProviderId::OpenAiCompatible),
+            model: "example-default-model".into(),
+            pull_request_review: Some(profile.clone()),
+            task_creation: Some(profile),
+            ..super::AiSettings::default()
+        };
+        crate::infrastructure::db::repositories::upsert_setting(
+            &pool,
+            super::AI_SETTINGS_KEY,
+            &serde_json::to_string(&saved).unwrap(),
+            super::AI_SETTINGS_SCHEMA_VERSION,
+        )
+        .await
+        .unwrap();
+        let mut draft = saved.clone();
+        draft.model = "unsaved-example-default-model".into();
+        draft.task_creation.as_mut().unwrap().model = "unsaved-example-task-model".into();
+        draft.review_arbitration = super::ReviewArbitrationSettings {
+            enabled: true,
+            review_count: 4,
+        };
+        draft.retries.actions.pull_request_review = Some(2);
+        let result = super::save_action_settings(
+            &pool,
+            super::ActionSettingsSaveRequest {
+                scope: super::AiSettingsScope::PullRequestReview,
+                settings: draft,
+                prompt: Some(super::ActionPromptDraft {
+                    instructions: Some("Check concrete example defects.".into()),
+                    include_fix_examples: true,
+                    arbiter_instructions: Some("Verify example defects independently.".into()),
+                }),
+            },
+        )
+        .await
+        .unwrap();
+        assert_eq!(result.ai.settings.model, saved.model);
+        assert_eq!(result.ai.settings.task_creation, saved.task_creation);
+        assert_eq!(result.ai.settings.review_arbitration.review_count, 4);
+        assert_eq!(
+            result.ai.settings.retries.actions.pull_request_review,
+            Some(2)
+        );
+        let loaded = super::load(&pool).await.unwrap();
+        assert_eq!(loaded, result.ai.settings);
+        assert_eq!(
+            super::super::ai_prompts::load(
+                &pool,
+                super::super::ai_prompts::PromptAction::PullRequestReview
+            )
+            .await
+            .unwrap(),
+            "Check concrete example defects."
+        );
+        assert!(super::super::ai_prompts::review_fix_examples(&pool)
+            .await
+            .unwrap());
+        assert!(result.prompt.unwrap().customized);
+        assert!(result.arbiter_prompt.unwrap().customized);
+        assert_eq!(
+            super::super::ai_prompts::load(
+                &pool,
+                super::super::ai_prompts::PromptAction::ReviewArbiter
+            )
+            .await
+            .unwrap(),
+            "Verify example defects independently."
+        );
+    }
     use super::cli;
     use super::{
         default_mock_ai_settings, delete_provider, load, load_openai_models,
@@ -1821,6 +2192,8 @@ mod tests {
             fast_mode: false,
             task_creation: None,
             pull_request_review: None,
+            review_arbiter: None,
+            review_arbitration: Default::default(),
             token_burner: None,
             sprint_summary: None,
             retries: super::AiRetrySettings::default(),
@@ -1960,6 +2333,8 @@ mod tests {
                 reasoning: AiReasoning::Low,
                 fast_mode: false,
             }),
+            review_arbiter: None,
+            review_arbitration: Default::default(),
             retries: super::AiRetrySettings {
                 default: 1,
                 actions: super::AiActionRetries {
@@ -2002,6 +2377,8 @@ mod tests {
             fast_mode: true,
             task_creation: None,
             pull_request_review: None,
+            review_arbiter: None,
+            review_arbitration: Default::default(),
             token_burner: None,
             sprint_summary: None,
             retries: super::AiRetrySettings::default(),
