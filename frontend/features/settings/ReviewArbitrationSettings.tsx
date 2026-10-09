@@ -9,7 +9,7 @@ import { AiOverrideEditor } from "./AiOverrideEditor";
 
 const reviewModeOptionClassName = cn(
   buttonVariants({ variant: "outline", size: "sm" }),
-  "review-mode-option relative h-[30px] bg-background px-[14px] text-muted-foreground transition-none hover:bg-background hover:text-foreground data-[state=on]:bg-primary data-[state=on]:text-primary-foreground data-[state=on]:hover:bg-primary data-[state=on]:hover:text-primary-foreground group-hover/review-mode:enabled:border-y-primary",
+  "review-mode-option relative h-[30px] bg-background px-[14px] text-muted-foreground transition-none hover:bg-background hover:text-foreground data-[state=on]:bg-primary data-[state=on]:text-primary-foreground data-[state=on]:hover:bg-primary data-[state=on]:hover:text-primary-foreground/80",
 );
 
 export function ReviewModeControl({ settings, disabled, onChange }: {
@@ -23,13 +23,13 @@ export function ReviewModeControl({ settings, disabled, onChange }: {
   return <ToggleGroup type="single" size="sm" role="radiogroup" aria-label={t("settings.ai.reviewMode")}
     value={settings.enabled ? "arbiter" : "single"} disabled={disabled}
     onValueChange={() => onChange({ ...settings, enabled: !settings.enabled })}
-    className="group/review-mode w-fit gap-0">
+    className="w-fit gap-0">
     <ToggleGroupItem value="single" title={t("settings.ai.reviewModeSingleHelp")}
-      className={cn(reviewModeOptionClassName, "rounded-r-none group-hover/review-mode:enabled:border-l-primary")}>
+      className={cn(reviewModeOptionClassName, "rounded-r-none")}>
       {singleLabel}
     </ToggleGroupItem>
     <ToggleGroupItem value="arbiter" title={t("settings.ai.reviewModeArbiterHelp")}
-      className={cn(reviewModeOptionClassName, "-ml-px rounded-l-none group-hover/review-mode:enabled:border-r-primary")}>
+      className={cn(reviewModeOptionClassName, "-ml-px rounded-l-none")}>
       {arbiterLabel}
     </ToggleGroupItem>
   </ToggleGroup>;

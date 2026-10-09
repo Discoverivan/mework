@@ -145,12 +145,11 @@ export function ActionSettingsSection({ defaults, renderActionHeader, renderMode
     const changed = promptChanged(value, saved)
       || (scope === "pullRequestReview" && promptChanged(settings.find((item) => item.action === "reviewArbiter"), savedSettings.find((item) => item.action === "reviewArbiter")))
       || sectionChanged?.(scope);
-    return <header className="flex flex-wrap items-center justify-between gap-3">
-      <div className="flex flex-wrap items-center gap-3">
-        <h3 className="text-sm font-medium">{t(label)}</h3>
-        {renderActionHeader?.(scope)}
-      </div>
-      <div className="flex shrink-0 items-center gap-2">
+    const headerControl = renderActionHeader?.(scope);
+    return <header className="flex flex-wrap items-center gap-3">
+      <h3 className="text-sm font-medium">{t(label)}</h3>
+      {headerControl ? <div className="flex min-w-fit flex-1 justify-center">{headerControl}</div> : null}
+      <div className="ml-auto flex shrink-0 items-center gap-2">
         <Button type="button" variant="outline" size="sm" disabled={!changed || loading || disabled || saving} onClick={() => cancelSection(scope)}>{t("settings.common.cancel")}</Button>
         <Button type="button" size="sm" actionTone="edit" disabled={!changed || loading || disabled || saving || !onSaveSection || sectionReady?.(scope) === false} onClick={() => void saveSection(scope)}>
           {savingScope === scope ? <Loader2 className="animate-spin" aria-hidden="true" /> : null}{t("settings.common.save")}

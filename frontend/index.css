@@ -276,6 +276,16 @@
     font-weight: 600;
   }
 
+  :root[data-button-style="quiet"] .review-mode-option {
+    border-color: transparent;
+    background: transparent;
+    color: var(--muted-foreground);
+  }
+
+  :root[data-button-style="quiet"] .review-mode-option:is([data-state="on"], :enabled:hover, :enabled:focus-visible) {
+    color: var(--primary);
+  }
+
   :root[data-button-style="filled"] .pr-filter-mode,
   :root[data-button-style="filled"] .pr-filter-mode-option {
     background: transparent;
