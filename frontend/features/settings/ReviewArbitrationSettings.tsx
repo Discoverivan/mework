@@ -85,7 +85,7 @@ export function ReviewArbitrationSettings({ settings, profile, providers, disabl
           </div>
         </CardHeader>
         <CardContent className="px-4 py-3">{children}</CardContent>
-        </Card>
-      </div>}
-    </div>;
-  }
+      </Card>
+    </div>}
+  </div>;
+}

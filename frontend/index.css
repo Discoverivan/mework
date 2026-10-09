@@ -11,7 +11,6 @@
   --color-card: var(--card);
   --color-card-foreground: var(--card-foreground);
   --color-control: var(--control-background, var(--secondary));
-  --color-control-hover: var(--control-hover-background, color-mix(in srgb, var(--primary) 14%, var(--control-background, var(--secondary))));
   --color-popover: var(--popover);
   --color-popover-foreground: var(--popover-foreground);
   --color-primary: var(--primary);
@@ -253,7 +252,6 @@
   }
 
   :root[data-button-style="filled"] .app-action-text[data-action-tone="add"]:not(:disabled):is(:hover, :focus-visible) {
-    border-color: transparent;
     background: var(--app-action-background, var(--secondary));
     border-color: var(--app-action-color);
     color: var(--app-action-color);
@@ -336,7 +334,6 @@
   /* Pickers use a surface distinct from both panel bodies and muted headers. */
   [data-card-header-variant="section"] {
     --control-background: var(--card);
-    --control-hover-background: var(--card);
   }
 
   /* Filled actions remain distinct from muted section-header surfaces. */
