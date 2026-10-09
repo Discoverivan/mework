@@ -188,7 +188,7 @@ body,
   font-weight: 600;
 }
 
-:root[data-button-style="filled"] .theme-picker:is(:hover, :focus-visible, [data-state="open"]) {
+:root:is([data-button-style="filled"], [data-button-style="filled_borderless"]) .theme-picker:is(:hover, :focus-visible, [data-state="open"]) {
   background: var(--accent);
   color: var(--accent-foreground);
 }

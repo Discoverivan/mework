@@ -377,13 +377,19 @@ describe("MyPullRequestsPage", () => {
     expect(within(demoGroup).getByRole("heading", { name: "Example documentation change" })).toBeInTheDocument();
     expect(within(demoGroup).getByRole("heading", { name: "Example pull request" })).toBeInTheDocument();
 
+    fireEvent.click(within(demoGroup).getByRole("button", { name: "Collapse DEMO project" }));
+    expect(within(demoGroup).queryByRole("heading", { name: "Example pull request" })).not.toBeInTheDocument();
+    expect(demoGroup.querySelector('[aria-hidden="true"][inert]')).toContainElement(within(demoGroup).getByText("Example pull request"));
+    fireEvent.click(within(demoGroup).getByRole("button", { name: "Expand DEMO project" }));
+    expect(within(demoGroup).getByRole("heading", { name: "Example pull request" })).toBeInTheDocument();
+
     fireEvent.click(screen.getByRole("button", { name: "Options" }));
     const displayOptions = screen.getByRole("dialog", { name: "Options" });
     const sortOrder = within(displayOptions).getByRole("combobox", { name: "Sort order" });
     expect(within(displayOptions).getByRole("button", { name: "Save" })).toBeDisabled();
     const grouping = within(displayOptions).getByRole("combobox", { name: "Group by" });
-    const displaySection = sortOrder.closest(".rounded-lg.border");
-    expect(displaySection).toBe(grouping.closest(".rounded-lg.border"));
+    const displaySection = sortOrder.closest('[data-slot="card"]');
+    expect(displaySection).toBe(grouping.closest('[data-slot="card"]'));
     expect(displaySection?.querySelector('[data-orientation="horizontal"]')).toBeInTheDocument();
     const expandProjects = within(displayOptions).getByRole("switch", { name: "Expand groups by default" });
     expect(sortOrder).toHaveTextContent("Recently updated first");
@@ -402,7 +408,7 @@ describe("MyPullRequestsPage", () => {
     expect(expandProjects).not.toBeChecked();
     fireEvent.click(expandProjects);
     expect(within(screen.getByRole("region", { name: "TOOLS project" })).queryByRole("heading", { name: "Tools project change" })).not.toBeInTheDocument();
-    chooseDisplayOption(displayOptions, "Group by", "Person (PR author)");
+    chooseDisplayOption(displayOptions, "Group by", "Author");
     expect(screen.queryByRole("region", { name: "Pull requests by Test Author A" })).not.toBeInTheDocument();
     expect(within(displayOptions).getByRole("switch", { name: "Expand groups by default" })).toBeInTheDocument();
     fireEvent.click(within(displayOptions).getByRole("button", { name: "Save" }));
@@ -715,7 +721,7 @@ describe("MyPullRequestsPage", () => {
 
     let dialog = await screen.findByRole("dialog", { name: "AI review results" });
     expect(within(dialog).getByText("Example review failure details")).toBeInTheDocument();
-    expect(within(dialog).getAllByRole("button").map((button) => button.textContent)).toEqual(["", "Retry review", "Close"]);
+    expect(within(dialog).getAllByRole("button").map((button) => button.textContent)).toEqual(["", "Cancel", "Retry review", "Close"]);
     expect(within(dialog).getByRole("link", { name: "Open in browser" })).toHaveAttribute("href", pullRequests[0].url);
     fireEvent.click(within(dialog).getByRole("button", { name: "Show review details" }));
     failureDetails = await screen.findByRole("dialog", { name: "Review details" });
@@ -825,7 +831,8 @@ describe("MyPullRequestsPage", () => {
     expect(screen.getByLabelText("AI verdict: Approved")).toHaveClass("text-success");
     expect(screen.getByLabelText("AI verdict: Approved")).toHaveTextContent("Approved");
     const reviewResultsButton = screen.getByRole("button", { name: "AI review results" });
-    expect(reviewResultsButton.querySelector("svg.lucide-sparkles")).toHaveClass("text-success");
+    expect(reviewResultsButton).toHaveAttribute("data-action-tone", "success");
+    expect(reviewResultsButton.querySelector("svg.lucide-sparkles")).not.toHaveClass("text-success");
     const completedCard = reviewResultsButton.closest(".rounded-lg");
     expect(completedCard).not.toBeNull();
     expect(within(completedCard as HTMLElement).getByRole("button", { name: "More actions" }).parentElement)
@@ -834,6 +841,10 @@ describe("MyPullRequestsPage", () => {
     const dialog = await screen.findByRole("dialog", { name: "AI review results" });
     expect(within(dialog).getByText("The AI review has no comments.")).toBeInTheDocument();
     expect(dialog.querySelector("details")).toBeNull();
+    fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "AI review results" })).not.toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: "AI review results" }));
+    expect(within(await screen.findByRole("dialog", { name: "AI review results" })).getByText("The AI review has no comments.")).toBeInTheDocument();
   });
   it("reconciles a completed review when the completion event was missed", async () => {
     getReviewStatesMock.mockResolvedValue({

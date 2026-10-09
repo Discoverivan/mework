@@ -345,10 +345,13 @@ describe("TaskTrackerPage", () => {
         themePreference: "system",
         buttonStyle: "quiet",
         buttonStyleSaving: false,
+        panelStyle: "borderless",
+        panelStyleSaving: false,
         resolvedTheme: "light",
         appearanceSaving: false,
         updateAppearance: async () => { throw new Error("not used"); },
         updateButtonStyle: async () => { throw new Error("not used"); },
+        updatePanelStyle: async () => { throw new Error("not used"); },
         t: (key, params) => {
           const template = ru[key];
           return params ? template.replace(/\{(\w+)\}/g, (placeholder, name: string) =>

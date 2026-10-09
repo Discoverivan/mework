@@ -1,6 +1,6 @@
 import { createContext, useContext } from "react";
 
-import type { ButtonStyle, GeneralSettings, ThemePreference } from "@/features/settings/general/api";
+import type { ButtonStyle, GeneralSettings, PanelStyle, ThemePreference } from "@/features/settings/general/api";
 import { en, type TranslationKey } from "./locales/en";
 import { APP_LANGUAGE_LOCALES, AppLanguage, type TranslationParams } from "./types";
 
@@ -10,10 +10,13 @@ export interface I18nContextValue {
   themePreference: ThemePreference;
   buttonStyle: ButtonStyle;
   buttonStyleSaving: boolean;
+  panelStyle: PanelStyle;
+  panelStyleSaving: boolean;
   resolvedTheme: "light" | "dark";
   appearanceSaving: boolean;
   updateAppearance: (changes: Partial<Pick<GeneralSettings, "language" | "themePreference">>) => Promise<GeneralSettings>;
   updateButtonStyle: (buttonStyle: ButtonStyle) => Promise<GeneralSettings>;
+  updatePanelStyle: (panelStyle: PanelStyle) => Promise<GeneralSettings>;
   t: (key: TranslationKey, params?: TranslationParams) => string;
 }
 
@@ -31,10 +34,13 @@ export const I18nContext = createContext<I18nContextValue>({
   themePreference: "system",
   buttonStyle: "quiet",
   buttonStyleSaving: false,
+  panelStyle: "borderless",
+  panelStyleSaving: false,
   resolvedTheme: "light",
   appearanceSaving: false,
   updateAppearance: async () => { throw new Error("Appearance settings are unavailable"); },
   updateButtonStyle: async () => { throw new Error("Button style settings are unavailable"); },
+  updatePanelStyle: async () => { throw new Error("Panel style settings are unavailable"); },
   t: fallbackTranslation,
 });
 

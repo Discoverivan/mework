@@ -180,7 +180,6 @@ export function PullRequestListItem({
     reviewIconClassName = "text-destructive";
   } else if (reviewCompleted) {
     reviewLabel = completedLabel ?? t("pr.reviewResults");
-    reviewIconClassName = review?.result?.verdict === "ok" ? "text-success" : "text-warning";
   }
   const reviewTitle = !reviewRunning && !reviewFailed && !reviewCompleted && !aiReviewReady
     ? t("pr.aiProviderRequired")
@@ -274,6 +273,7 @@ export function PullRequestListItem({
               type="button"
               variant="outline"
               size="icon"
+              actionTone={reviewCompleted ? review?.result?.verdict === "ok" ? "success" : "warning" : undefined}
               className="size-8"
               onClick={() => reviewCompleted || reviewFailed ? onOpenResults(pullRequest) : onStartReview(pullRequest)}
               disabled={reviewRunning || (!reviewCompleted && !reviewFailed && !aiReviewReady)}

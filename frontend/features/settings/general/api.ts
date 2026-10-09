@@ -4,7 +4,8 @@ import { AppLanguage } from "@/i18n/types";
 export type NotificationPermission = "granted" | "denied" | "notDetermined";
 export type NotificationTestKind = "review" | "authored" | "taskTracker";
 export type ThemePreference = "system" | "light" | "dark";
-export type ButtonStyle = "quiet" | "filled";
+export type ButtonStyle = "quiet" | "filled" | "filled_borderless";
+export type PanelStyle = "bordered" | "borderless";
 export enum AiResponseLanguage {
   SameAsUi = "sameAsUi",
   English = "english",
@@ -27,6 +28,7 @@ export interface GeneralSettings {
   aiResponseLanguage: AiResponseLanguage;
   themePreference: ThemePreference;
   buttonStyle: ButtonStyle;
+  panelStyle: PanelStyle;
   notificationsEnabled: boolean;
   reviewNotificationsEnabled: boolean;
   authoredNotificationsEnabled: boolean;
@@ -70,6 +72,9 @@ export const saveGeneralSettings = (input: GeneralSettingsSaveInput) =>
 
 export const saveAppearanceSettings = (language: AppLanguage, themePreference: ThemePreference) =>
   invoke<GeneralSettings>("general_appearance_save", { language, themePreference });
+
+export const savePanelStyle = (panelStyle: PanelStyle) =>
+  invoke<GeneralSettings>("general_panel_style_save", { panelStyle });
 
 export const saveButtonStyle = (buttonStyle: ButtonStyle) =>
   invoke<GeneralSettings>("general_button_style_save", { buttonStyle });

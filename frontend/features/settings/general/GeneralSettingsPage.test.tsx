@@ -7,7 +7,7 @@ import { I18nProvider } from "@/i18n/I18nProvider";
 import { clearDismissedUpdateNotice, dismissUpdateNotice } from "@/components/shared/update-notice";
 import { UpdateBanner } from "@/components/shared/UpdateBanner";
 
-const { generalSettingsMock, commandBoardTerminalPreferencesMock, saveCommandBoardTerminalPreferenceMock, openNotificationSettingsMock, requestNotificationPermissionMock, saveAppearanceSettingsMock, saveButtonStyleMock, saveGeneralSettingsMock, sendNotificationTestMock, updaterCheckMock, installAvailableUpdateMock, openUrlMock, invokeMock, beginUpdateCheckMock, recordUpdateCheckResultMock } = vi.hoisted(() => ({
+const { generalSettingsMock, commandBoardTerminalPreferencesMock, saveCommandBoardTerminalPreferenceMock, openNotificationSettingsMock, requestNotificationPermissionMock, saveAppearanceSettingsMock, saveButtonStyleMock, savePanelStyleMock, saveGeneralSettingsMock, sendNotificationTestMock, updaterCheckMock, installAvailableUpdateMock, openUrlMock, invokeMock, beginUpdateCheckMock, recordUpdateCheckResultMock } = vi.hoisted(() => ({
   generalSettingsMock: vi.fn(),
   commandBoardTerminalPreferencesMock: vi.fn(),
   saveCommandBoardTerminalPreferenceMock: vi.fn(),
@@ -15,6 +15,7 @@ const { generalSettingsMock, commandBoardTerminalPreferencesMock, saveCommandBoa
   requestNotificationPermissionMock: vi.fn(),
   saveAppearanceSettingsMock: vi.fn(),
   saveButtonStyleMock: vi.fn(),
+  savePanelStyleMock: vi.fn(),
   saveGeneralSettingsMock: vi.fn(),
   sendNotificationTestMock: vi.fn(),
   updaterCheckMock: vi.fn(),
@@ -47,6 +48,7 @@ vi.mock("./api", () => ({
   requestNotificationPermission: requestNotificationPermissionMock,
   saveAppearanceSettings: saveAppearanceSettingsMock,
   saveButtonStyle: saveButtonStyleMock,
+  savePanelStyle: savePanelStyleMock,
   saveGeneralSettings: saveGeneralSettingsMock,
   sendNotificationTest: sendNotificationTestMock,
 }));
@@ -64,6 +66,7 @@ describe("GeneralSettingsPage", () => {
       aiResponseLanguage: "sameAsUi",
       themePreference: "system",
       buttonStyle: "filled",
+      panelStyle: "bordered",
       notificationsEnabled: true,
       reviewNotificationsEnabled: true,
       authoredNotificationsEnabled: true,
@@ -118,6 +121,10 @@ describe("GeneralSettingsPage", () => {
       persistedSettings = { ...persistedSettings, buttonStyle };
       return persistedSettings;
     });
+    savePanelStyleMock.mockImplementation(async (panelStyle) => {
+      persistedSettings = { ...persistedSettings, panelStyle };
+      return persistedSettings;
+    });
     sendNotificationTestMock.mockResolvedValue(undefined);
     updaterCheckMock.mockResolvedValue(null);
     installAvailableUpdateMock.mockResolvedValue(undefined);
@@ -166,11 +173,26 @@ describe("GeneralSettingsPage", () => {
     fireEvent.click(screen.getByRole("button", { name: "Show appearance settings" }));
     expect(screen.getByRole("combobox", { name: "Theme" })).toHaveTextContent("System");
     const buttonStyleSelect = screen.getByRole("combobox", { name: "Action buttons" });
-    expect(buttonStyleSelect).toHaveTextContent("Filled");
+    expect(buttonStyleSelect).toHaveTextContent("Filled with border");
+    fireEvent.click(buttonStyleSelect);
+    fireEvent.click(screen.getByRole("option", { name: "Filled without border" }));
+    await waitFor(() => expect(document.documentElement).toHaveAttribute("data-button-style", "filled_borderless"));
+    expect(saveButtonStyleMock).toHaveBeenCalledWith("filled_borderless");
+    expect(document.documentElement).toHaveAttribute("data-panel-style", "bordered");
+    const panelStyleSelect = screen.getByRole("combobox", { name: "Panels and forms" });
+    expect(panelStyleSelect).toHaveTextContent("With border");
+    fireEvent.click(panelStyleSelect);
+    expect(screen.queryByRole("option", { name: "Minimal" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("option", { name: "Without border" }));
+    await waitFor(() => expect(document.documentElement).toHaveAttribute("data-panel-style", "borderless"));
+    expect(savePanelStyleMock).toHaveBeenCalledWith("borderless");
+    expect(document.documentElement).toHaveAttribute("data-button-style", "filled_borderless");
+    await waitFor(() => expect(buttonStyleSelect).toBeEnabled());
     fireEvent.click(buttonStyleSelect);
     fireEvent.click(screen.getByRole("option", { name: "Minimal" }));
     await waitFor(() => expect(document.documentElement).toHaveAttribute("data-button-style", "quiet"));
     expect(saveButtonStyleMock).toHaveBeenCalledWith("quiet");
+    expect(document.documentElement).toHaveAttribute("data-panel-style", "borderless");
     expect(screen.getByRole("switch", { name: "Pull requests awaiting your review" })).toBeChecked();
     expect(screen.getByRole("switch", { name: "Pull requests authored by you" })).toBeChecked();
     const taskTrackerNotifications = screen.getByRole("switch", { name: "Task tracker" });
@@ -187,7 +209,7 @@ describe("GeneralSettingsPage", () => {
       aiResponseLanguage: "sameAsUi",
       themePreference: "system",
     }));
-    const notificationsCard = screen.getByRole("switch", { name: "Notifications" }).closest(".rounded-lg.border.bg-card");
+    const notificationsCard = screen.getByRole("switch", { name: "Notifications" }).closest('[data-slot="card"]');
     expect(notificationsCard).toContainElement(await screen.findByRole("heading", { name: "Notifications are not allowed" }));
 
     fireEvent.click(screen.getByRole("combobox", { name: "Theme" }));
@@ -292,7 +314,7 @@ describe("GeneralSettingsPage", () => {
       notificationPermission: "notDetermined",
     });
     render(<GeneralSettingsPage />);
-    const notificationsCard = screen.getByRole("switch", { name: "Notifications" }).closest(".rounded-lg.border.bg-card");
+    const notificationsCard = screen.getByRole("switch", { name: "Notifications" }).closest('[data-slot="card"]');
     const allowButton = await screen.findByRole("button", { name: "Allow notifications" });
     expect(notificationsCard).toContainElement(allowButton);
     fireEvent.click(allowButton);

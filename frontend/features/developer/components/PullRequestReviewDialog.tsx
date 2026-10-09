@@ -403,7 +403,17 @@ export function PullRequestReviewDialog({
             </>
           ) : null}
         </DialogBody>
-        <DialogFooter className={cn("items-center gap-2", !reviewFailed && "justify-between sm:justify-between")}>
+        <DialogFooter className="items-center gap-2">
+          <Button
+            data-dialog-cancel
+            type="button"
+            variant="outline"
+            size="sm"
+            actionTone="neutral"
+            onClick={() => onOpenChange(false)}
+          >
+            {t("settings.common.cancel")}
+          </Button>
           <div className="flex flex-wrap items-center gap-2">
             <Button
               type="button"
