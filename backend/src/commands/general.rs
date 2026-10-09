@@ -6,7 +6,7 @@ use crate::application::{
     dev_overlay::DevMockMode,
     general::{
         self, AiResponseLanguage, AppLanguage, ButtonStyle, GeneralSettingsDto,
-        NotificationTestKind, ThemePreference,
+        NotificationTestKind, PanelStyle, ThemePreference,
     },
 };
 use crate::os::notifications::{self, NotificationPermission};
@@ -96,6 +96,16 @@ pub async fn general_button_style_save(
     button_style: ButtonStyle,
 ) -> Result<GeneralSettingsDto, String> {
     general::save_button_style(&state, button_style).await?;
+    general::dto(&state, &app).await
+}
+
+#[tauri::command]
+pub async fn general_panel_style_save(
+    app: AppHandle,
+    state: State<'_, SqlitePool>,
+    panel_style: PanelStyle,
+) -> Result<GeneralSettingsDto, String> {
+    general::save_panel_style(&state, panel_style).await?;
     general::dto(&state, &app).await
 }
 

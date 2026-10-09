@@ -5,13 +5,15 @@ import {
   generalSettings,
   saveAppearanceSettings,
   saveButtonStyle,
+  savePanelStyle,
   type ButtonStyle,
   type GeneralSettings,
+  type PanelStyle,
   type ThemePreference,
 } from "@/features/settings/general/api";
 import { en, type TranslationKey } from "./locales/en";
 import { ru } from "./locales/ru";
-import { cacheButtonStyle, cacheThemePreference, readCachedButtonStyle, readCachedThemePreference } from "./appearance-cache";
+import { cacheButtonStyle, cachePanelStyle, cacheThemePreference, readCachedButtonStyle, readCachedPanelStyle, readCachedThemePreference } from "./appearance-cache";
 import { APP_LANGUAGE_LOCALES, AppLanguage, type TranslationParams } from "./types";
 import { I18nContext, type I18nContextValue } from "./context";
 
@@ -31,14 +33,21 @@ function translate(language: AppLanguage, key: TranslationKey, params?: Translat
 export function I18nProvider({ children }: { children: ReactNode }) {
   const [language, setLanguage] = useState<AppLanguage>(AppLanguage.English);
   const [themePreference, setThemePreference] = useState<ThemePreference>(() => readCachedThemePreference() ?? "system");
-  const [buttonStyle, setButtonStyle] = useState<ButtonStyle>(() => readCachedButtonStyle() ?? "filled");
+  const [buttonStyle, setButtonStyle] = useState<ButtonStyle>(() => readCachedButtonStyle() ?? "filled_borderless");
   const [buttonStyleSaving, setButtonStyleSaving] = useState(false);
+  const [panelStyle, setPanelStyle] = useState<PanelStyle>(() => {
+    const cachedButtonStyle = readCachedButtonStyle();
+    return readCachedPanelStyle() ?? (!cachedButtonStyle || cachedButtonStyle === "filled" ? "bordered" : "borderless");
+  });
+  const [panelStyleSaving, setPanelStyleSaving] = useState(false);
   const [appearanceSaving, setAppearanceSaving] = useState(false);
   const languageRef = useRef(language);
   const themePreferenceRef = useRef(themePreference);
   const buttonStyleRef = useRef(buttonStyle);
+  const panelStyleRef = useRef(panelStyle);
   const appearanceRevisionRef = useRef(0);
   const buttonStyleRevisionRef = useRef(0);
+  const panelStyleRevisionRef = useRef(0);
   const [systemTheme, setSystemTheme] = useState<"light" | "dark">(() =>
     window.matchMedia?.("(prefers-color-scheme: dark)").matches ? "dark" : "light"
   );
@@ -46,6 +55,7 @@ export function I18nProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     const revision = appearanceRevisionRef.current;
     const buttonRevision = buttonStyleRevisionRef.current;
+    const panelRevision = panelStyleRevisionRef.current;
     void generalSettings().then((settings) => {
       if (appearanceRevisionRef.current === revision) {
         languageRef.current = settings.language;
@@ -55,9 +65,14 @@ export function I18nProvider({ children }: { children: ReactNode }) {
         setThemePreference(settings.themePreference);
       }
       if (buttonStyleRevisionRef.current === buttonRevision) {
-        buttonStyleRef.current = settings.buttonStyle ?? "filled";
+        buttonStyleRef.current = settings.buttonStyle ?? "filled_borderless";
         cacheButtonStyle(buttonStyleRef.current);
         setButtonStyle(buttonStyleRef.current);
+      }
+      if (panelStyleRevisionRef.current === panelRevision) {
+        panelStyleRef.current = settings.panelStyle ?? (!settings.buttonStyle || settings.buttonStyle === "filled" ? "bordered" : "borderless");
+        cachePanelStyle(panelStyleRef.current);
+        setPanelStyle(panelStyleRef.current);
       }
     }).catch(() => {
       // English remains the safe default when the Rust settings command is unavailable.
@@ -88,6 +103,33 @@ export function I18nProvider({ children }: { children: ReactNode }) {
       throw error;
     } finally {
       if (buttonStyleRevisionRef.current === revision) setButtonStyleSaving(false);
+    }
+  }, []);
+
+  const updatePanelStyle = useCallback(async (requestedStyle: PanelStyle) => {
+    const revision = ++panelStyleRevisionRef.current;
+    const previousStyle = panelStyleRef.current;
+    panelStyleRef.current = requestedStyle;
+    cachePanelStyle(requestedStyle);
+    setPanelStyle(requestedStyle);
+    setPanelStyleSaving(true);
+    try {
+      const saved = await savePanelStyle(requestedStyle);
+      if (panelStyleRevisionRef.current === revision) {
+        panelStyleRef.current = saved.panelStyle;
+        cachePanelStyle(saved.panelStyle);
+        setPanelStyle(saved.panelStyle);
+      }
+      return saved;
+    } catch (error) {
+      if (panelStyleRevisionRef.current === revision) {
+        panelStyleRef.current = previousStyle;
+        cachePanelStyle(previousStyle);
+        setPanelStyle(previousStyle);
+      }
+      throw error;
+    } finally {
+      if (panelStyleRevisionRef.current === revision) setPanelStyleSaving(false);
     }
   }, []);
 
@@ -187,6 +229,10 @@ export function I18nProvider({ children }: { children: ReactNode }) {
     document.documentElement.dataset.buttonStyle = buttonStyle;
   }, [buttonStyle]);
 
+  useEffect(() => {
+    document.documentElement.dataset.panelStyle = panelStyle;
+  }, [panelStyle]);
+
   const t = useCallback(
     (key: TranslationKey, params?: TranslationParams) => translate(language, key, params),
     [language],
@@ -198,12 +244,15 @@ export function I18nProvider({ children }: { children: ReactNode }) {
     themePreference,
     buttonStyle,
     buttonStyleSaving,
+    panelStyle,
+    panelStyleSaving,
     resolvedTheme,
     appearanceSaving,
     updateAppearance,
     updateButtonStyle,
+    updatePanelStyle,
     t,
-  }), [appearanceSaving, buttonStyle, buttonStyleSaving, language, resolvedTheme, t, themePreference, updateAppearance, updateButtonStyle]);
+  }), [appearanceSaving, buttonStyle, buttonStyleSaving, panelStyle, panelStyleSaving, language, resolvedTheme, t, themePreference, updateAppearance, updateButtonStyle, updatePanelStyle]);
 
   return <I18nContext.Provider value={value}>{children}</I18nContext.Provider>;
 }

@@ -1,0 +1,17 @@
+.pr-group-reveal {
+  display: grid;
+  grid-template-rows: 0fr;
+  opacity: 0;
+  transition: grid-template-rows 200ms ease-out, opacity 200ms ease-out;
+}
+
+.pr-group-reveal[data-expanded="true"] {
+  grid-template-rows: 1fr;
+  opacity: 1;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pr-group-reveal {
+    transition: none;
+  }
+}

@@ -180,7 +180,6 @@ export function PullRequestListItem({
     reviewIconClassName = "text-destructive";
   } else if (reviewCompleted) {
     reviewLabel = completedLabel ?? t("pr.reviewResults");
-    reviewIconClassName = review?.result?.verdict === "ok" ? "text-success" : "text-warning";
   }
   const reviewTitle = !reviewRunning && !reviewFailed && !reviewCompleted && !aiReviewReady
     ? t("pr.aiProviderRequired")
@@ -193,6 +192,7 @@ export function PullRequestListItem({
   return (
     <Card
       data-info-popover-boundary
+      data-pr-status-marker={needsAction || pullRequest.activity !== "read" ? "colored" : "neutral"}
       className={needsAction ? "border-l-4 border-l-rose-500" : pullRequest.activity === "read" ? "border-l-4 border-l-transparent" : "border-l-4 border-l-blue-500"}
     >
       <CardContent className="flex items-center gap-3 p-4">
@@ -274,6 +274,7 @@ export function PullRequestListItem({
               type="button"
               variant="outline"
               size="icon"
+              actionTone={reviewCompleted ? review?.result?.verdict === "ok" ? "success" : "warning" : undefined}
               className="size-8"
               onClick={() => reviewCompleted || reviewFailed ? onOpenResults(pullRequest) : onStartReview(pullRequest)}
               disabled={reviewRunning || (!reviewCompleted && !reviewFailed && !aiReviewReady)}

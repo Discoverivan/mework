@@ -17,6 +17,7 @@ import {
   sendNotificationTest,
   type CommandBoardTerminalPreferences,
   type ButtonStyle,
+  type PanelStyle,
   type GeneralSettings,
   type GeneralSettingsSaveInput,
   type NotificationTestKind,
@@ -35,7 +36,7 @@ function errorMessage(error: unknown, fallback: string): string {
 }
 
 export function GeneralSettingsPage() {
-  const { appearanceSaving, buttonStyle, buttonStyleSaving, language, themePreference, t, updateAppearance, updateButtonStyle } = useI18n();
+  const { appearanceSaving, buttonStyle, buttonStyleSaving, panelStyle, panelStyleSaving, language, themePreference, t, updateAppearance, updateButtonStyle, updatePanelStyle } = useI18n();
   const [settings, setSettings] = useState<GeneralSettings | null>(null);
   const [languageExpanded, setLanguageExpanded] = useState(false);
   const [appearanceExpanded, setAppearanceExpanded] = useState(false);
@@ -299,7 +300,7 @@ export function GeneralSettingsPage() {
             <CardTitle className="text-base font-semibold leading-tight">{t("general.appearance")}</CardTitle>
             <CardDescription className="mt-1 leading-snug">{t("general.appearanceDescription")}</CardDescription>
           </div>
-          <Button type="button" variant="outline" size="icon" className="size-9 shrink-0" disabled={saving || appearanceSaving || buttonStyleSaving}
+          <Button type="button" variant="outline" size="icon" className="size-9 shrink-0" disabled={saving || appearanceSaving || buttonStyleSaving || panelStyleSaving}
             aria-expanded={appearanceExpanded} aria-controls="general-appearance-details"
             aria-label={t(appearanceExpanded ? "general.collapseAppearance" : "general.expandAppearance")}
             title={t(appearanceExpanded ? "general.collapseAppearance" : "general.expandAppearance")}
@@ -332,6 +333,27 @@ export function GeneralSettingsPage() {
           <Separator />
           <div className="flex flex-wrap items-center justify-between gap-4">
             <div className="min-w-0 flex-1">
+              <Label htmlFor="general-panel-style" alignment="inline" className="font-medium">{t("general.panelStyle")}</Label>
+              <CardDescription className="mt-1 leading-snug">{t("general.panelStyleDescription")}</CardDescription>
+            </div>
+            <div className="w-full sm:w-auto">
+              <Select value={panelStyle} onValueChange={(value) => {
+                  setError(null);
+                  void updatePanelStyle(value as PanelStyle).catch((saveError) =>
+                    setError(t("general.saveError", { error: errorMessage(saveError, t("common.unknownError")) }))
+                  );
+                }} disabled={loading || saving || panelStyleSaving}>
+                <SelectTrigger id="general-panel-style" aria-label={t("general.panelStyle")}><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="bordered">{t("general.panelStyleBordered")}</SelectItem>
+                  <SelectItem value="borderless">{t("general.panelStyleBorderless")}</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          <Separator />
+          <div className="flex flex-wrap items-center justify-between gap-4">
+            <div className="min-w-0 flex-1">
               <Label htmlFor="general-button-style" alignment="inline" className="font-medium">{t("general.buttonStyle")}</Label>
               <CardDescription className="mt-1 leading-snug">{t("general.buttonStyleDescription")}</CardDescription>
             </div>
@@ -345,6 +367,7 @@ export function GeneralSettingsPage() {
                 <SelectTrigger id="general-button-style" aria-label={t("general.buttonStyle")}><SelectValue /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="filled">{t("general.buttonStyleFilled")}</SelectItem>
+                  <SelectItem value="filled_borderless">{t("general.buttonStyleFilledBorderless")}</SelectItem>
                   <SelectItem value="quiet">{t("general.buttonStyleQuiet")}</SelectItem>
                 </SelectContent>
               </Select>

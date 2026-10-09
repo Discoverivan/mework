@@ -19,6 +19,11 @@ fn greet(name: &str) -> String {
 pub fn run() {
     let mut builder = tauri::Builder::default();
 
+    #[cfg(all(desktop, not(debug_assertions)))]
+    {
+        builder = builder.enable_macos_default_menu(false);
+    }
+
     #[cfg(desktop)]
     {
         builder = builder.plugin(tauri_plugin_single_instance::init(|app, args, cwd| {
@@ -59,7 +64,7 @@ pub fn run() {
 
             #[cfg(target_os = "macos")]
             crate::os::notifications::setup();
-            #[cfg(desktop)]
+            #[cfg(all(desktop, debug_assertions))]
             crate::os::menu::setup(app)?;
 
             #[cfg(desktop)]
@@ -452,6 +457,7 @@ pub fn run() {
             commands::general::ai_review_attempts_save,
             commands::general::general_appearance_save,
             commands::general::general_button_style_save,
+            commands::general::general_panel_style_save,
             commands::general::notification_test,
             commands::general::notification_request_permission,
             commands::general::notification_open_settings,

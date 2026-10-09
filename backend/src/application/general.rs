@@ -10,7 +10,7 @@ use crate::os::notifications::{
 };
 
 const GENERAL_SETTINGS_KEY: &str = "general.settings";
-const GENERAL_SETTINGS_SCHEMA_VERSION: i64 = 7;
+const GENERAL_SETTINGS_SCHEMA_VERSION: i64 = 8;
 pub const DEFAULT_AI_REVIEW_ATTEMPTS: u8 = 3;
 pub const MAX_AI_REVIEW_ATTEMPTS: u8 = 10;
 static GENERAL_SETTINGS_WRITE_LOCK: OnceLock<tokio::sync::Mutex<()>> = OnceLock::new();
@@ -84,8 +84,17 @@ pub enum ThemePreference {
 #[serde(rename_all = "snake_case")]
 pub enum ButtonStyle {
     Quiet,
-    #[default]
     Filled,
+    #[default]
+    FilledBorderless,
+}
+
+#[derive(Debug, Clone, Copy, Default, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum PanelStyle {
+    #[default]
+    Bordered,
+    Borderless,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
@@ -107,6 +116,8 @@ pub struct GeneralSettings {
     #[serde(default)]
     pub button_style: ButtonStyle,
     #[serde(default)]
+    pub panel_style: Option<PanelStyle>,
+    #[serde(default)]
     pub extra_functions_enabled: bool,
     #[serde(default = "enabled_by_default")]
     pub model_testing_enabled: bool,
@@ -124,11 +135,21 @@ impl Default for GeneralSettings {
             language: AppLanguage::English,
             ai_response_language: AiResponseLanguage::SameAsUi,
             theme_preference: ThemePreference::System,
-            button_style: ButtonStyle::Filled,
+            button_style: ButtonStyle::FilledBorderless,
+            panel_style: Some(PanelStyle::Bordered),
             extra_functions_enabled: false,
             model_testing_enabled: true,
             ai_review_attempts: DEFAULT_AI_REVIEW_ATTEMPTS,
         }
+    }
+}
+
+impl GeneralSettings {
+    fn resolved_panel_style(&self) -> PanelStyle {
+        self.panel_style.unwrap_or(match self.button_style {
+            ButtonStyle::Filled => PanelStyle::Bordered,
+            ButtonStyle::Quiet | ButtonStyle::FilledBorderless => PanelStyle::Borderless,
+        })
     }
 }
 
@@ -143,6 +164,7 @@ pub struct GeneralSettingsDto {
     pub ai_response_language: AiResponseLanguage,
     pub theme_preference: ThemePreference,
     pub button_style: ButtonStyle,
+    pub panel_style: PanelStyle,
     pub extra_functions_enabled: bool,
     pub model_testing_enabled: bool,
     pub ai_review_attempts: u8,
@@ -158,7 +180,19 @@ pub async fn load(pool: &SqlitePool) -> Result<GeneralSettings, String> {
     value.map_or_else(
         || Ok(GeneralSettings::default()),
         |raw| {
-            serde_json::from_str::<GeneralSettings>(&raw)
+            serde_json::from_str::<serde_json::Value>(&raw)
+                .and_then(|value| {
+                    let has_button_style = value.get("buttonStyle").is_some();
+                    let mut settings = serde_json::from_value::<GeneralSettings>(value)?;
+                    // Resolve legacy combined styles before any independent preference update.
+                    settings.panel_style =
+                        Some(if settings.panel_style.is_none() && !has_button_style {
+                            PanelStyle::Bordered
+                        } else {
+                            settings.resolved_panel_style()
+                        });
+                    Ok(settings)
+                })
                 .map_err(|_| "failed to deserialize general settings".to_owned())
         },
     )
@@ -262,6 +296,10 @@ pub async fn save_button_style(pool: &SqlitePool, button_style: ButtonStyle) -> 
     update(pool, |settings| settings.button_style = button_style).await
 }
 
+pub async fn save_panel_style(pool: &SqlitePool, panel_style: PanelStyle) -> Result<(), String> {
+    update(pool, |settings| settings.panel_style = Some(panel_style)).await
+}
+
 pub async fn dto<R: Runtime>(
     pool: &SqlitePool,
     app: &AppHandle<R>,
@@ -281,6 +319,7 @@ pub async fn dto<R: Runtime>(
         ai_response_language: settings.ai_response_language,
         theme_preference: settings.theme_preference,
         button_style: settings.button_style,
+        panel_style: settings.resolved_panel_style(),
         extra_functions_enabled: settings.extra_functions_enabled,
         model_testing_enabled: settings.model_testing_enabled,
         ai_review_attempts: settings.ai_review_attempts,
@@ -360,8 +399,9 @@ mod tests {
     use super::{
         initialize_if_missing, initialize_if_missing_with_extra_functions, load,
         save_ai_review_attempts, save_appearance_preferences, save_button_style,
-        save_general_preferences, AiResponseLanguage, AppLanguage, ButtonStyle, GeneralSettings,
-        NotificationTestKind, ThemePreference, DEFAULT_AI_REVIEW_ATTEMPTS,
+        save_general_preferences, save_panel_style, AiResponseLanguage, AppLanguage, ButtonStyle,
+        GeneralSettings, NotificationTestKind, PanelStyle, ThemePreference,
+        DEFAULT_AI_REVIEW_ATTEMPTS,
     };
     use sqlx::sqlite::SqlitePoolOptions;
 
@@ -381,7 +421,8 @@ mod tests {
         assert_eq!(settings.language, AppLanguage::English);
         assert_eq!(settings.ai_response_language, AiResponseLanguage::SameAsUi);
         assert_eq!(settings.theme_preference, ThemePreference::System);
-        assert_eq!(settings.button_style, ButtonStyle::Filled);
+        assert_eq!(settings.button_style, ButtonStyle::FilledBorderless);
+        assert_eq!(settings.panel_style, Some(PanelStyle::Bordered));
         assert!(!settings.extra_functions_enabled);
         assert!(settings.model_testing_enabled);
         assert_eq!(settings.ai_review_attempts, DEFAULT_AI_REVIEW_ATTEMPTS);
@@ -394,7 +435,7 @@ mod tests {
         )
         .unwrap();
         assert_eq!(legacy.ai_response_language, AiResponseLanguage::SameAsUi);
-        assert_eq!(legacy.button_style, ButtonStyle::Filled);
+        assert_eq!(legacy.button_style, ButtonStyle::FilledBorderless);
         assert!(legacy.model_testing_enabled);
         assert_eq!(legacy.ai_review_attempts, DEFAULT_AI_REVIEW_ATTEMPTS);
         assert_eq!(
@@ -459,10 +500,42 @@ mod tests {
         .await
         .unwrap();
 
+        let mut legacy = serde_json::to_value(GeneralSettings::default()).unwrap();
+        legacy.as_object_mut().unwrap().remove("panelStyle");
+        legacy.as_object_mut().unwrap().remove("buttonStyle");
+        crate::infrastructure::db::repositories::upsert_setting(
+            &pool,
+            "general.settings",
+            &legacy.to_string(),
+            7,
+        )
+        .await
+        .unwrap();
+        let migrated = load(&pool).await.unwrap();
+        assert_eq!(migrated.button_style, ButtonStyle::FilledBorderless);
+        assert_eq!(migrated.panel_style, Some(PanelStyle::Bordered));
+
+        legacy["buttonStyle"] = serde_json::json!("filled_borderless");
+        crate::infrastructure::db::repositories::upsert_setting(
+            &pool,
+            "general.settings",
+            &legacy.to_string(),
+            7,
+        )
+        .await
+        .unwrap();
+        save_button_style(&pool, ButtonStyle::Filled).await.unwrap();
+        let migrated = load(&pool).await.unwrap();
+        assert_eq!(migrated.panel_style, Some(PanelStyle::Borderless));
+        save_panel_style(&pool, PanelStyle::Bordered).await.unwrap();
+        assert_eq!(load(&pool).await.unwrap().button_style, ButtonStyle::Filled);
+
         save_appearance_preferences(&pool, AppLanguage::Russian, ThemePreference::Dark)
             .await
             .unwrap();
-        save_button_style(&pool, ButtonStyle::Filled).await.unwrap();
+        save_button_style(&pool, ButtonStyle::FilledBorderless)
+            .await
+            .unwrap();
         save_ai_review_attempts(&pool, 4).await.unwrap();
         save_general_preferences(
             &pool,
@@ -480,7 +553,8 @@ mod tests {
         let settings = load(&pool).await.unwrap();
         assert_eq!(settings.language, AppLanguage::Russian);
         assert_eq!(settings.theme_preference, ThemePreference::Dark);
-        assert_eq!(settings.button_style, ButtonStyle::Filled);
+        assert_eq!(settings.button_style, ButtonStyle::FilledBorderless);
+        assert_eq!(settings.panel_style, Some(PanelStyle::Bordered));
         assert_eq!(settings.ai_response_language, AiResponseLanguage::Russian);
         assert!(!settings.notifications_enabled);
         assert!(!settings.review_notifications_enabled);

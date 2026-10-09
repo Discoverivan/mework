@@ -151,26 +151,26 @@
     stroke-width: 2.25;
   }
 
-  :root[data-button-style="filled"] .app-icon-button {
+  :root:is([data-button-style="filled"], [data-button-style="filled_borderless"]) .app-icon-button {
     border-color: transparent;
     background: var(--app-action-background, var(--secondary));
     color: var(--secondary-foreground);
   }
 
-  :root[data-button-style="filled"] .app-icon-button:not(:disabled):is(:hover, :focus-visible),
-  :root[data-button-style="filled"] .app-icon-button[aria-pressed="true"] {
+  :root:is([data-button-style="filled"], [data-button-style="filled_borderless"]) .app-icon-button:not(:disabled):is(:hover, :focus-visible),
+  :root:is([data-button-style="filled"], [data-button-style="filled_borderless"]) .app-icon-button[aria-pressed="true"] {
     background: color-mix(in srgb, var(--app-action-color) 14%, var(--app-action-background, var(--secondary)));
     border-color: var(--app-action-color);
     color: var(--app-action-color);
   }
 
-  :root[data-button-style="filled"] .app-icon-button[data-action-tone="edit"] svg,
-  :root[data-button-style="filled"] .app-icon-button[data-action-tone="delete"] svg {
+  :root:is([data-button-style="filled"], [data-button-style="filled_borderless"]) .app-icon-button[data-action-tone="edit"] svg,
+  :root:is([data-button-style="filled"], [data-button-style="filled_borderless"]) .app-icon-button[data-action-tone="delete"] svg {
     width: 18px;
     height: 18px;
   }
 
-  :root[data-button-style="filled"] .app-icon-button[data-action-tone="add"] svg {
+  :root:is([data-button-style="filled"], [data-button-style="filled_borderless"]) .app-icon-button[data-action-tone="add"] svg {
     width: 17px;
     height: 17px;
   }
@@ -210,7 +210,21 @@
     color: var(--app-action-color);
   }
 
-  :root[data-button-style="filled"] .app-action-text:not(:where(.app-shell aside *)):not([data-button-variant="link"]) {
+  /* Select and combobox triggers follow the same minimal surface as action buttons. */
+  :root[data-button-style="quiet"] [role="combobox"] {
+    background: transparent !important;
+  }
+
+  :root[data-button-style="quiet"] [role="combobox"]:not([aria-invalid="true"]) {
+    border-color: transparent !important;
+    color: var(--muted-foreground);
+  }
+
+  :root[data-button-style="quiet"] [role="combobox"]:not([aria-invalid="true"]):not(:disabled):is([data-pointer-hover="true"], :focus-visible, [aria-expanded="true"]) {
+    color: var(--primary);
+  }
+
+  :root:is([data-button-style="filled"], [data-button-style="filled_borderless"]) .app-action-text:not(:where(.app-shell aside *)):not([data-button-variant="link"]) {
     border-width: 1px;
     border-style: solid;
     border-color: var(--input);
@@ -218,40 +232,40 @@
     color: var(--secondary-foreground);
   }
 
-  :root[data-button-style="filled"] .app-action-text:not(:where(.app-shell aside *)):not([data-button-variant="link"]):not(:disabled):is(:hover, :focus-visible) {
+  :root:is([data-button-style="filled"], [data-button-style="filled_borderless"]) .app-action-text:not(:where(.app-shell aside *)):not([data-button-variant="link"]):not(:disabled):is(:hover, :focus-visible) {
     background: color-mix(in srgb, var(--app-action-color) 14%, var(--app-action-background, var(--secondary)));
     border-color: var(--app-action-color);
     color: var(--app-action-color);
   }
 
-  :root[data-button-style="filled"] .app-action-text:not(:where(.app-shell aside *)):not([data-button-variant="link"]):is([data-action-tone="edit"], [data-action-tone="success"], [data-action-tone="warning"], [data-action-tone="delete"], [data-button-variant="destructive"]):not(:disabled):is(:hover, :focus-visible) {
+  :root:is([data-button-style="filled"], [data-button-style="filled_borderless"]) .app-action-text:not(:where(.app-shell aside *)):not([data-button-variant="link"]):is([data-action-tone="edit"], [data-action-tone="success"], [data-action-tone="warning"], [data-action-tone="delete"], [data-button-variant="destructive"]):not(:disabled):is(:hover, :focus-visible) {
     border-color: transparent;
     background: var(--app-action-color);
     color: var(--primary-foreground);
   }
 
-  :root[data-button-style="filled"] .app-action-text:not(:where(.app-shell aside *)):not([data-button-variant="link"]):is([data-action-tone="success"], [data-action-tone="warning"]):not(:disabled):is(:hover, :focus-visible) {
+  :root:is([data-button-style="filled"], [data-button-style="filled_borderless"]) .app-action-text:not(:where(.app-shell aside *)):not([data-button-variant="link"]):is([data-action-tone="success"], [data-action-tone="warning"]):not(:disabled):is(:hover, :focus-visible) {
     color: var(--overlay);
   }
 
-  :root[data-button-style="filled"] .app-action-text:not(:where(.app-shell aside *)):not([data-button-variant="link"]):is([data-action-tone="delete"], [data-button-variant="destructive"]):not(:disabled):is(:hover, :focus-visible) {
+  :root:is([data-button-style="filled"], [data-button-style="filled_borderless"]) .app-action-text:not(:where(.app-shell aside *)):not([data-button-variant="link"]):is([data-action-tone="delete"], [data-button-variant="destructive"]):not(:disabled):is(:hover, :focus-visible) {
     color: var(--destructive-foreground);
   }
 
   /* Compensate for empty icon edges beside action labels. */
-  :root[data-button-style="filled"] .app-create-button > svg,
-  :root[data-button-style="filled"] .app-action-text > svg:is(.lucide-trash, .lucide-trash-2):first-child {
+  :root:is([data-button-style="filled"], [data-button-style="filled_borderless"]) .app-create-button > svg,
+  :root:is([data-button-style="filled"], [data-button-style="filled_borderless"]) .app-action-text > svg:is(.lucide-trash, .lucide-trash-2):first-child {
     margin-left: -3px;
   }
 
   /* Creation actions use the same restrained fill as standalone plus buttons. */
-  :root[data-button-style="filled"] .app-action-text[data-action-tone="add"] {
+  :root:is([data-button-style="filled"], [data-button-style="filled_borderless"]) .app-action-text[data-action-tone="add"] {
     border-color: var(--input);
     background: var(--app-action-background, var(--secondary));
     color: var(--secondary-foreground);
   }
 
-  :root[data-button-style="filled"] .app-action-text[data-action-tone="add"]:not(:disabled):is(:hover, :focus-visible) {
+  :root:is([data-button-style="filled"], [data-button-style="filled_borderless"]) .app-action-text[data-action-tone="add"]:not(:disabled):is(:hover, :focus-visible) {
     background: var(--app-action-background, var(--secondary));
     border-color: var(--app-action-color);
     color: var(--app-action-color);
@@ -289,17 +303,17 @@
     color: var(--primary);
   }
 
-  :root[data-button-style="filled"] .pr-filter-mode,
-  :root[data-button-style="filled"] .pr-filter-mode-option {
+  :root:is([data-button-style="filled"], [data-button-style="filled_borderless"]) .pr-filter-mode,
+  :root:is([data-button-style="filled"], [data-button-style="filled_borderless"]) .pr-filter-mode-option {
     background: transparent;
     box-shadow: none;
   }
 
-  :root[data-button-style="filled"] .pr-filter-mode {
+  :root:is([data-button-style="filled"], [data-button-style="filled_borderless"]) .pr-filter-mode {
     padding-block: 0;
   }
 
-  :root[data-button-style="filled"] .pr-filter-mode-option[data-state="on"] {
+  :root:is([data-button-style="filled"], [data-button-style="filled_borderless"]) .pr-filter-mode-option[data-state="on"] {
     background: var(--primary);
     color: var(--primary-foreground);
   }
@@ -315,7 +329,7 @@
     line-height: 18px;
   }
 
-  :root[data-button-style="filled"] .pr-filter-group .app-action-text {
+  :root:is([data-button-style="filled"], [data-button-style="filled_borderless"]) .pr-filter-group .app-action-text {
     height: 24px;
     padding: 2px 8px;
   }
@@ -337,20 +351,64 @@
   }
 
   /* Filled actions remain distinct from muted section-header surfaces. */
-  :root[data-button-style="filled"] [data-card-header-variant="section"] {
+  :root:is([data-button-style="filled"], [data-button-style="filled_borderless"]) [data-card-header-variant="section"] {
     --app-action-background: var(--card);
   }
 
   /* Keep action boundaries visible on background, card and muted surfaces. */
-  :root[data-button-style="filled"] :is(.app-icon-button, .app-action-text):not(:where(.app-shell aside *)):not([data-button-variant="link"]) {
+  :root:is([data-button-style="filled"], [data-button-style="filled_borderless"]) :is(.app-icon-button, .app-action-text):not(:where(.app-shell aside *)):not([data-button-variant="link"]) {
     border-width: 1px;
     border-style: solid;
     border-color: var(--input);
   }
 
 /* Filled icon actions and neutral/creation text actions signal hover through their border and foreground. */
-:root[data-button-style="filled"] .app-icon-button:not(:where(.app-shell aside *)):not(:disabled):is(:hover, :focus-visible),
-:root[data-button-style="filled"] .app-action-text:not(:where(.app-shell aside *)):not([data-button-variant="link"]):not([data-action-tone="edit"]):not([data-action-tone="success"]):not([data-action-tone="warning"]):not([data-action-tone="delete"]):not([data-button-variant="destructive"]):not(:disabled):is(:hover, :focus-visible) {
+:root:is([data-button-style="filled"], [data-button-style="filled_borderless"]) .app-icon-button:not(:where(.app-shell aside *)):not(:disabled):is(:hover, :focus-visible),
+:root:is([data-button-style="filled"], [data-button-style="filled_borderless"]) .app-action-text:not(:where(.app-shell aside *)):not([data-button-variant="link"]):not([data-action-tone="edit"]):not([data-action-tone="success"]):not([data-action-tone="warning"]):not([data-action-tone="delete"]):not([data-button-variant="destructive"]):not(:disabled):is(:hover, :focus-visible) {
   background: var(--app-action-background, var(--secondary));
   border-color: var(--app-action-color);
+}
+
+/* Borderless appearance also applies to panel headings. */
+:root[data-panel-style="borderless"] :is(header, [data-card-header-variant]) {
+  border-color: transparent !important;
+}
+
+/* Preserve button geometry and keyboard focus while hiding borders in this variant. */
+:root[data-button-style="filled_borderless"] :is(button, [role="button"], [data-button-variant], .app-toggle):not([aria-invalid="true"]) {
+  border-color: transparent !important;
+}
+
+/* Numeric controls share the selected control appearance; validation stays visible. */
+:root[data-button-style="quiet"] input:is([type="number"], [inputmode="numeric"], [inputmode="decimal"]) {
+  background: transparent !important;
+}
+
+:root[data-button-style="quiet"] input:is([type="number"], [inputmode="numeric"], [inputmode="decimal"]):not([aria-invalid="true"]) {
+  color: var(--muted-foreground);
+}
+
+:root:is([data-button-style="quiet"], [data-button-style="filled_borderless"]) input:is([type="number"], [inputmode="numeric"], [inputmode="decimal"]):not([aria-invalid="true"]) {
+  border-color: transparent !important;
+}
+
+:root:is([data-button-style="quiet"], [data-button-style="filled_borderless"]) input:is([type="number"], [inputmode="numeric"], [inputmode="decimal"]):not([aria-invalid="true"]):enabled:is([data-pointer-hover="true"], :focus-visible) {
+  color: var(--primary);
+}
+
+/* All cards, including empty states, follow the selected interface border style.
+   Preserve explicit left borders used for PR status indicators. */
+:root[data-panel-style="bordered"] [data-slot="card"] {
+  border-top: 1px solid var(--border);
+  border-right: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+}
+
+:root[data-panel-style="bordered"] [data-slot="card"]:not([data-pr-status-marker="colored"]) {
+  border-left: 1px solid var(--border);
+}
+
+/* Viewed PRs have a complete neutral frame; retain the 4px status-marker inset. */
+:root[data-panel-style="bordered"] [data-slot="card"][data-pr-status-marker="neutral"] {
+  padding-left: 3px;
 }
