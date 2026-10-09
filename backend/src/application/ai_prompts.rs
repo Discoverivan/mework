@@ -80,7 +80,10 @@ pub struct PromptSettings {
 
 pub(super) const REVIEW_FIX_EXAMPLES_KEY: &str = "ai.review.includeFixExamples";
 
-pub async fn review_fix_examples(pool: &SqlitePool) -> Result<bool, String> {
+pub async fn review_fix_examples<'e, E>(pool: E) -> Result<bool, String>
+where
+    E: sqlx::Executor<'e, Database = sqlx::Sqlite>,
+{
     repositories::get_setting(pool, REVIEW_FIX_EXAMPLES_KEY)
         .await
         .map_err(|_| "Failed to load review formatting settings".to_owned())?
@@ -137,7 +140,10 @@ pub fn instructions_hash(instructions: &str) -> String {
         .collect()
 }
 
-pub async fn load(pool: &SqlitePool, action: PromptAction) -> Result<String, String> {
+pub async fn load<'e, E>(pool: E, action: PromptAction) -> Result<String, String>
+where
+    E: sqlx::Executor<'e, Database = sqlx::Sqlite>,
+{
     let stored = repositories::get_setting(pool, action.key())
         .await
         .map_err(|_| "Failed to load AI instructions".to_owned())?;
@@ -183,7 +189,10 @@ pub(super) fn settings_dto(
         customized: instructions != action.default_instructions(),
         include_fix_examples,
         action,
-        instructions_hash: if action == PromptAction::ReviewArbiter {
+        instructions_hash: if matches!(
+            action,
+            PromptAction::PullRequestReview | PromptAction::ReviewArbiter
+        ) {
             instructions_hash(&format!(
                 "{instructions}\n\n{}",
                 fix_examples_rule(include_fix_examples)
@@ -287,6 +296,13 @@ mod tests {
             .await
             .unwrap();
         let instructions = review_instructions(&pool).await.unwrap();
+        assert_eq!(
+            dto(&pool, PromptAction::PullRequestReview)
+                .await
+                .unwrap()
+                .instructions_hash,
+            instructions_hash(&instructions)
+        );
         assert!(instructions.starts_with("Review concrete defects."));
         assert!(instructions.contains("small fenced code example"));
         assert!(instructions.contains("only for the missing clarification"));

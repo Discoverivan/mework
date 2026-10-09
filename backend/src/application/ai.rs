@@ -984,11 +984,45 @@ pub(super) fn review_settings_snapshot(settings: AiSettings) -> (AiSettings, AiS
     (review, arbiter)
 }
 
-pub async fn settings_for_review(
-    pool: &SqlitePool,
-) -> Result<(AiSettings, Option<AiSettings>), String> {
+pub struct ReviewSettingsSnapshot {
+    pub reviewer: AiSettings,
+    pub arbiter: Option<AiSettings>,
+    pub instructions: String,
+    pub arbiter_instructions: String,
+}
+
+pub async fn settings_for_review(pool: &SqlitePool) -> Result<ReviewSettingsSnapshot, String> {
+    use super::ai_prompts::{self, PromptAction};
     let page = dto(pool).await?;
-    let (review, arbiter) = review_settings_snapshot(page.settings);
+    // Inspect providers before opening the read transaction; then freeze the whole
+    // review section so an atomic Save cannot mix profiles and instructions.
+    let mut transaction = pool
+        .begin()
+        .await
+        .map_err(|_| "Failed to load review settings".to_owned())?;
+    let stored = repositories::get_setting(&mut *transaction, AI_SETTINGS_KEY)
+        .await
+        .map_err(|_| "Failed to load review settings".to_owned())?;
+    let settings = stored
+        .map(|raw| serde_json::from_str::<AiSettings>(&raw))
+        .transpose()
+        .map_err(|_| "Invalid stored AI settings".to_owned())?
+        .unwrap_or(page.settings);
+    let formatting =
+        ai_prompts::fix_examples_rule(ai_prompts::review_fix_examples(&mut *transaction).await?);
+    let instructions = format!(
+        "{}\n\n{formatting}",
+        ai_prompts::load(&mut *transaction, PromptAction::PullRequestReview).await?
+    );
+    let arbiter_instructions = format!(
+        "{}\n\n{formatting}",
+        ai_prompts::load(&mut *transaction, PromptAction::ReviewArbiter).await?
+    );
+    transaction
+        .commit()
+        .await
+        .map_err(|_| "Failed to load review settings".to_owned())?;
+    let (review, arbiter) = review_settings_snapshot(settings);
     validate_selected_settings(&review, &page.providers)?;
     let arbiter = if review.review_arbitration.enabled {
         validate_selected_settings(&arbiter, &page.providers)?;
@@ -996,7 +1030,12 @@ pub async fn settings_for_review(
     } else {
         None
     };
-    Ok((review, arbiter))
+    Ok(ReviewSettingsSnapshot {
+        reviewer: review,
+        arbiter,
+        instructions,
+        arbiter_instructions,
+    })
 }
 
 pub fn is_retryable_provider_error(error: &str) -> bool {

@@ -191,19 +191,34 @@ fn record_usage(
     }
 }
 
-pub(super) fn execute(
-    pool: &SqlitePool,
-    request: &PullRequestReviewRequest,
-    run_id: &str,
-    review: &AiSettings,
-    review_runtime: Option<OpenAiCompatibleRuntimeConfig>,
-    arbiter: &AiSettings,
-    arbiter_runtime: Option<OpenAiCompatibleRuntimeConfig>,
-    diff: &str,
-    language: AppLanguage,
-    instructions: &str,
-    arbiter_custom_instructions: &str,
-) -> Result<PullRequestReviewResult, String> {
+pub(super) struct ArbitrationContext<'a> {
+    pub pool: &'a SqlitePool,
+    pub request: &'a PullRequestReviewRequest,
+    pub run_id: &'a str,
+    pub review: &'a AiSettings,
+    pub review_runtime: Option<OpenAiCompatibleRuntimeConfig>,
+    pub arbiter: &'a AiSettings,
+    pub arbiter_runtime: Option<OpenAiCompatibleRuntimeConfig>,
+    pub diff: &'a str,
+    pub language: AppLanguage,
+    pub instructions: &'a str,
+    pub arbiter_custom_instructions: &'a str,
+}
+
+pub(super) fn execute(context: ArbitrationContext<'_>) -> Result<PullRequestReviewResult, String> {
+    let ArbitrationContext {
+        pool,
+        request,
+        run_id,
+        review,
+        review_runtime,
+        arbiter,
+        arbiter_runtime,
+        diff,
+        language,
+        instructions,
+        arbiter_custom_instructions,
+    } = context;
     let count = review.review_arbitration.review_count;
     if !(2..=5).contains(&count) {
         return Err("Independent review count must be between 2 and 5".into());
@@ -437,19 +452,19 @@ mod tests {
         };
         let worker_pool = pool.clone();
         let result = tokio::task::spawn_blocking(move || {
-            execute(
-                &worker_pool,
-                &request,
-                "example-run",
-                &settings,
-                Some(runtime.clone()),
-                &arbiter,
-                Some(runtime),
+            execute(ArbitrationContext {
+                pool: &worker_pool,
+                request: &request,
+                run_id: "example-run",
+                review: &settings,
+                review_runtime: Some(runtime.clone()),
+                arbiter: &arbiter,
+                arbiter_runtime: Some(runtime),
                 diff,
-                AppLanguage::English,
-                super::super::ai_prompts::REVIEW_DEFAULT,
-                "Verify example defects independently.",
-            )
+                language: AppLanguage::English,
+                instructions: super::super::ai_prompts::REVIEW_DEFAULT,
+                arbiter_custom_instructions: "Verify example defects independently.",
+            })
         })
         .await
         .unwrap()

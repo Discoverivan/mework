@@ -431,10 +431,13 @@ pub async fn start_review_with_diff<R: Runtime>(
     diff: String,
 ) -> Result<PullRequestReviewDto, String> {
     validate_request(&request)?;
-    let (ai_settings, arbiter_settings) = crate::application::ai::settings_for_review(pool).await?;
+    let crate::application::ai::ReviewSettingsSnapshot {
+        reviewer: ai_settings,
+        arbiter: arbiter_settings,
+        instructions,
+        arbiter_instructions,
+    } = crate::application::ai::settings_for_review(pool).await?;
     let general_settings = crate::application::general::load(pool).await?;
-    let instructions = ai_prompts::review_instructions(pool).await?;
-    let arbiter_instructions = ai_prompts::review_arbiter_instructions(pool).await?;
     let ai_retries = ai_settings
         .retries
         .for_activity(crate::application::ai::AiActivity::PullRequestReview);
@@ -567,10 +570,19 @@ pub async fn start_review_with_diff<R: Runtime>(
                 serde_json::json!({ "runId": worker_run_id, "diffChars": diff.chars().count(), "diffLines": diff.lines().count() }),
             );
             let result = if let Some((arbiter, arbiter_runtime)) = arbitration {
-                super::review_arbitration::execute(
-                    &worker_pool_for_arbitration, &request, &worker_run_id, &ai_settings,
-                    openai_runtime, &arbiter, arbiter_runtime, &diff, output_language, &instructions, &arbiter_instructions,
-                ).map(|result| (result, None))
+                super::review_arbitration::execute(super::review_arbitration::ArbitrationContext {
+                    pool: &worker_pool_for_arbitration,
+                    request: &request,
+                    run_id: &worker_run_id,
+                    review: &ai_settings,
+                    review_runtime: openai_runtime,
+                    arbiter: &arbiter,
+                    arbiter_runtime,
+                    diff: &diff,
+                    language: output_language,
+                    instructions: &instructions,
+                    arbiter_custom_instructions: &arbiter_instructions,
+                }).map(|result| (result, None))
             } else { retry_review(ai_retries, || {
                 execute_review_with_usage(
                     &request,

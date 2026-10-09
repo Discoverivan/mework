@@ -175,7 +175,10 @@ pub async fn delete_integration(pool: &SqlitePool, id: &str) -> Result<bool, sql
     Ok(result.rows_affected() == 1)
 }
 
-pub async fn get_setting(pool: &SqlitePool, key: &str) -> Result<Option<String>, sqlx::Error> {
+pub async fn get_setting<'e, E>(pool: E, key: &str) -> Result<Option<String>, sqlx::Error>
+where
+    E: sqlx::Executor<'e, Database = sqlx::Sqlite>,
+{
     sqlx::query_scalar("SELECT value_json FROM settings WHERE key = ?")
         .bind(key)
         .fetch_optional(pool)
