@@ -25,7 +25,7 @@ const actionLabels: Record<PromptAction, TranslationKey> = {
 
 const instructionTextareaClassName = "min-h-0 resize-none [field-sizing:content] focus-visible:ring-inset focus-visible:ring-offset-0";
 
-export function ActionSettingsSection({ defaults, renderModelSettings, renderActionOptions, renderActionLayout, extraAction, onSaved, onSavingChange, onLoadingChange, sectionChanged, sectionReady, onSaveSection, onCancelSection, disabled = false }: {
+export function ActionSettingsSection({ defaults, renderActionHeader, renderModelSettings, renderActionOptions, renderActionLayout, extraAction, onSaved, onSavingChange, onLoadingChange, sectionChanged, sectionReady, onSaveSection, onCancelSection, disabled = false }: {
   disabled?: boolean;
   sectionChanged?: (scope: AiActionSettingsScope) => boolean;
   sectionReady?: (scope: AiActionSettingsScope) => boolean;
@@ -35,6 +35,7 @@ export function ActionSettingsSection({ defaults, renderModelSettings, renderAct
   onSaved?: () => void;
   onSavingChange?: (saving: boolean) => void;
   defaults?: ReactNode;
+  renderActionHeader?: (scope: AiActionSettingsScope) => ReactNode;
   renderActionOptions?: (action: Exclude<PromptAction, "reviewArbiter">) => ReactNode;
   renderActionLayout?: (action: Exclude<PromptAction, "reviewArbiter">, fields: ReactNode, arbiterInstructions: ReactNode) => ReactNode;
   renderModelSettings?: (action: Exclude<PromptAction, "reviewArbiter">) => ReactNode;
@@ -144,8 +145,11 @@ export function ActionSettingsSection({ defaults, renderModelSettings, renderAct
     const changed = promptChanged(value, saved)
       || (scope === "pullRequestReview" && promptChanged(settings.find((item) => item.action === "reviewArbiter"), savedSettings.find((item) => item.action === "reviewArbiter")))
       || sectionChanged?.(scope);
-    return <header className="flex items-center justify-between gap-3">
-      <h3 className="text-sm font-medium">{t(label)}</h3>
+    return <header className="flex flex-wrap items-center justify-between gap-3">
+      <div className="flex flex-wrap items-center gap-3">
+        <h3 className="text-sm font-medium">{t(label)}</h3>
+        {renderActionHeader?.(scope)}
+      </div>
       <div className="flex shrink-0 items-center gap-2">
         <Button type="button" variant="outline" size="sm" disabled={!changed || loading || disabled || saving} onClick={() => cancelSection(scope)}>{t("settings.common.cancel")}</Button>
         <Button type="button" size="sm" actionTone="edit" disabled={!changed || loading || disabled || saving || !onSaveSection || sectionReady?.(scope) === false} onClick={() => void saveSection(scope)}>
