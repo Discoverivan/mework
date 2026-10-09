@@ -397,7 +397,7 @@ export function TokenBurnerPage() {
   return (
     <div className="flex flex-col gap-4">
       <PageHeader
-        className="mb-0!"
+        className="mb-0! items-center!"
         title={t("tokenBurner.title")}
         titleId="token-burner-title"
         description={t("tokenBurner.subtitle")}
@@ -486,7 +486,7 @@ export function TokenBurnerPage() {
                 if (open) setRepositorySearch("");
               }}>
                 <PopoverTrigger asChild>
-                  <Button id="token-burner-repository" type="button" variant="outline" role="combobox" aria-label={t("tokenBurner.repository")} aria-expanded={repositoryPickerOpen} aria-haspopup="dialog" disabled={runningOrStopping || !integrationAvailable} className="h-9 w-fit max-w-full justify-between gap-3 px-3 font-normal">
+                  <Button id="token-burner-repository" type="button" variant="outline" role="combobox" aria-label={t("tokenBurner.repository")} aria-expanded={repositoryPickerOpen} aria-haspopup="dialog" disabled={runningOrStopping || !integrationAvailable} className="h-9 w-fit max-w-full justify-between gap-2 px-3 font-normal">
                     <span className="truncate">{selectedRepository?.name ?? settings.repository ?? t("tokenBurner.allRepositories")}</span>
                     <ChevronDown className="-mr-1 opacity-50" aria-hidden="true" />
                   </Button>
@@ -584,7 +584,7 @@ export function TokenBurnerPage() {
           event.preventDefault();
           settingsDialogRef.current?.focus();
         }}>
-          <DialogHeader className="px-1"><DialogTitle className="text-base leading-tight">{t("tokenBurner.settings")}</DialogTitle></DialogHeader>
+          <DialogHeader><DialogTitle>{t("tokenBurner.settings")}</DialogTitle></DialogHeader>
           <DialogBody className="m-0 p-1 pb-0">
             <Card className="shadow-none">
               <CardContent className="flex flex-col gap-3 p-4">

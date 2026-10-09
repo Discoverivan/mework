@@ -5,12 +5,13 @@ import * as SelectPrimitive from "@radix-ui/react-select"
 import { ChevronDown, ChevronUp } from "lucide-react"
 
 import { cn } from "@/lib/utils"
-import { directPointerHover } from "@/lib/direct-pointer-hover"
+import { directPointerHover, directPointerMoveHover } from "@/lib/direct-pointer-hover"
+import { MenuInputProvider, useMenuInput } from "@/lib/menu-input"
 import { Hint } from "@/components/ui/tooltip"
 import "./select.css"
 
 const Select = ({ autoComplete = "off", ...props }: React.ComponentProps<typeof SelectPrimitive.Root>) => (
-  <SelectPrimitive.Root autoComplete={autoComplete} {...props} />
+  <MenuInputProvider><SelectPrimitive.Root autoComplete={autoComplete} {...props} /></MenuInputProvider>
 )
 
 const SelectGroup = SelectPrimitive.Group
@@ -25,10 +26,11 @@ const SelectTrigger = React.forwardRef<
     <SelectPrimitive.Trigger
       ref={ref}
       className={cn(
-        "flex h-10 w-fit max-w-full items-center justify-between gap-3 rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background transition-colors data-[placeholder]:text-muted-foreground data-[pointer-hover=true]:data-[state=closed]:enabled:border-primary focus:outline-none focus:ring-0 focus:ring-offset-0 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 [&>span]:line-clamp-1",
+        "flex h-10 w-fit max-w-full items-center justify-between gap-2 rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background transition-colors data-[placeholder]:text-muted-foreground data-[pointer-hover=true]:data-[state=closed]:enabled:border-primary focus:outline-none focus:ring-0 focus:ring-offset-0 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 [&>span]:line-clamp-1",
         className
       )}
       {...props}
+      {...useMenuInput<HTMLButtonElement>(props)}
       {...directPointerHover<HTMLButtonElement>(props)}
     >
       {children}
@@ -90,6 +92,7 @@ const SelectContent = React.forwardRef<
       )}
       position={position}
       {...props}
+      {...useMenuInput<HTMLDivElement>(props)}
     >
       <SelectScrollUpButton />
       <SelectPrimitive.Viewport
@@ -126,10 +129,12 @@ const SelectItem = React.forwardRef<
   <SelectPrimitive.Item
     ref={ref}
     className={cn(
-      "relative flex w-full cursor-pointer select-none items-center rounded-sm px-3 py-1.5 text-sm outline-none hover:text-primary data-[highlighted]:text-primary data-[state=checked]:bg-primary/10 data-[disabled]:pointer-events-none data-[disabled]:opacity-50",
+      "relative flex w-full cursor-pointer select-none items-center rounded-sm px-3 py-1.5 text-sm outline-none data-[pointer-hover=true]:text-primary data-[keyboard-navigation=true]:data-[highlighted]:text-primary data-[state=checked]:bg-primary/10 data-[disabled]:pointer-events-none data-[disabled]:opacity-50",
       className
     )}
     {...props}
+    {...useMenuInput<HTMLDivElement>(props)}
+    {...directPointerMoveHover<HTMLDivElement>(props)}
   >
     <SelectPrimitive.ItemText>{children}</SelectPrimitive.ItemText>
   </SelectPrimitive.Item>

@@ -1,3 +1,7 @@
+.daily-workspace-layout.daily-workspace-layout-top {
+  grid-template-columns: minmax(0, 1fr);
+}
+
 .daily-status-trigger:not(:disabled):is(:hover, :focus-visible, [data-state="open"]) {
   border-color: color-mix(in srgb, currentColor 45%, transparent);
   background: color-mix(in srgb, currentColor 18%, var(--card));

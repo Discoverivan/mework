@@ -1,10 +1,35 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { expect, it, vi } from "vitest";
 import { Label } from "./label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./select";
 import { Input } from "./input";
 import { Button } from "./button";
 import { Textarea } from "./textarea";
+
+it("distinguishes automatic focus, pointer movement and keyboard selection", async () => {
+  Element.prototype.scrollIntoView = vi.fn();
+  const changed = vi.fn();
+  render(<Select defaultValue="first" onValueChange={changed}>
+    <SelectTrigger aria-label="Example choice"><SelectValue /></SelectTrigger>
+    <SelectContent>
+      <SelectItem value="first">First example</SelectItem>
+      <SelectItem value="second">Second example</SelectItem>
+    </SelectContent>
+  </Select>);
+  fireEvent.click(screen.getByRole("combobox", { name: "Example choice" }));
+  const first = screen.getByRole("option", { name: "First example" });
+  await waitFor(() => expect(first).toHaveFocus());
+  expect(first).toHaveAttribute("data-keyboard-navigation", "false");
+  expect(first).not.toHaveAttribute("data-pointer-hover");
+  fireEvent.pointerMove(first);
+  expect(first).toHaveAttribute("data-pointer-hover", "true");
+  fireEvent.keyDown(first, { key: "ArrowDown" });
+  const second = screen.getByRole("option", { name: "Second example" });
+  await waitFor(() => expect(second).toHaveFocus());
+  expect(second).toHaveAttribute("data-keyboard-navigation", "true");
+  fireEvent.keyDown(second, { key: "Enter" });
+  expect(changed).toHaveBeenCalledWith("second");
+});
 
 it("keeps the final option selectable in a long menu", () => {
   Element.prototype.scrollIntoView = vi.fn();

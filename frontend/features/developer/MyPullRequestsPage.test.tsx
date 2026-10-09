@@ -250,7 +250,8 @@ describe("MyPullRequestsPage", () => {
     fireEvent.click(screen.getByRole("button", { name: "Options" }));
     const firstDialog = screen.getByRole("dialog", { name: "Options" });
     chooseDisplayOption(firstDialog, "Sort order", "Recently updated last");
-    fireEvent.click(within(firstDialog).getByRole("switch", { name: "Expand groups by default" }));
+    const groupingOptions = within(firstDialog).getByRole("group", { name: "Group by" });
+    fireEvent.click(within(groupingOptions).getByRole("switch", { name: "Expand groups by default" }));
     chooseDisplayOption(firstDialog, "Group by", "Don't group");
     fireEvent.click(within(firstDialog).getByRole("button", { name: "Save" }));
     firstRender.unmount();
@@ -578,8 +579,8 @@ describe("MyPullRequestsPage", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Options" }));
     const toggle = screen.getByRole("switch", { name: "AI auto-review" });
-    expect(toggle).toHaveClass("h-[22px]", "w-10");
-    expect(screen.getByText("AI auto-review", { selector: "label" })).toHaveClass("text-sm", "font-semibold", "leading-tight");
+    expect(toggle).toHaveClass("h-5", "w-9");
+    expect(screen.getByText("AI auto-review", { selector: "label" })).toHaveClass("text-sm", "font-medium", "leading-tight");
     expect(screen.getByRole("button", { name: "Save" })).toHaveClass("app-action-text", "hover:text-primary");
     expect(screen.getByRole("button", { name: "Cancel" })).toHaveClass("app-action-text", "hover:text-primary");
     expect(toggle).not.toBeChecked();

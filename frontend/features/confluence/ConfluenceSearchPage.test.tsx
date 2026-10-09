@@ -63,8 +63,12 @@ describe("ConfluenceSearchPage smoke test", () => {
     expect(screen.getByRole("heading", { name: "Knowledge search" })).toBeInTheDocument();
     expect(screen.getByText("Search scope").closest("label")).not.toHaveClass("pl-1");
     expect(screen.getByText("Search query").closest("label")).not.toHaveClass("pl-1");
-    expect(scope).toHaveClass("appearance-none", "pr-9");
-    expect(scope.nextElementSibling).toHaveClass("right-2");
+    fireEvent.click(scope);
+    fireEvent.click(screen.getByRole("option", { name: "All Confluence spaces" }));
+    expect(scope).toHaveTextContent("All Confluence spaces");
+    fireEvent.click(scope);
+    fireEvent.click(screen.getByRole("option", { name: "Example team · Example team space" }));
+    expect(scope).toHaveTextContent("Example team · Example team space");
     fireEvent.change(screen.getByRole("textbox", { name: "Search query" }), {
       target: { value: "release notes" },
     });
