@@ -91,7 +91,7 @@ where
             serde_json::from_str(&raw).map_err(|_| "Invalid review formatting settings".to_owned())
         })
         .transpose()
-        .map(|value| value.unwrap_or(false))
+        .map(|value| value.unwrap_or(true))
 }
 
 pub fn fix_examples_rule(enabled: bool) -> &'static str {
@@ -279,7 +279,10 @@ mod tests {
         let pool = crate::infrastructure::db::open_database(&path)
             .await
             .unwrap();
-        assert!(!review_fix_examples(&pool).await.unwrap());
+        assert!(review_fix_examples(&pool).await.unwrap());
+        for action in [PromptAction::PullRequestReview, PromptAction::ReviewArbiter] {
+            assert!(dto(&pool, action).await.unwrap().include_fix_examples);
+        }
         save(
             &pool,
             PromptAction::PullRequestReview,

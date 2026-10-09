@@ -54,7 +54,7 @@ export function isAiSettingsFieldError(value: unknown): value is AiSettingsSaveE
 
 export interface AiRetrySettings {
   default: number;
-  actions: Record<AiActivity, number | null>;
+  actions: Record<AiActivity, number | null> & { reviewArbiter?: number | null };
 }
 
 export interface AiSettings {

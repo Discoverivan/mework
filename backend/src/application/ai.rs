@@ -156,12 +156,18 @@ pub struct AiActionRetries {
     #[serde(default)]
     pub pull_request_review: Option<u8>,
     #[serde(default)]
+    pub review_arbiter: Option<u8>,
+    #[serde(default)]
     pub token_burner: Option<u8>,
     #[serde(default)]
     pub sprint_summary: Option<u8>,
 }
 
 impl AiRetrySettings {
+    pub fn for_review_arbiter(&self) -> u8 {
+        self.actions.review_arbiter.unwrap_or(self.default)
+    }
+
     pub fn for_activity(&self, activity: AiActivity) -> u8 {
         let override_value = match activity {
             AiActivity::TaskCreation => self.actions.task_creation,
@@ -196,6 +202,10 @@ impl AiSettings {
             (
                 self.pull_request_review.as_ref(),
                 &mut self.retries.actions.pull_request_review,
+            ),
+            (
+                self.review_arbiter.as_ref(),
+                &mut self.retries.actions.review_arbiter,
             ),
             (
                 self.token_burner.as_ref(),
@@ -469,6 +479,7 @@ fn apply_action_settings(
             saved.review_arbiter = draft.review_arbiter;
             saved.review_arbitration = draft.review_arbitration;
             saved.retries.actions.pull_request_review = draft.retries.actions.pull_request_review;
+            saved.retries.actions.review_arbiter = draft.retries.actions.review_arbiter;
         }
         AiSettingsScope::SprintSummary => {
             saved.sprint_summary = draft.sprint_summary;
@@ -1154,8 +1165,8 @@ async fn validate_settings(
 }
 
 fn validate_setting_values(settings: &AiSettings) -> Result<(), AiSettingsSaveError> {
-    if !(2..=5).contains(&settings.review_arbitration.review_count) {
-        return Err("Independent review count must be between 2 and 5"
+    if !(2..=9).contains(&settings.review_arbitration.review_count) {
+        return Err("Independent review count must be between 2 and 9"
             .to_owned()
             .into());
     }
@@ -1163,6 +1174,7 @@ fn validate_setting_values(settings: &AiSettings) -> Result<(), AiSettingsSaveEr
         Some(settings.retries.default),
         settings.retries.actions.task_creation,
         settings.retries.actions.pull_request_review,
+        settings.retries.actions.review_arbiter,
         settings.retries.actions.token_burner,
         settings.retries.actions.sprint_summary,
     ];
@@ -1846,6 +1858,7 @@ mod tests {
             provider: Some(super::AiProviderId::OpenAiCompatible),
             model: "example-default-model".into(),
             pull_request_review: Some(profile.clone()),
+            review_arbiter: Some(profile.clone()),
             task_creation: Some(profile),
             ..super::AiSettings::default()
         };
@@ -1862,9 +1875,10 @@ mod tests {
         draft.task_creation.as_mut().unwrap().model = "unsaved-example-task-model".into();
         draft.review_arbitration = super::ReviewArbitrationSettings {
             enabled: true,
-            review_count: 4,
+            review_count: 9,
         };
         draft.retries.actions.pull_request_review = Some(2);
+        draft.retries.actions.review_arbiter = Some(3);
         let result = super::save_action_settings(
             &pool,
             super::ActionSettingsSaveRequest {
@@ -1881,13 +1895,21 @@ mod tests {
         .unwrap();
         assert_eq!(result.ai.settings.model, saved.model);
         assert_eq!(result.ai.settings.task_creation, saved.task_creation);
-        assert_eq!(result.ai.settings.review_arbitration.review_count, 4);
+        assert_eq!(result.ai.settings.review_arbitration.review_count, 9);
         assert_eq!(
             result.ai.settings.retries.actions.pull_request_review,
             Some(2)
         );
         let loaded = super::load(&pool).await.unwrap();
         assert_eq!(loaded, result.ai.settings);
+        let (reviewer, arbiter) = super::review_settings_snapshot(loaded);
+        assert_eq!(
+            reviewer
+                .retries
+                .for_activity(super::AiActivity::PullRequestReview),
+            2
+        );
+        assert_eq!(arbiter.retries.for_review_arbiter(), 3);
         assert_eq!(
             super::super::ai_prompts::load(
                 &pool,
