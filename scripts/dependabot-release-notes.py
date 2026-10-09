@@ -36,9 +36,8 @@ def fill_notes(body: str, filenames: list[str]) -> str:
                 end = heading.end() + len(contents)
                 body = body[:end] + f"\n{fallback}\n\n" + body[end:]
 
-    # Use the contributor policy's generic note, including for dev dependency
-    # updates: these must not claim new user-facing features or fixes.
-    note = "### Fixed\n- Performance improvements and bug fixes.\n" if (
+    # Describe dependency maintenance without claiming unverified fixes or speedups.
+    note = "### Changed\n- Updated application libraries.\n" if (
         VALIDATOR.is_application_change(filenames)
     ) else ""
     block = f"<!-- release-notes:en -->\n{note}<!-- /release-notes:en -->\n"
