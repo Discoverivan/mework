@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { CircleAlert } from "lucide-react";
 
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { Popover, PopoverAnchor, PopoverContent } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
 import { scaleWholeNumber } from "@/lib/scaled-number";
@@ -57,7 +58,7 @@ export function ManualNumberField({ id, label, labelledBy, description, value, m
   }
 
   return <div role="group" className="grid w-fit gap-2.5" data-disabled={disabled}>
-    {!labelledBy ? <Hint content={description}><span id={`${id}-label`} className="whitespace-nowrap px-1 text-sm font-medium leading-none">{label}</span></Hint> : null}
+    {!labelledBy ? <Hint content={description}><Label id={`${id}-label`} htmlFor={id} className="whitespace-nowrap">{label}</Label></Hint> : null}
     <Popover open={!disabled && showError && Boolean(error)} onOpenChange={setShowError}>
       <PopoverAnchor asChild><Input
         id={id}

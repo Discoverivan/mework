@@ -473,14 +473,14 @@ export function TokenBurnerPage() {
           <Separator />
           <div className="flex flex-wrap items-end gap-4">
             <div className="grid min-w-0 max-w-full gap-2.5">
-              <Label className="translate-x-1" id="token-burner-action-label">{t("tokenBurner.action")}</Label>
+              <Label id="token-burner-action-label">{t("tokenBurner.action")}</Label>
               <Select value="reviewPullRequests" disabled>
                 <SelectTrigger aria-labelledby="token-burner-action-label" className="h-9"><SelectValue /></SelectTrigger>
                 <SelectContent><SelectItem value="reviewPullRequests">{t("tokenBurner.reviewPullRequests")}</SelectItem></SelectContent>
               </Select>
             </div>
             <div className="grid min-w-0 max-w-full gap-2.5">
-              <Label className="translate-x-1" htmlFor="token-burner-repository">{t("tokenBurner.repository")}</Label>
+              <Label htmlFor="token-burner-repository">{t("tokenBurner.repository")}</Label>
               <Popover open={repositoryPickerOpen} onOpenChange={(open) => {
                 setRepositoryPickerOpen(open);
                 if (open) setRepositorySearch("");

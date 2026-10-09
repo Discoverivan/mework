@@ -13,6 +13,9 @@ import { PageHeader } from "@/components/shared/PageHeader";
 import { ActionSettingsSection } from "./prompts/ActionSettingsSection";
 import { AiRetriesField } from "./AiRetriesField";
 import { AiModeSelect, AiOverrideEditor } from "./AiOverrideEditor";
+import { aiSectionChanged, copyAiSection, rebaseAiDraft } from "./action-settings-drafts";
+import { ReviewArbitrationSettings } from "./ReviewArbitrationSettings";
+import { DEFAULT_REVIEW_ARBITRATION } from "@/shared/contracts/settings";
 import { AiProviderSelectContent } from "./AiProviderSelectContent";
 import { Card, CardContent, CardDescription, CardHeader } from "@/components/ui/card";
 import { CreateButton } from "@/components/shared/CreateButton";
@@ -42,6 +45,8 @@ import type {
   AiSettings,
   AiSettingsPageData,
   AiSettingsProfile,
+  AiActionSettingsScope,
+  ActionPromptDraft,
   IntegrationHealth,
   IntegrationHealthStatus,
   IntegrationKind,
@@ -58,7 +63,7 @@ import {
   listIntegrations,
   refreshAiSettings,
   refreshIntegrationHealth,
-  saveAiSettings,
+  saveAiActionSettings,
   saveIntegration,
   saveOpenAiCompatibleProvider,
 } from "./api";
@@ -235,8 +240,8 @@ function aiProviderVersion(provider: AiProvider): string | undefined {
 
 
 export type SettingsSection = "general" | "ai" | "integrations" | "projects";
-type AiSettingsScope = "default" | "taskCreation" | "pullRequestReview" | "tokenBurner" | "sprintSummary";
-type AiActivity = Exclude<AiSettingsScope, "default">;
+type AiSettingsScope = "default" | "taskCreation" | "pullRequestReview" | "reviewArbiter" | "tokenBurner" | "sprintSummary";
+type AiActivity = Exclude<AiSettingsScope, "default" | "reviewArbiter">;
 
 const AI_ACTION_PREFIXES: Record<AiActivity, string> = {
   taskCreation: "ai-task",
@@ -292,7 +297,7 @@ export function SettingsPage({ section = "integrations", focusActivity, mockMode
   }, []);
   const [aiStatusScope, setAiStatusScope] = useState<AiSettingsScope>("default");
   const aiSaveRevisionRef = useRef(0);
-  const aiFailedDraftRef = useRef<AiSettings | null>(null);
+  const aiSavePendingRef = useRef(false);
   const [openAiDialogOpen, setOpenAiDialogOpen] = useState(false);
   const [addAiMenuOpen, setAddAiMenuOpen] = useState(false);
   const [selectedAiGroup, setSelectedAiGroup] = useState<"cli" | "api">("cli");
@@ -391,7 +396,10 @@ export function SettingsPage({ section = "integrations", focusActivity, mockMode
   useEffect(() => {
     if (section !== "ai") return;
     return subscribeAppEvent(APP_EVENT.aiSettingsChanged, (updated) => {
-      setAiData(updated);
+      setAiData((previous) => {
+        setAiDraft((current) => rebaseAiDraft(current, previous.settings, updated.settings));
+        return updated;
+      });
       setAiError(null);
       setAiFieldError(null);
     });
@@ -490,15 +498,6 @@ export function SettingsPage({ section = "integrations", focusActivity, mockMode
     }
   }, [addAiMenuOpen, aiData.providers, checkCliProvider]);
 
-  useEffect(() => {
-    if (!selectedAiProvider || selectedAiProvider.models.length !== 1) return;
-    const onlyModel = selectedAiProvider.models[0];
-    setAiDraft((current) => {
-      if (current.provider !== selectedAiProvider.id || current.model === onlyModel) return current;
-      return { ...current, model: onlyModel };
-    });
-  }, [selectedAiProvider, aiDraft.model]);
-
   const validateProjectKey = useCallback(
     (projectKey: string, integrationId?: string) => {
       const jira = integrations.find(
@@ -526,85 +525,64 @@ export function SettingsPage({ section = "integrations", focusActivity, mockMode
 
   const hasJiraIntegration = integrations.some((integration) => integration.kind === "jira");
 
-  useEffect(() => {
-    // Save complete snapshots sequentially while other action drafts remain editable.
-    if (aiSaving || aiFailedDraftRef.current === aiDraft) return;
-    const revision = aiSaveRevisionRef.current + 1;
-    aiSaveRevisionRef.current = revision;
-    const unchanged = aiDraft.provider === aiData.settings.provider
-      && (aiDraft.providerInstanceId ?? null) === (aiData.settings.providerInstanceId ?? null)
-      && aiDraft.model === aiData.settings.model
-      && aiDraft.reasoning === aiData.settings.reasoning
-      && aiDraft.fastMode === aiData.settings.fastMode
-      && JSON.stringify(aiDraft.taskCreation ?? null) === JSON.stringify(aiData.settings.taskCreation ?? null)
-      && JSON.stringify(aiDraft.pullRequestReview ?? null) === JSON.stringify(aiData.settings.pullRequestReview ?? null)
-      && JSON.stringify(aiDraft.tokenBurner ?? null) === JSON.stringify(aiData.settings.tokenBurner ?? null)
-      && JSON.stringify(aiDraft.sprintSummary ?? null) === JSON.stringify(aiData.settings.sprintSummary ?? null)
-      && JSON.stringify(aiDraft.retries) === JSON.stringify(aiData.settings.retries);
-    const defaultSettingsUnchanged = aiDraft.provider === aiData.settings.provider
-      && (aiDraft.providerInstanceId ?? null) === (aiData.settings.providerInstanceId ?? null)
-      && aiDraft.model === aiData.settings.model
-      && aiDraft.reasoning === aiData.settings.reasoning
-      && aiDraft.fastMode === aiData.settings.fastMode;
-    const profileChanges = [
-      [aiDraft.taskCreation, aiData.settings.taskCreation],
-      [aiDraft.pullRequestReview, aiData.settings.pullRequestReview],
-      [aiDraft.tokenBurner, aiData.settings.tokenBurner],
-      [aiDraft.sprintSummary, aiData.settings.sprintSummary],
-    ] as const;
-    const changedProfilesReady = profileChanges.every(([draft, saved]) => {
-        if (JSON.stringify(draft ?? null) === JSON.stringify(saved ?? null) || !draft) return true;
-        const provider = aiData.providers.find((candidate) => candidate.id === draft.provider
-          && (candidate.id !== "openai-compatible" || (candidate.instanceId ?? "legacy") === (draft.providerInstanceId ?? "legacy")));
-        return aiProviderReady(provider, draft.model);
-      });
-    const canSave = (Boolean(aiDraft.provider) && aiReady)
-      || (defaultSettingsUnchanged && changedProfilesReady);
-    if (unchanged || !canSave || aiDeleting) return;
+  function sectionReady(scope: AiActionSettingsScope) {
+    if (scope === "default") {
+      const selectionChanged = aiDraft.provider !== aiData.settings.provider
+        || (aiDraft.providerInstanceId ?? null) !== (aiData.settings.providerInstanceId ?? null)
+        || aiDraft.model !== aiData.settings.model;
+      return !selectionChanged || Boolean(aiDraft.provider && aiReady);
+    }
+    const profiles = scope === "pullRequestReview"
+      ? [[aiDraft.pullRequestReview, aiData.settings.pullRequestReview], [aiDraft.reviewArbiter, aiData.settings.reviewArbiter]]
+      : [[aiDraft[scope], aiData.settings[scope]]];
+    return profiles.every(([draft, saved]) => {
+      if (!draft || JSON.stringify(draft) === JSON.stringify(saved)) return true;
+      const provider = aiData.providers.find((candidate) => candidate.id === draft.provider
+        && (candidate.id !== "openai-compatible" || (candidate.instanceId ?? "legacy") === (draft.providerInstanceId ?? "legacy")));
+      return aiProviderReady(provider, draft.model);
+    });
+  }
 
-    const timer = window.setTimeout(() => {
-      const savingScopes: AiSettingsScope[] = [];
-      if (!defaultSettingsUnchanged || aiDraft.retries.default !== aiData.settings.retries.default) savingScopes.push("default");
-      for (const scope of ["taskCreation", "pullRequestReview", "tokenBurner", "sprintSummary"] as const) {
-        if (JSON.stringify(aiDraft[scope] ?? null) !== JSON.stringify(aiData.settings[scope] ?? null)
-          || aiDraft.retries.actions[scope] !== aiData.settings.retries.actions[scope]) savingScopes.push(scope);
-      }
-      setAiSavingScopes(savingScopes);
-      setAiSaving(true);
-      setAiSaveNotice(null);
-      setAiError(null);
-      setAiFieldError(null);
-      void saveAiSettings(aiDraft).then((saved) => {
-        if (aiSaveRevisionRef.current !== revision) return;
-        setAiData(saved);
-        setAiDraft((current) => current === aiDraft ? saved.settings : current);
-        emitAppEvent(APP_EVENT.aiSettingsChanged, saved);
-        showAiSaveNotice("settings.ai.saved");
-      }).catch((saveError) => {
-        if (aiSaveRevisionRef.current !== revision) return;
-        aiFailedDraftRef.current = aiDraft;
-        if (isAiSettingsFieldError(saveError)) {
-          setAiFieldError(saveError);
-          setAiStatusScope(saveError.scope);
-          return;
-        }
-        if (aiStatusScope !== "default" && !aiDraft[aiStatusScope] && aiData.settings[aiStatusScope]) {
-          setAiDraft((current) => ({
-            ...current,
-            [aiStatusScope]: aiData.settings[aiStatusScope],
-            retries: { ...current.retries, actions: { ...current.retries.actions, [aiStatusScope]: aiData.settings.retries.actions[aiStatusScope] } },
-          }));
-        }
+  async function saveActionSection(scope: AiActionSettingsScope, prompt: ActionPromptDraft | null) {
+    if (aiSavePendingRef.current || aiDeleting) throw new Error("Settings save is already in progress");
+    aiSavePendingRef.current = true;
+    const revision = ++aiSaveRevisionRef.current;
+    const requestedDraft = aiDraft;
+    setAiSaving(true);
+    setAiSavingScopes(scope === "pullRequestReview" ? [scope, "reviewArbiter"] : [scope]);
+    setAiStatusScope(scope);
+    setAiError(null);
+    setAiFieldError(null);
+    setAiSaveNotice(null);
+    try {
+      const saved = await saveAiActionSettings(scope, requestedDraft, prompt);
+      if (aiSaveRevisionRef.current !== revision) throw new Error("Settings save was interrupted");
+      setAiDraft((current) => copyAiSection(rebaseAiDraft(current, aiData.settings, saved.ai.settings), saved.ai.settings, scope));
+      setAiData(saved.ai);
+      emitAppEvent(APP_EVENT.aiSettingsChanged, saved.ai);
+      showAiSaveNotice("settings.ai.saved");
+      return [saved.prompt, saved.arbiterPrompt].filter((value) => value != null);
+    } catch (saveError) {
+      if (isAiSettingsFieldError(saveError)) {
+        setAiFieldError(saveError);
+        setAiStatusScope(saveError.scope);
+      } else {
         setAiError(t("settings.error.saveAi", { error: errorMessage(saveError, t("common.unknownError")) }));
-        setAiStatusScope(aiStatusScope);
-      }).finally(() => {
-        setAiSaving(false);
-        setAiSavingScopes([]);
-      });
-    }, 250);
+      }
+      throw saveError;
+    } finally {
+      aiSavePendingRef.current = false;
+      setAiSaving(false);
+      setAiSavingScopes([]);
+    }
+  }
 
-    return () => window.clearTimeout(timer);
-  }, [aiData.settings, aiDraft, aiReady, aiDeleting, aiStatusScope, aiSaving, t, showAiSaveNotice]);
+  function cancelActionSection(scope: AiActionSettingsScope) {
+    setAiDraft((current) => copyAiSection(current, aiData.settings, scope));
+    setAiError(null);
+    setAiFieldError(null);
+    setAiSaveNotice(null);
+  }
 
   function renderRetries(action: "default" | AiActivity) {
     const inheritedRetries = aiDraft.retries.default;
@@ -693,7 +671,7 @@ export function SettingsPage({ section = "integrations", focusActivity, mockMode
         allowInsecureTls: openAiForm.allowInsecureTls,
       });
       setAiData(saved);
-      setAiDraft(saved.settings);
+      setAiDraft((current) => rebaseAiDraft(current, aiData.settings, saved.settings));
       setSelectedAiGroup("api");
       emitAppEvent(APP_EVENT.aiSettingsChanged, saved);
       setOpenAiForm((current) => ({ ...current, token: "" }));
@@ -707,7 +685,7 @@ export function SettingsPage({ section = "integrations", focusActivity, mockMode
 
   function updateAiSetting<K extends keyof AiSettings>(field: K, value: AiSettings[K]) {
     setAiDraft((current) => ({ ...current, [field]: value }));
-    setAiStatusScope(field === "taskCreation" || field === "pullRequestReview" || field === "tokenBurner" || field === "sprintSummary" ? field : "default");
+    setAiStatusScope(field === "reviewArbiter" || field === "reviewArbitration" ? "reviewArbiter" : field === "taskCreation" || field === "pullRequestReview" || field === "tokenBurner" || field === "sprintSummary" ? field : "default");
     setAiError(null);
     setAiFieldError(null);
   }
@@ -755,6 +733,7 @@ export function SettingsPage({ section = "integrations", focusActivity, mockMode
     if (aiFieldError?.scope === scope) return null;
     if (aiStatusScope !== scope) return null;
     const profile = scope === "taskCreation" ? aiDraft.taskCreation
+      : scope === "reviewArbiter" ? aiDraft.reviewArbiter
       : scope === "pullRequestReview" ? aiDraft.pullRequestReview
         : scope === "tokenBurner" ? aiDraft.tokenBurner
           : scope === "sprintSummary" ? aiDraft.sprintSummary : null;
@@ -815,7 +794,7 @@ export function SettingsPage({ section = "integrations", focusActivity, mockMode
     try {
       const saved = await deleteAiProvider(deletingAiProvider.id, deletingAiProvider.instanceId);
       setAiData(saved);
-      setAiDraft(saved.settings);
+      setAiDraft((current) => rebaseAiDraft(current, aiData.settings, saved.settings));
       emitAppEvent(APP_EVENT.aiSettingsChanged, saved);
       setDeletingAiProvider(null);
     } catch (deleteError) {
@@ -1162,14 +1141,17 @@ export function SettingsPage({ section = "integrations", focusActivity, mockMode
           </section>
 
           <ActionSettingsSection
-            onSaved={() => showAiSaveNotice("settings.prompts.saved")}
+            sectionChanged={(scope) => aiSectionChanged(aiDraft, aiData.settings, scope)}
+            sectionReady={sectionReady}
+            onSaveSection={saveActionSection}
+            onCancelSection={cancelActionSection}
+            disabled={aiLoading || loading || aiDeleting || aiSaving}
             onSavingChange={handleInstructionsSaving}
             onLoadingChange={setInstructionsLoading}
-            defaults={<section className="flex flex-col gap-4" aria-labelledby="ai-defaults-title">
-              <h3 id="ai-defaults-title" className="text-sm font-medium">{t("settings.ai.defaults")}</h3>
+            defaults={<div className="flex flex-col gap-4">
               <div className="flex flex-wrap items-end gap-4">
                 <div className="grid min-w-0 max-w-full gap-2.5">
-                  <Label className="translate-x-1" id="ai-provider-label">{t("settings.ai.provider")}</Label>
+                  <Label id="ai-provider-label">{t("settings.ai.provider")}</Label>
                   <Select value={selectedAiProvider?.instanceId ?? aiDraft.provider ?? "__none__"} onValueChange={updateAiProvider} disabled={aiData === null || aiLoading || aiSavingScopes.includes("default")}>
                     <FieldValidationHint error={aiFieldMessage("default", "provider")}>
                       <SelectTrigger id="ai-provider" aria-labelledby="ai-provider-label" className="h-9">
@@ -1180,7 +1162,7 @@ export function SettingsPage({ section = "integrations", focusActivity, mockMode
                   </Select>
                 </div>
                 <div className="grid min-w-0 max-w-full gap-2.5">
-                  <Label className="translate-x-1" id="ai-model-label">{t("settings.ai.model")}</Label>
+                  <Label id="ai-model-label">{t("settings.ai.model")}</Label>
                   <Select value={aiDraft.model} onValueChange={(value) => updateAiSetting("model", value)} disabled={!aiDraft.provider || !selectedAiProvider || aiSavingScopes.includes("default") || (selectedAiProvider.models.length === 0)}>
                     <FieldValidationHint error={aiFieldMessage("default", "model")}>
                       <SelectTrigger id="ai-model" aria-labelledby="ai-model-label" className="h-9">
@@ -1193,7 +1175,7 @@ export function SettingsPage({ section = "integrations", focusActivity, mockMode
                   </Select>
                 </div>
                 {aiDraft.provider === "codex-cli" ? <div className="grid min-w-0 max-w-full gap-2.5">
-                  <Label className="translate-x-1" id="ai-reasoning-label">{t("settings.ai.reasoning")}</Label>
+                  <Label id="ai-reasoning-label">{t("settings.ai.reasoning")}</Label>
                   <Select value={aiDraft.reasoning} onValueChange={updateAiReasoning} disabled={!aiDraft.provider || aiSavingScopes.includes("default")}>
                     <SelectTrigger id="ai-reasoning" aria-labelledby="ai-reasoning-label" className="h-9"><SelectValue /></SelectTrigger>
                     <SelectContent>
@@ -1205,12 +1187,19 @@ export function SettingsPage({ section = "integrations", focusActivity, mockMode
                 {renderRetries("default")}
               </div>
               {renderAiStatus("default")}
-            </section>}
+            </div>}
             renderModelSettings={renderActionModelSettings}
-            extraAction={<section id="ai-token-burner-action" className="flex flex-col gap-4" aria-label={t("settings.ai.tokenBurner")}>
-              <h3 className="text-sm font-medium">{t("settings.ai.tokenBurner")}</h3>
-              {renderActionModelSettings("tokenBurner")}
-            </section>}
+            renderActionLayout={(action, fields, arbiterInstructions) => action === "pullRequestReview" ?
+              <ReviewArbitrationSettings settings={aiDraft.reviewArbitration ?? DEFAULT_REVIEW_ARBITRATION}
+                profile={aiDraft.reviewArbiter} providers={aiData.providers}
+                disabled={aiLoading || aiDeleting || aiSavingScopes.includes("reviewArbiter")}
+                fieldErrors={{ provider: aiFieldMessage("reviewArbiter", "provider"), model: aiFieldMessage("reviewArbiter", "model") }}
+                onChange={(settings) => updateAiSetting("reviewArbitration", settings)}
+                onProfileChange={(profile) => updateAiSetting("reviewArbiter", profile)}
+                arbiterStatus={renderAiStatus("reviewArbiter")} arbiterInstructions={arbiterInstructions}>
+                {fields}
+              </ReviewArbitrationSettings> : fields}
+            extraAction={renderActionModelSettings("tokenBurner")}
                       />
 
         <Dialog open={deletingAiProvider !== null} onOpenChange={(open) => { if (!open && !aiDeleting) setDeletingAiProvider(null); }}>

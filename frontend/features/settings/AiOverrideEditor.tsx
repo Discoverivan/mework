@@ -21,7 +21,7 @@ export function AiModeSelect({ id, fastMode, onChange, disabled }: {
 }) {
   const { t } = useI18n();
   return <div className="grid min-w-0 max-w-full gap-2.5">
-    <Label className="translate-x-1" id={`${id}-label`}>{t("settings.ai.mode")}</Label>
+    <Label id={`${id}-label`}>{t("settings.ai.mode")}</Label>
     <Select value={fastMode ? "fast" : "normal"} onValueChange={(mode) => onChange(mode === "fast")} disabled={disabled}>
       <SelectTrigger id={id} aria-labelledby={`${id}-label`} className="h-9"><SelectValue /></SelectTrigger>
       <SelectContent>
@@ -68,7 +68,7 @@ export function AiOverrideEditor({
   return (
     <div className="flex flex-wrap items-end gap-4">
       <div className="grid min-w-0 max-w-full gap-2.5">
-        <Label className="translate-x-1" id={`${idPrefix}-provider-label`}>{providerLabel}</Label>
+        <Label id={`${idPrefix}-provider-label`}>{providerLabel}</Label>
         <Select value={selectorValue} onValueChange={(value) => {
           if (value === "__inherit__") { onChange(null); return; }
           const candidate = providers.find((item) => (item.instanceId ?? item.id) === value);
@@ -90,7 +90,7 @@ export function AiOverrideEditor({
       </div>
       {profile && selected ? <>
         <div className="grid min-w-0 max-w-full gap-2.5">
-          <Label className="translate-x-1" id={`${idPrefix}-model-label`}>{modelLabel}</Label>
+          <Label id={`${idPrefix}-model-label`}>{modelLabel}</Label>
           <Select value={profile.model} onValueChange={(model) => onChange({ ...profile, model })} disabled={disabled || selected.models.length === 0}>
             <FieldValidationHint error={fieldErrors?.model}>
               <SelectTrigger id={`${idPrefix}-model`} aria-labelledby={`${idPrefix}-model-label`} className="h-9"><SelectValue placeholder={noModelsLabel} /></SelectTrigger>
@@ -100,7 +100,7 @@ export function AiOverrideEditor({
         </div>
         {profile.provider === "codex-cli" ? <>
           <div className="grid min-w-0 max-w-full gap-2.5">
-            <Label className="translate-x-1" id={`${idPrefix}-reasoning-label`}>{reasoningLabel}</Label>
+            <Label id={`${idPrefix}-reasoning-label`}>{reasoningLabel}</Label>
             <Select value={profile.reasoning} onValueChange={(reasoning) => onChange({ ...profile, reasoning: reasoning as AiReasoning })} disabled={disabled}>
               <SelectTrigger id={`${idPrefix}-reasoning`} aria-labelledby={`${idPrefix}-reasoning-label`} className="h-9"><SelectValue /></SelectTrigger>
               <SelectContent>{AI_REASONING_OPTIONS.map((reasoning) => <SelectItem key={reasoning} value={reasoning}>{reasoning}</SelectItem>)}</SelectContent>

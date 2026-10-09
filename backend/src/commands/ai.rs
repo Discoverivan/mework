@@ -58,6 +58,22 @@ pub async fn ai_settings_save(
 }
 
 #[tauri::command]
+pub async fn ai_action_settings_save(
+    app: AppHandle,
+    state: State<'_, SqlitePool>,
+    request: ai::ActionSettingsSaveRequest,
+) -> Result<ai::ActionSettingsSaveResult, ai::AiSettingsSaveError> {
+    let saved = ai::save_action_settings(&state, request).await?;
+    if let Some(prompt) = &saved.prompt {
+        let _ = app.emit("ai_prompt_settings_changed", prompt);
+    }
+    if let Some(prompt) = &saved.arbiter_prompt {
+        let _ = app.emit("ai_prompt_settings_changed", prompt);
+    }
+    Ok(saved)
+}
+
+#[tauri::command]
 pub async fn ai_openai_compatible_save(
     state: State<'_, SqlitePool>,
     request: OpenAiCompatibleProviderSaveRequest,

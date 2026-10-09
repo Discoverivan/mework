@@ -1,7 +1,10 @@
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { addAiCliProvider, deleteAiProvider, deleteIntegration, getAiSettings, getCachedAiSettings, inspectAiCliProvider, listIntegrations, refreshAiSettings, saveAiSettings, saveIntegration, saveOpenAiCompatibleProvider } from "./api";
+import { addAiCliProvider, deleteAiProvider, deleteIntegration, getAiSettings, getCachedAiSettings, inspectAiCliProvider, listIntegrations, refreshAiSettings, saveAiActionSettings, saveIntegration, saveOpenAiCompatibleProvider } from "./api";
+import { getPromptSettings } from "./prompts/api";
+import { copyAiSection } from "./action-settings-drafts";
+import type { AiSettings, PromptSettings } from "@/shared/contracts/settings";
 import { SettingsPage } from "./SettingsPage";
 
 vi.mock("./api", () => ({
@@ -14,7 +17,7 @@ vi.mock("./api", () => ({
   listIntegrations: vi.fn(),
   refreshAiSettings: vi.fn(),
   refreshIntegrationHealth: vi.fn(),
-  saveAiSettings: vi.fn(),
+  saveAiActionSettings: vi.fn(),
   saveIntegration: vi.fn(),
   saveOpenAiCompatibleProvider: vi.fn(),
 }));
@@ -39,7 +42,13 @@ const inspectAiCliProviderMock = vi.mocked(inspectAiCliProvider);
 const deleteAiProviderMock = vi.mocked(deleteAiProvider);
 const deleteIntegrationMock = vi.mocked(deleteIntegration);
 const listIntegrationsMock = vi.mocked(listIntegrations);
-const saveAiSettingsMock = vi.mocked(saveAiSettings);
+const saveAiActionSettingsMock = vi.mocked(saveAiActionSettings);
+
+async function saveSection(name: string) {
+  const button = within(screen.getByRole("region", { name })).getByRole("button", { name: "Save" });
+  await waitFor(() => expect(button).toBeEnabled());
+  await act(async () => { fireEvent.click(button); });
+}
 const saveIntegrationMock = vi.mocked(saveIntegration);
 const saveOpenAiCompatibleProviderMock = vi.mocked(saveOpenAiCompatibleProvider);
 
@@ -99,14 +108,91 @@ describe("SettingsPage integrations smoke tests", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(getCachedAiSettings).mockReturnValue(null);
+    vi.mocked(getPromptSettings).mockResolvedValue([]);
     getAiSettingsMock.mockResolvedValue(codexAiSettings);
     refreshAiSettingsMock.mockResolvedValue(codexAiSettings);
     addAiCliProviderMock.mockResolvedValue(codexAiSettings);
     inspectAiCliProviderMock.mockResolvedValue(codexAiSettings.providers[0]);
-    saveAiSettingsMock.mockImplementation(async (settings) => ({ ...codexAiSettings, settings }));
+    saveAiActionSettingsMock.mockImplementation(async (_scope, settings) => ({ ai: { ...codexAiSettings, settings }, prompt: null }));
     listIntegrationsMock.mockResolvedValue([]);
     deleteIntegrationMock.mockResolvedValue(undefined);
     saveIntegrationMock.mockResolvedValue({ status: "saved", integration: jiraIntegration });
+  });
+
+  it("stages, cancels and saves a review section without saving neighboring drafts", async () => {
+    const providers = [
+      { id: "codex-cli" as const, name: "Codex CLI", status: "connected" as const, available: true, models: ["example-review-model"] },
+      { id: "claude-code-cli" as const, name: "Claude Code CLI", status: "connected" as const, available: true, models: ["example-arbiter-model"] },
+    ];
+    let persisted: AiSettings = { ...codexAiSettings.settings, provider: "codex-cli", model: "example-review-model" };
+    let persistedPrompt: PromptSettings = {
+      action: "pullRequestReview", instructions: "Review example defects.", defaultInstructions: "Review example defects.",
+      instructionsHash: "example-hash", protectedRules: "Use the supplied example diff.", customized: false, includeFixExamples: false,
+    };
+    let persistedArbiterPrompt: PromptSettings = { ...persistedPrompt, action: "reviewArbiter", instructions: "Verify example findings.", defaultInstructions: "Verify example findings." };
+    getAiSettingsMock.mockResolvedValue({ providers, settings: persisted });
+    vi.mocked(getPromptSettings).mockResolvedValue([persistedPrompt, persistedArbiterPrompt]);
+    saveAiActionSettingsMock.mockImplementation(async (scope, settings, prompt) => {
+      persisted = copyAiSection(persisted, settings, scope);
+      if (prompt) persistedPrompt = { ...persistedPrompt, instructions: prompt.instructions ?? persistedPrompt.defaultInstructions, customized: prompt.instructions !== null, includeFixExamples: prompt.includeFixExamples };
+      if (prompt && scope === "pullRequestReview") persistedArbiterPrompt = { ...persistedArbiterPrompt, instructions: prompt.arbiterInstructions ?? persistedArbiterPrompt.defaultInstructions, customized: prompt.arbiterInstructions != null };
+      return { ai: { providers, settings: persisted }, prompt: prompt ? persistedPrompt : null, arbiterPrompt: scope === "pullRequestReview" ? persistedArbiterPrompt : null };
+    });
+    const view = render(<SettingsPage section="ai" />);
+    const mode = within(await screen.findByRole("radiogroup", { name: "Review mode" }));
+    const review = within(screen.getByRole("region", { name: "Pull request review" }));
+    await screen.findByRole("combobox", { name: "Suggest fixes" });
+    fireEvent.click(mode.getByRole("radio", { name: "Review with arbiter" }));
+    fireEvent.click(review.getByRole("button", { name: "Cancel" }));
+    expect(mode.getByRole("radio", { name: "Single review" })).toBeChecked();
+    fireEvent.click(mode.getByRole("radio", { name: "Review with arbiter" }));
+    fireEvent.click(within(screen.getByRole("region", { name: "Arbiter" })).getByRole("combobox", { name: "Independent reviews" }));
+    fireEvent.click(screen.getByRole("option", { name: "4" }));
+    fireEvent.click(within(screen.getByRole("region", { name: "Arbiter" })).getByRole("combobox", { name: "AI provider" }));
+    expect(screen.getAllByRole("option")[0]).toHaveTextContent("Use defaults");
+    fireEvent.click(screen.getByRole("option", { name: /Claude Code CLI/ }));
+    fireEvent.click(screen.getByRole("combobox", { name: "Suggest fixes" }));
+    fireEvent.click(screen.getByRole("option", { name: "Enabled" }));
+    fireEvent.click(within(screen.getByRole("region", { name: "Independent reviewer" })).getByRole("combobox", { name: "Instructions" }));
+    fireEvent.click(screen.getByRole("option", { name: "Custom" }));
+    const dialog = within(screen.getByRole("dialog"));
+    fireEvent.change(dialog.getByLabelText("Your instructions"), { target: { value: "Check concrete example defects." } });
+    fireEvent.click(dialog.getByRole("button", { name: "Apply" }));
+    const arbiter = within(screen.getByRole("region", { name: "Arbiter" }));
+    fireEvent.click(arbiter.getByRole("combobox", { name: "Instructions" }));
+    fireEvent.click(screen.getByRole("option", { name: "Custom" }));
+    const arbiterDialog = within(screen.getByRole("dialog"));
+    expect(arbiterDialog.getByRole("heading", { name: "Arbiter" })).toBeInTheDocument();
+    fireEvent.change(arbiterDialog.getByLabelText("Your instructions"), { target: { value: "Verify example defects independently." } });
+    fireEvent.click(arbiterDialog.getByRole("button", { name: "Apply" }));
+    fireEvent.click(defaultAiSettings().getByRole("combobox", { name: "Reasoning" }));
+    fireEvent.click(screen.getByRole("option", { name: "high" }));
+    const task = within(screen.getByRole("region", { name: "Task creation" }));
+    fireEvent.click(task.getByRole("combobox", { name: "AI provider" }));
+    fireEvent.click(screen.getByRole("option", { name: /Claude Code CLI/ }));
+    expect(saveAiActionSettingsMock).not.toHaveBeenCalled();
+    await saveSection("Pull request review");
+    await waitFor(() => expect(saveAiActionSettingsMock).toHaveBeenCalledWith("pullRequestReview", expect.objectContaining({
+      reviewArbitration: { enabled: true, reviewCount: 4 }, reviewArbiter: expect.objectContaining({ model: "example-arbiter-model" }),
+    }), { instructions: "Check concrete example defects.", includeFixExamples: true, arbiterInstructions: "Verify example defects independently." }));
+    await waitFor(() => expect(review.getByRole("button", { name: "Save" })).toBeDisabled());
+    expect(persisted.reasoning).toBe("medium");
+    expect(persisted.taskCreation ?? null).toBeNull();
+    expect(task.getByRole("button", { name: "Save" })).toBeEnabled();
+    expect(defaultAiSettings().getByRole("button", { name: "Save" })).toBeEnabled();
+    fireEvent.click(task.getByRole("button", { name: "Cancel" }));
+    fireEvent.click(defaultAiSettings().getByRole("button", { name: "Cancel" }));
+    expect(task.getByRole("combobox", { name: "AI provider" })).toHaveTextContent("Use defaults");
+    expect(defaultAiSettings().getByRole("combobox", { name: "Reasoning" })).toHaveTextContent("medium");
+    view.unmount();
+    getAiSettingsMock.mockResolvedValue({ providers, settings: persisted });
+    vi.mocked(getPromptSettings).mockResolvedValue([persistedPrompt, persistedArbiterPrompt]);
+    render(<SettingsPage section="ai" />);
+    expect(within(await screen.findByRole("radiogroup", { name: "Review mode" })).getByRole("radio", { name: "Review with arbiter" })).toBeChecked();
+    expect(screen.getByRole("combobox", { name: "Independent reviews" })).toHaveTextContent("4");
+    expect(screen.getByRole("combobox", { name: "Arbiter model" })).toHaveTextContent("example-arbiter-model");
+    expect(await screen.findByRole("combobox", { name: "Suggest fixes" })).toHaveTextContent("Enabled");
+    expect(within(screen.getByRole("region", { name: "Arbiter" })).getByRole("combobox", { name: "Instructions" })).toHaveTextContent("Custom");
   });
 
   it("does not block data integrations while AI settings are pending", async () => {
@@ -142,7 +228,7 @@ describe("SettingsPage integrations smoke tests", () => {
     fireEvent.change(screen.getByLabelText("Personal access token"), {
       target: { value: "test-jira-token" },
     });
-    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Save" }));
 
     await waitFor(() => {
       expect(saveIntegrationMock).toHaveBeenCalledWith({
@@ -202,7 +288,7 @@ describe("SettingsPage integrations smoke tests", () => {
     expect(screen.getByRole("textbox", { name: "Base URL" })).toHaveValue("https://jira.example.com");
     expect(screen.getByLabelText("Personal access token")).toHaveValue("");
     expect(screen.getByLabelText("Personal access token")).toHaveAttribute("placeholder", "••••••••");
-    expect(screen.getByRole("button", { name: "Save" })).toBeInTheDocument();
+    expect(within(screen.getByRole("dialog")).getByRole("button", { name: "Save" })).toBeInTheDocument();
   });
 
   it("saves an edit to a synthetic integration in mock mode", async () => {
@@ -214,85 +300,13 @@ describe("SettingsPage integrations smoke tests", () => {
     const card = within(await screen.findByRole("group", { name: "Jira integration" }));
     fireEvent.click(card.getByRole("button", { name: "Edit Jira integration" }));
     fireEvent.click(screen.getByRole("checkbox", { name: "Allow insecure TLS connection" }));
-    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Save" }));
 
     await waitFor(() => expect(saveIntegrationMock).toHaveBeenCalledWith(expect.objectContaining({
       id: "mock-jira",
       baseUrl: "http://127.0.0.1:18372/jira/",
       allowInsecureTls: true,
     })));
-  });
-
-  it("saves independent retry settings for each AI action and defaults", async () => {
-    let completeSave!: (value: Awaited<ReturnType<typeof saveAiSettings>>) => void;
-    saveAiSettingsMock.mockImplementationOnce(() => new Promise((resolve) => { completeSave = resolve; }));
-    const profile = { provider: "codex-cli" as const, model: "gpt-5.5", reasoning: "medium" as const, fastMode: false };
-    getAiSettingsMock.mockResolvedValueOnce({
-      ...codexAiSettings,
-      settings: {
-        ...codexAiSettings.settings,
-        taskCreation: profile,
-        pullRequestReview: profile,
-        retries: { default: 0, actions: { taskCreation: 0, pullRequestReview: 0, tokenBurner: null, sprintSummary: null } },
-      },
-    });
-    render(<SettingsPage section="ai" />);
-    await screen.findByRole("group", { name: "Codex CLI AI provider" });
-    const defaults = defaultAiSettings();
-    expect(defaults.getByRole("textbox", { name: "Retries" })).toHaveValue("0");
-    const retriesHeading = defaults.getByText("Retries", { selector: "span" });
-    expect(retriesHeading).toHaveAttribute("data-tooltip", "Additional attempts after temporary provider errors (0–10).");
-    fireEvent.click(retriesHeading);
-    expect(defaults.getByRole("textbox", { name: "Retries" })).not.toHaveFocus();
-    for (const action of ["Task creation", "Pull request review"]) {
-      expect(within(screen.getByRole("region", { name: action })).getByRole("textbox", { name: "Retries" })).toHaveValue("0");
-    }
-    for (const action of ["Model-testing", "Sprint tasks / AI Summary"]) {
-      expect(within(screen.getByRole("region", { name: action })).queryByRole("textbox", { name: "Retries" })).not.toBeInTheDocument();
-    }
-
-    const review = within(screen.getByRole("region", { name: "Pull request review" }));
-    review.getByRole("textbox", { name: "Retries" }).focus();
-    fireEvent.change(review.getByRole("textbox", { name: "Retries" }), { target: { value: "11" } });
-    expect(review.getByRole("textbox", { name: "Retries" })).toHaveAttribute("aria-invalid", "true");
-    expect(screen.getByRole("alert")).toHaveTextContent("Retries: the number must be between 0 and 10.");
-    expect(review.getByRole("textbox", { name: "Retries" })).toHaveFocus();
-    expect(saveAiSettingsMock).not.toHaveBeenCalled();
-    fireEvent.change(review.getByRole("textbox", { name: "Retries" }), { target: { value: "2" } });
-    expect(review.getByRole("textbox", { name: "Retries" })).toHaveValue("2");
-    expect(review.getByRole("textbox", { name: "Retries" })).toHaveAttribute("aria-invalid", "false");
-    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
-    await waitFor(() => expect(saveAiSettingsMock).toHaveBeenCalledWith(expect.objectContaining({
-      retries: expect.objectContaining({ actions: expect.objectContaining({ pullRequestReview: 2 }) }),
-    })), { timeout: 2_000 });
-    expect(review.getByRole("textbox", { name: "Retries" })).toBeDisabled();
-    expect(defaults.getByRole("textbox", { name: "Retries" })).toBeEnabled();
-    expect(defaults.getByRole("combobox", { name: "AI provider" })).toBeEnabled();
-    const taskCreation = within(screen.getByRole("region", { name: "Task creation" }));
-    expect(taskCreation.getByRole("combobox", { name: "AI provider" })).toBeEnabled();
-    fireEvent.change(taskCreation.getByRole("textbox", { name: "Retries" }), { target: { value: "3" } });
-    expect(saveAiSettingsMock).toHaveBeenCalledTimes(1);
-    await act(async () => {
-      completeSave({ ...codexAiSettings, settings: saveAiSettingsMock.mock.calls[0][0] });
-    });
-    expect(taskCreation.getByRole("textbox", { name: "Retries" })).toHaveValue("3");
-    await waitFor(() => expect(saveAiSettingsMock).toHaveBeenLastCalledWith(expect.objectContaining({
-      retries: expect.objectContaining({ actions: expect.objectContaining({ pullRequestReview: 2, taskCreation: 3 }) }),
-    })));
-    expect(saveAiSettingsMock).toHaveBeenCalledTimes(2);
-    await waitFor(() => expect(review.getByRole("textbox", { name: "Retries" })).toBeEnabled());
-    fireEvent.click(review.getByRole("combobox", { name: "AI provider" }));
-    fireEvent.click(screen.getByRole("option", { name: "Use defaults" }));
-    expect(review.queryByRole("textbox", { name: "Retries" })).not.toBeInTheDocument();
-    await waitFor(() => expect(saveAiSettingsMock).toHaveBeenLastCalledWith(expect.objectContaining({
-      pullRequestReview: null,
-      retries: expect.objectContaining({ actions: expect.objectContaining({ pullRequestReview: null, taskCreation: 3 }) }),
-    })));
-    fireEvent.change(defaults.getByRole("textbox", { name: "Retries" }), { target: { value: "4" } });
-    await waitFor(() => expect(saveAiSettingsMock).toHaveBeenLastCalledWith(expect.objectContaining({
-      retries: expect.objectContaining({ default: 4, actions: expect.objectContaining({ pullRequestReview: null, taskCreation: 3 }) }),
-    })));
-    expect(taskCreation.getByRole("textbox", { name: "Retries" })).toHaveValue("3");
   });
 
   it("shows initial AI loading in a toast and immediately displays the cache on re-entry", async () => {
@@ -313,53 +327,6 @@ describe("SettingsPage integrations smoke tests", () => {
     await act(async () => {});
   });
 
-  it("shows AI controls above integration cards and saves Codex settings automatically", async () => {
-    let completeSave!: (value: Awaited<ReturnType<typeof saveAiSettings>>) => void;
-    saveAiSettingsMock.mockImplementationOnce(() => new Promise((resolve) => { completeSave = resolve; }));
-    render(<SettingsPage section="ai" />);
-
-    expect(await screen.findByRole("heading", { name: "AI settings" })).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "AI providers" })).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "AI providers" }).compareDocumentPosition(
-      screen.getByRole("heading", { name: "Defaults" }),
-    ) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    const actions = within(screen.getByRole("region", { name: "Action settings" }));
-    expect(actions.getByRole("region", { name: "Defaults" })).toBeInTheDocument();
-    expect(actions.getByRole("heading", { name: "Defaults" }).compareDocumentPosition(
-      actions.getByRole("heading", { name: "Pull request review" }),
-    ) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(screen.getByText("Customize AI behavior for each action.")).toBeVisible();
-    expect(screen.queryByRole("heading", { name: "Data integrations" })).not.toBeInTheDocument();
-    expect(await screen.findByRole("group", { name: "Codex CLI AI provider" })).toHaveTextContent("Connected");
-
-    selectAiProvider("Codex CLI");
-    fireEvent.click(defaultAiSettings().getByRole("combobox", { name: "Model" }));
-    fireEvent.click(screen.getByRole("option", { name: "gpt-5.5" }));
-    fireEvent.click(defaultAiSettings().getByRole("combobox", { name: "Reasoning" }));
-    fireEvent.click(screen.getByRole("option", { name: "high" }));
-    fireEvent.click(defaultAiSettings().getByText("Mode", { selector: "label" }));
-    expect(defaultAiSettings().getByRole("combobox", { name: "Mode" })).toHaveAttribute("aria-expanded", "false");
-    expect(defaultAiSettings().getByRole("combobox", { name: "Mode" })).toHaveTextContent("Normal");
-    fireEvent.click(defaultAiSettings().getByRole("combobox", { name: "Mode" }));
-    fireEvent.click(screen.getByRole("option", { name: "Fast" }));
-    expect(screen.queryByRole("button", { name: "Save AI settings" })).not.toBeInTheDocument();
-
-    await waitFor(() => expect(saveAiSettingsMock).toHaveBeenCalledWith({
-      provider: "codex-cli",
-      model: "gpt-5.5",
-      reasoning: "high",
-      fastMode: true,
-      retries: codexAiSettings.settings.retries,
-    }));
-    const savingNotice = await screen.findByRole("status");
-    expect(savingNotice).toHaveTextContent("Saving");
-    expect(screen.getByRole("region", { name: "Action settings" })).not.toContainElement(savingNotice);
-    completeSave({ ...codexAiSettings, settings: saveAiSettingsMock.mock.calls[0][0] });
-    const notice = await screen.findByText("AI settings saved. They apply to new runs.");
-    expect(notice).toHaveTextContent("AI settings saved. They apply to new runs.");
-    expect(screen.getByRole("region", { name: "Action settings" })).not.toContainElement(notice);
-  });
-
   it("saves an activity-specific provider and model override", async () => {
     getAiSettingsMock.mockResolvedValue({
       ...codexAiSettings,
@@ -376,7 +343,8 @@ describe("SettingsPage integrations smoke tests", () => {
     fireEvent.click(providerSelector);
     fireEvent.click(screen.getByRole("option", { name: "Claude Code CLI" }));
 
-    await waitFor(() => expect(saveAiSettingsMock).toHaveBeenCalledWith(expect.objectContaining({
+    await saveSection("Task creation");
+    await waitFor(() => expect(saveAiActionSettingsMock).toHaveBeenCalledWith("taskCreation", expect.objectContaining({
       provider: "codex-cli",
       taskCreation: {
         provider: "claude-code-cli",
@@ -384,7 +352,7 @@ describe("SettingsPage integrations smoke tests", () => {
         reasoning: "medium",
         fastMode: false,
       },
-    })));
+    }), null));
     expect(await screen.findByText("AI settings saved. They apply to new runs.")).toBeInTheDocument();
     expect(screen.getByRole("region", { name: "Action settings" })).not.toContainElement(screen.getByText("AI settings saved. They apply to new runs."));
   });
@@ -405,36 +373,15 @@ describe("SettingsPage integrations smoke tests", () => {
     fireEvent.click(summary.getByRole("combobox", { name: "AI provider" }));
     fireEvent.click(screen.getByRole("option", { name: "Claude Code CLI" }));
 
-    await waitFor(() => expect(saveAiSettingsMock).toHaveBeenCalledWith(expect.objectContaining({
+    await saveSection("Sprint tasks / AI Summary");
+    await waitFor(() => expect(saveAiActionSettingsMock).toHaveBeenCalledWith("sprintSummary", expect.objectContaining({
       sprintSummary: {
         provider: "claude-code-cli",
         model: "sonnet",
         reasoning: "medium",
         fastMode: false,
       },
-    })));
-  });
-
-  it("restores a configured action when saving inherited settings fails", async () => {
-    getAiSettingsMock.mockResolvedValueOnce({
-      ...codexAiSettings,
-      settings: {
-        ...codexAiSettings.settings,
-        taskCreation: { provider: "codex-cli", model: "gpt-5.5", reasoning: "medium", fastMode: false },
-      },
-    });
-    saveAiSettingsMock.mockRejectedValueOnce(new Error("Synthetic save failure"));
-    render(<SettingsPage section="ai" />);
-
-    await screen.findByRole("region", { name: "Task creation" });
-    fireEvent.click(within(screen.getByRole("region", { name: "Task creation" })).getByRole("combobox", { name: "AI provider" }));
-    fireEvent.click(screen.getByRole("option", { name: "Use defaults" }));
-
-    await waitFor(() => expect(saveAiSettingsMock).toHaveBeenCalled());
-    expect(await within(screen.getByRole("region", { name: "Task creation" })).findByText(
-      "Unable to save AI settings: Synthetic save failure",
-    )).toBeInTheDocument();
-    expect(within(screen.getByRole("region", { name: "Task creation" })).getByRole("combobox", { name: "AI provider" })).toHaveTextContent("Codex CLI");
+    }), null));
   });
 
   it("refreshes an AI provider and displays its updated models", async () => {
@@ -454,22 +401,6 @@ describe("SettingsPage integrations smoke tests", () => {
     fireEvent.click(screen.getByRole("option", { name: "Codex CLI" }));
     fireEvent.click(defaultAiSettings().getByRole("combobox", { name: "Model" }));
     expect(screen.getByRole("option", { name: "example-new-model" })).toBeInTheDocument();
-  });
-
-  it("shows an activity-specific save error in its own block", async () => {
-    saveAiSettingsMock.mockRejectedValue(new Error("Synthetic save failure"));
-    render(<SettingsPage section="ai" focusActivity="token-burner" />);
-
-    await screen.findByRole("heading", { name: "AI settings" });
-    const activity = within(screen.getByRole("region", { name: "Model-testing" }));
-    fireEvent.click(activity.getByRole("combobox", { name: "AI provider" }));
-    fireEvent.click(screen.getByRole("option", { name: /Codex CLI/ }));
-    fireEvent.click(activity.getByRole("combobox", { name: "Model" }));
-    fireEvent.click(screen.getByRole("option", { name: "gpt-5.5" }));
-
-    await waitFor(() => expect(saveAiSettingsMock).toHaveBeenCalled());
-    expect(await activity.findByText("Unable to save AI settings: Synthetic save failure")).toBeInTheDocument();
-    expect(defaultAiSettings().queryByText("Unable to save AI settings: Synthetic save failure")).not.toBeInTheDocument();
   });
 
   it("selects the only available model when an AI provider is chosen", async () => {
@@ -515,13 +446,14 @@ describe("SettingsPage integrations smoke tests", () => {
 
     expect(defaultAiSettings().getByRole("combobox", { name: "Model" })).toHaveTextContent("example-model");
     expect(screen.queryByText("No available model selected.")).not.toBeInTheDocument();
-    await waitFor(() => expect(saveAiSettingsMock).toHaveBeenCalledWith({
+    await saveSection("Defaults");
+    await waitFor(() => expect(saveAiActionSettingsMock).toHaveBeenCalledWith("default", expect.objectContaining({
       provider: "openai-compatible",
       model: "example-model",
       reasoning: "medium",
       fastMode: false,
       retries: codexAiSettings.settings.retries,
-    }));
+    }), null));
   });
 
   it("selects Claude Code CLI without Codex-only controls", async () => {
@@ -547,13 +479,14 @@ describe("SettingsPage integrations smoke tests", () => {
     expect(defaultAiSettings().queryByRole("combobox", { name: "Mode" })).not.toBeInTheDocument();
     fireEvent.click(defaultAiSettings().getByRole("combobox", { name: "Model" }));
     fireEvent.click(screen.getByRole("option", { name: "sonnet" }));
-    await waitFor(() => expect(saveAiSettingsMock).toHaveBeenCalledWith({
+    await saveSection("Defaults");
+    await waitFor(() => expect(saveAiActionSettingsMock).toHaveBeenCalledWith("default", expect.objectContaining({
       provider: "claude-code-cli",
       model: "sonnet",
       reasoning: "medium",
       fastMode: false,
       retries: codexAiSettings.settings.retries,
-    }));
+    }), null));
   });
 
   it("lists OpenCode after Claude Code and saves its reported model", async () => {
@@ -569,32 +502,8 @@ describe("SettingsPage integrations smoke tests", () => {
     const opencode = await screen.findByRole("group", { name: "OpenCode CLI AI provider" });
     expect(screen.getByRole("group", { name: "Claude Code CLI AI provider" }).compareDocumentPosition(opencode) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     selectAiProvider("OpenCode CLI");
-    await waitFor(() => expect(saveAiSettingsMock).toHaveBeenCalledWith(expect.objectContaining({ provider: "open-code-cli", model: "example/sample-model" })));
-  });
-
-  it("shows model validation at the Pi field and saves a corrected selection", async () => {
-    getAiSettingsMock.mockResolvedValue({
-      ...codexAiSettings,
-      providers: [...codexAiSettings.providers, {
-        id: "pi-cli", name: "Pi CLI", status: "connected", available: true, models: ["example/sample-model", "example/updated-model"],
-      }],
-    });
-    saveAiSettingsMock.mockRejectedValueOnce({ message: "Selected AI model is invalid", scope: "default", field: "model" });
-    render(<SettingsPage section="ai" />);
-    await screen.findByRole("group", { name: "Pi CLI AI provider" });
-    selectAiProvider("Pi CLI");
-    fireEvent.click(defaultAiSettings().getByRole("combobox", { name: "Model" }));
-    fireEvent.click(screen.getByRole("option", { name: "example/sample-model" }));
-    const model = defaultAiSettings().getByRole("combobox", { name: "Model" });
-    await waitFor(() => expect(model).toHaveAttribute("aria-invalid", "true"));
-    expect(model).toHaveClass("border-destructive");
-    expect(await screen.findByRole("alert")).toHaveTextContent("This model is unavailable.");
-    expect(defaultAiSettings().queryByText(/Unable to save AI settings/)).not.toBeInTheDocument();
-
-    fireEvent.click(model);
-    fireEvent.click(screen.getByRole("option", { name: "example/updated-model" }));
-    await waitFor(() => expect(saveAiSettingsMock).toHaveBeenLastCalledWith(expect.objectContaining({ provider: "pi-cli", model: "example/updated-model" })));
-    expect(model).toHaveAttribute("aria-invalid", "false");
+    await saveSection("Defaults");
+    await waitFor(() => expect(saveAiActionSettingsMock).toHaveBeenCalledWith("default", expect.objectContaining({ provider: "open-code-cli", model: "example/sample-model" }), null));
   });
 
   it("shows the prefilled Hermes CLI as missing in mock mode", async () => {
@@ -636,7 +545,7 @@ describe("SettingsPage integrations smoke tests", () => {
       fireEvent.click(screen.getByRole("button", { name: "Add API provider" }));
       fireEvent.change(screen.getByLabelText("API URL"), { target: { value: url } });
       fireEvent.change(screen.getByLabelText("Token"), { target: { value: "synthetic-token" } });
-      fireEvent.click(screen.getByRole("button", { name: "Save" }));
+      fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Save" }));
       await waitFor(() => expect(screen.queryByLabelText("Token")).not.toBeInTheDocument());
     }
     expect(screen.getAllByRole("group", { name: "OpenAI-compatible API AI provider" })).toHaveLength(2);
@@ -644,14 +553,15 @@ describe("SettingsPage integrations smoke tests", () => {
     expect(screen.getByText("No CLI providers added yet.")).toBeInTheDocument();
     selectAiProviderGroup("API");
     selectAiProvider("OpenAI-compatible API · https://two.example.invalid/v1");
-    await waitFor(() => expect(saveAiSettingsMock).toHaveBeenCalledWith({
+    await saveSection("Defaults");
+    await waitFor(() => expect(saveAiActionSettingsMock).toHaveBeenCalledWith("default", expect.objectContaining({
       provider: "openai-compatible",
       providerInstanceId: second.instanceId,
       model: "example-model",
       reasoning: "medium",
       fastMode: false,
       retries: codexAiSettings.settings.retries,
-    }));
+    }), null));
   });
 
   it("edits an API without replacing its token and removes the selected provider", async () => {
@@ -684,7 +594,7 @@ describe("SettingsPage integrations smoke tests", () => {
     expect(screen.getByText(/Token saved in the operating system keyring/)).toBeInTheDocument();
     fireEvent.change(screen.getByLabelText("Alias"), { target: { value: "Team API" } });
     fireEvent.change(screen.getByLabelText("API URL"), { target: { value: "https://new.example.invalid/v1" } });
-    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Save" }));
     await waitFor(() => expect(saveOpenAiCompatibleProviderMock).toHaveBeenCalledWith({
       id: provider.instanceId,
       baseUrl: "https://new.example.invalid/v1",
@@ -794,10 +704,11 @@ describe("SettingsPage integrations smoke tests", () => {
     fireEvent.click(within(screen.getByRole("region", { name: "Model-testing" })).getByRole("combobox", { name: "AI provider" }));
     fireEvent.click(screen.getByRole("option", { name: /Codex CLI/ }));
 
-    await waitFor(() => expect(saveAiSettingsMock).toHaveBeenCalledWith(expect.objectContaining({
+    await saveSection("Model-testing");
+    await waitFor(() => expect(saveAiActionSettingsMock).toHaveBeenCalledWith("tokenBurner", expect.objectContaining({
       provider: null,
       tokenBurner: expect.objectContaining({ provider: "codex-cli", model: "example-codex-model" }),
-    })));
+    }), null));
   });
 
   it("keeps safe OpenAI-compatible authorization errors readable", async () => {
@@ -828,7 +739,7 @@ describe("SettingsPage integrations smoke tests", () => {
     fireEvent.change(screen.getByLabelText("Token"), {
       target: { value: "synthetic-token" },
     });
-    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Save" }));
 
     expect(await screen.findByText(
       "Unable to configure OpenAI-compatible API: OpenAI-compatible API authorization failed",

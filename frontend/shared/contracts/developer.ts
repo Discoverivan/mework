@@ -101,6 +101,7 @@ export interface PullRequestReviewResult {
 }
 
 export interface PullRequestReviewExecution {
+  arbitration?: { reviewCount: number; arbiter: PullRequestReviewExecution } | null;
   instructionsHash?: string | null;
   provider: AiProviderId;
   providerName: string;

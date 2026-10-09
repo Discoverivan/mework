@@ -43,7 +43,7 @@ function FieldLabel({ className, ...props }: React.ComponentProps<typeof Label>)
   return (
     <Label
       data-slot="field-label"
-      className={cn("group/field-label flex w-fit gap-2 leading-snug", className)}
+      className={cn("group/field-label flex w-fit gap-2 leading-snug group-data-[orientation=horizontal]/field:pl-0", className)}
       {...props}
     />
   );

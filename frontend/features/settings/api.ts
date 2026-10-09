@@ -3,6 +3,9 @@ import { matchesSelectedAiProvider } from "@/shared/contracts/settings";
 import { APP_EVENT, emitAppEvent, subscribeAppEvent } from "@/app/app-events";
 import type {
   AiSettings,
+  AiActionSettingsScope,
+  ActionPromptDraft,
+  ActionSettingsSaveResult,
   AiProvider,
   AiCliProviderId,
   AiSettingsPageData,
@@ -99,6 +102,14 @@ export function refreshAiSettings(): Promise<AiSettingsPageData> {
 
 export const saveAiSettings = (settings: AiSettings) =>
   invoke<AiSettingsPageData>("ai_settings_save", { settings }).then(cacheMutatedAiSettings);
+
+export const saveAiActionSettings = (scope: AiActionSettingsScope, settings: AiSettings, prompt: ActionPromptDraft | null) =>
+  invoke<ActionSettingsSaveResult>("ai_action_settings_save", { request: { scope, settings, prompt } }).then((saved) => {
+    cacheMutatedAiSettings(saved.ai);
+    if (saved.prompt) emitAppEvent(APP_EVENT.aiPromptSettingsChanged, saved.prompt);
+    if (saved.arbiterPrompt) emitAppEvent(APP_EVENT.aiPromptSettingsChanged, saved.arbiterPrompt);
+    return saved;
+  });
 
 export const saveOpenAiCompatibleProvider = (input: OpenAiCompatibleProviderSaveInput) =>
   invoke<AiSettingsPageData>("ai_openai_compatible_save", { request: input }).then(cacheMutatedAiSettings);

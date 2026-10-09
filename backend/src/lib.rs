@@ -483,6 +483,7 @@ pub fn run() {
             commands::ai::ai_review_fix_examples_save,
             commands::ai::agent_cli_diagnostics,
             commands::ai::ai_settings_save,
+            commands::ai::ai_action_settings_save,
             commands::ai::ai_openai_compatible_save,
             commands::ai::ai_provider_add,
             commands::ai::ai_cli_candidate_inspect,
