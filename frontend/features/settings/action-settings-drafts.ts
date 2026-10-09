@@ -11,7 +11,7 @@ export function copyAiSection(target: AiSettings, source: AiSettings, scope: AiA
   return {
     ...target, [scope]: source[scope] ?? null,
     ...(scope === "pullRequestReview" ? { reviewArbiter: source.reviewArbiter ?? null, reviewArbitration: source.reviewArbitration ?? DEFAULT_REVIEW_ARBITRATION } : {}),
-    retries: { ...target.retries, actions: { ...target.retries.actions, [scope]: source.retries.actions[scope] } },
+    retries: { ...target.retries, actions: { ...target.retries.actions, [scope]: source.retries.actions[scope], ...(scope === "pullRequestReview" ? { reviewArbiter: source.retries.actions.reviewArbiter ?? null } : {}) } },
   };
 }
 

@@ -146,14 +146,14 @@ describe("SettingsPage integrations smoke tests", () => {
     fireEvent.click(review.getByRole("button", { name: "Cancel" }));
     expect(mode.getByRole("radio", { name: "Single review" })).toBeChecked();
     fireEvent.click(mode.getByRole("radio", { name: "Review with arbiter" }));
-    fireEvent.click(within(screen.getByRole("region", { name: "Arbiter" })).getByRole("combobox", { name: "Independent reviews" }));
-    fireEvent.click(screen.getByRole("option", { name: "4" }));
+    fireEvent.change(within(screen.getByRole("region", { name: "Independent reviewers" })).getByRole("textbox", { name: "Independent reviews" }), { target: { value: "9" } });
     fireEvent.click(within(screen.getByRole("region", { name: "Arbiter" })).getByRole("combobox", { name: "AI provider" }));
     expect(screen.getAllByRole("option")[0]).toHaveTextContent("Use defaults");
     fireEvent.click(screen.getByRole("option", { name: /Claude Code CLI/ }));
+    fireEvent.change(within(screen.getByRole("region", { name: "Arbiter" })).getByRole("textbox", { name: "Retries" }), { target: { value: "3" } });
     fireEvent.click(screen.getByRole("combobox", { name: "Suggest fixes" }));
     fireEvent.click(screen.getByRole("option", { name: "Enabled" }));
-    fireEvent.click(within(screen.getByRole("region", { name: "Independent reviewer" })).getByRole("combobox", { name: "Instructions" }));
+    fireEvent.click(within(screen.getByRole("region", { name: "Independent reviewers" })).getByRole("combobox", { name: "Instructions" }));
     fireEvent.click(screen.getByRole("option", { name: "Custom" }));
     const dialog = within(screen.getByRole("dialog"));
     fireEvent.change(dialog.getByLabelText("Your instructions"), { target: { value: "Check concrete example defects." } });
@@ -173,7 +173,8 @@ describe("SettingsPage integrations smoke tests", () => {
     expect(saveAiActionSettingsMock).not.toHaveBeenCalled();
     await saveSection("Pull request review");
     await waitFor(() => expect(saveAiActionSettingsMock).toHaveBeenCalledWith("pullRequestReview", expect.objectContaining({
-      reviewArbitration: { enabled: true, reviewCount: 4 }, reviewArbiter: expect.objectContaining({ model: "example-arbiter-model" }),
+      reviewArbitration: { enabled: true, reviewCount: 9 }, reviewArbiter: expect.objectContaining({ model: "example-arbiter-model" }),
+      retries: expect.objectContaining({ actions: expect.objectContaining({ reviewArbiter: 3 }) }),
     }), { instructions: "Check concrete example defects.", includeFixExamples: true, arbiterInstructions: "Verify example defects independently." }));
     await waitFor(() => expect(review.getByRole("button", { name: "Save" })).toBeDisabled());
     expect(persisted.reasoning).toBe("medium");
@@ -189,10 +190,11 @@ describe("SettingsPage integrations smoke tests", () => {
     vi.mocked(getPromptSettings).mockResolvedValue([persistedPrompt, persistedArbiterPrompt]);
     render(<SettingsPage section="ai" />);
     expect(within(await screen.findByRole("radiogroup", { name: "Review mode" })).getByRole("radio", { name: "Review with arbiter" })).toBeChecked();
-    expect(screen.getByRole("combobox", { name: "Independent reviews" })).toHaveTextContent("4");
+    expect(screen.getByRole("textbox", { name: "Independent reviews" })).toHaveValue("9");
     expect(screen.getByRole("combobox", { name: "Arbiter model" })).toHaveTextContent("example-arbiter-model");
     expect(await screen.findByRole("combobox", { name: "Suggest fixes" })).toHaveTextContent("Enabled");
     expect(within(screen.getByRole("region", { name: "Arbiter" })).getByRole("combobox", { name: "Instructions" })).toHaveTextContent("Custom");
+    expect(within(screen.getByRole("region", { name: "Arbiter" })).getByRole("textbox", { name: "Retries" })).toHaveValue("3");
   });
 
   it("does not block data integrations while AI settings are pending", async () => {
@@ -560,7 +562,6 @@ describe("SettingsPage integrations smoke tests", () => {
       model: "example-model",
       reasoning: "medium",
       fastMode: false,
-      retries: codexAiSettings.settings.retries,
     }), null));
   });
 

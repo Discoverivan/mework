@@ -1,6 +1,5 @@
 import type { ReactNode } from "react";
-import { Label } from "@/components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { ManualNumberField } from "@/components/shared/ManualNumberField";
 import { Separator } from "@/components/ui/separator";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { useI18n } from "@/i18n/context";
@@ -9,10 +8,11 @@ import { AiOverrideEditor } from "./AiOverrideEditor";
 
 const modeOptionClassName = "pr-filter-mode-option review-mode-option relative border border-transparent data-[state=on]:z-10 data-[state=on]:rounded-b-none data-[state=on]:border-border data-[state=on]:border-b-transparent data-[state=on]:after:absolute data-[state=on]:after:inset-x-0 data-[state=on]:after:bottom-0 data-[state=on]:after:h-px data-[state=on]:after:bg-background data-[state=on]:after:content-['']";
 
-export function ReviewArbitrationSettings({ settings, profile, providers, disabled, fieldErrors, onChange, onProfileChange, children, arbiterStatus, arbiterInstructions }: {
+export function ReviewArbitrationSettings({ settings, profile, providers, disabled, fieldErrors, onChange, onProfileChange, children, arbiterStatus, arbiterInstructions, arbiterRetries }: {
   children: ReactNode;
   arbiterStatus?: ReactNode;
   arbiterInstructions?: ReactNode;
+  arbiterRetries?: ReactNode;
   settings: Settings;
   profile: AiSettingsProfile | null | undefined;
   providers: AiProvider[];
@@ -22,7 +22,7 @@ export function ReviewArbitrationSettings({ settings, profile, providers, disabl
   onProfileChange: (profile: AiSettingsProfile | null) => void;
 }) {
   const { t } = useI18n();
-  return <div className="@container flex flex-col [&_[role=combobox]]:bg-card">
+  return <div className="@container flex flex-col [&_[role=combobox]]:bg-card [&_input]:bg-card">
     <div className="w-full">
       <ToggleGroup type="single" size="sm" role="radiogroup" aria-label={t("settings.ai.reviewMode")}
         value={settings.enabled ? "arbiter" : "single"} disabled={disabled}
@@ -49,21 +49,22 @@ export function ReviewArbitrationSettings({ settings, profile, providers, disabl
               providerLabel={t("settings.ai.provider")} modelLabel={t("settings.ai.arbiterModel")}
               reasoningLabel={t("settings.ai.reasoning")} noModelsLabel={t("settings.ai.noModels", { provider: t("settings.ai.selectedProvider") })}
               unavailableLabel={t("settings.ai.unavailableSuffix")} disabled={disabled} fieldErrors={fieldErrors} onChange={onProfileChange} />
+            {profile ? arbiterRetries : null}
             {arbiterInstructions}
-            <div className="grid gap-2.5">
-              <Label id="ai-review-count-label">{t("settings.ai.reviewCount")}</Label>
-              <Select value={String(settings.reviewCount)} disabled={disabled} onValueChange={(value) => onChange({ ...settings, reviewCount: Number(value) })}>
-                <SelectTrigger id="ai-review-count" aria-labelledby="ai-review-count-label" className="h-9"><SelectValue /></SelectTrigger>
-                <SelectContent>{[2, 3, 4, 5].map((count) => <SelectItem key={count} value={String(count)}>{count}</SelectItem>)}</SelectContent>
-              </Select>
-            </div>
           </div>
           {arbiterStatus}
         </div>
       </section>
       <div className="ml-4"><Separator /></div>
       <section aria-labelledby="ai-reviewers-title" className="flex min-w-0 flex-col gap-4">
-        <h4 id="ai-reviewers-title" className="text-sm font-medium">{t("settings.ai.independentReviewer")}</h4>
+        <div className="flex flex-wrap items-center gap-3 [&_input]:h-6 [&_input]:w-6 [&_input]:min-w-0 [&_input]:p-0.5 [&_input]:text-center [&_input]:leading-none">
+          <h4 id="ai-reviewers-title" className="text-sm font-medium">{t("settings.ai.independentReviewers")}</h4>
+          <span id="ai-review-count-label" className="sr-only">{t("settings.ai.reviewCount")}</span>
+          <ManualNumberField id="ai-review-count" label={t("settings.ai.reviewCount")} labelledBy="ai-review-count-label"
+            value={settings.reviewCount} min={2} max={9} disabled={disabled}
+            errors={{ required: t("settings.ai.reviewCountRequired"), number: t("settings.ai.reviewCountInteger"), range: t("settings.ai.reviewCountRange") }}
+            onChange={(reviewCount) => onChange({ ...settings, reviewCount })} />
+        </div>
         <div className="ml-4">{children}</div>
       </section>
     </div>}

@@ -584,7 +584,7 @@ export function SettingsPage({ section = "integrations", focusActivity, mockMode
     setAiSaveNotice(null);
   }
 
-  function renderRetries(action: "default" | AiActivity) {
+  function renderRetries(action: AiSettingsScope) {
     const inheritedRetries = aiDraft.retries.default;
     const value = action === "default"
       ? inheritedRetries
@@ -690,7 +690,7 @@ export function SettingsPage({ section = "integrations", focusActivity, mockMode
     setAiFieldError(null);
   }
 
-  function updateAiProfile(field: AiActivity, profile: AiSettingsProfile | null) {
+  function updateAiProfile(field: AiActivity | "reviewArbiter", profile: AiSettingsProfile | null) {
     setAiDraft((current) => ({
       ...current,
       [field]: profile,
@@ -1195,8 +1195,8 @@ export function SettingsPage({ section = "integrations", focusActivity, mockMode
                 disabled={aiLoading || aiDeleting || aiSavingScopes.includes("reviewArbiter")}
                 fieldErrors={{ provider: aiFieldMessage("reviewArbiter", "provider"), model: aiFieldMessage("reviewArbiter", "model") }}
                 onChange={(settings) => updateAiSetting("reviewArbitration", settings)}
-                onProfileChange={(profile) => updateAiSetting("reviewArbiter", profile)}
-                arbiterStatus={renderAiStatus("reviewArbiter")} arbiterInstructions={arbiterInstructions}>
+                onProfileChange={(profile) => updateAiProfile("reviewArbiter", profile)}
+                arbiterStatus={renderAiStatus("reviewArbiter")} arbiterInstructions={arbiterInstructions} arbiterRetries={renderRetries("reviewArbiter")}>
                 {fields}
               </ReviewArbitrationSettings> : fields}
             extraAction={renderActionModelSettings("tokenBurner")}
