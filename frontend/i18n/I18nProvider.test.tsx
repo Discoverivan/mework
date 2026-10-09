@@ -49,4 +49,11 @@ describe("I18nProvider startup appearance", () => {
     expect(document.documentElement).toHaveAttribute("data-button-style", "filled_borderless");
     expect(document.documentElement).toHaveAttribute("data-panel-style", "bordered");
   });
+
+  it("starts with borderless Filled buttons and bordered panels without cached preferences", () => {
+    render(<I18nProvider><ThemeProbe /></I18nProvider>);
+
+    expect(document.documentElement).toHaveAttribute("data-button-style", "filled_borderless");
+    expect(document.documentElement).toHaveAttribute("data-panel-style", "bordered");
+  });
 });

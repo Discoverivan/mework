@@ -84,8 +84,8 @@ pub enum ThemePreference {
 #[serde(rename_all = "snake_case")]
 pub enum ButtonStyle {
     Quiet,
-    #[default]
     Filled,
+    #[default]
     FilledBorderless,
 }
 
@@ -135,7 +135,7 @@ impl Default for GeneralSettings {
             language: AppLanguage::English,
             ai_response_language: AiResponseLanguage::SameAsUi,
             theme_preference: ThemePreference::System,
-            button_style: ButtonStyle::Filled,
+            button_style: ButtonStyle::FilledBorderless,
             panel_style: Some(PanelStyle::Bordered),
             extra_functions_enabled: false,
             model_testing_enabled: true,
@@ -180,11 +180,18 @@ pub async fn load(pool: &SqlitePool) -> Result<GeneralSettings, String> {
     value.map_or_else(
         || Ok(GeneralSettings::default()),
         |raw| {
-            serde_json::from_str::<GeneralSettings>(&raw)
-                .map(|mut settings| {
+            serde_json::from_str::<serde_json::Value>(&raw)
+                .and_then(|value| {
+                    let has_button_style = value.get("buttonStyle").is_some();
+                    let mut settings = serde_json::from_value::<GeneralSettings>(value)?;
                     // Resolve legacy combined styles before any independent preference update.
-                    settings.panel_style = Some(settings.resolved_panel_style());
-                    settings
+                    settings.panel_style =
+                        Some(if settings.panel_style.is_none() && !has_button_style {
+                            PanelStyle::Bordered
+                        } else {
+                            settings.resolved_panel_style()
+                        });
+                    Ok(settings)
                 })
                 .map_err(|_| "failed to deserialize general settings".to_owned())
         },
@@ -414,7 +421,8 @@ mod tests {
         assert_eq!(settings.language, AppLanguage::English);
         assert_eq!(settings.ai_response_language, AiResponseLanguage::SameAsUi);
         assert_eq!(settings.theme_preference, ThemePreference::System);
-        assert_eq!(settings.button_style, ButtonStyle::Filled);
+        assert_eq!(settings.button_style, ButtonStyle::FilledBorderless);
+        assert_eq!(settings.panel_style, Some(PanelStyle::Bordered));
         assert!(!settings.extra_functions_enabled);
         assert!(settings.model_testing_enabled);
         assert_eq!(settings.ai_review_attempts, DEFAULT_AI_REVIEW_ATTEMPTS);
@@ -427,7 +435,7 @@ mod tests {
         )
         .unwrap();
         assert_eq!(legacy.ai_response_language, AiResponseLanguage::SameAsUi);
-        assert_eq!(legacy.button_style, ButtonStyle::Filled);
+        assert_eq!(legacy.button_style, ButtonStyle::FilledBorderless);
         assert!(legacy.model_testing_enabled);
         assert_eq!(legacy.ai_review_attempts, DEFAULT_AI_REVIEW_ATTEMPTS);
         assert_eq!(
@@ -494,6 +502,19 @@ mod tests {
 
         let mut legacy = serde_json::to_value(GeneralSettings::default()).unwrap();
         legacy.as_object_mut().unwrap().remove("panelStyle");
+        legacy.as_object_mut().unwrap().remove("buttonStyle");
+        crate::infrastructure::db::repositories::upsert_setting(
+            &pool,
+            "general.settings",
+            &legacy.to_string(),
+            7,
+        )
+        .await
+        .unwrap();
+        let migrated = load(&pool).await.unwrap();
+        assert_eq!(migrated.button_style, ButtonStyle::FilledBorderless);
+        assert_eq!(migrated.panel_style, Some(PanelStyle::Bordered));
+
         legacy["buttonStyle"] = serde_json::json!("filled_borderless");
         crate::infrastructure::db::repositories::upsert_setting(
             &pool,

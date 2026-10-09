@@ -33,11 +33,12 @@ function translate(language: AppLanguage, key: TranslationKey, params?: Translat
 export function I18nProvider({ children }: { children: ReactNode }) {
   const [language, setLanguage] = useState<AppLanguage>(AppLanguage.English);
   const [themePreference, setThemePreference] = useState<ThemePreference>(() => readCachedThemePreference() ?? "system");
-  const [buttonStyle, setButtonStyle] = useState<ButtonStyle>(() => readCachedButtonStyle() ?? "filled");
+  const [buttonStyle, setButtonStyle] = useState<ButtonStyle>(() => readCachedButtonStyle() ?? "filled_borderless");
   const [buttonStyleSaving, setButtonStyleSaving] = useState(false);
-  const [panelStyle, setPanelStyle] = useState<PanelStyle>(() =>
-    readCachedPanelStyle() ?? (buttonStyle === "filled" ? "bordered" : "borderless")
-  );
+  const [panelStyle, setPanelStyle] = useState<PanelStyle>(() => {
+    const cachedButtonStyle = readCachedButtonStyle();
+    return readCachedPanelStyle() ?? (!cachedButtonStyle || cachedButtonStyle === "filled" ? "bordered" : "borderless");
+  });
   const [panelStyleSaving, setPanelStyleSaving] = useState(false);
   const [appearanceSaving, setAppearanceSaving] = useState(false);
   const languageRef = useRef(language);
@@ -64,12 +65,12 @@ export function I18nProvider({ children }: { children: ReactNode }) {
         setThemePreference(settings.themePreference);
       }
       if (buttonStyleRevisionRef.current === buttonRevision) {
-        buttonStyleRef.current = settings.buttonStyle ?? "filled";
+        buttonStyleRef.current = settings.buttonStyle ?? "filled_borderless";
         cacheButtonStyle(buttonStyleRef.current);
         setButtonStyle(buttonStyleRef.current);
       }
       if (panelStyleRevisionRef.current === panelRevision) {
-        panelStyleRef.current = settings.panelStyle ?? (settings.buttonStyle === "filled" ? "bordered" : "borderless");
+        panelStyleRef.current = settings.panelStyle ?? (!settings.buttonStyle || settings.buttonStyle === "filled" ? "bordered" : "borderless");
         cachePanelStyle(panelStyleRef.current);
         setPanelStyle(panelStyleRef.current);
       }
