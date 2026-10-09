@@ -8,7 +8,7 @@ import { AiOverrideEditor } from "./AiOverrideEditor";
 
 const modeOptionClassName = "pr-filter-mode-option review-mode-option relative border border-transparent data-[state=on]:z-10 data-[state=on]:rounded-b-none data-[state=on]:border-border data-[state=on]:border-b-transparent data-[state=on]:after:absolute data-[state=on]:after:inset-x-0 data-[state=on]:after:bottom-0 data-[state=on]:after:h-px data-[state=on]:after:bg-background data-[state=on]:after:content-['']";
 
-export function ReviewArbitrationSettings({ settings, profile, providers, disabled, fieldErrors, onChange, onProfileChange, children, arbiterStatus, arbiterInstructions, arbiterRetries }: {
+export function ReviewArbitrationSettings({ settings, profile, providers, disabled, fieldErrors, onChange, onProfileChange, onReviewCountValidityChange, reviewCountReset, children, arbiterStatus, arbiterInstructions, arbiterRetries }: {
   children: ReactNode;
   arbiterStatus?: ReactNode;
   arbiterInstructions?: ReactNode;
@@ -20,6 +20,8 @@ export function ReviewArbitrationSettings({ settings, profile, providers, disabl
   fieldErrors?: { provider?: string; model?: string };
   onChange: (settings: Settings) => void;
   onProfileChange: (profile: AiSettingsProfile | null) => void;
+  onReviewCountValidityChange: (valid: boolean) => void;
+  reviewCountReset: number;
 }) {
   const { t } = useI18n();
   return <div className="@container flex flex-col [&_[role=combobox]]:bg-card [&_input]:bg-card">
@@ -60,10 +62,10 @@ export function ReviewArbitrationSettings({ settings, profile, providers, disabl
         <div className="flex flex-wrap items-center gap-3 [&_input]:h-6 [&_input]:w-6 [&_input]:min-w-0 [&_input]:p-0.5 [&_input]:text-center [&_input]:leading-none">
           <h4 id="ai-reviewers-title" className="text-sm font-medium">{t("settings.ai.independentReviewers")}</h4>
           <span id="ai-review-count-label" className="sr-only">{t("settings.ai.reviewCount")}</span>
-          <ManualNumberField id="ai-review-count" label={t("settings.ai.reviewCount")} labelledBy="ai-review-count-label"
+          <ManualNumberField key={reviewCountReset} id="ai-review-count" label={t("settings.ai.reviewCount")} labelledBy="ai-review-count-label"
             value={settings.reviewCount} min={2} max={9} disabled={disabled}
             errors={{ required: t("settings.ai.reviewCountRequired"), number: t("settings.ai.reviewCountInteger"), range: t("settings.ai.reviewCountRange") }}
-            onChange={(reviewCount) => onChange({ ...settings, reviewCount })} />
+            onChange={(reviewCount) => onChange({ ...settings, reviewCount })} onValidityChange={onReviewCountValidityChange} />
         </div>
         <div className="ml-4">{children}</div>
       </section>

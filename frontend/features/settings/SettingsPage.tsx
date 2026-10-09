@@ -280,6 +280,8 @@ export function SettingsPage({ section = "integrations", focusActivity, mockMode
   const [integrations, setIntegrations] = useState<IntegrationRedacted[]>([]);
   const [aiData, setAiData] = useState<AiSettingsPageData>(() => getCachedAiSettings() ?? INITIAL_AI_DATA);
   const [aiDraft, setAiDraft] = useState<AiSettings>(() => getCachedAiSettings()?.settings ?? DEFAULT_AI_SETTINGS);
+  const [reviewCountValid, setReviewCountValid] = useState(true);
+  const [reviewCountReset, setReviewCountReset] = useState(0);
   const [aiSaving, setAiSaving] = useState(false);
   const [aiSavingScopes, setAiSavingScopes] = useState<AiSettingsScope[]>([]);
   const [aiError, setAiError] = useState<string | null>(null);
@@ -526,6 +528,7 @@ export function SettingsPage({ section = "integrations", focusActivity, mockMode
   const hasJiraIntegration = integrations.some((integration) => integration.kind === "jira");
 
   function sectionReady(scope: AiActionSettingsScope) {
+    if (scope === "pullRequestReview" && aiDraft.reviewArbitration?.enabled && !reviewCountValid) return false;
     if (scope === "default") {
       const selectionChanged = aiDraft.provider !== aiData.settings.provider
         || (aiDraft.providerInstanceId ?? null) !== (aiData.settings.providerInstanceId ?? null)
@@ -579,6 +582,10 @@ export function SettingsPage({ section = "integrations", focusActivity, mockMode
 
   function cancelActionSection(scope: AiActionSettingsScope) {
     setAiDraft((current) => copyAiSection(current, aiData.settings, scope));
+    if (scope === "pullRequestReview") {
+      setReviewCountValid(true);
+      setReviewCountReset((current) => current + 1);
+    }
     setAiError(null);
     setAiFieldError(null);
     setAiSaveNotice(null);
@@ -1141,7 +1148,8 @@ export function SettingsPage({ section = "integrations", focusActivity, mockMode
           </section>
 
           <ActionSettingsSection
-            sectionChanged={(scope) => aiSectionChanged(aiDraft, aiData.settings, scope)}
+            sectionChanged={(scope) => aiSectionChanged(aiDraft, aiData.settings, scope)
+              || (scope === "pullRequestReview" && Boolean(aiDraft.reviewArbitration?.enabled) && !reviewCountValid)}
             sectionReady={sectionReady}
             onSaveSection={saveActionSection}
             onCancelSection={cancelActionSection}
@@ -1196,6 +1204,7 @@ export function SettingsPage({ section = "integrations", focusActivity, mockMode
                 fieldErrors={{ provider: aiFieldMessage("reviewArbiter", "provider"), model: aiFieldMessage("reviewArbiter", "model") }}
                 onChange={(settings) => updateAiSetting("reviewArbitration", settings)}
                 onProfileChange={(profile) => updateAiProfile("reviewArbiter", profile)}
+                onReviewCountValidityChange={setReviewCountValid} reviewCountReset={reviewCountReset}
                 arbiterStatus={renderAiStatus("reviewArbiter")} arbiterInstructions={arbiterInstructions} arbiterRetries={renderRetries("reviewArbiter")}>
                 {fields}
               </ReviewArbitrationSettings> : fields}

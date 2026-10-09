@@ -146,7 +146,11 @@ describe("SettingsPage integrations smoke tests", () => {
     fireEvent.click(review.getByRole("button", { name: "Cancel" }));
     expect(mode.getByRole("radio", { name: "Single review" })).toBeChecked();
     fireEvent.click(mode.getByRole("radio", { name: "Review with arbiter" }));
-    fireEvent.change(within(screen.getByRole("region", { name: "Independent reviewers" })).getByRole("textbox", { name: "Independent reviews" }), { target: { value: "9" } });
+    const count = within(screen.getByRole("region", { name: "Independent reviewers" })).getByRole("textbox", { name: "Independent reviews" });
+    fireEvent.change(count, { target: { value: "" } });
+    expect(review.getByRole("button", { name: "Save" })).toBeDisabled();
+    fireEvent.change(count, { target: { value: "9" } });
+    expect(review.getByRole("button", { name: "Save" })).toBeEnabled();
     fireEvent.click(within(screen.getByRole("region", { name: "Arbiter" })).getByRole("combobox", { name: "AI provider" }));
     expect(screen.getAllByRole("option")[0]).toHaveTextContent("Use defaults");
     fireEvent.click(screen.getByRole("option", { name: /Claude Code CLI/ }));
