@@ -887,14 +887,14 @@ export function MyPullRequestsPage() {
               <ToggleGroupItem
                 value="blacklist"
                 title={t("pr.filters.denyHint")}
-                className="pr-filter-mode-option data-[state=on]:bg-background data-[state=on]:text-foreground data-[state=on]:shadow-sm"
+                className="pr-filter-mode-option px-4 data-[state=on]:bg-background data-[state=on]:text-foreground data-[state=on]:shadow-sm"
               >
                 {t("pr.filters.blacklist")}
               </ToggleGroupItem>
               <ToggleGroupItem
                 value="whitelist"
                 title={t("pr.filters.allowHint")}
-                className="pr-filter-mode-option data-[state=on]:bg-background data-[state=on]:text-foreground data-[state=on]:shadow-sm"
+                className="pr-filter-mode-option px-4 data-[state=on]:bg-background data-[state=on]:text-foreground data-[state=on]:shadow-sm"
               >
                 {t("pr.filters.whitelist")}
               </ToggleGroupItem>
