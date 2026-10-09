@@ -348,8 +348,8 @@
     border-color: var(--input);
   }
 
-/* Neutral and creation Filled actions keep a stable fill and signal hover through their border and foreground. */
-:root[data-button-style="filled"] .app-icon-button:not(:where(.app-shell aside *)):not([data-action-tone="edit"]):not([data-action-tone="success"]):not([data-action-tone="warning"]):not([data-action-tone="delete"]):not([data-button-variant="destructive"]):not(:disabled):is(:hover, :focus-visible),
+/* Filled icon actions and neutral/creation text actions signal hover through their border and foreground. */
+:root[data-button-style="filled"] .app-icon-button:not(:where(.app-shell aside *)):not(:disabled):is(:hover, :focus-visible),
 :root[data-button-style="filled"] .app-action-text:not(:where(.app-shell aside *)):not([data-button-variant="link"]):not([data-action-tone="edit"]):not([data-action-tone="success"]):not([data-action-tone="warning"]):not([data-action-tone="delete"]):not([data-button-variant="destructive"]):not(:disabled):is(:hover, :focus-visible) {
   background: var(--app-action-background, var(--secondary));
   border-color: var(--app-action-color);

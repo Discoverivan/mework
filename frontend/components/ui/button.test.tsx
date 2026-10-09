@@ -128,7 +128,7 @@ it("keeps Filled section-header actions distinct and filter actions compact", ()
   try {
     render(<div className="pr-filter-group"><CardHeader variant="section" style={{ background: "var(--muted)" }}>
       <CreateButton label="Add" aria-label="Add filter" />
-      <Button variant="outline" size="icon" aria-label="Expand section"><Trash2 aria-hidden="true" /></Button>
+      <Button variant="outline" size="icon" actionTone="delete" aria-label="Expand section"><Trash2 aria-hidden="true" /></Button>
       <Button variant="outline">Cancel</Button>
     </CardHeader><Button size="sm" variant="ghost" actionTone="delete" aria-label="Remove filter"><Trash2 aria-hidden="true" />Remove</Button></div>);
     const addFilter = screen.getByRole("button", { name: "Add filter" });
@@ -143,6 +143,15 @@ it("keeps Filled section-header actions distinct and filter actions compact", ()
     expect(getComputedStyle(cancel).background).toBe("var(--app-action-background, var(--secondary))");
     expect(getComputedStyle(cancel).borderColor).toBe("rgb(70, 90, 180)");
     cancel.blur();
+    const iconAction = screen.getByRole("button", { name: "Expand section" });
+    fireEvent.mouseOver(iconAction);
+    iconAction.focus();
+    style.textContent += "\n";
+    expect(getComputedStyle(iconAction).background).toBe("var(--app-action-background, var(--secondary))");
+    expect(getComputedStyle(iconAction).borderColor).toBe("rgb(70, 90, 180)");
+    iconAction.blur();
+    fireEvent.mouseOut(iconAction);
+    style.textContent += "\n";
     for (const button of [addFilter, screen.getByRole("button", { name: "Expand section" })]) {
       expect(getComputedStyle(button).borderWidth).toBe("1px");
       expect(getComputedStyle(button).borderStyle).toBe("solid");
