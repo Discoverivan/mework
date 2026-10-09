@@ -1,4 +1,5 @@
-import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import type { ReactNode } from "react";
+import { buttonVariants } from "@/components/ui/button";
 import { ManualNumberField } from "@/components/shared/ManualNumberField";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { useI18n } from "@/i18n/context";
@@ -6,7 +7,10 @@ import { cn } from "@/lib/utils";
 import type { AiProvider, AiSettingsProfile, ReviewArbitrationSettings as Settings } from "@/shared/contracts/settings";
 import { AiOverrideEditor } from "./AiOverrideEditor";
 
-const reviewModeOptionClassName = "review-mode-option relative z-10 h-[30px] whitespace-nowrap rounded-none bg-transparent px-[14px] text-muted-foreground transition-colors duration-150 hover:bg-transparent hover:text-foreground data-[state=on]:bg-transparent data-[state=on]:text-primary-foreground data-[state=on]:hover:bg-transparent data-[state=on]:hover:text-primary-foreground focus-visible:ring-inset focus-visible:ring-offset-0 disabled:opacity-100 motion-reduce:transition-none";
+const reviewModeOptionClassName = cn(
+  buttonVariants({ variant: "outline", size: "sm" }),
+  "review-mode-option relative h-[30px] bg-background px-[14px] text-muted-foreground transition-none hover:bg-background hover:text-foreground data-[state=on]:bg-primary data-[state=on]:text-primary-foreground data-[state=on]:hover:bg-primary data-[state=on]:hover:text-primary-foreground group-hover/review-mode:enabled:border-y-primary",
+);
 
 export function ReviewModeControl({ settings, disabled, onChange }: {
   settings: Settings;
@@ -16,63 +20,16 @@ export function ReviewModeControl({ settings, disabled, onChange }: {
   const { t } = useI18n();
   const singleLabel = t("settings.ai.reviewModeSingle");
   const arbiterLabel = t("settings.ai.reviewModeArbiter");
-  const singleRef = useRef<HTMLButtonElement>(null);
-  const arbiterRef = useRef<HTMLButtonElement>(null);
-  const [indicator, setIndicator] = useState({ left: 0, width: 0 });
-  const [hovered, setHovered] = useState<{ mode: "single" | "arbiter"; left: number; width: number } | null>(null);
-
-  useLayoutEffect(() => {
-    const measure = () => {
-      const selected = settings.enabled ? arbiterRef.current : singleRef.current;
-      if (!selected) return;
-      const next = { left: selected.offsetLeft, width: selected.offsetWidth };
-      setIndicator((previous) => previous.left === next.left && previous.width === next.width ? previous : next);
-      setHovered((previous) => {
-        if (!previous) return previous;
-        const target = previous.mode === "arbiter" ? arbiterRef.current : singleRef.current;
-        if (!target || (previous.left === target.offsetLeft && previous.width === target.offsetWidth)) return previous;
-        return { ...previous, left: target.offsetLeft, width: target.offsetWidth };
-      });
-    };
-    measure();
-    if (typeof ResizeObserver === "undefined") return;
-    const observer = new ResizeObserver(measure);
-    if (singleRef.current) observer.observe(singleRef.current);
-    if (arbiterRef.current) observer.observe(arbiterRef.current);
-    return () => observer.disconnect();
-  }, [settings.enabled, singleLabel, arbiterLabel]);
-
-  const hoverBorderColor = hovered?.mode === (settings.enabled ? "arbiter" : "single")
-    ? "var(--review-active-border)"
-    : "var(--primary)";
-
   return <ToggleGroup type="single" size="sm" role="radiogroup" aria-label={t("settings.ai.reviewMode")}
     value={settings.enabled ? "arbiter" : "single"} disabled={disabled}
-    onValueChange={(mode) => { if (mode === "single" || mode === "arbiter") onChange({ ...settings, enabled: mode === "arbiter" }); }}
-    onPointerLeave={() => setHovered(null)}
-    className={cn("relative isolate flex w-fit gap-0 rounded-full border border-input bg-input/50 [--review-active-border:var(--foreground)] dark:[--review-active-border:color-mix(in_srgb,var(--foreground)_65%,var(--primary))]", disabled && "opacity-50")}>
-    <span aria-hidden="true" className="pointer-events-none absolute inset-0 overflow-hidden rounded-[inherit]">
-      <span aria-hidden="true" hidden={indicator.width === 0}
-        className="pointer-events-none absolute inset-y-0 -left-3 transition-[transform,width] duration-150 ease-out motion-reduce:transition-none"
-        style={{
-          width: `calc(${indicator.width}px + 1.5rem)`,
-          transform: `translateX(${indicator.left}px)`,
-          backgroundImage: `linear-gradient(to ${settings.enabled ? "left" : "right"}, var(--primary), var(--primary) calc(100% - 1.5rem), transparent)`,
-        }} />
-    </span>
-    <span aria-hidden="true"
-      className={cn("pointer-events-none absolute -inset-px z-20 rounded-[inherit] p-px transition-opacity duration-150 motion-reduce:transition-none", hovered && !disabled ? "opacity-100" : "opacity-0")}
-      style={{
-        backgroundImage: hovered?.mode === "arbiter"
-          ? `linear-gradient(to right, transparent calc(${hovered.left + 1}px - 0.75rem), ${hoverBorderColor} calc(${hovered.left + 1}px + 0.75rem))`
-          : `linear-gradient(to right, ${hoverBorderColor} calc(${(hovered?.left ?? 0) + (hovered?.width ?? 0) + 1}px - 0.75rem), transparent calc(${(hovered?.left ?? 0) + (hovered?.width ?? 0) + 1}px + 0.75rem))`,
-        mask: "linear-gradient(black, black) content-box, linear-gradient(black, black)",
-        maskComposite: "exclude",
-      }} />
-    <ToggleGroupItem ref={singleRef} onPointerEnter={(event) => setHovered({ mode: "single", left: event.currentTarget.offsetLeft, width: event.currentTarget.offsetWidth })} value="single" title={t("settings.ai.reviewModeSingleHelp")} className={reviewModeOptionClassName}>
+    onValueChange={() => onChange({ ...settings, enabled: !settings.enabled })}
+    className="group/review-mode w-fit gap-0">
+    <ToggleGroupItem value="single" title={t("settings.ai.reviewModeSingleHelp")}
+      className={cn(reviewModeOptionClassName, "rounded-r-none group-hover/review-mode:enabled:border-l-primary")}>
       {singleLabel}
     </ToggleGroupItem>
-    <ToggleGroupItem ref={arbiterRef} onPointerEnter={(event) => setHovered({ mode: "arbiter", left: event.currentTarget.offsetLeft, width: event.currentTarget.offsetWidth })} value="arbiter" title={t("settings.ai.reviewModeArbiterHelp")} className={reviewModeOptionClassName}>
+    <ToggleGroupItem value="arbiter" title={t("settings.ai.reviewModeArbiterHelp")}
+      className={cn(reviewModeOptionClassName, "-ml-px rounded-l-none group-hover/review-mode:enabled:border-r-primary")}>
       {arbiterLabel}
     </ToggleGroupItem>
   </ToggleGroup>;

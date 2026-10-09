@@ -144,6 +144,10 @@ describe("SettingsPage integrations smoke tests", () => {
     const reviewHeader = screen.getByRole("heading", { name: "Pull request review" }).closest("header");
     expect(within(reviewHeader!).getByRole("radiogroup", { name: "Review mode" })).toBeInTheDocument();
     await screen.findByRole("combobox", { name: "Suggest fixes" });
+    fireEvent.click(mode.getByRole("radio", { name: "Single review" }));
+    expect(mode.getByRole("radio", { name: "Review with arbiter" })).toBeChecked();
+    fireEvent.click(mode.getByRole("radio", { name: "Review with arbiter" }));
+    expect(mode.getByRole("radio", { name: "Single review" })).toBeChecked();
     fireEvent.click(mode.getByRole("radio", { name: "Review with arbiter" }));
     fireEvent.click(review.getByRole("button", { name: "Cancel" }));
     expect(mode.getByRole("radio", { name: "Single review" })).toBeChecked();
