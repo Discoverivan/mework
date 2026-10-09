@@ -978,7 +978,7 @@ export function ManagedProjectsSettings({
                           onClick={() => startEdit(project)}
                           disabled={controlsDisabled}
                           aria-label={t("teams.editTeamAction", { team: project.projectName })}
-                          title={t("teams.editTeamAction", { team: project.projectName })}
+                          title={t("common.edit")}
                         >
                           <Pencil className="size-4" aria-hidden="true" />
                         </Button>
@@ -991,7 +991,7 @@ export function ManagedProjectsSettings({
                           onClick={() => { setDeleteError(null); setDeleteTarget({ kind: "team", project }); }}
                           disabled={controlsDisabled}
                           aria-label={t(deletingProjectId === project.id ? "teams.deletingTeamAction" : "teams.deleteTeamAction", { team: project.projectName })}
-                          title={t(deletingProjectId === project.id ? "teams.deletingTeamAction" : "teams.deleteTeamAction", { team: project.projectName })}
+                          title={t("common.delete")}
                         >
                           {deletingProjectId === project.id
                             ? <LoaderCircle className="size-4 animate-spin" aria-hidden="true" />
@@ -1528,7 +1528,7 @@ export function ManagedProjectsSettings({
                         onClick={() => openEditMemberDialog(member)}
                         disabled={controlsDisabled}
                         aria-label={t("teams.editMemberAction", { member: label })}
-                        title={t("teams.editMemberAction", { member: label })}
+                        title={t("common.edit")}
                       >
                         <Pencil className="size-4" aria-hidden="true" />
                       </Button>
@@ -1541,7 +1541,7 @@ export function ManagedProjectsSettings({
                         onClick={() => { setDeleteError(null); setDeleteTarget({ kind: "member", member }); }}
                         disabled={controlsDisabled}
                         aria-label={t(removingMemberAccountId === member.accountId ? "teams.deletingMemberAction" : "teams.deleteMemberAction", { member: label })}
-                        title={t(removingMemberAccountId === member.accountId ? "teams.deletingMemberAction" : "teams.deleteMemberAction", { member: label })}
+                        title={t("common.delete")}
                       >
                         {removingMemberAccountId === member.accountId
                           ? <LoaderCircle className="size-4 animate-spin" aria-hidden="true" />

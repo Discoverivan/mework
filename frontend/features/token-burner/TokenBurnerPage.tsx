@@ -424,13 +424,13 @@ export function TokenBurnerPage() {
 
       <section className="grid gap-4 md:grid-cols-2" aria-label={t("tokenBurner.status")}>
         <Card className="text-sm">
-          <CardHeader className="flex-row items-center justify-between space-y-0 px-4 pb-2 pt-3.5">
+          <CardHeader variant="section" className="flex-row items-center justify-between space-y-0">
             <CardTitle className="text-base font-semibold leading-tight">{t("tokenBurner.dailyTarget")}</CardTitle>
             <Button type="button" variant="ghost" size="icon" className="size-7" aria-label={t("tokenBurner.resetDailyProgress")} title={t("tokenBurner.resetDailyProgress")} onClick={() => setResetConfirmOpen(true)} disabled={!canResetDailyProgress || resetBusy}>
               {resetBusy ? <Loader2 className="animate-spin" aria-hidden="true" /> : <RotateCcw aria-hidden="true" />}
             </Button>
           </CardHeader>
-          <CardContent className="flex flex-col gap-2 px-4 pb-3.5">
+          <CardContent className="flex flex-col gap-2 px-4 py-3.5">
             <div className="flex items-center justify-between gap-3 tabular-nums">
               <p className="text-sm text-muted-foreground">{formatTokens(tokensToday, true)} / {formatTokens(target, true)}</p>
               <p className="text-sm font-medium">{percent}%</p>
@@ -441,7 +441,7 @@ export function TokenBurnerPage() {
           </CardContent>
         </Card>
         <Card className="flex flex-col text-sm" data-info-popover-boundary>
-          <CardHeader className="px-4 pb-2 pt-3.5"><CardTitle className="text-base font-semibold leading-tight">{t("tokenBurner.status")}</CardTitle></CardHeader>
+          <CardHeader variant="section"><CardTitle className="text-base font-semibold leading-tight">{t("tokenBurner.status")}</CardTitle></CardHeader>
           <CardContent className="flex flex-1 flex-wrap content-center items-center gap-1.5 px-4 pb-3.5 pt-3.5">
             <ModelTestingStatus status={state} label={t(statusKey)} />
             {lastError ? (
@@ -464,11 +464,11 @@ export function TokenBurnerPage() {
       </section>
 
       <Card className="text-sm">
-        <CardHeader className="px-4 py-3.5">
+        <CardHeader variant="section">
           <CardTitle className="text-base font-semibold leading-tight">{t("tokenBurner.configuration")}</CardTitle>
           <CardDescription className="leading-snug">{t("tokenBurner.configurationDescription")}</CardDescription>
         </CardHeader>
-        <CardContent className="flex flex-col gap-5 px-4 pb-3.5">
+        <CardContent className="flex flex-col gap-5 px-4 py-3.5">
           {aiSettings ? <ModelTestingAiSettings data={aiSettings} disabled={runningOrStopping || actionBusy} onPendingChange={setAiConfigurationPending} /> : null}
           <Separator />
           <div className="flex flex-wrap items-end gap-4">
@@ -515,7 +515,7 @@ export function TokenBurnerPage() {
       </Card>
 
       <Card className="text-sm">
-        <CardHeader className="px-4 pb-2 pt-3.5">
+        <CardHeader variant="section">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="flex min-w-0 flex-col gap-1">
               <CardTitle className="text-base font-semibold leading-tight">{t("tokenBurner.activity")}</CardTitle>
@@ -529,7 +529,7 @@ export function TokenBurnerPage() {
           </div>
           {selectedRepository ? <CardDescription>{selectedRepository.name}</CardDescription> : null}
         </CardHeader>
-        <CardContent className="flex flex-col gap-4 px-4 pb-3.5 pt-0">
+        <CardContent className="flex flex-col gap-4 px-4 py-3.5">
           {currentIterations.length === 0 && completedIterations.length === 0 ? (
             <div className="flex flex-col gap-3 rounded-md border bg-background px-4 py-3">
               <p className="flex items-center gap-2 text-sm text-muted-foreground">{state === "running" ? <Loader2 className="size-4 animate-spin" aria-hidden="true" /> : null}{t(state === "running" ? "tokenBurner.findingPullRequest" : state === "no_prs" ? "tokenBurner.noAssignedPullRequests" : "tokenBurner.noActiveWork")}</p>

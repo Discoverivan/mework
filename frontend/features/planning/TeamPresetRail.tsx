@@ -66,11 +66,11 @@ export function TeamPresetRail({
 
   return (
     <Card aria-label={t("planning.myTeams")}>
-      <CardHeader className="flex flex-row items-center justify-between">
+      <CardHeader variant="section" className="flex flex-row items-center justify-between">
         <CardTitle className="text-base">{t("planning.myTeams")}</CardTitle>
         <Button type="button" size="sm" variant="outline" onClick={() => setShowCreate((value) => !value)}>{t("planning.newTeam")}</Button>
       </CardHeader>
-      <CardContent className="space-y-3">
+      <CardContent className="pt-3.5 space-y-3">
         {showCreate ? (
           <div className="space-y-2">
             <Label htmlFor="new-team-name">{t("teams.name")}</Label>

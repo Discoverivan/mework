@@ -604,7 +604,7 @@ export function TaskTrackerPage({ mockMode = false }: { mockMode?: boolean }) {
               ) : null}
               <Button type="button" variant="outline" size="icon" aria-label={checking ? t("taskTracker.checking") : t("taskTracker.checkNow")} title={checking ? t("taskTracker.checking") : t("taskTracker.checkNow")} disabled={checking} onClick={() => void checkNow()}><RefreshCw className={`size-4 ${checking ? "animate-spin" : ""}`} aria-hidden="true" /></Button>
               {!mockMode ? (
-                <Button type="button" variant="outline" size="icon" actionTone="edit" aria-label={t("taskTracker.dialog.edit")} title={t("taskTracker.dialog.edit")} onClick={() => openEdit(activeMonitor)}><Pencil className="size-4" aria-hidden="true" /></Button>
+                <Button type="button" variant="outline" size="icon" actionTone="edit" aria-label={t("taskTracker.dialog.edit")} title={t("common.edit")} onClick={() => openEdit(activeMonitor)}><Pencil className="size-4" aria-hidden="true" /></Button>
               ) : null}
             </div>
           </div>
@@ -747,7 +747,7 @@ function MonitorDialog({ t, open, editing, draft, saving, validating, validation
               <Button type="button" variant="outline" size="icon" aria-label={t("taskTracker.import.action")} title={t("taskTracker.import.action")} onClick={() => importInputRef.current?.click()}>
                 <Upload className="size-4" aria-hidden="true" />
               </Button>
-            </> : <Button type="button" variant="ghost" actionTone="delete" className="text-muted-foreground hover:bg-transparent hover:text-destructive" title={t("taskTracker.deleteMonitor", { name: draft.name })} onClick={onDelete}><Trash2 className="mr-2 size-4" aria-hidden="true" />{t("taskTracker.delete")}</Button>}
+            </> : <Button type="button" variant="ghost" actionTone="delete" className="text-muted-foreground hover:bg-transparent hover:text-destructive" title={t("common.delete")} onClick={onDelete}><Trash2 className="mr-2 size-4" aria-hidden="true" />{t("taskTracker.delete")}</Button>}
           </div>
           <Button data-dialog-cancel type="button" variant="outline" onClick={() => onOpenChange(false)}>{t("taskTracker.cancel")}</Button>
           <div className="ml-auto flex items-center gap-2">

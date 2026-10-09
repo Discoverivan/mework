@@ -95,7 +95,7 @@ describe("TaskTrackerPage", () => {
     const headerActionButtons = headerActionLabels.map((label) => screen.getByRole("button", { name: label }));
     headerActionButtons.forEach((button, index) => {
       expect(button).not.toHaveTextContent(headerActionLabels[index]);
-      expect(button).toHaveAttribute("data-tooltip", headerActionLabels[index]);
+      expect(button).toHaveAttribute("data-tooltip", headerActionLabels[index] === "Edit monitor" ? "Edit" : headerActionLabels[index]);
     });
     expect(Array.from(headerActionButtons[0].parentElement?.querySelectorAll("button") ?? [])).toEqual(headerActionButtons);
     const copyJqlButton = screen.getByRole("button", { name: "Copy JQL" });

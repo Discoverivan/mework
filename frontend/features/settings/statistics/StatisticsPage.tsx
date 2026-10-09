@@ -270,21 +270,21 @@ export function StatisticsPage() {
       ) : data && hasUsage ? (
         <>
           <Card>
-            <CardHeader className="gap-1 px-4 pb-3 pt-4">
+            <CardHeader variant="section" className="gap-1 px-4 pb-3 pt-4">
               <CardTitle className="text-base">{t("statistics.chartTitle")}</CardTitle>
               <CardDescription>{t("statistics.chartDescription")}</CardDescription>
             </CardHeader>
-            <CardContent className="px-4 pb-4 pt-0">
+            <CardContent className="p-4">
               <UsageChart data={data} period={period} locale={locale} description={t("statistics.chartDescription")} />
             </CardContent>
           </Card>
 
           <Card>
-            <CardHeader className="gap-1 px-4 pb-3 pt-4">
+            <CardHeader variant="section" className="gap-1 px-4 pb-3 pt-4">
               <CardTitle className="text-base">{t("statistics.tableTitle")}</CardTitle>
               <CardDescription>{t("statistics.tableDescription")}</CardDescription>
             </CardHeader>
-            <CardContent className="px-4 pb-4 pt-0">
+            <CardContent className="p-4">
               <Table className="min-w-[560px]">
                 <TableHeader>
                   <TableRow className="hover:bg-transparent">

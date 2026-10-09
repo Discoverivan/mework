@@ -3,6 +3,7 @@ import { Slot } from "@radix-ui/react-slot"
 import { cva, type VariantProps } from "class-variance-authority"
 
 import { cn } from "@/lib/utils"
+import { controlBorderClasses } from "@/lib/control-border"
 import { directPointerHover } from "@/lib/direct-pointer-hover"
 import { Hint } from "@/components/ui/tooltip"
 
@@ -53,7 +54,9 @@ const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
         <Comp
           className={cn(
             isPicker ? variantClasses.split(" ").filter((value) => !value.startsWith("hover:")).join(" ") : variantClasses,
-            isPicker && "data-[pointer-hover=true]:bg-accent data-[pointer-hover=true]:text-primary",
+            isPicker && "data-[pointer-hover=true]:text-primary",
+            isPicker && controlBorderClasses,
+            isPicker && "bg-control",
             size === "icon" && "app-icon-button",
             size !== "icon" && isAction && (variant !== "link" || actionTone) && "app-action-text",
             (actionTone === "success" || actionTone === "add") && "hover:text-success focus-visible:text-success",

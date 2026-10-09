@@ -1,5 +1,5 @@
 import { Hint } from "@/components/ui/tooltip";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { MarkdownContent } from "@/components/shared/MarkdownContent";
 import { CheckCircle2, CircleAlert, ExternalLink, Loader2, Pencil, RefreshCw, Send } from "lucide-react";
 
@@ -44,6 +44,7 @@ export interface PullRequestReviewDialogProps {
 }
 
 type EditableComment = {
+  scope: string;
   comment: PullRequestReviewComment;
   index: number;
   parentCommentId?: number;
@@ -119,6 +120,8 @@ export function PullRequestReviewDialog({
   const result = review?.result;
   const reviewFailed = review?.status === "failed";
   const [pendingAction, setPendingAction] = useState<string>();
+  const pendingCommentKeysRef = useRef(new Set<string>());
+  const [pendingCommentKeys, setPendingCommentKeys] = useState(new Set<string>());
   const [publicationStatus, setPublicationStatus] = useState<{ scope: string; published: Map<string, number>; checked: boolean; matches: PullRequestCommentMatch[]; failed?: boolean }>();
   const [checkAttempt, setCheckAttempt] = useState(0);
   const [editingComment, setEditingComment] = useState<EditableComment>();
@@ -136,6 +139,10 @@ export function PullRequestReviewDialog({
     } satisfies PullRequestCommentMatchesRequest)
     : "";
   const publicationScope = `${review?.runId ?? ""}:${publicationRequest}`;
+  const editingPending = Boolean(editingComment && pendingCommentKeys.has(
+    JSON.stringify([publicationScope, commentKey(editingComment.comment, editingComment.index)]),
+  ));
+  const hasPendingComments = [...pendingCommentKeys].some((key) => JSON.parse(key)[0] === publicationScope);
   const checkingPublication = Boolean(publicationRequest)
     && (publicationStatus?.scope !== publicationScope || !publicationStatus.checked);
   const publishedComments = publicationStatus?.scope === publicationScope ? publicationStatus.published : new Map<string, number>();
@@ -181,7 +188,7 @@ export function PullRequestReviewDialog({
 
   function openCommentEditor(comment: PullRequestReviewComment, index: number) {
     const match = commentMatches.find((match) => match.index === index && match.coverage === "partial");
-    setEditingComment({ comment, index, parentCommentId: match ? match.parentCommentId ?? match.commentId : undefined });
+    setEditingComment({ scope: publicationScope, comment, index, parentCommentId: match ? match.parentCommentId ?? match.commentId : undefined });
     setCommentDraft(match?.addition ?? comment.comment);
     setActionError(undefined);
   }
@@ -189,6 +196,8 @@ export function PullRequestReviewDialog({
   async function publishComment(comment: PullRequestReviewComment, index: number, editedText: string, parentCommentId?: number) {
     if (!pullRequest || !onPublishComment) return;
     const key = commentKey(comment, index);
+    const pendingKey = JSON.stringify([publicationScope, key]);
+    if (pendingCommentKeysRef.current.has(pendingKey) || publishedComments.has(key)) return;
     const match = commentMatches.find((match) => match.index === index);
     if (checkingPublication || match?.coverage === "full") return;
     const currentParent = match?.coverage === "partial" ? match.parentCommentId ?? match.commentId : undefined;
@@ -201,7 +210,8 @@ export function PullRequestReviewDialog({
       setActionError(t("pr.dialog.commentRequired"));
       return;
     }
-    setPendingAction(key);
+    pendingCommentKeysRef.current.add(pendingKey);
+    setPendingCommentKeys(new Set(pendingCommentKeysRef.current));
     setActionError(undefined);
     try {
       const { commentId } = await onPublishComment(pullRequest, nextComment);
@@ -209,13 +219,13 @@ export function PullRequestReviewDialog({
         ...current,
         published: new Map(current.published).set(key, commentId),
       } : current);
-      setEditingComment(undefined);
-      setCommentDraft("");
+      setEditingComment((current) => current?.scope === publicationScope && commentKey(current.comment, current.index) === key ? undefined : current);
     } catch (error) {
       setActionError(error instanceof Error ? error.message : typeof error === "string" ? error : t("pr.dialog.publishError"));
       setCheckAttempt((attempt) => attempt + 1);
     } finally {
-      setPendingAction(undefined);
+      pendingCommentKeysRef.current.delete(pendingKey);
+      setPendingCommentKeys(new Set(pendingCommentKeysRef.current));
     }
   }
 
@@ -234,10 +244,9 @@ export function PullRequestReviewDialog({
   }
 
   const openInBrowser = pullRequest?.url ? (
-    <Button asChild type="button" variant="outline" size="sm" actionTone="neutral" className="shrink-0 text-foreground">
+    <Button asChild type="button" variant="outline" size="icon" actionTone="neutral" className="size-8 shrink-0 text-foreground">
       <Hint content={t("pr.dialog.openWeb")}><a href={pullRequest.url} target="_blank" rel="noreferrer" aria-label={t("pr.dialog.openWeb")} onClick={() => onOpenPullRequest(pullRequest)}>
         <ExternalLink aria-hidden="true" />
-        {t("pr.dialog.openWeb")}
       </a></Hint>
     </Button>
   ) : null;
@@ -247,9 +256,12 @@ export function PullRequestReviewDialog({
       <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-3xl">
         <DialogHeader className="gap-2">
-          <DialogTitle aria-label={t("pr.dialog.results")}>
-            {pullRequest?.projectKey}/{pullRequest?.repositorySlug} #{pullRequest?.pullRequestId}
-          </DialogTitle>
+          <div className="flex items-center gap-2 pr-6">
+            <DialogTitle aria-label={t("pr.dialog.results")} className="min-w-0 break-words">
+              {pullRequest?.projectKey}/{pullRequest?.repositorySlug} #{pullRequest?.pullRequestId}
+            </DialogTitle>
+            {openInBrowser}
+          </div>
           <div className="flex items-end justify-between gap-3">
             <div className="min-w-0 flex-1 space-y-1">
               <DialogDescription className="break-words text-sm font-semibold text-foreground">
@@ -314,7 +326,8 @@ export function PullRequestReviewDialog({
                               const matched = commentMatches.find((match) => match.index === index);
                               const existingId = publishedComments.get(key) ?? matched?.commentId;
                               const matchedUrl = existingId != null ? existingCommentUrl(pullRequest?.url, existingId) : undefined;
-                              const status: CommentStatus = pendingAction === key ? "publishing"
+                              const commentPending = pendingCommentKeys.has(JSON.stringify([publicationScope, key]));
+                              const status: CommentStatus = commentPending ? "publishing"
                                 : published ? "published"
                                 : comparisonFailed ? "checkFailed"
                                 : checkingPublication ? "checking"
@@ -342,7 +355,7 @@ export function PullRequestReviewDialog({
                                     {status === "checkFailed" ? <Button type="button" variant="outline" size="icon" className="size-8" aria-label={t("pr.dialog.retryComparisonFor", { file: reviewCommentPath(comment.file) })} title={t("pr.dialog.retryComparison")} onClick={retryComparison}><RefreshCw aria-hidden="true" /></Button>
                                     : status === "checking" || published || matched?.coverage === "full" ? null
                                     : reviewerActions && matched?.coverage === "partial" ? (
-                                      <Button type="button" variant="outline" size="sm" actionTone="neutral" className="shrink-0" aria-label={t("pr.dialog.publishFor", { file: reviewCommentPath(comment.file) })} title={status === "publishing" ? t("pr.dialog.publishing") : t("pr.dialog.publishAddition")} disabled={!onPublishComment || pendingAction != null || checkingPublication} onClick={() => openCommentEditor(comment, index)}>
+                                      <Button type="button" variant="outline" size="sm" actionTone="neutral" className="shrink-0" aria-label={t("pr.dialog.publishFor", { file: reviewCommentPath(comment.file) })} title={status === "publishing" ? t("pr.dialog.publishing") : t("pr.dialog.publishAddition")} disabled={!onPublishComment || commentPending || pendingAction != null || checkingPublication} onClick={() => openCommentEditor(comment, index)}>
                                         {status === "publishing" ? <Loader2 aria-hidden="true" className="animate-spin" /> : <Send aria-hidden="true" />}
                                         {status === "publishing" ? t("pr.dialog.publishing") : t("pr.dialog.publishAddition")}
                                       </Button>
@@ -355,7 +368,7 @@ export function PullRequestReviewDialog({
                                             size="sm"
                                             actionTone="neutral"
                                             className="shrink-0"
-                                            disabled={!onPublishComment || pendingAction != null || checkingPublication}
+                                            disabled={!onPublishComment || commentPending || pendingAction != null || checkingPublication}
                                             aria-label={t("pr.dialog.publishFor", { file: reviewCommentPath(comment.file) })}
                                             title={publishLabel}
                                           >
@@ -364,11 +377,11 @@ export function PullRequestReviewDialog({
                                           </Button>
                                         </DropdownMenuTrigger>
                                         <DropdownMenuContent align="end" onCloseAutoFocus={(event) => { if (editingComment) event.preventDefault(); }}>
-                                          <DropdownMenuItem disabled={pendingAction != null || checkingPublication} onSelect={() => void publishComment(comment, index, comment.comment)}>
+                                          <DropdownMenuItem disabled={commentPending || pendingAction != null || checkingPublication} onSelect={() => void publishComment(comment, index, comment.comment)}>
                                             <Send aria-hidden="true" />
                                             {t("pr.dialog.sendAsIs")}
                                           </DropdownMenuItem>
-                                          <DropdownMenuItem disabled={pendingAction != null || checkingPublication} onSelect={() => openCommentEditor(comment, index)}>
+                                          <DropdownMenuItem disabled={commentPending || pendingAction != null || checkingPublication} onSelect={() => openCommentEditor(comment, index)}>
                                             <Pencil aria-hidden="true" />
                                             {t("pr.dialog.editAndSend")}
                                           </DropdownMenuItem>
@@ -409,7 +422,6 @@ export function PullRequestReviewDialog({
               <RefreshCw aria-hidden="true" className="size-4" />
               {t(reviewFailed ? "pr.dialog.retryReview" : "pr.dialog.rerun")}
             </Button>
-            {openInBrowser}
           </div>
           {reviewerActions && !reviewFailed ? (
             <div className="flex items-center gap-2">
@@ -419,7 +431,7 @@ export function PullRequestReviewDialog({
                 size="sm"
                 actionTone="warning"
                 className="text-foreground"
-                disabled={!pullRequest || !onSetDecision || pendingAction != null}
+                disabled={!pullRequest || !onSetDecision || pendingAction != null || hasPendingComments}
                 onClick={() => void setDecision("needs_work")}
               >
                 {pendingAction === "needs_work" ? <Loader2 aria-hidden="true" className="size-4 animate-spin" /> : <CircleAlert aria-hidden="true" className="size-4" />}
@@ -431,7 +443,7 @@ export function PullRequestReviewDialog({
                 size="sm"
                 actionTone="success"
                 className="text-foreground"
-                disabled={!pullRequest || !onSetDecision || pendingAction != null}
+                disabled={!pullRequest || !onSetDecision || pendingAction != null || hasPendingComments}
                 onClick={() => void setDecision("approve")}
               >
                 {pendingAction === "approve" ? <Loader2 aria-hidden="true" className="size-4 animate-spin" /> : <CheckCircle2 aria-hidden="true" className="size-4" />}
@@ -445,7 +457,7 @@ export function PullRequestReviewDialog({
       <Dialog
         open={Boolean(open && editingComment)}
         onOpenChange={(nextOpen) => {
-          if (!nextOpen && pendingAction == null) {
+          if (!nextOpen && !editingPending) {
             setEditingComment(undefined);
             setCommentDraft("");
             setActionError(undefined);
@@ -471,7 +483,7 @@ export function PullRequestReviewDialog({
                 className="min-h-32 w-full resize-y rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
                 value={commentDraft}
                 onChange={(event) => setCommentDraft(event.target.value)}
-                disabled={pendingAction != null}
+                disabled={editingPending}
                 autoFocus
               />
             </div>
@@ -493,13 +505,13 @@ export function PullRequestReviewDialog({
               type="button"
               variant="outline"
               onClick={() => {
-                if (pendingAction == null) {
+                if (!editingPending) {
                   setEditingComment(undefined);
                   setCommentDraft("");
                   setActionError(undefined);
                 }
               }}
-              disabled={pendingAction != null}
+              disabled={editingPending}
             >
               {t("settings.common.cancel")}
             </Button>
@@ -509,10 +521,10 @@ export function PullRequestReviewDialog({
               onClick={() => {
                 if (editingComment) void publishComment(editingComment.comment, editingComment.index, commentDraft, editingComment.parentCommentId);
               }}
-              disabled={!editingComment || !onPublishComment || !commentDraft.trim() || pendingAction != null || checkingPublication || editingDuplicate || editingDestinationChanged}
+              disabled={!editingComment || !onPublishComment || !commentDraft.trim() || editingPending || checkingPublication || editingDuplicate || editingDestinationChanged}
             >
-              {pendingAction != null ? <Loader2 aria-hidden="true" className="size-4 animate-spin" /> : <Send aria-hidden="true" className="size-4" />}
-              {pendingAction != null ? t("pr.dialog.sending") : t("pr.dialog.send")}
+              {editingPending ? <Loader2 aria-hidden="true" className="size-4 animate-spin" /> : <Send aria-hidden="true" className="size-4" />}
+              {editingPending ? t("pr.dialog.sending") : t("pr.dialog.send")}
             </Button>
           </DialogFooter>
         </DialogContent>

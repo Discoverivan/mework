@@ -10,7 +10,6 @@ export function FieldValidationHint({ error, children }: { error?: string; child
   return <Popover open={Boolean(error) && open} onOpenChange={setOpen}>
     <PopoverAnchor asChild>
       <Slot aria-invalid={Boolean(error)} aria-description={error}
-        className={error ? "border-destructive ring-1 ring-destructive focus-visible:ring-destructive aria-invalid:data-[pointer-hover=true]:data-[state=closed]:enabled:border-destructive" : undefined}
         onFocus={() => setOpen(Boolean(error))}
         onMouseEnter={() => setOpen(Boolean(error))}
         onPointerDown={() => setOpen(false)}

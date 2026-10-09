@@ -62,7 +62,7 @@ export function ManualNumberField({ id, label, labelledBy, description, value, m
     <Popover open={!disabled && showError && Boolean(error)} onOpenChange={setShowError}>
       <PopoverAnchor asChild><Input
         id={id}
-        className={cn("h-9", minVisibleDigits === undefined ? "w-12 min-w-full" : "w-auto min-w-0 tabular-nums", error && "border-destructive ring-1 ring-destructive focus-visible:ring-destructive")}
+        className={cn("h-9", minVisibleDigits === undefined ? "w-12 min-w-full" : "w-auto min-w-0 tabular-nums")}
         style={minVisibleDigits === undefined ? undefined : {
           width: `calc(${Math.max(minVisibleDigits, (draft ?? String(value)).length)}ch + 1.5rem + 2px)`,
         }}
