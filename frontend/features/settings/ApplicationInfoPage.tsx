@@ -315,7 +315,7 @@ export function ApplicationInfoPage({
               }}><Clock3 data-icon="inline-start" aria-hidden="true" />{t("update.later")}</Button>
               <Button type="button" actionTone="edit" size="sm" onClick={() => void handleInstallUpdate()} disabled={isUpdateChecking || installingUpdate}>
                 {installingUpdate ? <RefreshCw data-icon="inline-start" className="animate-spin" aria-hidden="true" /> : <Download data-icon="inline-start" aria-hidden="true" />}
-                {installingUpdate ? t("general.updating", { version: availableUpdateVersion ?? "" }) : t("update.now")}
+                {installingUpdate ? t("update.updating") : t("update.now")}
               </Button>
             </div>
           </div>

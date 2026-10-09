@@ -664,8 +664,8 @@ export function DailyPage() {
                   <Select value={draftAssigneesLayout} onValueChange={(value) => setDraftAssigneesLayout(value as AssigneesLayout)}>
                     <SelectTrigger id="daily-assignees-layout" aria-labelledby="daily-assignees-layout-label" className="h-9"><SelectValue /></SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="left">{t("daily.assigneesLayout.left")}</SelectItem>
                       <SelectItem value="top">{t("daily.assigneesLayout.top")}</SelectItem>
+                      <SelectItem value="left">{t("daily.assigneesLayout.left")}</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>

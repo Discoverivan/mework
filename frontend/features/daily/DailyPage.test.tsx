@@ -151,7 +151,8 @@ describe("DailyPage smoke test", () => {
     fireEvent.click(screen.getByRole("button", { name: "Settings" }));
     const settings = screen.getByRole("dialog", { name: "Settings" });
     fireEvent.click(within(settings).getByRole("combobox", { name: "Assignees layout" }));
-    fireEvent.click(screen.getByRole("option", { name: "On top" }));
+    expect(screen.getAllByRole("option").map((option) => option.textContent)).toEqual(["At the top", "On the left"]);
+    fireEvent.click(screen.getByRole("option", { name: "At the top" }));
     fireEvent.click(within(settings).getByRole("button", { name: "Save" }));
     expect(tasks.parentElement).toHaveClass("daily-workspace-layout-top");
     expect(screen.queryByRole("heading", { name: "Assignees" })).not.toBeInTheDocument();

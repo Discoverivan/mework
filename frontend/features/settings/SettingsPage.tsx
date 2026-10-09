@@ -14,7 +14,7 @@ import { ActionSettingsSection } from "./prompts/ActionSettingsSection";
 import { AiRetriesField } from "./AiRetriesField";
 import { AiModeSelect, AiOverrideEditor } from "./AiOverrideEditor";
 import { aiSectionChanged, copyAiSection, rebaseAiDraft } from "./action-settings-drafts";
-import { ReviewArbitrationSettings } from "./ReviewArbitrationSettings";
+import { ReviewArbitrationSettings, ReviewModeControl } from "./ReviewArbitrationSettings";
 import { DEFAULT_REVIEW_ARBITRATION } from "@/shared/contracts/settings";
 import { AiProviderSelectContent } from "./AiProviderSelectContent";
 import { Card, CardContent, CardDescription, CardHeader } from "@/components/ui/card";
@@ -1196,6 +1196,10 @@ export function SettingsPage({ section = "integrations", focusActivity, mockMode
               </div>
               {renderAiStatus("default")}
             </div>}
+            renderActionHeader={(scope) => scope === "pullRequestReview" ? <ReviewModeControl
+              settings={aiDraft.reviewArbitration ?? DEFAULT_REVIEW_ARBITRATION}
+              disabled={aiLoading || aiDeleting || aiSavingScopes.includes("pullRequestReview") || aiSavingScopes.includes("reviewArbiter")}
+              onChange={(settings) => updateAiSetting("reviewArbitration", settings)} /> : null}
             renderModelSettings={renderActionModelSettings}
             renderActionLayout={(action, fields, arbiterInstructions) => action === "pullRequestReview" ?
               <ReviewArbitrationSettings settings={aiDraft.reviewArbitration ?? DEFAULT_REVIEW_ARBITRATION}

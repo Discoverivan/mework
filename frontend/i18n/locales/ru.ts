@@ -649,7 +649,6 @@ export const ru: Record<TranslationKey, string> = {
   "general.current": "Установлена актуальная версия.",
   "general.updateNow": "Обновить до {version}",
   "general.updateAvailable": "Найдена новая версия {version}",
-  "general.updating": "Обновление до {version}…",
   "general.updateInstallError": "Не удалось установить обновление. Повторите попытку позже.",
   "general.updateCheckError": "Не удалось проверить обновления.",
   "general.loadError": "Не удалось загрузить общие настройки: {error}",
