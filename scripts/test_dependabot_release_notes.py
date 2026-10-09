@@ -58,6 +58,7 @@ class DependabotReleaseNotesTests(unittest.TestCase):
         ):
             NOTES.process_run(self.run, self.repository)
             self.assertTrue(self.pull["body"].startswith("Update example dependencies."))
+            self.assertIn("### Changed\n- Updated application libraries.", self.pull["body"])
             self.assertIn("Keep example dependencies current.", self.pull["body"])
             self.assertEqual(NOTES.VALIDATOR.validate_pr(self.pull["body"], ["package-lock.json"]), [])
             self.assertIn((f"repos/{self.repository}/actions/runs/42/rerun-failed-jobs", "POST", None), calls)
