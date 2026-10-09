@@ -192,6 +192,7 @@ export function PullRequestListItem({
   return (
     <Card
       data-info-popover-boundary
+      data-pr-status-marker={needsAction || pullRequest.activity !== "read" ? "colored" : "neutral"}
       className={needsAction ? "border-l-4 border-l-rose-500" : pullRequest.activity === "read" ? "border-l-4 border-l-transparent" : "border-l-4 border-l-blue-500"}
     >
       <CardContent className="flex items-center gap-3 p-4">

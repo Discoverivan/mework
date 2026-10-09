@@ -375,7 +375,7 @@
 }
 
 /* Preserve button geometry and keyboard focus while hiding borders in this variant. */
-:root[data-button-style="filled_borderless"] :is(button, [role="button"], [data-button-variant], .app-toggle) {
+:root[data-button-style="filled_borderless"] :is(button, [role="button"], [data-button-variant], .app-toggle):not([aria-invalid="true"]) {
   border-color: transparent !important;
 }
 
@@ -404,12 +404,11 @@
   border-bottom: 1px solid var(--border);
 }
 
-:root[data-panel-style="bordered"] [data-slot="card"]:not([class*="border-l-"]) {
+:root[data-panel-style="bordered"] [data-slot="card"]:not([data-pr-status-marker="colored"]) {
   border-left: 1px solid var(--border);
 }
 
 /* Viewed PRs have a complete neutral frame; retain the 4px status-marker inset. */
-:root[data-panel-style="bordered"] [data-slot="card"].border-l-transparent {
-  border-left: 1px solid var(--border);
+:root[data-panel-style="bordered"] [data-slot="card"][data-pr-status-marker="neutral"] {
   padding-left: 3px;
 }

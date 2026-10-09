@@ -142,7 +142,7 @@ it("keeps Filled section-header actions distinct and filter actions compact", ()
       <Button variant="outline" size="icon" actionTone="success" aria-label="Example review results"><Sparkles aria-hidden="true" /></Button>
     </CardHeader><Button size="sm" variant="ghost" actionTone="delete" aria-label="Remove filter"><Trash2 aria-hidden="true" />Remove</Button></Card>
       <Card role="status">No matching example items.</Card>
-      <Card className="border-l-4 border-l-transparent" aria-label="Viewed example PR">Viewed example PR</Card>
+      <Card data-pr-status-marker="neutral" className="border-l-4 border-l-transparent" aria-label="Viewed example PR">Viewed example PR</Card>
       <EmptyState titleId="example-empty-title" title="No example items" description="Add an example item." icon={<Trash2 />} />
       <Input className="example-number-control" inputMode="numeric" aria-label="Example number" defaultValue="3" />
     </>);
