@@ -1231,6 +1231,7 @@ fn mock_pull_request(id: u64, authored: bool, activity: PullRequestActivity) -> 
         source_branch: "feature/example".to_owned(),
         target_branch: "main".to_owned(),
         author_display_name: "Example Author".to_owned(),
+        author_account_name: None,
     updated_date: Some(now),
         url: Some(format!(
             "https://bitbucket.example.invalid/projects/MOCK/repos/sample-repository/pull-requests/{id}/overview"

@@ -183,6 +183,10 @@ export function AuthoredPullRequestsPage() {
     return subscribeAppEvent(APP_EVENT.authoredPullRequestsUpdated, applyPage);
   }, [applyPage]);
 
+  useEffect(() => subscribeAppEvent(APP_EVENT.reviewInstructionRulesChanged, () => {
+    void listAuthoredPullRequests(0, 100).then(applyPage).catch((reason) => setError(commandError(reason)));
+  }), [applyPage]);
+
   useEffect(() => {
     return subscribeAppEvent(APP_EVENT.pullRequestReviewChanged, ({ key, review }) => {
       setReviewStartingKeys((current) => {

@@ -11,6 +11,8 @@ import type { AiSettingsPageData } from "@/shared/contracts/settings";
 import { getAiSettings } from "../settings/api";
 import {
   getPullRequestReviewSettings,
+  getReviewInstructionRules,
+  saveReviewInstructionRules,
   getPullRequestReviewStates,
   getPullRequestCommentMatches,
   listMyPullRequests,
@@ -36,6 +38,8 @@ vi.mock("../settings/api", () => ({
 
 vi.mock("./api", () => ({
   getPullRequestReviewSettings: vi.fn(),
+  getReviewInstructionRules: vi.fn(),
+  saveReviewInstructionRules: vi.fn(),
   getPullRequestReviewStates: vi.fn(),
   getPullRequestCommentMatches: vi.fn(),
   listMyPullRequests: vi.fn(),
@@ -208,6 +212,8 @@ describe("MyPullRequestsPage", () => {
     refreshMyPullRequestsMock.mockResolvedValue(firstPage);
     getAiSettingsMock.mockResolvedValue(aiSettingsConnected);
     getSettingsMock.mockResolvedValue(emptySettings);
+    vi.mocked(getReviewInstructionRules).mockResolvedValue([]);
+    vi.mocked(saveReviewInstructionRules).mockImplementation(async (rules) => rules);
     getReviewStatesMock.mockResolvedValue({});
     getCommentMatchesMock.mockResolvedValue({ matches: [] });
     markPullRequestReadMock.mockResolvedValue({ integrationId: "bitbucket-1", pullRequestId: "7", activity: "read" });
@@ -219,12 +225,89 @@ describe("MyPullRequestsPage", () => {
     saveSettingsMock.mockImplementation(async (settings) => settings);
     searchProjectsMock.mockResolvedValue([{ integrationId: "bitbucket-1", projectKey: "DEMO", projectName: "Example Project" }]);
     searchRepositoriesMock.mockResolvedValue([{
+      integrationId: "bitbucket-1",
       projectKey: "DEMO",
       projectName: "Example Project",
       repositorySlug: "sample-repository",
       repositoryName: "Sample Repository",
     }]);
-    searchUsersMock.mockResolvedValue([{ name: "test-author-a", displayName: "Test Author A", slug: "test-author-a" }]);
+    searchUsersMock.mockResolvedValue([{ integrationId: "bitbucket-1", name: "test-author-a", displayName: "Test Author A", slug: "test-author-a" }]);
+  });
+
+  it("customizes review instructions for projects, repositories and authors", async () => {
+    searchUsersMock.mockResolvedValue([{ integrationId: "bitbucket-1", name: "example-author", displayName: "Test Author A", slug: "example-author" }]);
+    listMyPullRequestsMock.mockResolvedValue({ ...firstPage, values: [{ ...pullRequests[0], authorAccountName: "example-author" }] });
+    render(<MyPullRequestsPage />);
+    const open = await screen.findByRole("button", { name: "Review Custom instructions" });
+    await waitFor(() => expect(open).toBeEnabled());
+    fireEvent.click(open);
+    await waitFor(() => expect(getReviewInstructionRules).toHaveBeenCalledOnce());
+    const help = screen.getByRole("button", { name: "About custom review instructions" });
+    fireEvent.click(help);
+    expect(screen.getByLabelText("How custom instructions work")).toHaveTextContent("Repository takes priority over Project, then Author.");
+    fireEvent.click(help);
+    for (const [scope, query, target, resultName, placeholder, text, search] of [
+      ["Project", "DEMO", "DEMO · Example Project", "DEMO (Example Project)", "Search Bitbucket project", "Check project concurrency.", searchProjectsMock],
+      ["Repository", "DEMO/sample-repository", "DEMO/sample-repository · Sample Repository", "DEMO/sample-repository · Sample Repository", "Search Bitbucket repository", "Check repository behavior.", searchRepositoriesMock],
+      ["Author", "Test Author A", "Test Author A (example-author)", "Test Author A (example-author)", "Search Bitbucket display name", "Explain confirmed findings.", searchUsersMock],
+    ] as const) {
+      const add = screen.getByRole("button", { name: `Add ${scope} instruction rule` });
+      await waitFor(() => expect(add).toBeEnabled());
+      fireEvent.click(add);
+      expect(screen.queryByRole("list", { name: /Bitbucket .* search results/ })).not.toBeInTheDocument();
+      expect(search).not.toHaveBeenCalled();
+      const input = screen.getByRole("textbox", { name: scope });
+      expect(input).toHaveAttribute("placeholder", placeholder);
+      fireEvent.change(input, { target: { value: query } });
+      const result = await screen.findByRole("button", { name: resultName });
+      if (scope === "Project") fireEvent.click(result);
+      else fireEvent.keyDown(input, { key: "Enter" });
+      expect(search).toHaveBeenCalledWith(query);
+      expect(within(screen.getByRole("list", { name: scope })).getByText(scope === "Author" ? "Test Author A" : query, { exact: true })).toBeInTheDocument();
+      const edit = screen.getByRole("button", { name: `Edit instructions for ${target}` });
+      expect(edit).toHaveAttribute("aria-invalid", "true");
+      fireEvent.focus(edit);
+      expect(await screen.findByRole("alert")).toHaveTextContent("Enter instructions for this rule.");
+      expect(screen.queryByText("Enter instructions for each rule before saving.")).not.toBeInTheDocument();
+      fireEvent.click(edit);
+      fireEvent.change(screen.getByRole("textbox", { name: `Instructions for ${target}` }), { target: { value: text } });
+      fireEvent.click(within(screen.getByRole("dialog", { name: "Edit instructions" })).getByRole("button", { name: "Apply" }));
+      expect(screen.getByRole("button", { name: `Edit instructions for ${target}` })).toHaveAttribute("aria-invalid", "false");
+      if (scope === "Repository") {
+        const mode = screen.getByRole("button", { name: `Instruction mode for ${target}` });
+        expect(mode).toHaveTextContent("Append");
+        fireEvent.click(mode);
+        expect(mode).toHaveTextContent("Rewrite");
+      }
+    }
+    const dialog = within(screen.getByRole("dialog", { name: "Review Custom instructions" }));
+    expect(dialog.getAllByRole("list")).toHaveLength(3);
+    expect(dialog.getAllByText("Mode", { exact: true })).toHaveLength(3);
+    expect(dialog.queryByText("Deny")).not.toBeInTheDocument();
+    fireEvent.click(dialog.getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(saveReviewInstructionRules).toHaveBeenCalledWith([
+      expect.objectContaining({ integrationId: "bitbucket-1", scope: "project", externalId: "DEMO", mode: "append", instructions: "Check project concurrency." }),
+      expect.objectContaining({ integrationId: "bitbucket-1", scope: "repository", externalId: "DEMO/sample-repository", mode: "replace", instructions: "Check repository behavior." }),
+      expect.objectContaining({ integrationId: "bitbucket-1", scope: "author", externalId: "example-author", mode: "append", instructions: "Explain confirmed findings." }),
+    ]));
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+  });
+
+  it("confirms removing a review instruction rule before saving", async () => {
+    vi.mocked(getReviewInstructionRules).mockResolvedValue([{ integrationId: "bitbucket-1", scope: "repository", externalId: "DEMO/example-repository", label: "Example Repository", mode: "append", instructions: "Check repository behavior." }]);
+    render(<MyPullRequestsPage />);
+    fireEvent.click(await screen.findByRole("button", { name: "Review Custom instructions" }));
+    const remove = await screen.findByRole("button", { name: "Delete instructions for Example Repository" });
+    await waitFor(() => expect(remove).toBeEnabled());
+    fireEvent.click(remove);
+    const confirmation = within(screen.getByRole("alertdialog", { name: "Remove instruction rule" }));
+    expect(confirmation.getByText(/Example Repository/)).toBeInTheDocument();
+    expect(remove).toBeInTheDocument();
+    expect(saveReviewInstructionRules).not.toHaveBeenCalled();
+    fireEvent.click(confirmation.getByRole("button", { name: "Remove" }));
+    expect(screen.queryByRole("button", { name: "Delete instructions for Example Repository" })).not.toBeInTheDocument();
+    fireEvent.click(within(screen.getByRole("dialog", { name: "Review Custom instructions" })).getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(saveReviewInstructionRules).toHaveBeenCalledWith([]));
   });
 
   it("defaults to pending review and remembers the chosen quick filter", async () => {
@@ -303,6 +386,7 @@ describe("MyPullRequestsPage", () => {
     const toolbarButtons = within(readAllButton.parentElement!).getAllByRole("button");
     expect(toolbarButtons).toEqual([
       permanentFiltersButton,
+      screen.getByRole("button", { name: "Review Custom instructions" }),
       screen.getByRole("button", { name: "Options" }),
       refreshButton,
       readAllButton,
@@ -436,6 +520,10 @@ describe("MyPullRequestsPage", () => {
     await renderFlatPage();
     await screen.findByRole("heading", { name: "Example pull request" });
     fireEvent.click(screen.getByRole("button", { name: "Filters" }));
+    const help = screen.getByRole("button", { name: "About pull request filters" });
+    fireEvent.click(help);
+    expect(screen.getByLabelText("How filters work")).toHaveTextContent("An empty list shows no PRs.");
+    fireEvent.click(help);
     expect(within(screen.getByRole("dialog", { name: "Filters" })).getAllByText("No Deny rules")).toHaveLength(3);
     expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
     fireEvent.click(screen.getByRole("radio", { name: "Allow" }));
@@ -470,10 +558,10 @@ describe("MyPullRequestsPage", () => {
     const addProject = screen.getByRole("button", { name: "Add project filter" });
     expect(addProject).toHaveTextContent("Add");
     fireEvent.click(addProject);
-    fireEvent.change(screen.getByRole("textbox", { name: "Project filters" }), { target: { value: "Project" } });
+    fireEvent.change(screen.getByRole("textbox", { name: "Project" }), { target: { value: "Project" } });
     fireEvent.click(await screen.findByRole("button", { name: "DEMO (Example Project)" }));
     fireEvent.click(addProject);
-    fireEvent.change(screen.getByRole("textbox", { name: "Project filters" }), { target: { value: "Project" } });
+    fireEvent.change(screen.getByRole("textbox", { name: "Project" }), { target: { value: "Project" } });
     const remainingProject = await screen.findByRole("button", { name: "SAMPLE (Sample Project)" });
     expect(screen.queryByRole("button", { name: "DEMO (Example Project)" })).not.toBeInTheDocument();
     fireEvent.click(remainingProject);
@@ -499,9 +587,9 @@ describe("MyPullRequestsPage", () => {
 
     expect(projectList).toHaveTextContent("EXAMPLE");
     expect(repositoryList).toHaveTextContent(repositoryBlacklist[repositoryBlacklist.length - 1]);
-    expect(within(dialog).getByRole("heading", { name: "Project filters" }).closest(".pr-filter-group"))
+    expect(within(dialog).getByRole("heading", { name: "Project" }).closest(".pr-filter-group"))
       .toHaveClass("shrink-0");
-    expect(within(dialog).getByRole("heading", { name: "Repository filters" }).closest(".pr-filter-group"))
+    expect(within(dialog).getByRole("heading", { name: "Repository" }).closest(".pr-filter-group"))
       .toHaveClass("shrink-0");
   });
 
@@ -513,10 +601,10 @@ describe("MyPullRequestsPage", () => {
     expect(screen.getByRole("dialog", { name: "Filters" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
     fireEvent.click(screen.getByRole("button", { name: "Add author filter" }));
-    fireEvent.change(screen.getByRole("textbox", { name: "Author filters" }), { target: { value: "Test Author A" } });
+    fireEvent.change(screen.getByRole("textbox", { name: "Author" }), { target: { value: "Test Author A" } });
     await waitFor(() => expect(searchUsersMock).toHaveBeenCalledWith("Test Author A"));
     await screen.findByRole("button", { name: "Test Author A (test-author-a)" });
-    fireEvent.keyDown(screen.getByRole("textbox", { name: "Author filters" }), { key: "Enter" });
+    fireEvent.keyDown(screen.getByRole("textbox", { name: "Author" }), { key: "Enter" });
     expect(screen.getByRole("button", { name: "Save" })).toBeEnabled();
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
 
@@ -546,7 +634,7 @@ describe("MyPullRequestsPage", () => {
     expect(screen.getByRole("radio", { name: "Deny" })).toBeChecked();
     expect(screen.getByRole("radio", { name: "Allow" })).not.toBeChecked();
     fireEvent.click(screen.getByRole("button", { name: "Add author filter" }));
-    fireEvent.change(screen.getByRole("textbox", { name: "Author filters" }), { target: { value: "Test Author A" } });
+    fireEvent.change(screen.getByRole("textbox", { name: "Author" }), { target: { value: "Test Author A" } });
     await waitFor(() => expect(searchUsersMock).toHaveBeenCalledWith("Test Author A"));
     fireEvent.click(await screen.findByRole("button", { name: "Test Author A (test-author-a)" }));
 
@@ -555,13 +643,13 @@ describe("MyPullRequestsPage", () => {
     expect(screen.getByRole("radio", { name: "Deny" })).not.toBeChecked();
     expect(screen.queryByText("Test Author A", { selector: "li span" })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Add project filter" }));
-    fireEvent.change(screen.getByRole("textbox", { name: "Project filters" }), { target: { value: "Example Project" } });
+    fireEvent.change(screen.getByRole("textbox", { name: "Project" }), { target: { value: "Example Project" } });
     fireEvent.click(await screen.findByRole("button", { name: "DEMO (Example Project)" }));
     fireEvent.click(screen.getByRole("button", { name: "Add repository filter" }));
-    fireEvent.change(screen.getByRole("textbox", { name: "Repository filters" }), { target: { value: "sample-repository" } });
+    fireEvent.change(screen.getByRole("textbox", { name: "Repository" }), { target: { value: "sample-repository" } });
     await waitFor(() => expect(searchRepositoriesMock).toHaveBeenCalledWith("sample-repository"));
     fireEvent.click(await screen.findByRole("button", { name: /DEMO\/sample-repository/ }));
-    expect(screen.queryByRole("textbox", { name: "Repository filters" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("textbox", { name: "Repository" })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Remove Allow repository filter DEMO/sample-repository" }));
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
 

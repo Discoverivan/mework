@@ -73,7 +73,8 @@ export function usePullRequestReviewPolling(
     const source: Source = {
       getRequests: () => pullRequestsRef.current
         .filter((pullRequest) => pullRequest.review?.status === "running")
-        .map(({ integrationId, projectKey, repositorySlug, pullRequestId, latestCommit }) => ({
+        .map(({ integrationId, projectKey, repositorySlug, pullRequestId, latestCommit, authorAccountName }) => ({
+          ...(authorAccountName ? { authorAccountName } : {}),
           integrationId,
           projectKey,
           repositorySlug,

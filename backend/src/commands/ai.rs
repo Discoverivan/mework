@@ -97,6 +97,15 @@ pub async fn ai_cli_candidate_inspect(
 }
 
 #[tauri::command]
+pub async fn ai_provider_refresh(
+    state: State<'_, SqlitePool>,
+    provider: ai::AiProviderId,
+    instance_id: Option<String>,
+) -> Result<ai::AiProviderDto, String> {
+    ai::refresh_provider(&state, provider, instance_id).await
+}
+
+#[tauri::command]
 pub async fn ai_provider_delete(
     state: State<'_, SqlitePool>,
     provider: ai::AiProviderId,

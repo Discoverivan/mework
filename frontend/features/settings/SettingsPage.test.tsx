@@ -1,11 +1,12 @@
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { addAiCliProvider, deleteAiProvider, deleteIntegration, getAiSettings, getCachedAiSettings, inspectAiCliProvider, listIntegrations, refreshAiSettings, saveAiActionSettings, saveIntegration, saveOpenAiCompatibleProvider } from "./api";
+import { addAiCliProvider, deleteAiProvider, deleteIntegration, getAiSettings, getCachedAiSettings, inspectAiCliProvider, listIntegrations, refreshAiProvider, refreshIntegrationHealth, saveAiActionSettings, saveIntegration, saveOpenAiCompatibleProvider } from "./api";
 import { getPromptSettings } from "./prompts/api";
 import { copyAiSection } from "./action-settings-drafts";
 import type { AiSettings, PromptSettings } from "@/shared/contracts/settings";
 import { SettingsPage } from "./SettingsPage";
+import { APP_EVENT, emitAppEvent } from "@/app/app-events";
 
 vi.mock("./api", () => ({
   deleteIntegration: vi.fn(),
@@ -15,7 +16,7 @@ vi.mock("./api", () => ({
   getAiSettings: vi.fn(),
   getCachedAiSettings: vi.fn().mockReturnValue(null),
   listIntegrations: vi.fn(),
-  refreshAiSettings: vi.fn(),
+  refreshAiProvider: vi.fn(),
   refreshIntegrationHealth: vi.fn(),
   saveAiActionSettings: vi.fn(),
   saveIntegration: vi.fn(),
@@ -36,7 +37,7 @@ vi.mock("./planning-projects/api", () => ({
 }));
 
 const getAiSettingsMock = vi.mocked(getAiSettings);
-const refreshAiSettingsMock = vi.mocked(refreshAiSettings);
+const refreshAiProviderMock = vi.mocked(refreshAiProvider);
 const addAiCliProviderMock = vi.mocked(addAiCliProvider);
 const inspectAiCliProviderMock = vi.mocked(inspectAiCliProvider);
 const deleteAiProviderMock = vi.mocked(deleteAiProvider);
@@ -110,7 +111,7 @@ describe("SettingsPage integrations smoke tests", () => {
     vi.mocked(getCachedAiSettings).mockReturnValue(null);
     vi.mocked(getPromptSettings).mockResolvedValue([]);
     getAiSettingsMock.mockResolvedValue(codexAiSettings);
-    refreshAiSettingsMock.mockResolvedValue(codexAiSettings);
+    refreshAiProviderMock.mockResolvedValue(undefined);
     addAiCliProviderMock.mockResolvedValue(codexAiSettings);
     inspectAiCliProviderMock.mockResolvedValue(codexAiSettings.providers[0]);
     saveAiActionSettingsMock.mockImplementation(async (_scope, settings) => ({ ai: { ...codexAiSettings, settings }, prompt: null }));
@@ -214,6 +215,37 @@ describe("SettingsPage integrations smoke tests", () => {
     expect(screen.queryByRole("group", { name: "Codex CLI AI provider" })).not.toBeInTheDocument();
     expect(await screen.findByRole("heading", { name: "Data integrations" })).toBeInTheDocument();
     expect(screen.queryByText("Loading integrations…")).not.toBeInTheDocument();
+  });
+
+  it("refreshes independent integrations concurrently and keeps each row's state", async () => {
+    const bitbucket = { ...jiraIntegration, id: "bitbucket-1", kind: "bitbucket" as const, baseUrl: "https://bitbucket.example.com" };
+    listIntegrationsMock.mockResolvedValue([jiraIntegration, bitbucket]);
+    let finishJira!: (value: typeof jiraIntegration) => void;
+    let finishBitbucket!: (value: typeof bitbucket) => void;
+    vi.mocked(refreshIntegrationHealth).mockImplementation(({ id }) => id === jiraIntegration.id
+      ? new Promise((resolve) => { finishJira = resolve; })
+      : new Promise((resolve) => { finishBitbucket = resolve; }));
+    render(<SettingsPage />);
+    const jiraRow = within(await screen.findByRole("group", { name: "Jira integration" }));
+    const bitbucketRow = within(screen.getByRole("group", { name: "Bitbucket integration" }));
+    const jiraRefresh = jiraRow.getByRole("button", { name: "Refresh Jira health check" });
+    const bitbucketRefresh = bitbucketRow.getByRole("button", { name: "Refresh Bitbucket health check" });
+
+    fireEvent.click(jiraRefresh);
+    expect(jiraRow.getAllByRole("button").every((button) => button.hasAttribute("disabled"))).toBe(true);
+    expect(bitbucketRow.getAllByRole("button").every((button) => !button.hasAttribute("disabled"))).toBe(true);
+    fireEvent.click(bitbucketRefresh);
+    expect(refreshIntegrationHealth).toHaveBeenCalledTimes(2);
+    expect(jiraRefresh.querySelector(".animate-spin")).not.toBeNull();
+    expect(bitbucketRefresh.querySelector(".animate-spin")).not.toBeNull();
+
+    await act(async () => { finishBitbucket({ ...bitbucket, accountDisplayName: "Example Bitbucket User" }); });
+    expect(bitbucketRefresh).toBeEnabled();
+    expect(jiraRefresh).toBeDisabled();
+    await act(async () => { finishJira({ ...jiraIntegration, accountDisplayName: "Example Jira User" }); });
+    expect(jiraRefresh).toBeEnabled();
+    expect(jiraRow.getByText(/Example Jira User/)).toBeInTheDocument();
+    expect(bitbucketRow.getByText(/Example Bitbucket User/)).toBeInTheDocument();
   });
 
   it("opens a provider form with URL and write-only personal access token", async () => {
@@ -396,19 +428,36 @@ describe("SettingsPage integrations smoke tests", () => {
     }), null));
   });
 
-  it("refreshes an AI provider and displays its updated models", async () => {
-    refreshAiSettingsMock.mockResolvedValue({
-      ...codexAiSettings,
-      providers: [{ ...codexAiSettings.providers[0], models: ["gpt-6-astra", "example-new-model"] }],
-    });
+  it("refreshes AI providers independently and displays updated models", async () => {
+    const secondProvider = { ...codexAiSettings.providers[0], id: "claude-code-cli" as const, name: "Claude Code CLI" };
+    const data = { ...codexAiSettings, providers: [...codexAiSettings.providers, secondProvider] };
+    getAiSettingsMock.mockResolvedValue(data);
+    let finishCodex!: () => void;
+    let finishClaude!: () => void;
+    refreshAiProviderMock.mockImplementation((candidate) => new Promise<void>((resolve) => {
+      if (candidate.id === "codex-cli") finishCodex = () => {
+        emitAppEvent(APP_EVENT.aiSettingsChanged, { ...data, providers: [{ ...data.providers[0], models: ["example-new-model"] }, secondProvider] });
+        resolve();
+      };
+      else finishClaude = resolve;
+    }));
     render(<SettingsPage section="ai" />);
 
     const provider = within(await screen.findByRole("group", { name: "Codex CLI AI provider" }));
     expect(provider.getByText("0.142.5")).toBeInTheDocument();
     expect(provider.queryByText("codex-cli 0.142.5")).not.toBeInTheDocument();
     fireEvent.click(provider.getByRole("button", { name: "Refresh Codex CLI configuration" }));
-
-    await waitFor(() => expect(refreshAiSettingsMock).toHaveBeenCalledOnce());
+    const secondRow = within(screen.getByRole("group", { name: "Claude Code CLI AI provider" }));
+    const secondRefresh = secondRow.getByRole("button", { name: "Refresh Claude Code CLI configuration" });
+    expect(secondRefresh).toBeEnabled();
+    expect(secondRow.getByRole("button", { name: /Delete/ })).toBeEnabled();
+    expect(provider.getByRole("button", { name: /Delete/ })).toBeDisabled();
+    fireEvent.click(secondRefresh);
+    expect(refreshAiProviderMock).toHaveBeenCalledTimes(2);
+    await act(async () => { finishClaude(); });
+    expect(secondRefresh).toBeEnabled();
+    expect(provider.getByRole("button", { name: "Refresh Codex CLI configuration" })).toBeDisabled();
+    await act(async () => { finishCodex(); });
     fireEvent.click(defaultAiSettings().getByRole("combobox", { name: "AI provider" }));
     fireEvent.click(screen.getByRole("option", { name: "Codex CLI" }));
     fireEvent.click(defaultAiSettings().getByRole("combobox", { name: "Model" }));

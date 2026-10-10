@@ -819,6 +819,22 @@ pub async fn add_cli_provider(
     dto(pool).await
 }
 
+pub async fn refresh_provider(
+    pool: &SqlitePool,
+    provider: AiProviderId,
+    instance_id: Option<String>,
+) -> Result<AiProviderDto, String> {
+    if provider != AiProviderId::OpenAiCompatible {
+        return inspect_cli_candidate(provider).await;
+    }
+    let config = load_openai_configs(pool)
+        .await?
+        .into_iter()
+        .find(|config| config.id == instance_id.as_deref().unwrap_or("legacy"))
+        .ok_or_else(|| "AI provider is not configured".to_owned())?;
+    Ok(inspect_openai_compatible(config).await)
+}
+
 pub async fn inspect_cli_candidate(provider: AiProviderId) -> Result<AiProviderDto, String> {
     match provider {
         AiProviderId::CodexCli => tokio::task::spawn_blocking(cli::codex::inspect_codex_cli)

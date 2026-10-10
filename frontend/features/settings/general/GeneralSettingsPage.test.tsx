@@ -268,6 +268,12 @@ describe("GeneralSettingsPage", () => {
   });
 
   it("sends a test notification for Task tracker", async () => {
+    let finishTask!: () => void;
+    let finishReview!: () => void;
+    sendNotificationTestMock.mockImplementation((kind) => new Promise<void>((resolve) => {
+      if (kind === "taskTracker") finishTask = resolve;
+      else finishReview = resolve;
+    }));
     render(
       <I18nProvider>
         <GeneralSettingsPage />
@@ -281,7 +287,19 @@ describe("GeneralSettingsPage", () => {
     fireEvent.click(testButton);
 
     await waitFor(() => expect(sendNotificationTestMock).toHaveBeenCalledWith("taskTracker"));
+    const reviewButton = screen.getByRole("button", { name: "Test review notification" });
+    expect(testButton).toBeDisabled();
+    expect(reviewButton).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Test authored pull request notification" })).toBeEnabled();
+    fireEvent.click(reviewButton);
+    expect(sendNotificationTestMock).toHaveBeenCalledWith("review");
+    await act(async () => { finishReview(); });
+    expect(reviewButton).toBeEnabled();
+    expect(testButton).toBeDisabled();
+    await act(async () => { finishTask(); });
     await waitFor(() => expect(testButton.querySelector("svg.lucide-circle-check")).not.toBeNull());
+    expect(reviewButton.querySelector("svg.lucide-circle-check")).not.toBeNull();
+    sendNotificationTestMock.mockResolvedValue(undefined);
   });
 
   it("lets the user choose a detected terminal for Command Board scripts", async () => {

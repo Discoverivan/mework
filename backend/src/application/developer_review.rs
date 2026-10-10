@@ -174,6 +174,8 @@ pub struct PullRequestReviewRequest {
     pub source_branch: String,
     pub target_branch: String,
     pub author_display_name: String,
+    #[serde(default)]
+    pub author_account_name: Option<String>,
     pub author_avatar_url: Option<String>,
     pub updated_date: Option<i64>,
     pub my_decision: String,
@@ -185,6 +187,8 @@ pub struct PullRequestReviewRequest {
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PullRequestReviewStateRequest {
+    #[serde(default)]
+    pub author_account_name: Option<String>,
     pub integration_id: String,
     pub project_key: String,
     pub repository_slug: String,
@@ -210,6 +214,7 @@ pub fn request_from_pull_request(pull_request: &MyPullRequestDto) -> PullRequest
         source_branch: pull_request.source_branch.clone(),
         target_branch: pull_request.target_branch.clone(),
         author_display_name: pull_request.author_display_name.clone(),
+        author_account_name: pull_request.author_account_name.clone(),
         author_avatar_url: pull_request.author_avatar_url.clone(),
         updated_date: pull_request.updated_date,
         my_decision: pull_request.my_decision.clone(),
@@ -317,6 +322,7 @@ pub async fn get_review_states(
     let mut changed = false;
     let mut results = HashMap::new();
     let instructions = ai_prompts::review_instructions(pool).await?;
+    let instruction_rules = super::review_instructions::load(pool).await?;
     let arbiter_instructions = ai_prompts::review_arbiter_instructions(pool).await?;
 
     for request in requests {
@@ -337,7 +343,15 @@ pub async fn get_review_states(
             changed = true;
         }
         if record.reviewed_commit == request.latest_commit {
-            mark_instructions_changed(&mut record, &instructions, &arbiter_instructions);
+            let effective = super::review_instructions::effective(
+                &instruction_rules,
+                &instructions,
+                &request.integration_id,
+                &request.project_key,
+                &request.repository_slug,
+                request.author_account_name.as_deref(),
+            );
+            mark_instructions_changed(&mut record, &effective, &arbiter_instructions);
             results.insert(key, record);
         }
     }
@@ -374,6 +388,7 @@ pub async fn attach_review_states(
         .clone();
     let mut changed = false;
     let instructions = ai_prompts::review_instructions(pool).await?;
+    let instruction_rules = super::review_instructions::load(pool).await?;
     let arbiter_instructions = ai_prompts::review_arbiter_instructions(pool).await?;
 
     for pull_request in values {
@@ -395,7 +410,15 @@ pub async fn attach_review_states(
         }
         if record.reviewed_commit == pull_request.latest_commit {
             let mut review = record.clone();
-            mark_instructions_changed(&mut review, &instructions, &arbiter_instructions);
+            let effective = super::review_instructions::effective(
+                &instruction_rules,
+                &instructions,
+                &pull_request.integration_id,
+                &pull_request.project_key,
+                &pull_request.repository_slug,
+                pull_request.author_account_name.as_deref(),
+            );
+            mark_instructions_changed(&mut review, &effective, &arbiter_instructions);
             pull_request.review = Some(review);
         }
     }
@@ -437,6 +460,15 @@ pub async fn start_review_with_diff<R: Runtime>(
         instructions,
         arbiter_instructions,
     } = crate::application::ai::settings_for_review(pool).await?;
+    let instruction_rules = super::review_instructions::load(pool).await?;
+    let instructions = super::review_instructions::effective(
+        &instruction_rules,
+        &instructions,
+        &request.integration_id,
+        &request.project_key,
+        &request.repository_slug,
+        request.author_account_name.as_deref(),
+    );
     let general_settings = crate::application::general::load(pool).await?;
     let ai_retries = ai_settings
         .retries
@@ -555,6 +587,7 @@ pub async fn start_review_with_diff<R: Runtime>(
     };
     tauri::async_runtime::spawn(async move {
         let comparison_pr = PullRequestReviewStateRequest {
+            author_account_name: request.author_account_name.clone(),
             integration_id: request.integration_id.clone(),
             project_key: request.project_key.clone(),
             repository_slug: request.repository_slug.clone(),
@@ -655,6 +688,7 @@ pub async fn run_review_before_notification<R: Runtime>(
     request: PullRequestReviewRequest,
 ) -> Result<PullRequestReviewDto, String> {
     let state_request = PullRequestReviewStateRequest {
+        author_account_name: request.author_account_name.clone(),
         integration_id: request.integration_id.clone(),
         project_key: request.project_key.clone(),
         repository_slug: request.repository_slug.clone(),
@@ -2291,6 +2325,7 @@ mod tests {
         let restored = super::get_review_state(
             &pool,
             super::PullRequestReviewStateRequest {
+                author_account_name: None,
                 integration_id: "example".to_owned(),
                 project_key: "DEMO".to_owned(),
                 repository_slug: "sample".to_owned(),
@@ -2622,6 +2657,7 @@ mod tests {
             source_branch: "feature/provider".to_owned(),
             target_branch: "main".to_owned(),
             author_display_name: "Test Author A".to_owned(),
+            author_account_name: None,
             author_avatar_url: None,
             updated_date: Some(1760001000000),
             my_decision: "needs_work".to_owned(),

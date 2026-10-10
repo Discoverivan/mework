@@ -254,7 +254,7 @@ export function DevOverlay() {
                 <DialogDescription>{t("devOverlay.subtaskDialogDescription")}</DialogDescription>
               </DialogHeader>
               <form autoComplete="off" onSubmit={submitSubtask} className="space-y-4">
-                <DialogBody className="max-h-[55vh] space-y-3 pr-2">
+                <DialogBody layout="sections" className="max-h-[55vh] pr-2">
                   <FieldGroup className="gap-3">
                     <Field>
                       <FieldLabel htmlFor="dev-mock-subtask-parent">{t("devOverlay.parentIssue")}</FieldLabel>
