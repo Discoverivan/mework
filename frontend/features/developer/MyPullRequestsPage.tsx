@@ -992,7 +992,7 @@ export function MyPullRequestsPage() {
                       <li key={value} className="flex min-h-10 min-w-0 items-center justify-between gap-3 border-b py-1.5 text-[13px] last:border-b-0">
                         <span className="min-w-0 break-words">{value}</span>
                         <div className="flex shrink-0 items-center justify-end">
-                          <Button type="button" size="sm" variant="ghost" actionTone="delete" className="h-7 shrink-0 text-muted-foreground hover:bg-transparent hover:text-destructive" aria-label={t("pr.filters.removeProject", { list: activeTabLabel, value })} onClick={() => removeValue("project", value)}>
+                          <Button type="button" size="sm" variant="ghost" actionTone="remove" className="h-7 shrink-0" aria-label={t("pr.filters.removeProject", { list: activeTabLabel, value })} onClick={() => removeValue("project", value)}>
                             <Trash2 data-icon="inline-start" aria-hidden="true" />{t("pr.filters.remove")}
                           </Button>
                         </div>
@@ -1035,7 +1035,7 @@ export function MyPullRequestsPage() {
                       <li key={value} className="flex min-h-10 min-w-0 items-center justify-between gap-3 border-b py-1.5 text-[13px] last:border-b-0">
                         <span className="min-w-0 break-words">{value}</span>
                         <div className="flex shrink-0 items-center justify-end">
-                          <Button type="button" size="sm" variant="ghost" actionTone="delete" className="h-7 shrink-0 text-muted-foreground hover:bg-transparent hover:text-destructive" aria-label={t("pr.filters.removeRepository", { list: activeTabLabel, value })} onClick={() => removeValue("repository", value)}>
+                          <Button type="button" size="sm" variant="ghost" actionTone="remove" className="h-7 shrink-0" aria-label={t("pr.filters.removeRepository", { list: activeTabLabel, value })} onClick={() => removeValue("repository", value)}>
                             <Trash2 data-icon="inline-start" aria-hidden="true" />{t("pr.filters.remove")}
                           </Button>
                         </div>
@@ -1078,7 +1078,7 @@ export function MyPullRequestsPage() {
                       <li key={value} className="flex min-h-10 min-w-0 items-center justify-between gap-3 border-b py-1.5 text-[13px] last:border-b-0">
                         <span className="min-w-0 break-words">{value}</span>
                         <div className="flex shrink-0 items-center justify-end">
-                          <Button type="button" size="sm" variant="ghost" actionTone="delete" className="h-7 shrink-0 text-muted-foreground hover:bg-transparent hover:text-destructive" aria-label={t("pr.filters.removeCreator", { list: activeTabLabel, value })} onClick={() => removeValue("creator", value)}>
+                          <Button type="button" size="sm" variant="ghost" actionTone="remove" className="h-7 shrink-0" aria-label={t("pr.filters.removeCreator", { list: activeTabLabel, value })} onClick={() => removeValue("creator", value)}>
                             <Trash2 data-icon="inline-start" aria-hidden="true" />{t("pr.filters.remove")}
                           </Button>
                         </div>

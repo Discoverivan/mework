@@ -40,7 +40,7 @@ export interface ButtonProps
   extends React.ButtonHTMLAttributes<HTMLButtonElement>,
     VariantProps<typeof buttonVariants> {
   asChild?: boolean
-  actionTone?: "add" | "edit" | "delete" | "neutral" | "success" | "warning"
+  actionTone?: "add" | "edit" | "delete" | "remove" | "neutral" | "success" | "warning"
 }
 
 const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
@@ -61,7 +61,7 @@ const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
             size !== "icon" && isAction && (variant !== "link" || actionTone) && "app-action-text",
             (actionTone === "success" || actionTone === "add") && "hover:text-success focus-visible:text-success",
             actionTone === "warning" && "hover:text-warning focus-visible:text-warning",
-            actionTone === "delete" && "hover:text-destructive focus-visible:text-destructive",
+            (actionTone === "delete" || actionTone === "remove") && "hover:text-destructive focus-visible:text-destructive",
             className,
           )}
           data-action-tone={actionTone}
