@@ -1,2 +1,2 @@
-// Shared border feedback for inputs and picker triggers; validation wins over hover.
-export const controlBorderClasses = "data-[pointer-hover=true]:enabled:border-primary aria-invalid:border-destructive aria-invalid:data-[pointer-hover=true]:enabled:border-destructive focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 aria-invalid:focus-visible:ring-destructive";
+// One boundary for hover, focus and an open picker; validation keeps precedence.
+export const controlBorderClasses = "app-control-border focus-visible:outline-none focus-visible:ring-0 focus-visible:ring-offset-0";

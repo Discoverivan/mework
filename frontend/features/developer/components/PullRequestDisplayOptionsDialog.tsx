@@ -82,7 +82,7 @@ export function PullRequestDisplayOptionsDialog({
         <DialogHeader>
           <DialogTitle>{t("pr.displayOptions")}</DialogTitle>
         </DialogHeader>
-        <DialogBody className="m-0 space-y-3 p-1 pb-0">
+        <DialogBody layout="sections">
           <Card role="region" className="overflow-hidden shadow-none" aria-labelledby="pull-request-automation-options">
             <CardHeader variant="section" className="py-3">
               <CardTitle id="pull-request-automation-options" className="text-base font-semibold leading-tight">{t("pr.options.automation")}</CardTitle>

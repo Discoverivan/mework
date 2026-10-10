@@ -58,7 +58,7 @@ it("marks hover only over the fields themselves while keeping their labels", () 
     <Label htmlFor="example-picker">Assignee</Label>
     <Button id="example-picker" role="combobox" variant="outline">Choose</Button>
   </>);
-  for (const label of ["Repository", "Name", "Assignee"]) {
+  for (const label of ["Repository", "Name", "Description", "Assignee"]) {
     const field = screen.getByLabelText(label);
     fireEvent.pointerEnter(screen.getByText(label));
     expect(field).not.toHaveAttribute("data-pointer-hover");

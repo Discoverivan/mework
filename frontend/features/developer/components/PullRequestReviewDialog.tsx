@@ -280,7 +280,7 @@ export function PullRequestReviewDialog({
             </div>
           </div>
         </DialogHeader>
-        <DialogBody className="max-h-[70vh] space-y-5 overflow-y-auto">
+        <DialogBody layout="sections">
           {reviewFailed ? (
             <Alert variant="destructive" data-info-popover-boundary>
               <CircleAlert aria-hidden="true" className="size-4 translate-y-0.5" />
@@ -481,7 +481,7 @@ export function PullRequestReviewDialog({
               {t(editingComment?.parentCommentId ? "pr.dialog.additionDescription" : "pr.dialog.editCommentDescription")}
             </DialogDescription>
           </DialogHeader>
-          <DialogBody className="space-y-3">
+          <DialogBody layout="sections">
             <div className="rounded-md border bg-muted/20 px-3 py-2 text-xs text-muted-foreground">
               {editingComment ? <CommentLocation comment={editingComment.comment} /> : null}
             </div>

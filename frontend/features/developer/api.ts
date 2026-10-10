@@ -14,6 +14,7 @@ import type {
   PullRequestUnreadCountsRequest,
   PullRequestReviewState,
   PullRequestReviewStateRequest,
+  ReviewInstructionRule,
 } from "@/shared/contracts/developer";
 
 export const getPullRequestUnreadCounts = (request: PullRequestUnreadCountsRequest) =>
@@ -65,6 +66,7 @@ export const startPullRequestReview = (pullRequest: MyPullRequest) =>
       sourceBranch: pullRequest.sourceBranch,
       targetBranch: pullRequest.targetBranch,
       authorDisplayName: pullRequest.authorDisplayName,
+      authorAccountName: pullRequest.authorAccountName,
       authorAvatarUrl: pullRequest.authorAvatarUrl,
       updatedDate: pullRequest.updatedDate,
       myDecision: pullRequest.myDecision,
@@ -77,6 +79,7 @@ export const startPullRequestReview = (pullRequest: MyPullRequest) =>
 export const getPullRequestReviewState = (pullRequest: MyPullRequest) =>
   invoke<PullRequestReviewState | null>("pull_request_review_state", {
     request: {
+      authorAccountName: pullRequest.authorAccountName,
       integrationId: pullRequest.integrationId,
       projectKey: pullRequest.projectKey,
       repositorySlug: pullRequest.repositorySlug,
@@ -169,6 +172,13 @@ export const searchBitbucketRepositories = (query: string) =>
 
 export const getPullRequestReviewSettings = () =>
   invoke<PullRequestReviewSettings>("pull_request_review_settings");
+
+export const getReviewInstructionRules = () => invoke<ReviewInstructionRule[]>("pull_request_review_instruction_rules");
+export const saveReviewInstructionRules = (rules: ReviewInstructionRule[]) =>
+  invoke<ReviewInstructionRule[]>("save_pull_request_review_instruction_rules", { rules }).then((saved) => {
+    emitAppEvent(APP_EVENT.reviewInstructionRulesChanged);
+    return saved;
+  });
 
 export const savePullRequestReviewSettings = (settings: PullRequestReviewSettings) =>
   invoke<PullRequestReviewSettings>("save_pull_request_review_settings", { settings }).then((saved) => {

@@ -27,6 +27,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { Separator } from "@/components/ui/separator";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
+import { useKeyedOperation } from "@/shared/use-keyed-operation";
 import { APP_EVENT, emitAppEvent, subscribeAppEvent } from "@/app/app-events";
 import {
   Dialog,
@@ -61,7 +62,7 @@ import {
   getAiSettings,
   getCachedAiSettings,
   listIntegrations,
-  refreshAiSettings,
+  refreshAiProvider,
   refreshIntegrationHealth,
   saveAiActionSettings,
   saveIntegration,
@@ -311,7 +312,7 @@ export function SettingsPage({ section = "integrations", focusActivity, mockMode
   const [deletingAiProvider, setDeletingAiProvider] = useState<AiProvider | null>(null);
   const [aiDeleting, setAiDeleting] = useState(false);
   const [aiDeleteError, setAiDeleteError] = useState<string | null>(null);
-  const [refreshingAiProvider, setRefreshingAiProvider] = useState<string | null>(null);
+  const { pendingKeys: refreshingAiProviders, run: runAiProviderRefresh } = useKeyedOperation<string>();
   const [aiProviderRefreshError, setAiProviderRefreshError] = useState<string | null>(null);
   const [editingOpenAiId, setEditingOpenAiId] = useState<string | undefined>();
   const [editingOpenAiHasToken, setEditingOpenAiHasToken] = useState(false);
@@ -330,8 +331,16 @@ export function SettingsPage({ section = "integrations", focusActivity, mockMode
   const [retry, setRetry] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [action, setAction] = useState<"save" | "delete" | null>(null);
-  const [healthCheckKind, setHealthCheckKind] = useState<IntegrationKind | null>(null);
+  const { pendingKeys: healthCheckKinds, run: runHealthCheck } = useKeyedOperation<IntegrationKind>();
+  const [actionKind, setActionKind] = useState<IntegrationKind | null>(null);
   const [healthConfirmation, setHealthConfirmation] = useState<HealthConfirmation | null>(null);
+  const [healthCheckConfirmations, setHealthCheckConfirmations] = useState<HealthConfirmation[]>([]);
+
+  useEffect(() => {
+    if (healthConfirmation || selectedKind || deletingIntegrationKind || action || healthCheckConfirmations.length === 0) return;
+    setHealthConfirmation(healthCheckConfirmations[0]);
+    setHealthCheckConfirmations((current) => current.slice(1));
+  }, [healthConfirmation, selectedKind, deletingIntegrationKind, action, healthCheckConfirmations]);
 
   useEffect(() => {
     if (section === "general") {
@@ -812,17 +821,14 @@ export function SettingsPage({ section = "integrations", focusActivity, mockMode
   }
 
   async function handleRefreshAiProvider(candidate: AiProvider) {
-    setRefreshingAiProvider(candidate.instanceId ?? candidate.id);
-    setAiProviderRefreshError(null);
-    try {
-      const refreshed = await refreshAiSettings();
-      setAiData(refreshed);
-      emitAppEvent(APP_EVENT.aiSettingsChanged, refreshed);
-    } catch (refreshError) {
-      setAiProviderRefreshError(t("settings.aiProviders.refreshError", { provider: candidate.name, error: errorMessage(refreshError, t("common.unknownError")) }));
-    } finally {
-      setRefreshingAiProvider(null);
-    }
+    await runAiProviderRefresh(candidate.instanceId ?? candidate.id, async () => {
+      setAiProviderRefreshError(null);
+      try {
+        await refreshAiProvider(candidate);
+      } catch (refreshError) {
+        setAiProviderRefreshError(t("settings.aiProviders.refreshError", { provider: candidate.name, error: errorMessage(refreshError, t("common.unknownError")) }));
+      }
+    });
   }
 
   function updateAiReasoning(value: string) {
@@ -856,28 +862,27 @@ export function SettingsPage({ section = "integrations", focusActivity, mockMode
     const provider = PROVIDERS.find((candidate) => candidate.kind === kind);
     if (!integration || !provider) return;
 
-    setHealthCheckKind(kind);
-    setError(null);
-    try {
-      const refreshed = await refreshIntegrationHealth({ id: integration.id });
-      setIntegrations((current) => replaceIntegration(current, refreshed));
-      emitAppEvent(APP_EVENT.integrationsChanged);
-      if (refreshed.healthStatus === "unavailable") {
-        setHealthConfirmation({
-          kind,
-          provider,
-          health: {
-            status: "unavailable",
-            message: refreshed.healthError,
-            details: refreshed.healthDetails,
-          },
-        });
+    await runHealthCheck(kind, async () => {
+      setError(null);
+      try {
+        const refreshed = await refreshIntegrationHealth({ id: integration.id });
+        setIntegrations((current) => replaceIntegration(current, refreshed));
+        emitAppEvent(APP_EVENT.integrationsChanged);
+        if (refreshed.healthStatus === "unavailable") {
+          setHealthCheckConfirmations((current) => [...current, {
+            kind,
+            provider,
+            health: {
+              status: "unavailable",
+              message: refreshed.healthError,
+              details: refreshed.healthDetails,
+            },
+          }]);
+        }
+      } catch (error) {
+        setError(t("settings.error.checkHealth", { provider: provider.label, error: errorMessage(error, t("common.unknownError")) }));
       }
-    } catch (error) {
-      setError(t("settings.error.checkHealth", { provider: provider.label, error: errorMessage(error, t("common.unknownError")) }));
-    } finally {
-      setHealthCheckKind(null);
-    }
+    });
   }
 
   async function handleSave(event: FormEvent<HTMLFormElement>) {
@@ -900,6 +905,7 @@ export function SettingsPage({ section = "integrations", focusActivity, mockMode
     }
 
     setAction("save");
+    setActionKind(kind);
     setError(null);
     const input: IntegrationSaveInput = {
       ...(selectedIntegration ? { id: selectedIntegration.id } : {}),
@@ -929,6 +935,7 @@ export function SettingsPage({ section = "integrations", focusActivity, mockMode
       setError(t("settings.error.saveIntegration", { provider: activeProvider.label, error: errorMessage(error, t("common.unknownError")) }));
     } finally {
       setAction(null);
+      setActionKind(null);
     }
   }
 
@@ -944,6 +951,7 @@ export function SettingsPage({ section = "integrations", focusActivity, mockMode
     if (!healthConfirmation?.saveInput) return;
     const { kind, provider, saveInput } = healthConfirmation;
     setAction("save");
+    setActionKind(kind);
     setError(null);
     try {
       const result = await saveIntegration({ ...saveInput, allowUnavailable: true });
@@ -958,6 +966,7 @@ export function SettingsPage({ section = "integrations", focusActivity, mockMode
       setError(t("settings.error.saveIntegration", { provider: provider.label, error: errorMessage(error, t("common.unknownError")) }));
     } finally {
       setAction(null);
+      setActionKind(null);
     }
   }
 
@@ -967,6 +976,7 @@ export function SettingsPage({ section = "integrations", focusActivity, mockMode
     const integrationId = integrationToDelete.id;
 
     setAction("delete");
+    setActionKind(kind);
     setIntegrationDeleteError(null);
     try {
       await deleteIntegration({ id: integrationId });
@@ -980,6 +990,7 @@ export function SettingsPage({ section = "integrations", focusActivity, mockMode
       setIntegrationDeleteError(t("settings.error.deleteIntegration", { provider: deletingIntegrationProvider.label, error: errorMessage(deleteError, t("common.unknownError")) }));
     } finally {
       setAction(null);
+      setActionKind(null);
     }
   }
 
@@ -1108,15 +1119,15 @@ export function SettingsPage({ section = "integrations", focusActivity, mockMode
                                 {aiStatusIcon(candidate.status)}
                                 {t(AI_STATUS_LABEL_KEYS[candidate.status])}
                               </span></Hint>
-                              <Button type="button" size="icon" variant="ghost" className="size-7 [&_svg]:!size-4" aria-label={t("settings.aiProviders.refreshLabel", { provider: candidate.name })} title={t("common.refresh")} onClick={() => void handleRefreshAiProvider(candidate)} disabled={refreshingAiProvider !== null || openAiSaving || aiDeleting || aiSaving}>
-                                <RefreshCw className={cn(refreshingAiProvider === (candidate.instanceId ?? candidate.id) && "animate-spin")} aria-hidden="true" />
+                              <Button type="button" size="icon" variant="ghost" className="size-7 [&_svg]:!size-4" aria-label={t("settings.aiProviders.refreshLabel", { provider: candidate.name })} title={t("common.refresh")} onClick={() => void handleRefreshAiProvider(candidate)} disabled={refreshingAiProviders.has(candidate.instanceId ?? candidate.id) || openAiSaving || aiDeleting || aiSaving}>
+                                <RefreshCw className={cn(refreshingAiProviders.has(candidate.instanceId ?? candidate.id) && "animate-spin")} aria-hidden="true" />
                               </Button>
                               {candidate.id === "openai-compatible" ? (
-                                <Button type="button" size="icon" variant="ghost" actionTone="edit" className="size-7 [&_svg]:!size-4" aria-label={t("settings.aiProviders.editLabel", { provider: candidate.baseUrl ?? candidate.name })} title={t("common.edit")} onClick={() => openOpenAiCompatibleDialog(candidate)} disabled={openAiSaving || aiDeleting || aiSaving}>
+                                <Button type="button" size="icon" variant="ghost" actionTone="edit" className="size-7 [&_svg]:!size-4" aria-label={t("settings.aiProviders.editLabel", { provider: candidate.baseUrl ?? candidate.name })} title={t("common.edit")} onClick={() => openOpenAiCompatibleDialog(candidate)} disabled={refreshingAiProviders.has(candidate.instanceId ?? candidate.id) || openAiSaving || aiDeleting || aiSaving}>
                                   <Pencil aria-hidden="true" />
                                 </Button>
                               ) : null}
-                              <Button type="button" size="icon" variant="ghost" actionTone="delete" className="size-7 text-muted-foreground hover:bg-transparent hover:text-destructive [&_svg]:!size-4" aria-label={t("settings.aiProviders.deleteLabel", { provider: candidate.baseUrl ?? candidate.name })} title={t("common.delete")} onClick={() => { setAiDeleteError(null); setDeletingAiProvider(candidate); }} disabled={openAiSaving || aiDeleting || aiSaving}>
+                              <Button type="button" size="icon" variant="ghost" actionTone="delete" className="size-7 text-muted-foreground hover:bg-transparent hover:text-destructive [&_svg]:!size-4" aria-label={t("settings.aiProviders.deleteLabel", { provider: candidate.baseUrl ?? candidate.name })} title={t("common.delete")} onClick={() => { setAiDeleteError(null); setDeletingAiProvider(candidate); }} disabled={refreshingAiProviders.has(candidate.instanceId ?? candidate.id) || openAiSaving || aiDeleting || aiSaving}>
                                 <Trash2 aria-hidden="true" />
                               </Button>
                             </div>
@@ -1391,10 +1402,10 @@ export function SettingsPage({ section = "integrations", focusActivity, mockMode
                           className="size-8"
                           aria-label={t("settings.health.refresh", { provider: candidate.label })}
                           title={t("common.refresh")}
-                          disabled={healthCheckKind !== null || action !== null}
+                          disabled={healthCheckKinds.has(candidate.kind) || actionKind === candidate.kind}
                           onClick={() => void handleHealthCheck(candidate.kind)}
                         >
-                          <RefreshCw className={cn(healthCheckKind === candidate.kind && "animate-spin")} aria-hidden="true" />
+                          <RefreshCw className={cn(healthCheckKinds.has(candidate.kind) && "animate-spin")} aria-hidden="true" />
                         </Button>
                         <Button
                           type="button"
@@ -1404,7 +1415,7 @@ export function SettingsPage({ section = "integrations", focusActivity, mockMode
                           className="size-8 [&_svg]:size-[18px]"
                           aria-label={t("settings.integration.editLabel", { provider: candidate.label })}
                           title={t("common.edit")}
-                          disabled={healthCheckKind !== null || action !== null}
+                          disabled={healthCheckKinds.has(candidate.kind) || actionKind === candidate.kind}
                           onClick={() => { setSelectedKind(candidate.kind); setError(null); }}
                         >
                           <Pencil aria-hidden="true" />
@@ -1417,7 +1428,7 @@ export function SettingsPage({ section = "integrations", focusActivity, mockMode
                           className="size-8 text-muted-foreground hover:bg-transparent hover:text-destructive [&_svg]:size-[18px]"
                           aria-label={t("settings.integration.deleteLabel", { provider: candidate.label })}
                           title={t("common.delete")}
-                          disabled={healthCheckKind !== null || action !== null}
+                          disabled={healthCheckKinds.has(candidate.kind) || actionKind === candidate.kind}
                           onClick={() => { setIntegrationDeleteError(null); setDeletingIntegrationKind(candidate.kind); }}
                         >
                           <Trash2 aria-hidden="true" />

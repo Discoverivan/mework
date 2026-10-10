@@ -2,7 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { APP_EVENT, subscribeAppEvent } from "@/app/app-events";
-import { getAiSettings, refreshAiSettings, saveAiSettings, saveIntegration } from "./api";
+import { getAiSettings, getCachedAiSettings, refreshAiProvider, refreshAiSettings, saveAiSettings, saveIntegration } from "./api";
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
 
@@ -79,6 +79,27 @@ describe("settings integration API smoke test", () => {
     expect(await oldRequest).toEqual(oldSettings);
     expect(await getAiSettings()).toEqual(newSettings);
     expect(invokeMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("merges concurrent provider refreshes into the current cache", async () => {
+    const settings = { provider: null, model: "", reasoning: "medium" as const, fastMode: false, retries: { default: 0, actions: { taskCreation: null, pullRequestReview: null, tokenBurner: null, sprintSummary: null } } };
+    const first = { id: "codex-cli" as const, name: "Codex CLI", status: "connected" as const, available: true, models: ["example-model"] };
+    const second = { ...first, id: "claude-code-cli" as const, name: "Claude Code CLI" };
+    invokeMock.mockReset();
+    invokeMock.mockResolvedValueOnce({ settings, providers: [first, second] });
+    await refreshAiSettings();
+    let finishFirst!: (value: typeof first) => void;
+    let finishSecond!: (value: typeof second) => void;
+    invokeMock.mockImplementationOnce(() => new Promise((resolve) => { finishFirst = resolve; }))
+      .mockImplementationOnce(() => new Promise((resolve) => { finishSecond = resolve; }));
+    const firstRequest = refreshAiProvider(first);
+    const secondRequest = refreshAiProvider(second);
+    expect(invokeMock).toHaveBeenCalledWith("ai_provider_refresh", { provider: "codex-cli", instanceId: null });
+    finishSecond({ ...second, models: ["example-second-model"] });
+    await secondRequest;
+    finishFirst({ ...first, models: ["example-first-model"] });
+    await firstRequest;
+    expect(getCachedAiSettings()?.providers.map((provider) => provider.models)).toEqual([["example-first-model"], ["example-second-model"]]);
   });
 
   it("reuses session settings across reads and updates them after saving", async () => {

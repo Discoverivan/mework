@@ -617,6 +617,7 @@ mod tests {
             source_branch: "example-source".into(),
             target_branch: "example-target".into(),
             author_display_name: "Example Author".into(),
+            author_account_name: None,
             author_avatar_url: None,
             updated_date: None,
             my_decision: "not_reviewed".into(),

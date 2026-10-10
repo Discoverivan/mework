@@ -652,7 +652,7 @@ export function DailyPage() {
       <Dialog open={settingsOpen} onOpenChange={setSettingsOpen}>
         <DialogContent aria-describedby={undefined}>
           <DialogHeader><DialogTitle>{t("daily.settings")}</DialogTitle></DialogHeader>
-          <DialogBody className="m-0 p-1 pb-0">
+          <DialogBody>
             <Card className="shadow-none">
               <CardContent className="p-4">
                 <div className="flex flex-wrap items-center justify-between gap-4">

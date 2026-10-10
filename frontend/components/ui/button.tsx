@@ -46,7 +46,7 @@ export interface ButtonProps
 const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
   ({ actionTone, className, variant, size, asChild = false, title, ...props }, ref) => {
     const Comp = asChild ? Slot : "button"
-    const isAction = props.role !== "combobox" && props["aria-pressed"] === undefined && !("data-day" in props)
+    const isAction = props.role !== "combobox" && (props["aria-pressed"] === undefined || actionTone !== undefined) && !("data-day" in props)
     const isPicker = props.role === "combobox" && variant === "outline"
     const variantClasses = buttonVariants({ variant, size })
     return (

@@ -106,16 +106,14 @@
     cursor: pointer;
   }
 
+  /* Match the 16 px block spacing in General Settings across dialog forms. */
+  .app-dialog-content,
   .app-dialog-sections {
-    gap: 1.5rem;
-  }
-
-  :root[data-button-style="quiet"] .app-dialog-content {
-    gap: 0.75rem;
-  }
-
-  :root[data-button-style="quiet"] .app-dialog-sections {
     gap: 1rem;
+  }
+
+  .app-dialog-actions {
+    margin-block-start: 0;
   }
 
   :root[data-button-style="quiet"] .app-toggle:not(.review-mode-option) {
@@ -197,7 +195,6 @@
 
   :root[data-button-style="quiet"] .app-dialog-actions {
     gap: 0.5rem;
-    margin-block-start: 0.5rem;
     margin-inline: 0.25rem;
   }
 
@@ -323,6 +320,16 @@
     height: 16px;
   }
 
+  :root:is([data-button-style="filled"], [data-button-style="filled_borderless"]) .pr-filter-group .app-instruction-edit {
+    width: 24px;
+    height: 24px;
+  }
+
+  :root[data-button-style="quiet"] .pr-filter-group .app-instruction-edit {
+    width: 28px;
+    height: 28px;
+  }
+
   :root[data-button-style] .pr-filter-group .app-action-text {
     gap: 6px;
     font-size: 13px;
@@ -374,8 +381,9 @@
   border-color: transparent !important;
 }
 
+/* Search results retain their item boundaries independently of action-button appearance. */
 /* Preserve button geometry and keyboard focus while hiding borders in this variant. */
-:root[data-button-style="filled_borderless"] :is(button, [role="button"], [data-button-variant], .app-toggle):not([aria-invalid="true"]) {
+:root[data-button-style="filled_borderless"] :is(button, [role="button"], [data-button-variant], .app-toggle):not(.app-search-result):not(.app-control-border:enabled:is([data-pointer-hover="true"], :focus, [aria-expanded="true"])):not([aria-invalid="true"]) {
   border-color: transparent !important;
 }
 
@@ -394,6 +402,27 @@
 
 :root:is([data-button-style="quiet"], [data-button-style="filled_borderless"]) input:is([type="number"], [inputmode="numeric"], [inputmode="decimal"]):not([aria-invalid="true"]):enabled:is([data-pointer-hover="true"], :focus-visible) {
   color: var(--primary);
+}
+
+/* Controls share one boundary for pointer hover, focus and an open picker.
+   Keep it visible during interaction even when idle controls are borderless. */
+:root .app-control-border:not([aria-invalid="true"]):enabled:is([data-pointer-hover="true"], :focus, [aria-expanded="true"]) {
+  border-color: var(--primary) !important;
+}
+
+.app-control-border:focus {
+  outline: none;
+  box-shadow: none;
+}
+
+:root .app-control-border[aria-invalid="true"] {
+  border-color: var(--destructive) !important;
+}
+
+/* Missing required content stays visible on icon editors in every action style. */
+:root .app-icon-button[aria-invalid="true"] {
+  border: 1px solid var(--destructive) !important;
+  color: var(--destructive) !important;
 }
 
 /* All cards, including empty states, follow the selected interface border style.

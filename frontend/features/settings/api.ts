@@ -100,6 +100,22 @@ export function refreshAiSettings(): Promise<AiSettingsPageData> {
   return getAiSettings();
 }
 
+export async function refreshAiProvider(provider: AiProvider): Promise<void> {
+  const refreshed = await invoke<AiProvider>("ai_provider_refresh", {
+    provider: provider.id, instanceId: provider.instanceId ?? null,
+  });
+  // Merge into the latest snapshot: another provider may have finished meanwhile.
+  if (!aiSettingsSnapshot) return;
+  const matches = (candidate: AiProvider) => candidate.id === provider.id
+    && candidate.instanceId === provider.instanceId;
+  if (!aiSettingsSnapshot.providers.some(matches)) return;
+  const updated = cacheMutatedAiSettings({
+    ...aiSettingsSnapshot,
+    providers: aiSettingsSnapshot.providers.map((candidate) => matches(candidate) ? refreshed : candidate),
+  });
+  emitAppEvent(APP_EVENT.aiSettingsChanged, updated);
+}
+
 export const saveAiSettings = (settings: AiSettings) =>
   invoke<AiSettingsPageData>("ai_settings_save", { settings }).then(cacheMutatedAiSettings);
 

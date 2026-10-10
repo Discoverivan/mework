@@ -1,9 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { CheckCheck, Filter, RefreshCw, Settings2, Trash2 } from "lucide-react";
+import { CheckCheck, Filter, RefreshCw, Settings2, Trash2, FilePenLine } from "lucide-react";
 
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
-import { CreateButton } from "@/components/shared/CreateButton";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -14,9 +13,6 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Separator } from "@/components/ui/separator";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -37,6 +33,8 @@ import { PullRequestListItem } from "./components/PullRequestListItem";
 import { PullRequestDisplayOptionsDialog } from "./components/PullRequestDisplayOptionsDialog";
 import { PullRequestProjectSection } from "./components/PullRequestProjectSection";
 import { PullRequestReviewDialog } from "./components/PullRequestReviewDialog";
+import { PullRequestTargetPicker } from "./components/PullRequestTargetPicker";
+import { ReviewInstructionsDialog } from "./components/ReviewInstructionsDialog";
 import { PullRequestStatus } from "./components/PullRequestStatus";
 import { usePullRequestDisplayPreferences, usePullRequestQuickFilter } from "./display-options";
 import {
@@ -45,6 +43,7 @@ import {
   sortPullRequestsByUpdatedDate,
 } from "./components/pull-request-projects";
 import { PageHeader } from "@/components/shared/PageHeader";
+import { InfoPopover } from "@/components/shared/InfoPopover";
 import { useI18n } from "@/i18n/context";
 import { APP_EVENT, emitAppEvent, subscribeAppEvent } from "@/app/app-events";
 import { shouldRefreshPullRequestCache } from "./pull-request-cache";
@@ -111,6 +110,17 @@ function repositoryOptionLabel(repository: BitbucketRepository): string {
 
 function creatorOptionValue(user: BitbucketUser): string | undefined {
   return user.displayName ?? user.name ?? user.slug;
+}
+
+// Filters store global target values; scoped provider search can return the same value twice.
+function uniqueFilterTargets<T>(values: T[], key: (value: T) => string | undefined): T[] {
+  const seen = new Set<string>();
+  return values.filter((value) => {
+    const identity = key(value)?.trim().toLocaleLowerCase();
+    if (!identity || seen.has(identity)) return false;
+    seen.add(identity);
+    return true;
+  });
 }
 
 function equalsIgnoreCase(left: string, right: string): boolean {
@@ -191,6 +201,7 @@ export function MyPullRequestsPage() {
   const [creatorSearchLoading, setCreatorSearchLoading] = useState(false);
   const [creatorSearchError, setCreatorSearchError] = useState<string>();
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [instructionsOpen, setInstructionsOpen] = useState(false);
   const [filterSearch, setFilterSearch] = useState<FilterKind>();
   const [displayOptionsOpen, setDisplayOptionsOpen] = useState(false);
   const [displayPreferences, updateDisplayPreferences] = usePullRequestDisplayPreferences("reviewer");
@@ -324,6 +335,24 @@ export function MyPullRequestsPage() {
   usePullRequestReviewPolling(pullRequests, setPullRequests);
 
   useEffect(() => {
+    let active = true;
+    let revision = 0;
+    const reload = () => {
+      const currentRevision = ++revision;
+      void listMyPullRequests(0, 100).then((page) => {
+        if (active && currentRevision === revision) applyPage(page);
+      }).catch((reason) => {
+        if (active && currentRevision === revision) setError(commandError(reason));
+      });
+    };
+    const unsubscribeRules = subscribeAppEvent(APP_EVENT.reviewInstructionRulesChanged, reload);
+    const unsubscribePrompts = subscribeAppEvent(APP_EVENT.aiPromptSettingsChanged, (value) => {
+      if (value.action === "pullRequestReview" || value.action === "reviewArbiter") reload();
+    });
+    return () => { active = false; unsubscribeRules(); unsubscribePrompts(); };
+  }, [applyPage]);
+
+  useEffect(() => {
     const query = projectInput.trim();
     if (!settingsOpen || filterSearch !== "project" || query.length < 3) {
       setProjectSearchResults([]);
@@ -419,13 +448,13 @@ export function MyPullRequestsPage() {
     };
   }, [creatorInput, settingsOpen, filterSearch]);
 
-  const availableProjects = projectSearchResults.filter((project) =>
+  const availableProjects = uniqueFilterTargets(projectSearchResults, (project) => project.projectKey).filter((project) =>
     !draftSettings[filterField(filterTab, "project")].some((value) => equalsIgnoreCase(value, project.projectKey)),
   );
-  const availableRepositories = repositorySearchResults.filter((repository) =>
+  const availableRepositories = uniqueFilterTargets(repositorySearchResults, repositoryOptionKey).filter((repository) =>
     !draftSettings[filterField(filterTab, "repository")].some((value) => equalsIgnoreCase(value, repositoryOptionKey(repository))),
   );
-  const availableCreators = creatorSearchResults.filter((user) => {
+  const availableCreators = uniqueFilterTargets(creatorSearchResults, creatorOptionValue).filter((user) => {
     const displayName = creatorOptionValue(user);
     return !!displayName && !draftSettings[filterField(filterTab, "creator")].some((value) => equalsIgnoreCase(value, displayName));
   });
@@ -751,6 +780,9 @@ export function MyPullRequestsPage() {
           >
             <Filter aria-hidden="true" />
           </Button>
+          <Button type="button" variant="outline" size="icon" className="h-9 w-9" aria-label={t("pr.instructions.title")} title={t("pr.instructions.title")} onClick={() => setInstructionsOpen(true)} disabled={loading}>
+            <FilePenLine aria-hidden="true" />
+          </Button>
           <Button
             type="button"
             variant="outline"
@@ -865,77 +897,67 @@ export function MyPullRequestsPage() {
       />
 
       <Dialog open={settingsOpen} onOpenChange={setSettingsOpen}>
-        <DialogContent className="max-w-2xl" aria-describedby={undefined}>
+        <DialogContent className="max-w-2xl" data-info-popover-boundary aria-describedby={undefined}>
           <DialogHeader>
-            <DialogTitle>{t("pr.filters.title")}</DialogTitle>
+            <div className="flex items-center gap-1.5 pr-6">
+              <DialogTitle>{t("pr.filters.title")}</DialogTitle>
+              <InfoPopover label={t("pr.filters.showHelp")} title={t("pr.filters.helpTitle")}>
+                <p><strong className="font-medium text-foreground">{t("pr.filters.blacklist")}.</strong>{" "}{t("pr.filters.denyHint")}</p>
+                <p><strong className="font-medium text-foreground">{t("pr.filters.whitelist")}.</strong>{" "}{t("pr.filters.allowHint")}</p>
+                <p>{t("pr.filters.helpMatching")}</p>
+                <p>{t("pr.filters.helpModes")}</p>
+                <p>{t("pr.filters.helpSaving")}</p>
+              </InfoPopover>
+            </div>
           </DialogHeader>
-          <DialogBody layout="sections">
-            <ToggleGroup
-              type="single"
-              size="sm"
-              role="radiogroup"
-              value={filterTab}
-              onValueChange={(value) => {
-                if (value === "blacklist" || value === "whitelist") {
-                  setFilterSearch(undefined);
-                  setFilterTab(value);
-                }
-              }}
-              aria-label={t("pr.filters.lists")}
-              className="pr-filter-mode flex w-full shrink-0 justify-evenly gap-0 rounded-lg bg-muted py-1"
+          <ToggleGroup
+            type="single"
+            size="sm"
+            role="radiogroup"
+            value={filterTab}
+            onValueChange={(value) => {
+              if (value === "blacklist" || value === "whitelist") {
+                setFilterSearch(undefined);
+                setFilterTab(value);
+              }
+            }}
+            aria-label={t("pr.filters.lists")}
+            className="pr-filter-mode flex w-full shrink-0 justify-evenly gap-0 rounded-lg bg-muted py-1"
+          >
+            <ToggleGroupItem
+              value="blacklist"
+              title={t("pr.filters.denyHint")}
+              className="pr-filter-mode-option px-4 data-[state=on]:bg-background data-[state=on]:text-foreground data-[state=on]:shadow-sm"
             >
-              <ToggleGroupItem
-                value="blacklist"
-                title={t("pr.filters.denyHint")}
-                className="pr-filter-mode-option px-4 data-[state=on]:bg-background data-[state=on]:text-foreground data-[state=on]:shadow-sm"
-              >
-                {t("pr.filters.blacklist")}
-              </ToggleGroupItem>
-              <ToggleGroupItem
-                value="whitelist"
-                title={t("pr.filters.allowHint")}
-                className="pr-filter-mode-option px-4 data-[state=on]:bg-background data-[state=on]:text-foreground data-[state=on]:shadow-sm"
-              >
-                {t("pr.filters.whitelist")}
-              </ToggleGroupItem>
-            </ToggleGroup>
+              {t("pr.filters.blacklist")}
+            </ToggleGroupItem>
+            <ToggleGroupItem
+              value="whitelist"
+              title={t("pr.filters.allowHint")}
+              className="pr-filter-mode-option px-4 data-[state=on]:bg-background data-[state=on]:text-foreground data-[state=on]:shadow-sm"
+            >
+              {t("pr.filters.whitelist")}
+            </ToggleGroupItem>
+          </ToggleGroup>
 
+          <DialogBody layout="sections">
             <Card className="pr-filter-group shrink-0 overflow-hidden shadow-none">
               <CardHeader variant="section" className="px-3 py-1">
                 <div className="flex items-center justify-between gap-3">
                   <CardTitle className="min-w-0 flex-1 text-[15px] font-normal leading-normal">{t("pr.filters.projects")}</CardTitle>
                   <div className="flex shrink-0 items-center justify-end">
-                    <Popover modal open={settingsOpen && filterSearch === "project"} onOpenChange={(open) => {
-                      setFilterSearch((current) => open ? "project" : current === "project" ? undefined : current);
-                      if (open) setProjectInput("");
-                    }}>
-                      <PopoverTrigger asChild>
-                        <CreateButton label={t("pr.filters.add")} type="button" variant="outline" className="h-7" aria-label={t("pr.filters.addProject")} />
-                      </PopoverTrigger>
-                      <PopoverContent align="end" aria-label={t("pr.filters.addProject")} className="flex w-[min(24rem,calc(100vw-2rem))] flex-col gap-3">
-                        <Label htmlFor={`${filterTab}-project-input`}>{t("pr.filters.projects")}</Label>
-                        <Input
-                          id={`${filterTab}-project-input`}
-                          value={projectInput}
-                          onChange={(event) => setProjectInput(event.target.value)}
-                          placeholder={t("pr.filters.projectPlaceholder")}
-                        />
-                        {projectSearchLoading ? <p role="status" className="text-sm text-muted-foreground">{t("pr.filters.searchingProjects")}</p> : null}
-                        {projectSearchError ? <p role="alert" className="text-sm text-destructive">{projectSearchError}</p> : null}
-                        {availableProjects.length > 0 ? (
-                          <ul aria-label={t("pr.filters.projectResults")} className="flex max-h-[min(18rem,40vh)] flex-col gap-1 overflow-y-auto overscroll-contain pr-1">
-                            {availableProjects.map((project) => (
-                              <li key={`${project.integrationId}:${project.projectKey}`}>
-                                <button type="button" aria-label={`${project.projectKey} (${project.projectName})`} className="w-full cursor-pointer rounded-md border px-3 py-2 text-left text-sm hover:text-primary focus-visible:text-primary" onClick={() => addValue("project", project.projectKey)}>
-                                  <span className="font-medium">{project.projectKey}</span>
-                                  <span className="ml-2 opacity-70">{project.projectName}</span>
-                                </button>
-                              </li>
-                            ))}
-                          </ul>
-                        ) : null}
-                      </PopoverContent>
-                    </Popover>
+                    <PullRequestTargetPicker
+                      open={settingsOpen && filterSearch === "project"}
+                      onOpenChange={(open) => {
+                        setFilterSearch((current) => open ? "project" : current === "project" ? undefined : current);
+                        if (open) setProjectInput("");
+                      }}
+                      actionLabel={t("pr.filters.addProject")} inputId={`${filterTab}-project-input`} fieldLabel={t("pr.filters.project")}
+                      query={projectInput} onQueryChange={setProjectInput} placeholder={t("pr.filters.projectPlaceholder")}
+                      searching={projectSearchLoading} searchingLabel={t("pr.filters.searchingProjects")} error={projectSearchError} resultsLabel={t("pr.filters.projectResults")}
+                      options={availableProjects.map((project) => ({ key: `${project.integrationId}:${project.projectKey}`, primary: project.projectKey, secondary: project.projectName, accessibleName: `${project.projectKey} (${project.projectName})` }))}
+                      onSelect={(key) => { const project = availableProjects.find((candidate) => `${candidate.integrationId}:${candidate.projectKey}` === key); if (project) addValue("project", project.projectKey); }}
+                    />
                   </div>
                 </div>
               </CardHeader>
@@ -966,43 +988,19 @@ export function MyPullRequestsPage() {
                 <div className="flex items-center justify-between gap-3">
                   <CardTitle className="min-w-0 flex-1 text-[15px] font-normal leading-normal">{t("pr.filters.repositories")}</CardTitle>
                   <div className="flex shrink-0 items-center justify-end">
-                    <Popover modal open={settingsOpen && filterSearch === "repository"} onOpenChange={(open) => {
-                      setFilterSearch((current) => open ? "repository" : current === "repository" ? undefined : current);
-                      if (open) setRepositoryInput("");
-                    }}>
-                      <PopoverTrigger asChild>
-                        <CreateButton label={t("pr.filters.add")} type="button" variant="outline" className="h-7" aria-label={t("pr.filters.addRepository")} />
-                      </PopoverTrigger>
-                      <PopoverContent align="end" aria-label={t("pr.filters.addRepository")} className="flex w-[min(24rem,calc(100vw-2rem))] flex-col gap-3">
-                        <Label htmlFor={`${filterTab}-repository-input`}>{t("pr.filters.repositories")}</Label>
-                        <Input
-                          id={`${filterTab}-repository-input`}
-                          value={repositoryInput}
-                          onChange={(event) => setRepositoryInput(event.target.value)}
-                          onKeyDown={(event) => {
-                            if (event.key === "Enter" && repositorySearchMatch) {
-                              event.preventDefault();
-                              addValue("repository", repositoryOptionKey(repositorySearchMatch));
-                            }
-                          }}
-                          placeholder={t("pr.filters.repositoryPlaceholder")}
-                        />
-                        {repositorySearchLoading ? <p role="status" className="text-sm text-muted-foreground">{t("pr.filters.searchingRepositories")}</p> : null}
-                        {repositorySearchError ? <p role="alert" className="text-sm text-destructive">{repositorySearchError}</p> : null}
-                        {availableRepositories.length > 0 ? (
-                          <ul aria-label={t("pr.filters.repositoryResults")} className="flex max-h-[min(18rem,40vh)] flex-col gap-1 overflow-y-auto overscroll-contain pr-1">
-                            {availableRepositories.map((repository) => (
-                              <li key={repositoryOptionKey(repository)}>
-                                <button type="button" aria-label={repositoryOptionLabel(repository)} className="w-full cursor-pointer rounded-md border px-3 py-2 text-left text-sm hover:text-primary focus-visible:text-primary" onClick={() => addValue("repository", repositoryOptionKey(repository))}>
-                                  <span className="font-medium">{repositoryOptionKey(repository)}</span>
-                                  <span className="ml-2 opacity-70">· {repository.repositoryName} ({repository.projectName})</span>
-                                </button>
-                              </li>
-                            ))}
-                          </ul>
-                        ) : null}
-                      </PopoverContent>
-                    </Popover>
+                    <PullRequestTargetPicker
+                      open={settingsOpen && filterSearch === "repository"}
+                      onOpenChange={(open) => {
+                        setFilterSearch((current) => open ? "repository" : current === "repository" ? undefined : current);
+                        if (open) setRepositoryInput("");
+                      }}
+                      actionLabel={t("pr.filters.addRepository")} inputId={`${filterTab}-repository-input`} fieldLabel={t("pr.filters.repository")}
+                      query={repositoryInput} onQueryChange={setRepositoryInput} placeholder={t("pr.filters.repositoryPlaceholder")}
+                      searching={repositorySearchLoading} searchingLabel={t("pr.filters.searchingRepositories")} error={repositorySearchError} resultsLabel={t("pr.filters.repositoryResults")}
+                      options={availableRepositories.map((repository) => ({ key: repositoryOptionKey(repository), primary: repositoryOptionKey(repository), secondary: `${repository.repositoryName} (${repository.projectName})`, accessibleName: repositoryOptionLabel(repository) }))}
+                      onSelect={(key) => { addValue("repository", key); }}
+                      onEnter={repositorySearchMatch ? () => addValue("repository", repositoryOptionKey(repositorySearchMatch)) : undefined}
+                    />
                   </div>
                 </div>
               </CardHeader>
@@ -1033,48 +1031,19 @@ export function MyPullRequestsPage() {
                 <div className="flex items-center justify-between gap-3">
                   <CardTitle className="min-w-0 flex-1 text-[15px] font-normal leading-normal">{t("pr.filters.creators")}</CardTitle>
                   <div className="flex shrink-0 items-center justify-end">
-                    <Popover modal open={settingsOpen && filterSearch === "creator"} onOpenChange={(open) => {
-                      setFilterSearch((current) => open ? "creator" : current === "creator" ? undefined : current);
-                      if (open) setCreatorInput("");
-                    }}>
-                      <PopoverTrigger asChild>
-                        <CreateButton label={t("pr.filters.add")} type="button" variant="outline" className="h-7" aria-label={t("pr.filters.addCreator")} />
-                      </PopoverTrigger>
-                      <PopoverContent align="end" aria-label={t("pr.filters.addCreator")} className="flex w-[min(24rem,calc(100vw-2rem))] flex-col gap-3">
-                        <Label htmlFor={`${filterTab}-creator-input`}>{t("pr.filters.creators")}</Label>
-                        <Input
-                          id={`${filterTab}-creator-input`}
-                          value={creatorInput}
-                          onChange={(event) => setCreatorInput(event.target.value)}
-                          onKeyDown={(event) => {
-                            if (event.key === "Enter" && creatorSearchMatch) {
-                              event.preventDefault();
-                              addValue("creator", creatorOptionValue(creatorSearchMatch));
-                            }
-                          }}
-                          placeholder={t("pr.filters.creatorPlaceholder")}
-                        />
-                        {creatorSearchLoading ? <p role="status" className="text-sm text-muted-foreground">{t("pr.filters.searchingCreators")}</p> : null}
-                        {creatorSearchError ? <p role="alert" className="text-sm text-destructive">{creatorSearchError}</p> : null}
-                        {availableCreators.length > 0 ? (
-                          <ul aria-label={t("pr.filters.creatorResults")} className="flex max-h-[min(18rem,40vh)] flex-col gap-1 overflow-y-auto overscroll-contain pr-1">
-                            {availableCreators.map((user) => {
-                              const displayName = creatorOptionValue(user);
-                              if (!displayName) return null;
-                              const account = user.name ?? user.slug;
-                              return (
-                                <li key={`${user.name ?? ""}:${user.slug ?? ""}:${displayName}`}>
-                                  <button type="button" aria-label={`${displayName}${account ? ` (${account})` : ""}`} className="w-full cursor-pointer rounded-md border px-3 py-2 text-left text-sm hover:text-primary focus-visible:text-primary" onClick={() => addValue("creator", displayName)}>
-                                    <span className="font-medium">{displayName}</span>
-                                    {account ? <span className="ml-2 opacity-70">({account})</span> : null}
-                                  </button>
-                                </li>
-                              );
-                            })}
-                          </ul>
-                        ) : null}
-                      </PopoverContent>
-                    </Popover>
+                    <PullRequestTargetPicker
+                      open={settingsOpen && filterSearch === "creator"}
+                      onOpenChange={(open) => {
+                        setFilterSearch((current) => open ? "creator" : current === "creator" ? undefined : current);
+                        if (open) setCreatorInput("");
+                      }}
+                      actionLabel={t("pr.filters.addCreator")} inputId={`${filterTab}-creator-input`} fieldLabel={t("pr.filters.author")}
+                      query={creatorInput} onQueryChange={setCreatorInput} placeholder={t("pr.filters.creatorPlaceholder")}
+                      searching={creatorSearchLoading} searchingLabel={t("pr.filters.searchingCreators")} error={creatorSearchError} resultsLabel={t("pr.filters.creatorResults")}
+                      options={availableCreators.map((user) => { const displayName = creatorOptionValue(user)!; const account = user.name ?? user.slug; return { key: `${user.name ?? ""}:${user.slug ?? ""}:${displayName}`, primary: displayName, secondary: account ? `(${account})` : undefined, accessibleName: `${displayName}${account ? ` (${account})` : ""}` }; })}
+                      onSelect={(key) => { const user = availableCreators.find((candidate) => `${candidate.name ?? ""}:${candidate.slug ?? ""}:${creatorOptionValue(candidate)}` === key); if (user) addValue("creator", creatorOptionValue(user)); }}
+                      onEnter={creatorSearchMatch ? () => addValue("creator", creatorOptionValue(creatorSearchMatch)) : undefined}
+                    />
                   </div>
                 </div>
               </CardHeader>
@@ -1112,6 +1081,7 @@ export function MyPullRequestsPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      <ReviewInstructionsDialog open={instructionsOpen} onOpenChange={setInstructionsOpen} />
     </section>
   );
 }

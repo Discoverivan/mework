@@ -56,6 +56,7 @@ export interface BitbucketProject {
 }
 
 export interface BitbucketRepository {
+  integrationId: string;
   projectKey: string;
   projectName: string;
   repositorySlug: string;
@@ -63,6 +64,7 @@ export interface BitbucketRepository {
 }
 
 export interface BitbucketUser {
+  integrationId: string;
   name?: string;
   displayName?: string;
   slug?: string;
@@ -81,6 +83,15 @@ export interface PullRequestReviewSettings {
 }
 
 export type MyPullRequestDecision = "approved" | "needs_work" | "not_reviewed";
+export type ReviewInstructionScope = "project" | "repository" | "author";
+export interface ReviewInstructionRule {
+  integrationId: string;
+  scope: ReviewInstructionScope;
+  externalId: string;
+  label: string;
+  mode: "replace" | "append";
+  instructions: string;
+}
 
 export type PullRequestReviewStatus = "running" | "completed" | "failed";
 export type PullRequestReviewVerdict = "ok" | "needs_changes";
@@ -149,6 +160,7 @@ export interface PullRequestCommentMatches {
 }
 
 export interface PullRequestReviewStateRequest {
+  authorAccountName?: string | null;
   integrationId: string;
   projectKey: string;
   repositorySlug: string;
@@ -163,6 +175,7 @@ export interface PullRequestReviewSummary {
 }
 
 export interface MyPullRequest {
+  authorAccountName?: string | null;
   integrationId: string;
   pullRequestId: string;
   title: string;

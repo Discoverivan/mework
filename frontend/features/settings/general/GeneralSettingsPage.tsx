@@ -29,6 +29,7 @@ import { AppLanguage } from "@/i18n/types";
 import { DataRetentionSettings } from "./DataRetentionSettings";
 import { SettingsReveal } from "./SettingsReveal";
 import { APP_EVENT, emitAppEvent } from "@/app/app-events";
+import { useKeyedOperation } from "@/shared/use-keyed-operation";
 
 function errorMessage(error: unknown, fallback: string): string {
   const message = error instanceof Error ? error.message : typeof error === "string" ? error : fallback;
@@ -48,8 +49,8 @@ export function GeneralSettingsPage() {
   const [terminalError, setTerminalError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [testingNotification, setTestingNotification] = useState<NotificationTestKind | null>(null);
-  const [testedNotification, setTestedNotification] = useState<NotificationTestKind | null>(null);
+  const { pendingKeys: testingNotifications, run: runNotificationTest } = useKeyedOperation<NotificationTestKind>();
+  const [testedNotifications, setTestedNotifications] = useState<ReadonlySet<NotificationTestKind>>(() => new Set());
   const [openingSettings, setOpeningSettings] = useState(false);
   const [requestingPermission, setRequestingPermission] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -124,7 +125,7 @@ export function GeneralSettingsPage() {
     savingRef.current = true;
     setSaving(true);
     setError(null);
-    setTestedNotification(null);
+    setTestedNotifications(new Set());
     setSettings({ ...settings, ...requested });
     try {
       const appearanceChanged = changes.language !== undefined || changes.themePreference !== undefined;
@@ -171,19 +172,22 @@ export function GeneralSettingsPage() {
   }
 
   async function handleTestNotification(notificationKind: NotificationTestKind) {
-    setTestingNotification(notificationKind);
-    setTestedNotification(null);
-    setNotificationError(null);
-    try {
-      await sendNotificationTest(notificationKind);
-      setTestedNotification(notificationKind);
-    } catch (testError) {
-      const message = errorMessage(testError, t("common.unknownError"));
-      await loadSettings();
-      setNotificationError(message);
-    } finally {
-      setTestingNotification(null);
-    }
+    await runNotificationTest(notificationKind, async () => {
+      setTestedNotifications((current) => {
+        const next = new Set(current);
+        next.delete(notificationKind);
+        return next;
+      });
+      setNotificationError(null);
+      try {
+        await sendNotificationTest(notificationKind);
+        setTestedNotifications((current) => new Set(current).add(notificationKind));
+      } catch (testError) {
+        const message = errorMessage(testError, t("common.unknownError"));
+        await loadSettings();
+        setNotificationError(message);
+      }
+    });
   }
 
   async function handleOpenNotificationSettings() {
@@ -493,13 +497,13 @@ export function GeneralSettingsPage() {
                     size="icon"
                     className="h-6 w-6 text-muted-foreground hover:text-foreground [&_svg]:!size-3.5"
                     onClick={() => void handleTestNotification("taskTracker")}
-                    disabled={loading || testingNotification !== null || !(settings?.notificationsEnabled ?? true) || !(settings?.taskTrackerNotificationsEnabled ?? true)}
+                    disabled={loading || testingNotifications.has("taskTracker") || !(settings?.notificationsEnabled ?? true) || !(settings?.taskTrackerNotificationsEnabled ?? true)}
                     aria-label={t("general.testTaskTrackerNotification")}
                     title={t("general.testTaskTrackerNotification")}
                   >
-                    {testingNotification === "taskTracker"
+                    {testingNotifications.has("taskTracker")
                       ? <RefreshCw className="animate-spin" aria-hidden="true" />
-                      : testedNotification === "taskTracker"
+                      : testedNotifications.has("taskTracker")
                         ? <CheckCircle2 className="text-success" aria-hidden="true" />
                         : <BellRing aria-hidden="true" />}
                   </Button>
@@ -527,13 +531,13 @@ export function GeneralSettingsPage() {
                     size="icon"
                     className="h-6 w-6 text-muted-foreground hover:text-foreground [&_svg]:!size-3.5"
                     onClick={() => void handleTestNotification("review")}
-                    disabled={loading || testingNotification !== null || !(settings?.notificationsEnabled ?? true) || !(settings?.reviewNotificationsEnabled ?? true)}
+                    disabled={loading || testingNotifications.has("review") || !(settings?.notificationsEnabled ?? true) || !(settings?.reviewNotificationsEnabled ?? true)}
                     aria-label={t("general.testReviewNotification")}
                     title={t("general.testReviewNotification")}
                   >
-                    {testingNotification === "review"
+                    {testingNotifications.has("review")
                       ? <RefreshCw className="animate-spin" aria-hidden="true" />
-                      : testedNotification === "review"
+                      : testedNotifications.has("review")
                         ? <CheckCircle2 className="text-success" aria-hidden="true" />
                         : <BellRing aria-hidden="true" />}
                   </Button>
@@ -563,13 +567,13 @@ export function GeneralSettingsPage() {
                     size="icon"
                     className="h-6 w-6 text-muted-foreground hover:text-foreground [&_svg]:!size-3.5"
                     onClick={() => void handleTestNotification("authored")}
-                    disabled={loading || testingNotification !== null || !(settings?.notificationsEnabled ?? true) || !(settings?.authoredNotificationsEnabled ?? true)}
+                    disabled={loading || testingNotifications.has("authored") || !(settings?.notificationsEnabled ?? true) || !(settings?.authoredNotificationsEnabled ?? true)}
                     aria-label={t("general.testAuthoredNotification")}
                     title={t("general.testAuthoredNotification")}
                   >
-                    {testingNotification === "authored"
+                    {testingNotifications.has("authored")
                       ? <RefreshCw className="animate-spin" aria-hidden="true" />
-                      : testedNotification === "authored"
+                      : testedNotifications.has("authored")
                         ? <CheckCircle2 className="text-success" aria-hidden="true" />
                         : <BellRing aria-hidden="true" />}
                   </Button>
@@ -590,7 +594,7 @@ export function GeneralSettingsPage() {
         </CardContent>
         </SettingsReveal>
         <span className="sr-only" role="status" aria-live="polite">
-          {testedNotification ? t("general.testSent") : ""}
+          {testedNotifications.size > 0 ? t("general.testSent") : ""}
         </span>
       </Card>
 

@@ -316,6 +316,8 @@ pub struct MyPullRequestDto {
     pub source_branch: String,
     pub target_branch: String,
     pub author_display_name: String,
+    #[serde(default)]
+    pub author_account_name: Option<String>,
     pub updated_date: Option<i64>,
     pub url: Option<String>,
     pub my_decision: String,
@@ -405,6 +407,7 @@ struct PullRequestCache {
 #[derive(Debug, Clone, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct BitbucketUserDto {
+    pub integration_id: String,
     pub name: Option<String>,
     pub display_name: Option<String>,
     pub slug: Option<String>,
@@ -421,6 +424,7 @@ pub struct BitbucketProjectDto {
 #[derive(Debug, Clone, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct BitbucketRepositoryDto {
+    pub integration_id: String,
     pub project_key: String,
     pub project_name: String,
     pub repository_slug: String,
@@ -563,8 +567,9 @@ pub async fn search_bitbucket_repositories(
             })?;
         for repository in page.values {
             let key = format!("{}/{}", repository.project.key, repository.slug);
-            if seen.insert(key) {
+            if seen.insert((integration.id.clone(), key)) {
                 result.push(BitbucketRepositoryDto {
+                    integration_id: integration.id.clone(),
                     project_key: repository.project.key,
                     project_name: repository.project.name,
                     repository_slug: repository.slug,
@@ -643,8 +648,9 @@ pub async fn search_bitbucket_users(
                 .or(user.slug.as_deref())
                 .or(user.display_name.as_deref());
             let Some(identity) = identity else { continue };
-            if seen.insert(identity.to_lowercase()) {
+            if seen.insert((integration.id.clone(), identity.to_lowercase())) {
                 result.push(BitbucketUserDto {
+                    integration_id: integration.id.clone(),
                     name: user.name,
                     display_name: user.display_name,
                     slug: user.slug,
@@ -2083,17 +2089,37 @@ async fn load_pull_request_cache(
             last_updated_at: None,
         });
     };
-    let (cache, had_embedded_review_state) = parse_pull_request_cache(&value).map_err(|_| {
-        command_error(
-            "invalid_settings",
-            "Saved pull request cache is invalid",
-            false,
-        )
-    })?;
+    let (mut cache, had_embedded_review_state) =
+        parse_pull_request_cache(&value).map_err(|_| {
+            command_error(
+                "invalid_settings",
+                "Saved pull request cache is invalid",
+                false,
+            )
+        })?;
+    if !cache_has_author_identities(&value) {
+        // Keep cached rows visible, but request provider revalidation for older payloads.
+        cache.last_updated_at = None;
+    }
     if had_embedded_review_state {
         save_pull_request_cache(pool, &cache).await?;
     }
     Ok(cache)
+}
+
+pub(crate) fn cache_has_author_identities(value: &str) -> bool {
+    serde_json::from_str::<serde_json::Value>(value)
+        .ok()
+        .and_then(|raw| {
+            raw.get("values")
+                .and_then(|values| values.as_array())
+                .map(|values| {
+                    values
+                        .iter()
+                        .all(|item| item.get("authorAccountName").is_some())
+                })
+        })
+        .unwrap_or(false)
 }
 
 fn parse_pull_request_cache(value: &str) -> Result<(PullRequestCache, bool), serde_json::Error> {
@@ -2407,6 +2433,9 @@ pub(crate) fn pull_request_dto(
         BitbucketPullRequestAuthor::User(value) => value,
     });
     let author_avatar_url = author.as_ref().and_then(safe_avatar_url);
+    let author_account_name = author
+        .as_ref()
+        .and_then(|value| value.name.clone().or(value.slug.clone()));
     let author_display_name = author
         .and_then(|value| value.display_name.or(value.name).or(value.slug))
         .unwrap_or_else(|| "Unknown author".into());
@@ -2422,6 +2451,7 @@ pub(crate) fn pull_request_dto(
         source_branch: pull_request.from_ref.display_id,
         target_branch: pull_request.to_ref.display_id,
         author_display_name,
+        author_account_name,
         author_avatar_url,
         latest_commit: pull_request.from_ref.latest_commit,
         updated_date: pull_request.updated_date,
@@ -3074,6 +3104,7 @@ mod tests {
             source_branch: "feature".into(),
             target_branch: "main".into(),
             author_display_name: "Test Author A".into(),
+            author_account_name: None,
             updated_date: None,
             url: None,
             my_decision: "not_reviewed".into(),

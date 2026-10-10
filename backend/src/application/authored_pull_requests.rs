@@ -728,13 +728,17 @@ async fn load_cache(pool: &SqlitePool) -> Result<PullRequestCache, DeveloperComm
             last_updated_at: None,
         });
     };
-    serde_json::from_str(&value).map_err(|_| {
+    let mut cache: PullRequestCache = serde_json::from_str(&value).map_err(|_| {
         developer::command_error(
             "invalid_settings",
             "Saved authored pull request cache is invalid",
             false,
         )
-    })
+    })?;
+    if !developer::cache_has_author_identities(&value) {
+        cache.last_updated_at = None;
+    }
+    Ok(cache)
 }
 
 async fn save_cache(
@@ -1074,6 +1078,7 @@ mod tests {
             source_branch: "feature".into(),
             target_branch: "main".into(),
             author_display_name: "Current User".into(),
+            author_account_name: None,
             updated_date: Some(1),
             url: None,
             my_decision: "not_reviewed".into(),
@@ -1170,6 +1175,7 @@ mod tests {
                 source_branch: "feature".into(),
                 target_branch: "main".into(),
                 author_display_name: "Example Author".into(),
+                author_account_name: None,
                 updated_date: None,
                 url: None,
                 my_decision: "not_reviewed".into(),

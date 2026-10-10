@@ -28,6 +28,21 @@ const fn default_page_size() -> u64 {
     100
 }
 
+#[tauri::command]
+pub async fn pull_request_review_instruction_rules(
+    state: State<'_, SqlitePool>,
+) -> Result<Vec<crate::application::review_instructions::ReviewInstructionRule>, String> {
+    crate::application::review_instructions::load(&state).await
+}
+
+#[tauri::command]
+pub async fn save_pull_request_review_instruction_rules(
+    state: State<'_, SqlitePool>,
+    rules: Vec<crate::application::review_instructions::ReviewInstructionRule>,
+) -> Result<Vec<crate::application::review_instructions::ReviewInstructionRule>, String> {
+    crate::application::review_instructions::save(&state, rules).await
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PullRequestUnreadCountsDto {

@@ -17,6 +17,7 @@ export const APP_EVENT = {
   pullRequestActivityChanged: "pull-requests:activity-changed",
   pullRequestQuickFilterChanged: "pull-requests:quick-filter-changed",
   pullRequestReviewChanged: "pull-requests:review-changed",
+  reviewInstructionRulesChanged: "pull-requests:instruction-rules-changed",
   reviewerPullRequestsUpdated: "pull-requests:reviewer-updated",
   authoredPullRequestsUpdated: "pull-requests:authored-updated",
   taskTrackerUpdated: "task-tracker:updated",
@@ -36,6 +37,7 @@ interface AppEventMap {
   [APP_EVENT.pullRequestActivityChanged]: undefined;
   [APP_EVENT.pullRequestQuickFilterChanged]: { scope: PullRequestDisplayScope; filter: PullRequestQuickFilter };
   [APP_EVENT.pullRequestReviewChanged]: PullRequestReviewChangedEvent;
+  [APP_EVENT.reviewInstructionRulesChanged]: undefined;
   [APP_EVENT.reviewerPullRequestsUpdated]: MyPullRequestPage;
   [APP_EVENT.authoredPullRequestsUpdated]: MyPullRequestPage;
   [APP_EVENT.taskTrackerUpdated]: TaskTrackerMonitor[];
