@@ -14,7 +14,7 @@ import { EmptyState } from "@/components/shared/EmptyState";
 import { ToggleGroup, ToggleGroupItem } from "./toggle-group";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogTitle } from "./alert-dialog";
 
-it("keeps Filled edit and review-action backgrounds while highlighting text and visible borders", () => {
+it("keeps Filled action backgrounds while highlighting text and visible borders", () => {
   const css = readFileSync(resolve(import.meta.dirname, "../../index.css"), "utf8");
   const style = document.createElement("style");
   style.textContent = css.slice(css.indexOf(".app-icon-button,"))
@@ -28,10 +28,11 @@ it("keeps Filled edit and review-action backgrounds while highlighting text and 
       <Button variant="outline" actionTone="success">Approve</Button>
       <Button actionTone="edit">Save</Button>
       <Button variant="outline" actionTone="neutral">Cancel</Button>
+      <Button variant="ghost" size="sm" actionTone="remove"><Trash2 aria-hidden="true" />Remove</Button>
     </>);
     for (const appearance of ["filled", "filled_borderless"]) {
       document.documentElement.dataset.buttonStyle = appearance;
-      for (const [name, tone, color] of [["Needs work", "warning", "warning"], ["Approve", "success", "success"], ["Save", "edit", "primary"], ["Cancel", "neutral", "primary"]]) {
+      for (const [name, tone, color] of [["Needs work", "warning", "warning"], ["Approve", "success", "success"], ["Save", "edit", "primary"], ["Cancel", "neutral", "primary"], ["Remove", "remove", "destructive"]]) {
         const button = screen.getByRole("button", { name });
         button.blur();
         style.textContent += "\n";

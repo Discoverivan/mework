@@ -145,7 +145,7 @@ function InstructionList({ scope, rules, disabled, onAdd, onChange, onEdit, onRe
             <InstructionEditButton rule={rule} disabled={disabled} onEdit={onEdit} />
           </div>
           <div className="flex items-center justify-end">
-            <Button type="button" size="sm" variant="ghost" actionTone="delete" className="h-7 shrink-0 text-muted-foreground hover:bg-transparent hover:text-destructive" aria-label={t("pr.instructions.deleteFor", { target: rule.label })} disabled={disabled} onClick={() => onRemove(rule)}><Trash2 data-icon="inline-start" aria-hidden="true" />{t("pr.filters.remove")}</Button>
+            <Button type="button" size="sm" variant="ghost" actionTone="remove" className="h-7 shrink-0" aria-label={t("pr.instructions.deleteFor", { target: rule.label })} disabled={disabled} onClick={() => onRemove(rule)}><Trash2 data-icon="inline-start" aria-hidden="true" />{t("pr.filters.remove")}</Button>
           </div>
         </li>)}
       </ul>}

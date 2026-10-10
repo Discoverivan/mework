@@ -97,8 +97,8 @@
     --app-action-color: var(--warning);
   }
 
-  .app-icon-button:is([data-action-tone="delete"], [data-button-variant="destructive"]),
-  .app-action-text:is([data-action-tone="delete"], [data-button-variant="destructive"]) {
+  .app-icon-button:is([data-action-tone="delete"], [data-action-tone="remove"], [data-button-variant="destructive"]),
+  .app-action-text:is([data-action-tone="delete"], [data-action-tone="remove"], [data-button-variant="destructive"]) {
     --app-action-color: var(--destructive);
   }
 
