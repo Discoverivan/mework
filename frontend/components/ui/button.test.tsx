@@ -14,6 +14,48 @@ import { EmptyState } from "@/components/shared/EmptyState";
 import { ToggleGroup, ToggleGroupItem } from "./toggle-group";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogTitle } from "./alert-dialog";
 
+it("keeps Filled edit and review-action backgrounds while highlighting text and visible borders", () => {
+  const css = readFileSync(resolve(import.meta.dirname, "../../index.css"), "utf8");
+  const style = document.createElement("style");
+  style.textContent = css.slice(css.indexOf(".app-icon-button,"))
+    .replace(/var\(--app-action-color\)/g, "rgb(70, 90, 180)")
+    .replace(/var\(--input\)/g, "rgb(100, 100, 100)");
+  document.head.append(style);
+  const previousStyle = document.documentElement.dataset.buttonStyle;
+  try {
+    render(<>
+      <Button variant="outline" actionTone="warning">Needs work</Button>
+      <Button variant="outline" actionTone="success">Approve</Button>
+      <Button actionTone="edit">Save</Button>
+      <Button variant="outline" actionTone="neutral">Cancel</Button>
+    </>);
+    for (const appearance of ["filled", "filled_borderless"]) {
+      document.documentElement.dataset.buttonStyle = appearance;
+      for (const [name, tone, color] of [["Needs work", "warning", "warning"], ["Approve", "success", "success"], ["Save", "edit", "primary"], ["Cancel", "neutral", "primary"]]) {
+        const button = screen.getByRole("button", { name });
+        button.blur();
+        style.textContent += "\n";
+        const background = getComputedStyle(button).background;
+        fireEvent.mouseOver(button);
+        button.focus();
+        // Refresh jsdom's computed-style cache after changing focus.
+        style.textContent += "\n";
+        expect(getComputedStyle(button).background).toBe(background);
+        expect(getComputedStyle(button).color).toBe("rgb(70, 90, 180)");
+        expect(getComputedStyle(button).borderColor).toBe(appearance === "filled" ? "rgb(70, 90, 180)" : "rgba(0, 0, 0, 0)");
+        expect(button).toHaveAttribute("data-action-tone", tone);
+        expect(getComputedStyle(button).getPropertyValue("--app-action-color")).toBe(`var(--${color})`);
+        button.blur();
+        fireEvent.mouseOut(button);
+      }
+    }
+  } finally {
+    style.remove();
+    if (previousStyle === undefined) delete document.documentElement.dataset.buttonStyle;
+    else document.documentElement.dataset.buttonStyle = previousStyle;
+  }
+});
+
 it("applies the minimal action style to form and confirmation buttons", () => {
   // Use the application's unlayered appearance rules; Tailwind utilities are built by Vite.
   const css = readFileSync(resolve(import.meta.dirname, "../../index.css"), "utf8");
@@ -83,6 +125,9 @@ it("applies the minimal action style to form and confirmation buttons", () => {
     fireEvent.click(screen.getByRole("button", { name: "Keep item" }));
     fireEvent.click(screen.getByRole("button", { name: "Apply" }));
     expect(applied).toBe(true);
+    screen.getByRole("button", { name: "Apply" }).blur();
+    fireEvent.mouseOut(screen.getByRole("button", { name: "Apply" }));
+    style.textContent += "\n";
     fireEvent.pointerLeave(selector);
     document.documentElement.dataset.buttonStyle = "filled";
     expect(getComputedStyle(allow.closest(".app-dialog-sections")!).gap).toBe("1rem");
@@ -97,8 +142,7 @@ it("applies the minimal action style to form and confirmation buttons", () => {
     expect(getComputedStyle(screen.getByRole("button", { name: "Apply" })).borderWidth).toBe("1px");
     for (const name of ["Apply", "Save", "Cancel", "Add item", "Delete item", "Create", "Remove"]) {
       const appearance = getComputedStyle(screen.getByRole("button", { name }));
-      // The previously clicked Apply action keeps its solid action-tone hover fill.
-      expect(appearance.borderColor, name).toBe(name === "Apply" ? "rgba(0, 0, 0, 0)" : "rgb(100, 100, 100)");
+      expect(appearance.borderColor, name).toBe("rgb(100, 100, 100)");
     }
     const apply = screen.getByRole("button", { name: "Apply" });
     const save = screen.getByRole("button", { name: "Save" });
@@ -110,14 +154,20 @@ it("applies the minimal action style to form and confirmation buttons", () => {
     expect(getComputedStyle(screen.getByRole("button", { name: "Add item" })).getPropertyValue("--app-action-color")).toBe("var(--success)");
     expect(getComputedStyle(screen.getByRole("button", { name: "Delete item" })).getPropertyValue("--app-action-color")).toBe("var(--destructive)");
     expect(screen.getByRole("button", { name: "Selected filter" })).not.toHaveClass("app-action-text");
+    fireEvent.mouseOver(apply);
     apply.focus();
-    expect(getComputedStyle(apply).color).toBe("var(--primary-foreground)");
+    style.textContent += "\n";
+    expect(getComputedStyle(apply).color).toBe("var(--app-action-color)");
+    expect(getComputedStyle(apply).background).toBe(getComputedStyle(save).background);
+    expect(apply).toHaveAttribute("data-action-tone", "edit");
     cancel.focus();
+    style.textContent += "\n";
     expect(getComputedStyle(cancel).color).not.toBe("var(--primary-foreground)");
     expect(cancel).not.toHaveAttribute("data-action-tone");
     expect(getComputedStyle(cancel).backgroundColor).toBe(getComputedStyle(save).backgroundColor);
     apply.focus();
     apply.setAttribute("data-action-tone", "add");
+    style.textContent += "\n";
     expect(getComputedStyle(apply).color).toBe("var(--app-action-color)");
     expect(getComputedStyle(apply).background).toBe("var(--app-action-background, var(--secondary))");
   } finally {
@@ -231,7 +281,8 @@ it("keeps Filled section-header actions distinct and filter actions compact", ()
     expect(getComputedStyle(editInstructions).width).toBe("28px");
     editInstructions.setAttribute("aria-invalid", "true");
     style.textContent = style.textContent.replace(/var\(--destructive\)/g, "rgb(180, 40, 40)");
-    expect(getComputedStyle(editInstructions).borderColor).toBe("rgb(180, 40, 40)");
+    expect(getComputedStyle(editInstructions).borderColor).toBe("rgba(0, 0, 0, 0)");
+    expect(getComputedStyle(editInstructions).color).toBe("rgb(180, 40, 40)");
     expect(getComputedStyle(editInstructions).borderWidth).toBe("1px");
     expect(getComputedStyle(addFilter).minHeight).toBe("28px");
     expect(getComputedStyle(addFilter).paddingRight).toBe("6px");

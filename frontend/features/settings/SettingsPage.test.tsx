@@ -538,8 +538,14 @@ describe("SettingsPage integrations smoke tests", () => {
     selectAiProvider("Claude Code CLI");
     expect(defaultAiSettings().queryByRole("combobox", { name: "Reasoning" })).not.toBeInTheDocument();
     expect(defaultAiSettings().queryByRole("combobox", { name: "Mode" })).not.toBeInTheDocument();
+    const modelField = defaultAiSettings().getByRole("combobox", { name: "Model" });
+    expect(modelField).toHaveAttribute("aria-description", "No available model selected.");
+    expect(modelField).toHaveAttribute("aria-invalid", "false");
+    expect(screen.getByRole("status")).toHaveTextContent("No available model selected.");
+    expect(screen.getByRole("status")).toHaveClass("text-warning");
     fireEvent.click(defaultAiSettings().getByRole("combobox", { name: "Model" }));
     fireEvent.click(screen.getByRole("option", { name: "sonnet" }));
+    expect(screen.queryByText("No available model selected.")).not.toBeInTheDocument();
     await saveSection("Defaults");
     await waitFor(() => expect(saveAiActionSettingsMock).toHaveBeenCalledWith("default", expect.objectContaining({
       provider: "claude-code-cli",
@@ -769,6 +775,25 @@ describe("SettingsPage integrations smoke tests", () => {
       provider: null,
       tokenBurner: expect.objectContaining({ provider: "codex-cli", model: "example-codex-model" }),
     }), null));
+  });
+
+  it("anchors a warning to an unavailable saved Model-testing model before any settings are edited", async () => {
+    const data = {
+      settings: { ...codexAiSettings.settings, tokenBurner: { provider: "codex-cli" as const, model: "example-retired-model", reasoning: "medium" as const, fastMode: false } },
+      providers: [{ ...codexAiSettings.providers[0], models: [] as string[] }],
+    };
+    getAiSettingsMock.mockResolvedValue(data);
+    render(<SettingsPage section="ai" focusActivity="token-burner" />);
+    const section = within(await screen.findByRole("region", { name: "Model-testing" }));
+    const field = section.getByRole("combobox", { name: "Model" });
+    expect(field).toBeDisabled();
+    expect(field).toHaveAttribute("aria-description", "No available model selected.");
+    expect(screen.getByRole("status")).toHaveClass("text-warning");
+    expect(section.queryByText("No available model selected.")).not.toBeInTheDocument();
+    act(() => emitAppEvent(APP_EVENT.aiSettingsChanged, { ...data, providers: [{ ...data.providers[0], models: ["example-available-model"] }] }));
+    fireEvent.click(field);
+    fireEvent.click(screen.getByRole("option", { name: "example-available-model" }));
+    expect(screen.queryByText("No available model selected.")).not.toBeInTheDocument();
   });
 
   it("keeps safe OpenAI-compatible authorization errors readable", async () => {
