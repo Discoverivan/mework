@@ -1,13 +1,14 @@
 import { Hint } from "@/components/ui/tooltip";
-import { Check, CheckCircle2, CircleAlert, Clock3, ExternalLink, Loader2, MessageSquare, MoreHorizontal, RefreshCw, Sparkles, Ban, SmilePlus } from "lucide-react";
+import { Check, CheckCircle2, CircleAlert, Clock3, ExternalLink, Loader2, MessageSquare, MoreHorizontal, RefreshCw, Sparkles, Ban, SmilePlus, FilePenLine } from "lucide-react";
 import { useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuGroup, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuGroup, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import type {
+  ReviewInstructionScope,
   MyPullRequest,
   MyPullRequestDecision,
   PullRequestReviewSeverity,
@@ -141,9 +142,12 @@ export interface PullRequestListItemProps {
   onOpenResults: (pullRequest: MyPullRequest) => void;
   onBlacklistProject?: (pullRequest: MyPullRequest) => void;
   onBlacklistRepository?: (pullRequest: MyPullRequest) => void;
+  onBlacklistAuthor?: (pullRequest: MyPullRequest) => void;
+  onCustomizeInstructions?: (pullRequest: MyPullRequest, scope: ReviewInstructionScope) => void;
   onRemoveReviewer?: (pullRequest: MyPullRequest) => void;
   onReviewDecision?: (pullRequest: MyPullRequest, action: "approve" | "needs_work") => void;
   decisionPending?: boolean;
+  filtersPending?: boolean;
   completedLabel?: string;
   showProjectKey?: boolean;
 }
@@ -159,9 +163,12 @@ export function PullRequestListItem({
   onOpenResults,
   onBlacklistProject,
   onBlacklistRepository,
+  onBlacklistAuthor,
+  onCustomizeInstructions,
   onRemoveReviewer,
   onReviewDecision,
   decisionPending = false,
+  filtersPending = false,
   completedLabel,
   showProjectKey = true,
 }: PullRequestListItemProps) {
@@ -306,12 +313,25 @@ export function PullRequestListItem({
                 <Button type="button" variant="ghost" size="icon" className="size-8" aria-label={t("pr.actions.more")} title={t("pr.actions.more")}><MoreHorizontal aria-hidden="true" className="size-4" /></Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
-                {pullRequest.activity !== "read" ? <DropdownMenuItem onSelect={() => onMarkViewed(pullRequest)}><Check aria-hidden="true" />{t("pr.markViewed")}</DropdownMenuItem> : null}
-                <DropdownMenuItem disabled={!externalUrl} onSelect={() => { if (externalUrl) { window.open(externalUrl, "_blank", "noopener,noreferrer"); onOpenPullRequest(pullRequest); } }}><ExternalLink aria-hidden="true" />{t("pr.dialog.openWeb")}</DropdownMenuItem>
+                <DropdownMenuGroup>
+                  {pullRequest.activity !== "read" ? <DropdownMenuItem onSelect={() => onMarkViewed(pullRequest)}><Check aria-hidden="true" />{t("pr.markViewed")}</DropdownMenuItem> : null}
+                  <DropdownMenuItem disabled={!externalUrl} onSelect={() => { if (externalUrl) { window.open(externalUrl, "_blank", "noopener,noreferrer"); onOpenPullRequest(pullRequest); } }}><ExternalLink aria-hidden="true" />{t("pr.dialog.openWeb")}</DropdownMenuItem>
+                </DropdownMenuGroup>
                 {mode === "reviewer" ? <>
-                  <DropdownMenuItem onSelect={() => onBlacklistProject?.(pullRequest)}><Ban aria-hidden="true" />{t("pr.actions.blacklistProject")}</DropdownMenuItem>
-                  <DropdownMenuItem onSelect={() => onBlacklistRepository?.(pullRequest)}><Ban aria-hidden="true" />{t("pr.actions.blacklistRepository")}</DropdownMenuItem>
-                  <DropdownMenuItem disabled={!onRemoveReviewer} onSelect={() => onRemoveReviewer?.(pullRequest)}><CircleAlert aria-hidden="true" />{t("pr.actions.removeReviewer")}</DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuGroup>
+                    <DropdownMenuItem disabled={filtersPending || !onBlacklistProject} onSelect={() => onBlacklistProject?.(pullRequest)}><Ban aria-hidden="true" />{t("pr.actions.blacklistProject")}</DropdownMenuItem>
+                    <DropdownMenuItem disabled={filtersPending || !onBlacklistRepository} onSelect={() => onBlacklistRepository?.(pullRequest)}><Ban aria-hidden="true" />{t("pr.actions.blacklistRepository")}</DropdownMenuItem>
+                    <DropdownMenuItem disabled={filtersPending || !onBlacklistAuthor} onSelect={() => onBlacklistAuthor?.(pullRequest)}><Ban aria-hidden="true" />{t("pr.actions.blacklistAuthor")}</DropdownMenuItem>
+                  </DropdownMenuGroup>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuGroup>
+                    {(["project", "repository", "author"] as const).map((scope) => <DropdownMenuItem key={scope} disabled={!onCustomizeInstructions || (scope === "author" && !pullRequest.authorAccountName?.trim())} onSelect={() => onCustomizeInstructions?.(pullRequest, scope)}><FilePenLine aria-hidden="true" />{t(`pr.actions.instructions.${scope}`)}</DropdownMenuItem>)}
+                  </DropdownMenuGroup>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuGroup>
+                    <DropdownMenuItem disabled={!onRemoveReviewer} onSelect={() => onRemoveReviewer?.(pullRequest)}><CircleAlert aria-hidden="true" />{t("pr.actions.removeReviewer")}</DropdownMenuItem>
+                  </DropdownMenuGroup>
                 </> : null}
               </DropdownMenuContent>
             </DropdownMenu>

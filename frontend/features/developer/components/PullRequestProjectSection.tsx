@@ -1,6 +1,7 @@
 import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { ChevronDown } from "lucide-react";
 
+import { Separator } from "@/components/ui/separator";
 import { cn } from "@/lib/utils";
 import { useI18n } from "@/i18n/context";
 import "./PullRequestProjectSection.css";
@@ -11,6 +12,7 @@ interface PullRequestProjectSectionProps {
   pullRequestCount: number;
   expandedByDefault: boolean;
   children: ReactNode;
+  showSeparator?: boolean;
 }
 
 export function PullRequestProjectSection({
@@ -19,6 +21,7 @@ export function PullRequestProjectSection({
   pullRequestCount,
   expandedByDefault,
   children,
+  showSeparator = false,
 }: PullRequestProjectSectionProps) {
   const { t } = useI18n();
   const [collapsed, setCollapsed] = useState(!expandedByDefault);
@@ -52,6 +55,7 @@ export function PullRequestProjectSection({
         <span className="text-xs text-muted-foreground">
           {pullRequestLabel}
         </span>
+        {showSeparator ? <Separator className="min-w-4 flex-1" /> : null}
       </button>
       <div id={contentId} className="pr-group-reveal" data-expanded={!collapsed}>
         <div className="min-h-0 overflow-hidden" aria-hidden={collapsed} inert={collapsed}>

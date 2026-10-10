@@ -14,6 +14,8 @@ import { cn } from "@/lib/utils";
 import type { ReviewInstructionRule, ReviewInstructionScope } from "@/shared/contracts/developer";
 import { getReviewInstructionRules, saveReviewInstructionRules, searchBitbucketProjects, searchBitbucketRepositories, searchBitbucketUsers } from "../api";
 
+export type ReviewInstructionTarget = Pick<ReviewInstructionRule, "scope" | "integrationId" | "externalId" | "label">;
+
 type Target = Pick<ReviewInstructionRule, "integrationId" | "externalId" | "label">;
 type SearchTarget = Target & { primary: string; secondary?: string; accessibleName: string; enterValue: string };
 const pickerCopy = {
@@ -24,7 +26,7 @@ const pickerCopy = {
 const scopes: ReviewInstructionScope[] = ["project", "repository", "author"];
 const instructionRowClasses = "grid grid-cols-[minmax(0,1fr)_8rem_6rem] items-center gap-2 sm:grid-cols-[minmax(0,3fr)_8rem_minmax(6rem,1fr)] sm:gap-3";
 const targetKey = (target: Target) => JSON.stringify([target.integrationId, target.externalId.toLowerCase()]);
-const ruleKey = (rule: ReviewInstructionRule) => JSON.stringify([rule.scope, targetKey(rule)]);
+const ruleKey = (rule: ReviewInstructionTarget) => JSON.stringify([rule.scope, targetKey(rule)]);
 const ruleDisplayName = (rule: ReviewInstructionRule) => {
   if (rule.scope !== "author") return rule.externalId;
   const accountSuffix = ` (${rule.externalId})`;
@@ -151,7 +153,7 @@ function InstructionList({ scope, rules, disabled, onAdd, onChange, onEdit, onRe
   </Card>;
 }
 
-export function ReviewInstructionsDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }) {
+export function ReviewInstructionsDialog({ open, onOpenChange, initialTarget }: { open: boolean; onOpenChange: (open: boolean) => void; initialTarget?: ReviewInstructionTarget }) {
   const { t } = useI18n();
   const [saved, setSaved] = useState<ReviewInstructionRule[]>([]);
   const [draft, setDraft] = useState<ReviewInstructionRule[]>([]);
@@ -165,11 +167,19 @@ export function ReviewInstructionsDialog({ open, onOpenChange }: { open: boolean
     if (!open) return;
     let active = true;
     setLoading(true); setLoaded(false); setError(undefined); setEditing(null); setRemoving(null);
-    void getReviewInstructionRules().then((rules) => { if (active) { setSaved(rules); setDraft(rules); setLoaded(true); } })
+    void getReviewInstructionRules().then((rules) => {
+      if (!active) return;
+      setSaved(rules);
+      const existing = initialTarget ? rules.find((rule) => ruleKey(rule) === ruleKey(initialTarget)) : undefined;
+      const targetRule = existing ?? (initialTarget ? { ...initialTarget, mode: "append" as const, instructions: "" } : undefined);
+      setDraft(targetRule && !existing ? [...rules, targetRule] : rules);
+      if (targetRule) setEditing({ key: ruleKey(targetRule), label: targetRule.label, instructions: targetRule.instructions });
+      setLoaded(true);
+    })
       .catch((reason) => { if (active) setError(message(reason) || t("common.unknownError")); })
       .finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
-  }, [open, t]);
+  }, [open, t, initialTarget]);
   async function save() {
     setSaving(true); setError(undefined);
     try { const rules = await saveReviewInstructionRules(draft); setSaved(rules); setDraft(rules); onOpenChange(false); }

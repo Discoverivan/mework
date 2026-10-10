@@ -34,7 +34,7 @@ import { PullRequestDisplayOptionsDialog } from "./components/PullRequestDisplay
 import { PullRequestProjectSection } from "./components/PullRequestProjectSection";
 import { PullRequestReviewDialog } from "./components/PullRequestReviewDialog";
 import { PullRequestTargetPicker } from "./components/PullRequestTargetPicker";
-import { ReviewInstructionsDialog } from "./components/ReviewInstructionsDialog";
+import { ReviewInstructionsDialog, type ReviewInstructionTarget } from "./components/ReviewInstructionsDialog";
 import { PullRequestStatus } from "./components/PullRequestStatus";
 import { usePullRequestDisplayPreferences, usePullRequestQuickFilter } from "./display-options";
 import {
@@ -202,12 +202,15 @@ export function MyPullRequestsPage() {
   const [creatorSearchError, setCreatorSearchError] = useState<string>();
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [instructionsOpen, setInstructionsOpen] = useState(false);
+  const [instructionTarget, setInstructionTarget] = useState<ReviewInstructionTarget>();
   const [filterSearch, setFilterSearch] = useState<FilterKind>();
   const [displayOptionsOpen, setDisplayOptionsOpen] = useState(false);
   const [displayPreferences, updateDisplayPreferences] = usePullRequestDisplayPreferences("reviewer");
   const [filterTab, setFilterTab] = useState<FilterTab>("blacklist");
   const [quickFilter, setQuickFilter] = usePullRequestQuickFilter("reviewer");
   const [saving, setSaving] = useState(false);
+  const [blacklisting, setBlacklisting] = useState(false);
+  const settingsWritePending = useRef(false);
   const [autoReviewSaving, setAutoReviewSaving] = useState(false);
   const [settingsError, setSettingsError] = useState<string>();
   const [loading, setLoading] = useState(true);
@@ -539,7 +542,8 @@ export function MyPullRequestsPage() {
   const filtersChanged = filterRulesChanged || selectedFilterMode !== settings.filterMode;
 
   async function saveSettings() {
-    if (saving || !filtersChanged) return;
+    if (settingsWritePending.current || !filtersChanged) return;
+    settingsWritePending.current = true;
     setSaving(true);
     setSettingsError(undefined);
     try {
@@ -550,11 +554,14 @@ export function MyPullRequestsPage() {
     } catch (reason) {
       setSettingsError(commandError(reason));
     } finally {
+      settingsWritePending.current = false;
       setSaving(false);
     }
   }
 
   async function toggleAutoReview(enabled: boolean) {
+    if (settingsWritePending.current) return;
+    settingsWritePending.current = true;
     setAutoReviewSaving(true);
     setError(undefined);
     try {
@@ -564,15 +571,19 @@ export function MyPullRequestsPage() {
     } catch (reason) {
       setError(t("pr.autoReviewSaveError", { error: commandError(reason) }));
     } finally {
+      settingsWritePending.current = false;
       setAutoReviewSaving(false);
     }
   }
 
-  async function blacklistPullRequest(pullRequest: MyPullRequest, scope: "project" | "repository") {
-    const value = scope === "project" ? pullRequest.projectKey : repositoryKey(pullRequest);
-    const field = scope === "project" ? "projectBlacklist" : "repositoryBlacklist";
+  async function blacklistPullRequest(pullRequest: MyPullRequest, scope: "project" | "repository" | "author") {
+    if (settingsWritePending.current) return;
+    const value = scope === "author" ? pullRequest.authorDisplayName : scope === "project" ? pullRequest.projectKey : repositoryKey(pullRequest);
+    const field = scope === "author" ? "creatorBlacklist" : scope === "project" ? "projectBlacklist" : "repositoryBlacklist";
     const alreadyExcluded = settings[field].some((entry) => equalsIgnoreCase(entry, value));
     if (alreadyExcluded && settings.filterMode === "deny") return;
+    settingsWritePending.current = true;
+    setBlacklisting(true);
     setError(undefined);
     try {
       const saved = await savePullRequestReviewSettings({
@@ -584,6 +595,9 @@ export function MyPullRequestsPage() {
       setDraftSettings(saved);
     } catch (reason) {
       setError(commandError(reason));
+    } finally {
+      settingsWritePending.current = false;
+      setBlacklisting(false);
     }
   }
 
@@ -725,9 +739,17 @@ export function MyPullRequestsPage() {
         onStartReview={(item) => void startReview(item)}
         onBlacklistProject={(item) => void blacklistPullRequest(item, "project")}
         onBlacklistRepository={(item) => void blacklistPullRequest(item, "repository")}
+        onBlacklistAuthor={(item) => void blacklistPullRequest(item, "author")}
+        onCustomizeInstructions={(item, scope) => {
+          const externalId = scope === "author" ? item.authorAccountName?.trim() : scope === "project" ? item.projectKey : repositoryKey(item);
+          if (!externalId) return;
+          setInstructionTarget({ integrationId: item.integrationId, scope, externalId, label: scope === "author" ? `${item.authorDisplayName} (${externalId})` : externalId });
+          setInstructionsOpen(true);
+        }}
         onRemoveReviewer={(item) => { setRemoveReviewerError(undefined); setRemoveReviewerTarget(item); }}
         onReviewDecision={(item, action) => { void applyReviewDecision(item, action); }}
         decisionPending={pendingDecisionKeys.has(itemKey)}
+        filtersPending={saving || autoReviewSaving || blacklisting}
         onOpenResults={(item) => {
           if (item.activity !== "read") void markRead(item);
           setReviewDialogKey(pullRequestKey(item));
@@ -780,7 +802,7 @@ export function MyPullRequestsPage() {
           >
             <Filter aria-hidden="true" />
           </Button>
-          <Button type="button" variant="outline" size="icon" className="h-9 w-9" aria-label={t("pr.instructions.title")} title={t("pr.instructions.title")} onClick={() => setInstructionsOpen(true)} disabled={loading}>
+          <Button type="button" variant="outline" size="icon" className="h-9 w-9" aria-label={t("pr.instructions.title")} title={t("pr.instructions.title")} onClick={() => { setInstructionTarget(undefined); setInstructionsOpen(true); }} disabled={loading}>
             <FilePenLine aria-hidden="true" />
           </Button>
           <Button
@@ -847,6 +869,7 @@ export function MyPullRequestsPage() {
                 grouping={displayPreferences.grouping === "person" ? "person" : "project"}
                 pullRequestCount={group.pullRequests.length}
                 expandedByDefault={displayPreferences.expandProjectsByDefault}
+                showSeparator
               >
                 {group.pullRequests.map((pullRequest) => renderPullRequest(pullRequest, displayPreferences.grouping === "person"))}
               </PullRequestProjectSection>
@@ -1081,7 +1104,7 @@ export function MyPullRequestsPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-      <ReviewInstructionsDialog open={instructionsOpen} onOpenChange={setInstructionsOpen} />
+      <ReviewInstructionsDialog initialTarget={instructionTarget} open={instructionsOpen} onOpenChange={setInstructionsOpen} />
     </section>
   );
 }
