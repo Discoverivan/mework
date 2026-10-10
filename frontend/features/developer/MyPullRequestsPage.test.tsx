@@ -877,12 +877,25 @@ describe("MyPullRequestsPage", () => {
   });
 
   it("excludes an author from the PR actions menu", async () => {
+    let finishExclusion!: () => void;
+    saveSettingsMock.mockImplementationOnce((settings) => new Promise((resolve) => {
+      finishExclusion = () => resolve(settings);
+    }));
     await renderFlatPage();
     const card = (await screen.findByRole("heading", { name: "Example pull request" })).closest("[class*='border-l-']") as HTMLElement;
     fireEvent.pointerDown(within(card).getByRole("button", { name: "More actions" }), { button: 0, ctrlKey: false });
     expect(within(screen.getByRole("menu")).getAllByRole("separator")).toHaveLength(3);
     fireEvent.click(screen.getByRole("menuitem", { name: "Exclude author" }));
     await waitFor(() => expect(saveSettingsMock).toHaveBeenCalledWith(expect.objectContaining({ creatorBlacklist: ["Test Author A"] })));
+    expect(screen.getByRole("button", { name: "Filters" })).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: "Options" }));
+    const autoReview = screen.getByRole("switch", { name: "AI auto-review" });
+    expect(autoReview).toBeDisabled();
+    finishExclusion();
+    await waitFor(() => expect(autoReview).toBeEnabled());
+    fireEvent.click(autoReview);
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(saveSettingsMock).toHaveBeenLastCalledWith(expect.objectContaining({ creatorBlacklist: ["Test Author A"], autoReviewEnabled: true })));
     await waitFor(() => expect(screen.queryByRole("heading", { name: "Example pull request" })).not.toBeInTheDocument());
   });
 

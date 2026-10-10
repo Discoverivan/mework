@@ -212,6 +212,7 @@ export function MyPullRequestsPage() {
   const [blacklisting, setBlacklisting] = useState(false);
   const settingsWritePending = useRef(false);
   const [autoReviewSaving, setAutoReviewSaving] = useState(false);
+  const settingsSaving = saving || autoReviewSaving || blacklisting;
   const [settingsError, setSettingsError] = useState<string>();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string>();
@@ -749,7 +750,7 @@ export function MyPullRequestsPage() {
         onRemoveReviewer={(item) => { setRemoveReviewerError(undefined); setRemoveReviewerTarget(item); }}
         onReviewDecision={(item, action) => { void applyReviewDecision(item, action); }}
         decisionPending={pendingDecisionKeys.has(itemKey)}
-        filtersPending={saving || autoReviewSaving || blacklisting}
+        filtersPending={settingsSaving}
         onOpenResults={(item) => {
           if (item.activity !== "read") void markRead(item);
           setReviewDialogKey(pullRequestKey(item));
@@ -798,7 +799,7 @@ export function MyPullRequestsPage() {
             aria-label={t("pr.permanentFilters")}
             title={t("pr.permanentFilters")}
             onClick={openSettings}
-            disabled={loading}
+            disabled={loading || settingsSaving}
           >
             <Filter aria-hidden="true" />
           </Button>
@@ -911,7 +912,7 @@ export function MyPullRequestsPage() {
         expandProjectsByDefault={displayPreferences.expandProjectsByDefault}
         sortOrder={displayPreferences.sortOrder}
         autoReviewEnabled={settings.autoReviewEnabled}
-        autoReviewDisabled={loading || autoReviewSaving}
+        autoReviewDisabled={loading || settingsSaving}
         onOpenChange={setDisplayOptionsOpen}
         onApply={({ grouping, expandProjectsByDefault, sortOrder, autoReviewEnabled }) => {
           updateDisplayPreferences({ grouping, expandProjectsByDefault, sortOrder });
@@ -1100,7 +1101,7 @@ export function MyPullRequestsPage() {
           </DialogBody>
           <DialogFooter>
             <Button data-dialog-cancel type="button" variant="outline" onClick={() => setSettingsOpen(false)} disabled={saving}>{t("settings.common.cancel")}</Button>
-            <Button type="button" actionTone="edit" onClick={() => void saveSettings()} disabled={saving || !filtersChanged}>{saving ? t("settings.common.saving") : t("settings.common.save")}</Button>
+            <Button type="button" actionTone="edit" onClick={() => void saveSettings()} disabled={settingsSaving || !filtersChanged}>{saving ? t("settings.common.saving") : t("settings.common.save")}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
