@@ -63,6 +63,7 @@ export function AiOverrideEditor({
   fieldErrors?: Partial<Record<"provider" | "model", string>>;
   fieldWarnings?: Partial<Record<"provider" | "model", string>>;
 }) {
+  const { t } = useI18n();
   const selected = providers.find((candidate) => candidate.id === profile?.provider
     && (candidate.id !== "openai-compatible" || (candidate.instanceId ?? "legacy") === (profile.providerInstanceId ?? "legacy")));
   const selectorValue = selected?.instanceId ?? profile?.provider ?? "__inherit__";
@@ -95,7 +96,7 @@ export function AiOverrideEditor({
           <Label id={`${idPrefix}-model-label`}>{modelLabel}</Label>
           <Select value={profile.model} onValueChange={(model) => onChange({ ...profile, model })} disabled={disabled || selected.models.length === 0}>
             <FieldValidationHint error={fieldErrors?.model} warning={fieldWarnings?.model}>
-              <SelectTrigger id={`${idPrefix}-model`} aria-labelledby={`${idPrefix}-model-label`} className="h-9"><SelectValue placeholder={noModelsLabel} /></SelectTrigger>
+              <SelectTrigger id={`${idPrefix}-model`} aria-labelledby={`${idPrefix}-model-label`} className="h-9"><SelectValue placeholder={selected.models.length === 0 ? noModelsLabel : t("settings.ai.selectModel")} /></SelectTrigger>
             </FieldValidationHint>
             <SelectContent>{selected.models.map((model) => <SelectItem key={model} value={model}>{model}</SelectItem>)}</SelectContent>
           </Select>

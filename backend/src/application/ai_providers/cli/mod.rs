@@ -358,12 +358,18 @@ pub(crate) fn local_cli_command(path: impl AsRef<OsStr>) -> Command {
         paths.extend(env::split_paths(&path));
     }
     let node_name = if cfg!(windows) { "node.exe" } else { "node" };
-    if !paths
+    let runtime = paths
         .iter()
-        .any(|directory| usable_cli_path(&directory.join(node_name)).is_some())
-    {
-        if let Some(runtime) = discovery::fnm_node_directory() {
-            paths.push(runtime);
+        .find_map(|directory| usable_cli_path(&directory.join(node_name)))
+        .or_else(|| {
+            discovery::fnm_node_directory()
+                .and_then(|directory| usable_cli_path(&directory.join(node_name)))
+        });
+    if let Some(runtime) = runtime {
+        if let Some(directory) = runtime.parent() {
+            // cmd/npm must search the resolved directory, not a junction rejected
+            // by RedirectionGuard in an updater-launched application.
+            paths.insert(0, directory.to_path_buf());
         }
     }
     #[cfg(not(windows))]
@@ -398,6 +404,66 @@ pub(crate) fn usable_cli_path(path: &Path) -> Option<PathBuf> {
     }
     #[cfg(not(windows))]
     None
+}
+
+#[cfg(all(test, windows))]
+mod node_runtime_tests {
+    use super::*;
+
+    #[test]
+    fn runs_node_cli_with_redirection_guard() {
+        const PROBE: &str = "MEWORK_TEST_NODE_CLI";
+        if let Some(binary) = env::var_os(PROBE) {
+            #[link(name = "kernel32")]
+            extern "system" {
+                fn SetProcessMitigationPolicy(
+                    policy: i32,
+                    buffer: *const u32,
+                    length: usize,
+                ) -> i32;
+            }
+            let flags = 1_u32;
+            // Apply the policy only to this isolated test process, never the suite.
+            assert_ne!(unsafe { SetProcessMitigationPolicy(16, &flags, 4) }, 0);
+            let output = local_cli_command(binary).output().unwrap();
+            assert!(output.status.success());
+            assert_eq!(
+                String::from_utf8(output.stdout).unwrap().trim(),
+                "example-version"
+            );
+            return;
+        }
+
+        let root = tempfile::tempdir().unwrap();
+        let runtime = root.path().join("runtime");
+        fs::create_dir(&runtime).unwrap();
+        let system = PathBuf::from(env::var_os("SystemRoot").unwrap()).join("System32");
+        // A synthetic Node executable delegates to cmd for this local smoke check.
+        fs::copy(system.join("cmd.exe"), runtime.join("node.exe")).unwrap();
+        let alias = root.path().join("alias");
+        let status = Command::new(system.join("WindowsPowerShell/v1.0/powershell.exe"))
+            .args(["-NoProfile", "-NonInteractive", "-Command", "New-Item -ItemType Junction -Path $env:MEWORK_TEST_ALIAS -Target $env:MEWORK_TEST_RUNTIME | Out-Null"])
+            .env("MEWORK_TEST_ALIAS", &alias)
+            .env("MEWORK_TEST_RUNTIME", &runtime)
+            .creation_flags(CREATE_NO_WINDOW)
+            .status()
+            .unwrap();
+        assert!(status.success());
+        let binary = root.path().join("example.cmd");
+        fs::write(&binary, "@echo off\nnode /c echo example-version\n").unwrap();
+        let output = Command::new(env::current_exe().unwrap())
+            .args(["--exact", "application::ai_providers::cli::node_runtime_tests::runs_node_cli_with_redirection_guard", "--nocapture"])
+            .env(PROBE, binary)
+            .env("PATH", env::join_paths([alias, system]).unwrap())
+            .creation_flags(CREATE_NO_WINDOW)
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stdout)
+        );
+    }
 }
 
 #[cfg(windows)]

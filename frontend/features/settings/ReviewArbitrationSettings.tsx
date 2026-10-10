@@ -62,7 +62,7 @@ export function ReviewArbitrationSettings({ settings, profile, providers, disabl
             <AiOverrideEditor idPrefix="ai-review-arbiter" profile={profile} providers={providers}
               inheritedLabel={t("settings.ai.inheritDefault")}
               providerLabel={t("settings.ai.provider")} modelLabel={t("settings.ai.arbiterModel")}
-              reasoningLabel={t("settings.ai.reasoning")} noModelsLabel={t("settings.ai.noModels", { provider: t("settings.ai.selectedProvider") })}
+              reasoningLabel={t("settings.ai.reasoning")} noModelsLabel={t("settings.ai.noModels")}
               unavailableLabel={t("settings.ai.unavailableSuffix")} disabled={disabled} fieldErrors={fieldErrors} fieldWarnings={fieldWarnings} onChange={onProfileChange} />
             {profile ? arbiterRetries : null}
             {arbiterInstructions}
