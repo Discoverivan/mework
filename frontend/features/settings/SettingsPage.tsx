@@ -635,6 +635,7 @@ export function SettingsPage({ section = "integrations", focusActivity, mockMode
         onChange={(profile) => updateAiProfile(action, profile)}
         disabled={aiLoading || aiSavingScopes.includes(action)}
         fieldErrors={{ provider: aiFieldMessage(action, "provider"), model: aiFieldMessage(action, "model") }}
+        fieldWarnings={aiFieldWarnings(action)}
       />
       {aiDraft[action] ? renderRetries(action) : null}
       {renderAiStatus(action)}
@@ -745,9 +746,8 @@ export function SettingsPage({ section = "integrations", focusActivity, mockMode
       : undefined;
   }
 
-  function renderAiStatus(scope: AiSettingsScope) {
-    if (aiFieldError?.scope === scope) return null;
-    if (aiStatusScope !== scope) return null;
+  function aiFieldWarnings(scope: AiSettingsScope): Partial<Record<"provider" | "model", string>> {
+    if (aiFieldError?.scope === scope || aiLoading || aiSavingScopes.includes(scope)) return {};
     const profile = scope === "taskCreation" ? aiDraft.taskCreation
       : scope === "reviewArbiter" ? aiDraft.reviewArbiter
       : scope === "pullRequestReview" ? aiDraft.pullRequestReview
@@ -758,19 +758,15 @@ export function SettingsPage({ section = "integrations", focusActivity, mockMode
     const showReadiness = scope === "default"
       ? Boolean(aiDraft.provider && !aiReady)
       : Boolean(profile && !aiProviderReady(statusProvider, profile.model));
-    if (!aiError && (aiSaving || !showReadiness)) return null;
-    return (
-      <div className="text-sm" aria-live="polite">
-        {aiError ? <span className="text-destructive">{aiError}</span> : null}
-        {!aiError && !aiSaving && showReadiness ? (
-          <span className="text-warning">
-            {statusProvider?.status === "connected"
-              ? t("settings.ai.noModelSelected")
-              : aiProviderMessage(statusProvider, t) ?? t("settings.ai.notConnected")}
-          </span>
-        ) : null}
-      </div>
-    );
+    if ((aiError && aiStatusScope === scope) || !showReadiness) return {};
+    return statusProvider?.available && statusProvider.status === "connected"
+      ? { model: t("settings.ai.noModelSelected") }
+      : { provider: aiProviderMessage(statusProvider, t) ?? t("settings.ai.notConnected") };
+  }
+
+  function renderAiStatus(scope: AiSettingsScope) {
+    if (aiFieldError?.scope === scope || aiStatusScope !== scope || !aiError) return null;
+    return <div className="text-sm text-destructive" aria-live="polite">{aiError}</div>;
   }
 
   async function handleAddAiProvider(provider: AiCliProviderId) {
@@ -1169,7 +1165,7 @@ export function SettingsPage({ section = "integrations", focusActivity, mockMode
                 <div className="grid min-w-0 max-w-full gap-2.5">
                   <Label id="ai-provider-label">{t("settings.ai.provider")}</Label>
                   <Select value={selectedAiProvider?.instanceId ?? aiDraft.provider ?? "__none__"} onValueChange={updateAiProvider} disabled={aiData === null || aiLoading || aiSavingScopes.includes("default")}>
-                    <FieldValidationHint error={aiFieldMessage("default", "provider")}>
+                    <FieldValidationHint error={aiFieldMessage("default", "provider")} warning={aiFieldWarnings("default").provider}>
                       <SelectTrigger id="ai-provider" aria-labelledby="ai-provider-label" className="h-9">
                         <SelectValue />
                       </SelectTrigger>
@@ -1180,7 +1176,7 @@ export function SettingsPage({ section = "integrations", focusActivity, mockMode
                 <div className="grid min-w-0 max-w-full gap-2.5">
                   <Label id="ai-model-label">{t("settings.ai.model")}</Label>
                   <Select value={aiDraft.model} onValueChange={(value) => updateAiSetting("model", value)} disabled={!aiDraft.provider || !selectedAiProvider || aiSavingScopes.includes("default") || (selectedAiProvider.models.length === 0)}>
-                    <FieldValidationHint error={aiFieldMessage("default", "model")}>
+                    <FieldValidationHint error={aiFieldMessage("default", "model")} warning={aiFieldWarnings("default").model}>
                       <SelectTrigger id="ai-model" aria-labelledby="ai-model-label" className="h-9">
                         <SelectValue placeholder={t("settings.ai.noModels", { provider: selectedAiProvider?.name ?? t("settings.ai.selectedProvider") })} />
                       </SelectTrigger>
@@ -1214,6 +1210,7 @@ export function SettingsPage({ section = "integrations", focusActivity, mockMode
                 profile={aiDraft.reviewArbiter} providers={aiData.providers}
                 disabled={aiLoading || aiDeleting || aiSavingScopes.includes("reviewArbiter")}
                 fieldErrors={{ provider: aiFieldMessage("reviewArbiter", "provider"), model: aiFieldMessage("reviewArbiter", "model") }}
+                fieldWarnings={aiFieldWarnings("reviewArbiter")}
                 onChange={(settings) => updateAiSetting("reviewArbitration", settings)}
                 onProfileChange={(profile) => updateAiProfile("reviewArbiter", profile)}
                 onReviewCountValidityChange={setReviewCountValid} reviewCountReset={reviewCountReset}

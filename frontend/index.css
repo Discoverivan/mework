@@ -212,12 +212,12 @@
     background: transparent !important;
   }
 
-  :root[data-button-style="quiet"] [role="combobox"]:not([aria-invalid="true"]) {
+  :root[data-button-style="quiet"] [role="combobox"]:not([aria-invalid="true"]):not([data-field-warning="true"]) {
     border-color: transparent !important;
     color: var(--muted-foreground);
   }
 
-  :root[data-button-style="quiet"] [role="combobox"]:not([aria-invalid="true"]):not(:disabled):is([data-pointer-hover="true"], :focus-visible, [aria-expanded="true"]) {
+  :root[data-button-style="quiet"] [role="combobox"]:not([aria-invalid="true"]):not([data-field-warning="true"]):not(:disabled):is([data-pointer-hover="true"], :focus-visible, [aria-expanded="true"]) {
     color: var(--primary);
   }
 
@@ -235,17 +235,9 @@
     color: var(--app-action-color);
   }
 
-  :root:is([data-button-style="filled"], [data-button-style="filled_borderless"]) .app-action-text:not(:where(.app-shell aside *)):not([data-button-variant="link"]):is([data-action-tone="edit"], [data-action-tone="success"], [data-action-tone="warning"], [data-action-tone="delete"], [data-button-variant="destructive"]):not(:disabled):is(:hover, :focus-visible) {
+  :root:is([data-button-style="filled"], [data-button-style="filled_borderless"]) .app-action-text:not(:where(.app-shell aside *)):not([data-button-variant="link"]):is([data-action-tone="delete"], [data-button-variant="destructive"]):not(:disabled):is(:hover, :focus-visible) {
     border-color: transparent;
     background: var(--app-action-color);
-    color: var(--primary-foreground);
-  }
-
-  :root:is([data-button-style="filled"], [data-button-style="filled_borderless"]) .app-action-text:not(:where(.app-shell aside *)):not([data-button-variant="link"]):is([data-action-tone="success"], [data-action-tone="warning"]):not(:disabled):is(:hover, :focus-visible) {
-    color: var(--overlay);
-  }
-
-  :root:is([data-button-style="filled"], [data-button-style="filled_borderless"]) .app-action-text:not(:where(.app-shell aside *)):not([data-button-variant="link"]):is([data-action-tone="delete"], [data-button-variant="destructive"]):not(:disabled):is(:hover, :focus-visible) {
     color: var(--destructive-foreground);
   }
 
@@ -369,9 +361,9 @@
     border-color: var(--input);
   }
 
-/* Filled icon actions and neutral/creation text actions signal hover through their border and foreground. */
+/* Filled actions except destructive text actions signal hover through their border and foreground. */
 :root:is([data-button-style="filled"], [data-button-style="filled_borderless"]) .app-icon-button:not(:where(.app-shell aside *)):not(:disabled):is(:hover, :focus-visible),
-:root:is([data-button-style="filled"], [data-button-style="filled_borderless"]) .app-action-text:not(:where(.app-shell aside *)):not([data-button-variant="link"]):not([data-action-tone="edit"]):not([data-action-tone="success"]):not([data-action-tone="warning"]):not([data-action-tone="delete"]):not([data-button-variant="destructive"]):not(:disabled):is(:hover, :focus-visible) {
+:root:is([data-button-style="filled"], [data-button-style="filled_borderless"]) .app-action-text:not(:where(.app-shell aside *)):not([data-button-variant="link"]):not([data-action-tone="delete"]):not([data-button-variant="destructive"]):not(:disabled):is(:hover, :focus-visible) {
   background: var(--app-action-background, var(--secondary));
   border-color: var(--app-action-color);
 }
@@ -383,7 +375,7 @@
 
 /* Search results retain their item boundaries independently of action-button appearance. */
 /* Preserve button geometry and keyboard focus while hiding borders in this variant. */
-:root[data-button-style="filled_borderless"] :is(button, [role="button"], [data-button-variant], .app-toggle):not(.app-search-result):not(.app-control-border:enabled:is([data-pointer-hover="true"], :focus, [aria-expanded="true"])):not([aria-invalid="true"]) {
+:root[data-button-style="filled_borderless"] :is(button, [role="button"], [data-button-variant], .app-toggle):not(.app-search-result):not(.app-control-border:enabled:is(:focus-visible, [aria-expanded="true"])):not([aria-invalid="true"]) {
   border-color: transparent !important;
 }
 
@@ -400,13 +392,14 @@
   border-color: transparent !important;
 }
 
-:root:is([data-button-style="quiet"], [data-button-style="filled_borderless"]) input:is([type="number"], [inputmode="numeric"], [inputmode="decimal"]):not([aria-invalid="true"]):enabled:is([data-pointer-hover="true"], :focus-visible) {
+:root:is([data-button-style="quiet"], [data-button-style="filled"], [data-button-style="filled_borderless"]) input:is([type="number"], [inputmode="numeric"], [inputmode="decimal"]):not([aria-invalid="true"]):enabled:is([data-pointer-hover="true"], :focus-visible) {
   color: var(--primary);
 }
 
-/* Controls share one boundary for pointer hover, focus and an open picker.
-   Keep it visible during interaction even when idle controls are borderless. */
-:root .app-control-border:not([aria-invalid="true"]):enabled:is([data-pointer-hover="true"], :focus, [aria-expanded="true"]) {
+/* Borderless buttons retain a boundary only for keyboard focus or an open picker. */
+:root:not(:is([data-button-style="quiet"], [data-button-style="filled_borderless"])) .app-control-border:not([aria-invalid="true"]):enabled:is([data-pointer-hover="true"], :focus),
+:root:not([data-button-style="quiet"]) .app-control-border:not(:is(button, [role="button"], [data-button-variant], .app-toggle)):not(:where(:root[data-button-style="filled_borderless"] input:is([type="number"], [inputmode="numeric"], [inputmode="decimal"]))):not([aria-invalid="true"]):enabled:is([data-pointer-hover="true"], :focus),
+:root:not([data-button-style="quiet"]) .app-control-border:not(:where(:root[data-button-style="filled_borderless"] input:is([type="number"], [inputmode="numeric"], [inputmode="decimal"]))):not([aria-invalid="true"]):enabled:is(:focus-visible, [aria-expanded="true"]) {
   border-color: var(--primary) !important;
 }
 
@@ -419,10 +412,41 @@
   border-color: var(--destructive) !important;
 }
 
+/* Borderless numeric fields indicate validation through the value instead of a frame. */
+:root[data-button-style="filled_borderless"] input:is([type="number"], [inputmode="numeric"], [inputmode="decimal"]) {
+  border-color: transparent !important;
+}
+
+:root:is([data-button-style="filled"], [data-button-style="filled_borderless"]) input:is([type="number"], [inputmode="numeric"], [inputmode="decimal"])[aria-invalid="true"] {
+  color: var(--destructive);
+}
+
 /* Missing required content stays visible on icon editors in every action style. */
 :root .app-icon-button[aria-invalid="true"] {
   border: 1px solid var(--destructive) !important;
   color: var(--destructive) !important;
+}
+
+/* Minimal controls never draw a frame, including open pickers and invalid fields. */
+:root[data-button-style="quiet"] :is(button, [role="button"], [data-button-variant], .app-toggle, .app-control-border) {
+  border-color: transparent !important;
+}
+
+/* Minimal field values start at the control's left edge. */
+:root[data-button-style="quiet"] :is(.app-field-label, [role="combobox"], input.app-control-border, textarea.app-control-border) {
+  padding-left: 0;
+}
+
+:root[data-button-style="quiet"] .app-control-border:not([aria-invalid="true"]):not([data-field-warning="true"]):enabled:is([data-pointer-hover="true"], :focus-visible, [aria-expanded="true"]) {
+  color: var(--primary);
+}
+
+:root[data-button-style="quiet"] .app-control-border[aria-invalid="true"] {
+  color: var(--destructive);
+}
+
+:root .app-control-border[data-field-warning="true"] {
+  color: var(--warning);
 }
 
 /* All cards, including empty states, follow the selected interface border style.

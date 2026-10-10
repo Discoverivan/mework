@@ -106,6 +106,9 @@ export function ModelTestingAiSettings({ data, disabled, onPendingChange }: { da
         onChange={changeProfile}
         disabled={disabled || loading || saving}
         fieldErrors={fieldErrors}
+        fieldWarnings={profile && !loading && !ready ? selected?.available && selected.status === "connected"
+          ? { model: t("settings.ai.noModelSelected") }
+          : { provider: t("settings.ai.notConnected") } : undefined}
       />
       {profile ? <AiRetriesField id="model-testing-ai-retries" value={retries ?? data.settings.retries.default} disabled={disabled || loading || saving} onChange={(value) => {
         setDraft((current) => ({ ...current, retries: value }));
@@ -115,14 +118,14 @@ export function ModelTestingAiSettings({ data, disabled, onPendingChange }: { da
         setFailedDraft(null);
       }} /> : null}
     </div>
-    {error || !ready ? <div className="flex flex-wrap items-center gap-3">
-      <p className={error ? "text-sm text-destructive" : "text-sm text-warning"} aria-live="polite">
-        {error ?? t(selected?.status === "connected" ? "settings.ai.noModelSelected" : "settings.ai.notConnected")}
+    {error ? <div className="flex flex-wrap items-center gap-3">
+      <p className="text-sm text-destructive" aria-live="polite">
+        {error}
       </p>
-      {error ? <Button type="button" variant="outline" size="sm" disabled={disabled || loading || saving || !ready} onClick={() => {
+      <Button type="button" variant="outline" size="sm" disabled={disabled || loading || saving || !ready} onClick={() => {
         setFailedDraft(null);
         setError(null);
-      }}>{t("settings.ai.retrySave")}</Button> : null}
+      }}>{t("settings.ai.retrySave")}</Button>
     </div> : null}
     {saving ? <StatusToast key="saving" variant="loading" message={t("settings.common.saving")} />
       : saved ? <StatusToast key="saved" message={t("settings.ai.saved")} onDismiss={() => setSaved(false)} /> : null}

@@ -47,6 +47,7 @@ export function AiOverrideEditor({
   onChange,
   disabled,
   fieldErrors,
+  fieldWarnings,
 }: {
   idPrefix: string;
   profile: AiSettingsProfile | null | undefined;
@@ -60,6 +61,7 @@ export function AiOverrideEditor({
   onChange: (profile: AiSettingsProfile | null) => void;
   disabled: boolean;
   fieldErrors?: Partial<Record<"provider" | "model", string>>;
+  fieldWarnings?: Partial<Record<"provider" | "model", string>>;
 }) {
   const selected = providers.find((candidate) => candidate.id === profile?.provider
     && (candidate.id !== "openai-compatible" || (candidate.instanceId ?? "legacy") === (profile.providerInstanceId ?? "legacy")));
@@ -82,7 +84,7 @@ export function AiOverrideEditor({
           };
           onChange(next);
         }} disabled={disabled}>
-          <FieldValidationHint error={fieldErrors?.provider}>
+          <FieldValidationHint error={fieldErrors?.provider} warning={fieldWarnings?.provider}>
             <SelectTrigger id={`${idPrefix}-provider`} aria-labelledby={`${idPrefix}-provider-label`} className="h-9"><SelectValue /></SelectTrigger>
           </FieldValidationHint>
           <AiProviderSelectContent providers={providers} fallbackValue="__inherit__" fallbackLabel={inheritedLabel} unavailableLabel={unavailableLabel} />
@@ -92,7 +94,7 @@ export function AiOverrideEditor({
         <div className="grid min-w-0 max-w-full gap-2.5">
           <Label id={`${idPrefix}-model-label`}>{modelLabel}</Label>
           <Select value={profile.model} onValueChange={(model) => onChange({ ...profile, model })} disabled={disabled || selected.models.length === 0}>
-            <FieldValidationHint error={fieldErrors?.model}>
+            <FieldValidationHint error={fieldErrors?.model} warning={fieldWarnings?.model}>
               <SelectTrigger id={`${idPrefix}-model`} aria-labelledby={`${idPrefix}-model-label`} className="h-9"><SelectValue placeholder={noModelsLabel} /></SelectTrigger>
             </FieldValidationHint>
             <SelectContent>{selected.models.map((model) => <SelectItem key={model} value={model}>{model}</SelectItem>)}</SelectContent>

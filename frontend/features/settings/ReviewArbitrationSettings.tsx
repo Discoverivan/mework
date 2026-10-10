@@ -36,7 +36,7 @@ export function ReviewModeControl({ settings, disabled, onChange }: {
   </ToggleGroup>;
 }
 
-export function ReviewArbitrationSettings({ settings, profile, providers, disabled, fieldErrors, onChange, onProfileChange, onReviewCountValidityChange, reviewCountReset, children, arbiterStatus, arbiterInstructions, arbiterRetries }: {
+export function ReviewArbitrationSettings({ settings, profile, providers, disabled, fieldErrors, fieldWarnings, onChange, onProfileChange, onReviewCountValidityChange, reviewCountReset, children, arbiterStatus, arbiterInstructions, arbiterRetries }: {
   children: ReactNode;
   arbiterStatus?: ReactNode;
   arbiterInstructions?: ReactNode;
@@ -46,6 +46,7 @@ export function ReviewArbitrationSettings({ settings, profile, providers, disabl
   providers: AiProvider[];
   disabled: boolean;
   fieldErrors?: { provider?: string; model?: string };
+  fieldWarnings?: { provider?: string; model?: string };
   onChange: (settings: Settings) => void;
   onProfileChange: (profile: AiSettingsProfile | null) => void;
   onReviewCountValidityChange: (valid: boolean) => void;
@@ -62,7 +63,7 @@ export function ReviewArbitrationSettings({ settings, profile, providers, disabl
               inheritedLabel={t("settings.ai.inheritDefault")}
               providerLabel={t("settings.ai.provider")} modelLabel={t("settings.ai.arbiterModel")}
               reasoningLabel={t("settings.ai.reasoning")} noModelsLabel={t("settings.ai.noModels", { provider: t("settings.ai.selectedProvider") })}
-              unavailableLabel={t("settings.ai.unavailableSuffix")} disabled={disabled} fieldErrors={fieldErrors} onChange={onProfileChange} />
+              unavailableLabel={t("settings.ai.unavailableSuffix")} disabled={disabled} fieldErrors={fieldErrors} fieldWarnings={fieldWarnings} onChange={onProfileChange} />
             {profile ? arbiterRetries : null}
             {arbiterInstructions}
           </div>
