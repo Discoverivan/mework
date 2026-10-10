@@ -30,7 +30,11 @@ import {
 } from "./api";
 import { clearPullRequestDisplayPreferencesForTests } from "./display-options";
 import { MyPullRequestsPage } from "./MyPullRequestsPage";
-import { APP_EVENT, subscribeAppEvent } from "@/app/app-events";
+import { APP_EVENT, emitAppEvent, subscribeAppEvent } from "@/app/app-events";
+
+vi.mock("../settings/prompts/api", () => ({
+  getPromptSettings: vi.fn().mockResolvedValue([{ action: "pullRequestReview", instructionsHash: "general-example-hash" }]),
+}));
 
 vi.mock("../settings/api", () => ({
   getAiSettings: vi.fn(),
@@ -594,6 +598,10 @@ describe("MyPullRequestsPage", () => {
   });
 
   it("selects an author filter with Enter and applies it after saving", async () => {
+    searchUsersMock.mockResolvedValue([
+      { integrationId: "bitbucket-1", name: "test-author-a", displayName: "Test Author A", slug: "test-author-a" },
+      { integrationId: "bitbucket-2", name: "test-author-a", displayName: "Test Author A", slug: "test-author-a" },
+    ]);
     await renderFlatPage();
     await screen.findByRole("heading", { name: "Example pull request" });
 
@@ -604,6 +612,7 @@ describe("MyPullRequestsPage", () => {
     fireEvent.change(screen.getByRole("textbox", { name: "Author" }), { target: { value: "Test Author A" } });
     await waitFor(() => expect(searchUsersMock).toHaveBeenCalledWith("Test Author A"));
     await screen.findByRole("button", { name: "Test Author A (test-author-a)" });
+    expect(screen.getAllByRole("button", { name: "Test Author A (test-author-a)" })).toHaveLength(1);
     fireEvent.keyDown(screen.getByRole("textbox", { name: "Author" }), { key: "Enter" });
     expect(screen.getByRole("button", { name: "Save" })).toBeEnabled();
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
@@ -769,6 +778,29 @@ describe("MyPullRequestsPage", () => {
     await waitFor(() => expect(startReviewMock).toHaveBeenCalledTimes(3));
     expect(screen.getAllByRole("button", { name: "AI review…" })).toHaveLength(3);
     resolvers.forEach((resolve) => resolve(runningReview));
+  });
+
+  it("keeps scoped review details current when general instructions change", async () => {
+    const review = {
+      ...completedReview,
+      instructionsChanged: false,
+      execution: { provider: "codex-cli" as const, providerName: "Codex CLI", providerInstanceId: null, model: "example-model", reasoning: "high" as const, mode: "normal" as const, instructionsHash: "scoped-example-hash" },
+    };
+    listMyPullRequestsMock.mockResolvedValue({ ...firstPage, values: [{ ...pullRequests[0], review }] });
+    await renderFlatPage();
+    fireEvent.click(await screen.findByRole("button", { name: "Show review details" }));
+    const details = await screen.findByRole("dialog", { name: "Review details" });
+    expect(details).toHaveTextContent("example-model");
+    expect(details).not.toHaveTextContent("Instructions changed");
+    const reads = listMyPullRequestsMock.mock.calls.length;
+    listMyPullRequestsMock.mockResolvedValue({ ...firstPage, values: [{ ...pullRequests[0], review: { ...review, instructionsChanged: true } }] });
+    emitAppEvent(APP_EVENT.aiPromptSettingsChanged, {
+      action: "pullRequestReview", instructions: "Updated general instructions.", instructionsHash: "updated-example-hash",
+      defaultInstructions: "", protectedRules: "", customized: true, includeFixExamples: true,
+    });
+    await waitFor(() => expect(listMyPullRequestsMock).toHaveBeenCalledTimes(reads + 1));
+    await waitFor(() => expect(details).toHaveTextContent("Instructions changed"));
+    expect(refreshMyPullRequestsMock).not.toHaveBeenCalled();
   });
 
   it("opens AI review errors and allows retrying the review", async () => {

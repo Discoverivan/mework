@@ -1,8 +1,6 @@
 import { Hint } from "@/components/ui/tooltip";
 import { Info } from "lucide-react";
-import { useEffect, useState } from "react";
-import { APP_EVENT, subscribeAppEvent } from "@/app/app-events";
-import { getPromptSettings } from "@/features/settings/prompts/api";
+import { useState } from "react";
 
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { useInfoPopoverAnchor } from "@/components/shared/use-info-popover-anchor";
@@ -18,27 +16,8 @@ export function PullRequestReviewDetails({ review, inBadge = false }: { review: 
   const finishedAt = review.finishedAt != null ? new Date(review.finishedAt) : undefined;
   const execution = review.execution;
   const [open, setOpen] = useState(false);
-  const [currentInstructionsHash, setCurrentInstructionsHash] = useState<string>();
-  const [currentArbiterInstructionsHash, setCurrentArbiterInstructionsHash] = useState<string>();
-  useEffect(() => {
-    if (!open) return;
-    let active = true;
-    void getPromptSettings().then((values) => {
-      if (active) {
-        setCurrentInstructionsHash(values.find((value) => value.action === "pullRequestReview")?.instructionsHash);
-        setCurrentArbiterInstructionsHash(values.find((value) => value.action === "reviewArbiter")?.instructionsHash);
-      }
-    }).catch(() => {});
-    const unsubscribe = subscribeAppEvent(APP_EVENT.aiPromptSettingsChanged, (value) => {
-      if (value.action === "pullRequestReview") setCurrentInstructionsHash(value.instructionsHash);
-      if (value.action === "reviewArbiter") setCurrentArbiterInstructionsHash(value.instructionsHash);
-    });
-    return () => { active = false; unsubscribe(); };
-  }, [open]);
-  const instructionsChanged = review.status !== "running" && ((currentInstructionsHash !== undefined && execution?.instructionsHash != null
-    ? currentInstructionsHash !== execution.instructionsHash : review.instructionsChanged)
-    || (currentArbiterInstructionsHash !== undefined && execution?.arbitration?.arbiter.instructionsHash != null
-      && currentArbiterInstructionsHash !== execution.arbitration.arbiter.instructionsHash));
+  // The core compares effective instructions for this PR, including scoped rules and the arbiter.
+  const instructionsChanged = review.status !== "running" && review.instructionsChanged;
   return (
     <Popover open={open} onOpenChange={(nextOpen) => { onOpenChange(nextOpen); setOpen(nextOpen); }}>
       <PopoverTrigger asChild>

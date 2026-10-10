@@ -112,6 +112,17 @@ function creatorOptionValue(user: BitbucketUser): string | undefined {
   return user.displayName ?? user.name ?? user.slug;
 }
 
+// Filters store global target values; scoped provider search can return the same value twice.
+function uniqueFilterTargets<T>(values: T[], key: (value: T) => string | undefined): T[] {
+  const seen = new Set<string>();
+  return values.filter((value) => {
+    const identity = key(value)?.trim().toLocaleLowerCase();
+    if (!identity || seen.has(identity)) return false;
+    seen.add(identity);
+    return true;
+  });
+}
+
 function equalsIgnoreCase(left: string, right: string): boolean {
   return left.trim().toLocaleLowerCase() === right.trim().toLocaleLowerCase();
 }
@@ -323,9 +334,23 @@ export function MyPullRequestsPage() {
 
   usePullRequestReviewPolling(pullRequests, setPullRequests);
 
-  useEffect(() => subscribeAppEvent(APP_EVENT.reviewInstructionRulesChanged, () => {
-    void listMyPullRequests(0, 100).then(applyPage).catch((reason) => setError(commandError(reason)));
-  }), [applyPage]);
+  useEffect(() => {
+    let active = true;
+    let revision = 0;
+    const reload = () => {
+      const currentRevision = ++revision;
+      void listMyPullRequests(0, 100).then((page) => {
+        if (active && currentRevision === revision) applyPage(page);
+      }).catch((reason) => {
+        if (active && currentRevision === revision) setError(commandError(reason));
+      });
+    };
+    const unsubscribeRules = subscribeAppEvent(APP_EVENT.reviewInstructionRulesChanged, reload);
+    const unsubscribePrompts = subscribeAppEvent(APP_EVENT.aiPromptSettingsChanged, (value) => {
+      if (value.action === "pullRequestReview" || value.action === "reviewArbiter") reload();
+    });
+    return () => { active = false; unsubscribeRules(); unsubscribePrompts(); };
+  }, [applyPage]);
 
   useEffect(() => {
     const query = projectInput.trim();
@@ -423,13 +448,13 @@ export function MyPullRequestsPage() {
     };
   }, [creatorInput, settingsOpen, filterSearch]);
 
-  const availableProjects = projectSearchResults.filter((project) =>
+  const availableProjects = uniqueFilterTargets(projectSearchResults, (project) => project.projectKey).filter((project) =>
     !draftSettings[filterField(filterTab, "project")].some((value) => equalsIgnoreCase(value, project.projectKey)),
   );
-  const availableRepositories = repositorySearchResults.filter((repository) =>
+  const availableRepositories = uniqueFilterTargets(repositorySearchResults, repositoryOptionKey).filter((repository) =>
     !draftSettings[filterField(filterTab, "repository")].some((value) => equalsIgnoreCase(value, repositoryOptionKey(repository))),
   );
-  const availableCreators = creatorSearchResults.filter((user) => {
+  const availableCreators = uniqueFilterTargets(creatorSearchResults, creatorOptionValue).filter((user) => {
     const displayName = creatorOptionValue(user);
     return !!displayName && !draftSettings[filterField(filterTab, "creator")].some((value) => equalsIgnoreCase(value, displayName));
   });

@@ -183,9 +183,23 @@ export function AuthoredPullRequestsPage() {
     return subscribeAppEvent(APP_EVENT.authoredPullRequestsUpdated, applyPage);
   }, [applyPage]);
 
-  useEffect(() => subscribeAppEvent(APP_EVENT.reviewInstructionRulesChanged, () => {
-    void listAuthoredPullRequests(0, 100).then(applyPage).catch((reason) => setError(commandError(reason)));
-  }), [applyPage]);
+  useEffect(() => {
+    let active = true;
+    let revision = 0;
+    const reload = () => {
+      const currentRevision = ++revision;
+      void listAuthoredPullRequests(0, 100).then((page) => {
+        if (active && currentRevision === revision) applyPage(page);
+      }).catch((reason) => {
+        if (active && currentRevision === revision) setError(commandError(reason));
+      });
+    };
+    const unsubscribeRules = subscribeAppEvent(APP_EVENT.reviewInstructionRulesChanged, reload);
+    const unsubscribePrompts = subscribeAppEvent(APP_EVENT.aiPromptSettingsChanged, (value) => {
+      if (value.action === "pullRequestReview" || value.action === "reviewArbiter") reload();
+    });
+    return () => { active = false; unsubscribeRules(); unsubscribePrompts(); };
+  }, [applyPage]);
 
   useEffect(() => {
     return subscribeAppEvent(APP_EVENT.pullRequestReviewChanged, ({ key, review }) => {
