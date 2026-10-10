@@ -464,7 +464,7 @@ export function SettingsPage({ section = "integrations", focusActivity, mockMode
             : inspection.provider.status === "not_found"
             ? t("settings.aiProviders.cliNotFound", { provider: option.name })
             : inspection.provider.status === "connected" && inspection.provider.models.length === 0
-              ? t("settings.ai.noModels", { provider: option.name })
+              ? t("settings.ai.noModels")
               : aiProviderMessage(inspection.provider, t) ?? t(AI_STATUS_LABEL_KEYS[inspection.provider.status])
           : inspection?.state === "checking" ? t("settings.aiProviders.checkingCli") : null;
       return { ...option, ready, reason, checking: inspection?.state === "checking" || !inspection };
@@ -630,7 +630,7 @@ export function SettingsPage({ section = "integrations", focusActivity, mockMode
         providerLabel={t("settings.ai.provider")}
         modelLabel={t("settings.ai.model")}
         reasoningLabel={t("settings.ai.reasoning")}
-        noModelsLabel={t("settings.ai.noModels", { provider: t("settings.ai.selectedProvider") })}
+        noModelsLabel={t("settings.ai.noModels")}
         unavailableLabel={t("settings.ai.unavailableSuffix")}
         onChange={(profile) => updateAiProfile(action, profile)}
         disabled={aiLoading || aiSavingScopes.includes(action)}
@@ -1178,7 +1178,7 @@ export function SettingsPage({ section = "integrations", focusActivity, mockMode
                   <Select value={aiDraft.model} onValueChange={(value) => updateAiSetting("model", value)} disabled={!aiDraft.provider || !selectedAiProvider || aiSavingScopes.includes("default") || (selectedAiProvider.models.length === 0)}>
                     <FieldValidationHint error={aiFieldMessage("default", "model")} warning={aiFieldWarnings("default").model}>
                       <SelectTrigger id="ai-model" aria-labelledby="ai-model-label" className="h-9">
-                        <SelectValue placeholder={t("settings.ai.noModels", { provider: selectedAiProvider?.name ?? t("settings.ai.selectedProvider") })} />
+                        <SelectValue placeholder={t(selectedAiProvider?.models.length ? "settings.ai.selectModel" : "settings.ai.noModels")} />
                       </SelectTrigger>
                     </FieldValidationHint>
                     <SelectContent>

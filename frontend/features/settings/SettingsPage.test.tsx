@@ -539,6 +539,7 @@ describe("SettingsPage integrations smoke tests", () => {
     expect(defaultAiSettings().queryByRole("combobox", { name: "Reasoning" })).not.toBeInTheDocument();
     expect(defaultAiSettings().queryByRole("combobox", { name: "Mode" })).not.toBeInTheDocument();
     const modelField = defaultAiSettings().getByRole("combobox", { name: "Model" });
+    expect(modelField).toHaveTextContent("Select model");
     expect(modelField).toHaveAttribute("aria-description", "No available model selected.");
     expect(modelField).toHaveAttribute("aria-invalid", "false");
     expect(screen.getByRole("status")).toHaveTextContent("No available model selected.");
@@ -759,7 +760,7 @@ describe("SettingsPage integrations smoke tests", () => {
         name: "Codex CLI",
         status: "connected",
         available: true,
-        models: ["example-codex-model"],
+        models: ["example-codex-model", "example-second-model"],
       }],
     });
     render(<SettingsPage section="ai" focusActivity="token-burner" />);
@@ -769,6 +770,11 @@ describe("SettingsPage integrations smoke tests", () => {
     expect(screen.getByRole("region", { name: "Action settings" })).toBeInTheDocument();
     fireEvent.click(within(screen.getByRole("region", { name: "Model-testing" })).getByRole("combobox", { name: "AI provider" }));
     fireEvent.click(screen.getByRole("option", { name: /Codex CLI/ }));
+
+    const modelField = within(screen.getByRole("region", { name: "Model-testing" })).getByRole("combobox", { name: "Model" });
+    expect(modelField).toHaveTextContent("Select model");
+    fireEvent.click(modelField);
+    fireEvent.click(screen.getByRole("option", { name: "example-codex-model" }));
 
     await saveSection("Model-testing");
     await waitFor(() => expect(saveAiActionSettingsMock).toHaveBeenCalledWith("tokenBurner", expect.objectContaining({

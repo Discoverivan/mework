@@ -101,7 +101,7 @@ export function ModelTestingAiSettings({ data, disabled, onPendingChange }: { da
         providerLabel={t("settings.ai.provider")}
         modelLabel={t("settings.ai.model")}
         reasoningLabel={t("settings.ai.reasoning")}
-        noModelsLabel={t("settings.ai.noModels", { provider: t("settings.ai.selectedProvider") })}
+        noModelsLabel={t("settings.ai.noModels")}
         unavailableLabel={t("settings.ai.unavailableSuffix")}
         onChange={changeProfile}
         disabled={disabled || loading || saving}
