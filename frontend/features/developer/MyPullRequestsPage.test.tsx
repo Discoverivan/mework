@@ -876,6 +876,45 @@ describe("MyPullRequestsPage", () => {
     await waitFor(() => expect(screen.queryByRole("heading", { name: "Example pull request" })).not.toBeInTheDocument());
   });
 
+  it("excludes an author from the PR actions menu", async () => {
+    let finishExclusion!: () => void;
+    saveSettingsMock.mockImplementationOnce((settings) => new Promise((resolve) => {
+      finishExclusion = () => resolve(settings);
+    }));
+    await renderFlatPage();
+    const card = (await screen.findByRole("heading", { name: "Example pull request" })).closest("[class*='border-l-']") as HTMLElement;
+    fireEvent.pointerDown(within(card).getByRole("button", { name: "More actions" }), { button: 0, ctrlKey: false });
+    expect(within(screen.getByRole("menu")).getAllByRole("separator")).toHaveLength(3);
+    fireEvent.click(screen.getByRole("menuitem", { name: "Exclude author" }));
+    await waitFor(() => expect(saveSettingsMock).toHaveBeenCalledWith(expect.objectContaining({ creatorBlacklist: ["Test Author A"] })));
+    expect(screen.getByRole("button", { name: "Filters" })).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: "Options" }));
+    const autoReview = screen.getByRole("switch", { name: "AI auto-review" });
+    expect(autoReview).toBeDisabled();
+    finishExclusion();
+    await waitFor(() => expect(autoReview).toBeEnabled());
+    fireEvent.click(autoReview);
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(saveSettingsMock).toHaveBeenLastCalledWith(expect.objectContaining({ creatorBlacklist: ["Test Author A"], autoReviewEnabled: true })));
+    await waitFor(() => expect(screen.queryByRole("heading", { name: "Example pull request" })).not.toBeInTheDocument());
+  });
+
+  it("opens custom instructions from a PR and saves the scoped rule", async () => {
+    listMyPullRequestsMock.mockResolvedValue({ ...firstPage, values: [{ ...pullRequests[0], authorAccountName: "example-author" }] });
+    await renderFlatPage();
+    const card = (await screen.findByRole("heading", { name: "Example pull request" })).closest("[class*='border-l-']") as HTMLElement;
+    fireEvent.pointerDown(within(card).getByRole("button", { name: "More actions" }), { button: 0, ctrlKey: false });
+    fireEvent.click(screen.getByRole("menuitem", { name: "Custom instructions for author" }));
+    const editor = within(await screen.findByRole("dialog", { name: "Edit instructions" }));
+    fireEvent.change(editor.getByRole("textbox", { name: "Instructions for Test Author A (example-author)" }), { target: { value: "Explain confirmed findings." } });
+    fireEvent.click(editor.getByRole("button", { name: "Apply" }));
+    fireEvent.click(within(screen.getByRole("dialog", { name: "Review Custom instructions" })).getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(saveReviewInstructionRules).toHaveBeenCalledWith([
+      expect.objectContaining({ integrationId: "bitbucket-1", scope: "author", externalId: "example-author", mode: "append", instructions: "Explain confirmed findings." }),
+    ]));
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+  });
+
   it("confirms removal of the current reviewer from the PR actions menu", async () => {
     await renderFlatPage();
     const card = (await screen.findByRole("heading", { name: "Example pull request" })).closest("[class*='border-l-']") as HTMLElement;
