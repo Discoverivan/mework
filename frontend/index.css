@@ -375,7 +375,7 @@
 
 /* Search results retain their item boundaries independently of action-button appearance. */
 /* Preserve button geometry and keyboard focus while hiding borders in this variant. */
-:root[data-button-style="filled_borderless"] :is(button, [role="button"], [data-button-variant], .app-toggle):not(.app-search-result):not(.app-control-border:enabled:is(:focus-visible, [aria-expanded="true"])):not([aria-invalid="true"]) {
+:root[data-button-style="filled_borderless"] :is(button, [role="button"], [data-button-variant], .app-toggle):not(.app-search-result):not([aria-invalid="true"]) {
   border-color: transparent !important;
 }
 
@@ -396,11 +396,15 @@
   color: var(--primary);
 }
 
-/* Borderless buttons retain a boundary only for keyboard focus or an open picker. */
-:root:not(:is([data-button-style="quiet"], [data-button-style="filled_borderless"])) .app-control-border:not([aria-invalid="true"]):enabled:is([data-pointer-hover="true"], :focus),
-:root:not([data-button-style="quiet"]) .app-control-border:not(:is(button, [role="button"], [data-button-variant], .app-toggle)):not(:where(:root[data-button-style="filled_borderless"] input:is([type="number"], [inputmode="numeric"], [inputmode="decimal"]))):not([aria-invalid="true"]):enabled:is([data-pointer-hover="true"], :focus),
-:root:not([data-button-style="quiet"]) .app-control-border:not(:where(:root[data-button-style="filled_borderless"] input:is([type="number"], [inputmode="numeric"], [inputmode="decimal"]))):not([aria-invalid="true"]):enabled:is(:focus-visible, [aria-expanded="true"]) {
+/* Only bordered buttons draw an interaction boundary; text inputs keep their own focus feedback. */
+:root:not(:is([data-button-style="quiet"], [data-button-style="filled_borderless"])) .app-control-border:not([aria-invalid="true"]):enabled:is([data-pointer-hover="true"], :focus-visible, [aria-expanded="true"]),
+:root:not([data-button-style="quiet"]) .app-control-border:not(:is(button, [role="button"], [data-button-variant], .app-toggle)):not(:where(:root[data-button-style="filled_borderless"] input:is([type="number"], [inputmode="numeric"], [inputmode="decimal"]))):not([aria-invalid="true"]):enabled:is([data-pointer-hover="true"], :focus) {
   border-color: var(--primary) !important;
+}
+
+/* Filled pickers retain foreground feedback while choosing an option. */
+:root:is([data-button-style="filled"], [data-button-style="filled_borderless"]) .app-control-border[role="combobox"]:not([aria-invalid="true"]):not([data-field-warning="true"]):enabled:is(:focus-visible, [aria-expanded="true"]) {
+  color: var(--primary);
 }
 
 .app-control-border:focus {

@@ -45,7 +45,7 @@ it("shares numeric value feedback across Filled styles while preserving their bo
   }
 });
 
-it("preserves borderless keyboard focus and removes Minimal field indentation", () => {
+it("highlights open pickers through text and the selected border style", () => {
   const css = readFileSync(resolve(import.meta.dirname, "../../index.css"), "utf8");
   const style = document.createElement("style");
   style.textContent = ".app-control-border { border: 1px solid rgb(100, 100, 100); padding: 8px 12px; }" + css.slice(css.indexOf("/* Preserve button geometry"), css.indexOf("/* All cards, including empty states"))
@@ -74,7 +74,8 @@ it("preserves borderless keyboard focus and removes Minimal field indentation", 
     style.textContent += "\n";
     expect(getComputedStyle(input).borderColor).toBe(hoveredBorder);
     expect(getComputedStyle(input).boxShadow).toBe("none");
-    expect(getComputedStyle(picker).borderColor).toBe(hoveredBorder);
+    expect(getComputedStyle(picker).borderColor).toBe("rgba(0, 0, 0, 0)");
+    expect(getComputedStyle(picker).color).toBe("rgb(70, 90, 180)");
     input.blur();
     style.textContent += "\n";
     expect(getComputedStyle(input).borderColor).toBe("rgb(100, 100, 100)");
@@ -83,6 +84,20 @@ it("preserves borderless keyboard focus and removes Minimal field indentation", 
     style.textContent += "\n";
     expect(picker).toHaveFocus();
     expect(getComputedStyle(picker).borderColor).toBe("rgba(0, 0, 0, 0)");
+    picker.setAttribute("data-example-keyboard-focus", "true");
+    style.textContent += "\n";
+    expect(getComputedStyle(picker).borderColor).toBe("rgba(0, 0, 0, 0)");
+    expect(getComputedStyle(picker).color).toBe("rgb(70, 90, 180)");
+    document.documentElement.dataset.buttonStyle = "filled";
+    picker.removeAttribute("data-example-keyboard-focus");
+    picker.setAttribute("aria-expanded", "true");
+    style.textContent += "\n";
+    expect(getComputedStyle(picker).borderColor).toBe(hoveredBorder);
+    expect(getComputedStyle(picker).color).toBe("rgb(70, 90, 180)");
+    picker.setAttribute("aria-expanded", "false");
+    style.textContent += "\n";
+    expect(picker).toHaveFocus();
+    expect(getComputedStyle(picker).borderColor).toBe("rgb(100, 100, 100)");
     picker.setAttribute("data-example-keyboard-focus", "true");
     style.textContent += "\n";
     expect(getComputedStyle(picker).borderColor).toBe(hoveredBorder);
