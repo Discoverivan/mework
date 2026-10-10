@@ -212,12 +212,12 @@
     background: transparent !important;
   }
 
-  :root[data-button-style="quiet"] [role="combobox"]:not([aria-invalid="true"]) {
+  :root[data-button-style="quiet"] [role="combobox"]:not([aria-invalid="true"]):not([data-field-warning="true"]) {
     border-color: transparent !important;
     color: var(--muted-foreground);
   }
 
-  :root[data-button-style="quiet"] [role="combobox"]:not([aria-invalid="true"]):not(:disabled):is([data-pointer-hover="true"], :focus-visible, [aria-expanded="true"]) {
+  :root[data-button-style="quiet"] [role="combobox"]:not([aria-invalid="true"]):not([data-field-warning="true"]):not(:disabled):is([data-pointer-hover="true"], :focus-visible, [aria-expanded="true"]) {
     color: var(--primary);
   }
 
@@ -238,10 +238,6 @@
   :root:is([data-button-style="filled"], [data-button-style="filled_borderless"]) .app-action-text:not(:where(.app-shell aside *)):not([data-button-variant="link"]):is([data-action-tone="delete"], [data-button-variant="destructive"]):not(:disabled):is(:hover, :focus-visible) {
     border-color: transparent;
     background: var(--app-action-color);
-    color: var(--primary-foreground);
-  }
-
-  :root:is([data-button-style="filled"], [data-button-style="filled_borderless"]) .app-action-text:not(:where(.app-shell aside *)):not([data-button-variant="link"]):is([data-action-tone="delete"], [data-button-variant="destructive"]):not(:disabled):is(:hover, :focus-visible) {
     color: var(--destructive-foreground);
   }
 
