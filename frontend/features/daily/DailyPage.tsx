@@ -93,12 +93,6 @@ function dateFromInputValue(value?: string): Date | undefined {
   return new Date(year, month - 1, day);
 }
 
-function dateInputValue(date: Date): string {
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const day = String(date.getDate()).padStart(2, "0");
-  return `${date.getFullYear()}-${month}-${day}`;
-}
-
 function formatDateRange(range: DateRange | undefined, locale: string, placeholder: string): string {
   if (!range?.from) return placeholder;
   const format = (date: Date) => new Intl.DateTimeFormat(locale, { dateStyle: "medium" }).format(date);
@@ -587,7 +581,11 @@ export function DailyPage() {
         sprintId: aiSprintId,
         preset: aiPreset,
         period: aiPreset === "weekly" && aiDateRange?.from && aiDateRange.to
-          ? `${dateInputValue(aiDateRange.from)} – ${dateInputValue(aiDateRange.to)}`
+          ? {
+            startAt: new Date(aiDateRange.from.getFullYear(), aiDateRange.from.getMonth(), aiDateRange.from.getDate()).toISOString(),
+            endExclusive: new Date(aiDateRange.to.getFullYear(), aiDateRange.to.getMonth(), aiDateRange.to.getDate() + 1).toISOString(),
+            timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+          }
           : undefined,
         customPrompt: aiPrompt,
         previousResult: aiResult || undefined,

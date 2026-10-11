@@ -412,7 +412,11 @@ describe("DailyPage smoke test", () => {
       managedProjectId: project.id,
       sprintId: workspace.selectedSprintId,
       preset: "weekly",
-      period: "2026-09-28 – 2026-09-30",
+      period: {
+        startAt: new Date(2026, 8, 28).toISOString(),
+        endExclusive: new Date(2026, 9, 1).toISOString(),
+        timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+      },
       customPrompt: "",
       previousResult: undefined,
       action: "generate",

@@ -84,6 +84,19 @@ pub struct JiraIssueTransition {
     pub to_status: String,
     pub requires_fields: bool,
 }
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct JiraWorkflowStatus {
+    #[serde(deserialize_with = "string_or_number")]
+    pub id: String,
+    pub status_category: Option<JiraStatusCategory>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct JiraStatusCategory {
+    pub key: String,
+}
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct JqlIssueSummary {
@@ -672,6 +685,19 @@ impl JiraPlanningClient {
         self.get_issue_with_changelog_diagnostic(issue_id_or_key, story_points_field_id)
             .await
             .map_err(|error| error.source)
+    }
+
+    pub async fn list_workflow_statuses(&self) -> Result<Vec<JiraWorkflowStatus>, JiraError> {
+        self.ensure_data_center()?;
+        let endpoint = self.endpoint("rest/api/2/status")?;
+        let response = self.send(Method::GET, endpoint, None).await?;
+        crate::application::logging::parse_json_response(
+            response,
+            "data_integrations.jira_planning",
+            "list_workflow_statuses",
+        )
+        .await
+        .map_err(|_| JiraError::InvalidResponse)
     }
 
     pub async fn get_issue_with_changelog_diagnostic(

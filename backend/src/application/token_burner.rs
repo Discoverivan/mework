@@ -129,10 +129,10 @@ const PERSPECTIVES: [(&str, &str); 8] = [
     ("Correctness & regressions", "Find concrete correctness defects, incorrect assumptions, and likely regressions in the changed code."),
     ("Bugs & edge cases", "Focus on boundary conditions, null or missing values, error paths, concurrency, and unexpected states."),
     ("Security", "Assess trust boundaries, authorization, validation, injection risks, secrets, and unsafe handling of external input."),
-    ("Performance", "Look for avoidable expensive work, repeated I/O, blocking behavior, allocation hotspots, and concurrency risks."),
-    ("Architecture", "Assess responsibility boundaries, coupling, interfaces, consistency with the repository's apparent design, and integration risks."),
-    ("Maintainability", "Assess complexity, duplication, readability, testability, and changes likely to make future maintenance error-prone."),
-    ("Testing", "Identify concrete behavior that could regress and the most valuable missing tests for the changed behavior."),
+    ("Performance", "Find demonstrated performance regressions in changed code, with a concrete workload and consequence. Do not report optimization opportunities without evidence of a regression."),
+    ("Architecture", "Find concrete contract or responsibility-boundary violations introduced by this PR. Do not infer repository conventions from unavailable code or report design preferences."),
+    ("Maintainability", "Trace complex or duplicated changed logic to concrete correctness defects. Do not report readability, complexity, or future maintenance concerns alone."),
+    ("Testing", "Check the changed behavior for concrete defects that supplied tests fail to cover. Missing tests alone are not a finding."),
     ("Independent regression check", "Independently trace how the changed behavior interacts with neighboring code and identify a distinct regression risk."),
 ];
 
