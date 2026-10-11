@@ -484,6 +484,16 @@ fn jira_response(
             json!({"displayName":"Example Engineer","name":"example-engineer"}),
         );
     }
+    if method == "GET" && path == "/jira/rest/api/2/status" {
+        return json_response(
+            200,
+            json!([
+                jira_status("To Do"),
+                jira_status("In Progress"),
+                jira_status("Done")
+            ]),
+        );
+    }
     if method == "GET" && path == "/jira/rest/api/2/search" {
         let created = match mode.created_jira_issues() {
             Ok(created) => created,
@@ -743,7 +753,8 @@ fn jira_response(
                     Some(json!([{
                         "id": change.detected_at,
                         "created": change.detected_at,
-                        "items": [{"field":"status","fromString":from,"toString":ram_task.as_ref()?.status}]
+                        "items": [{"field":"status","fromString":from,"toString":ram_task.as_ref()?.status,
+                            "from":jira_status(from)["id"],"to":jira_status(&ram_task.as_ref()?.status)["id"]}]
                     }]))
                 })
                 .unwrap_or_else(|| json!([]));
@@ -791,6 +802,16 @@ fn jira_response(
     json_response(404, json!({"error":"Unknown Jira mock route"}))
 }
 
+fn jira_status(name: &str) -> Value {
+    let (id, category) = match name {
+        "To Do" => ("10", "new"),
+        "In Progress" => ("20", "indeterminate"),
+        "Done" => ("30", "done"),
+        _ => return json!({"name": name}),
+    };
+    json!({"id": id, "name": name, "statusCategory": {"key": category}})
+}
+
 fn jira_issue_from_overlay(issue: crate::application::task_tracker::TaskTrackerIssueDto) -> Value {
     let assignee = issue.assignee.as_deref().unwrap_or("Example Engineer A");
     json!({
@@ -798,7 +819,7 @@ fn jira_issue_from_overlay(issue: crate::application::task_tracker::TaskTrackerI
         "key": issue.key,
         "fields": {
             "summary": issue.summary,
-            "status": {"name": issue.status},
+            "status": jira_status(&issue.status),
             "priority": {"name": issue.priority},
             "assignee": {"accountId":"mock-user-a", "displayName":assignee, "active":true},
             "issuetype": {"name":"Task", "subtask":false},
@@ -830,7 +851,7 @@ fn jira_sample_issue(mode: &DevMockMode) -> Value {
     let status = mode
         .daily_issue_status("MOCK-201")
         .unwrap_or_else(|_| "In Progress".to_owned());
-    json!({"id":"mock-issue-201","key":"MOCK-201","fields":{"summary":"MOCK DATA · Prepare example handoff","status":{"name":status},"priority":{"name":"Medium"},"assignee":{"accountId":"mock-user-a","displayName":"Example Engineer A","active":true},"issuetype":{"name":"Sub-task","subtask":true},"mock-story-points":3,"parent":{"id":"mock-issue-200","key":"MOCK-200","fields":{"summary":"MOCK DATA · Example parent"}},"subtasks":[],"updated":"2026-09-21T12:00:00.000Z","project":{"id":"mock-project-id","key":"MOCK","name":"Example project","projectTypeKey":"software"}}})
+    json!({"id":"mock-issue-201","key":"MOCK-201","fields":{"summary":"MOCK DATA · Prepare example handoff","status":jira_status(&status),"priority":{"name":"Medium"},"assignee":{"accountId":"mock-user-a","displayName":"Example Engineer A","active":true},"issuetype":{"name":"Sub-task","subtask":true},"mock-story-points":3,"parent":{"id":"mock-issue-200","key":"MOCK-200","fields":{"summary":"MOCK DATA · Example parent"}},"subtasks":[],"updated":"2026-09-21T12:00:00.000Z","project":{"id":"mock-project-id","key":"MOCK","name":"Example project","projectTypeKey":"software"}}})
 }
 
 fn jira_daily_transitions(current_status: &str) -> Vec<Value> {
@@ -921,6 +942,35 @@ mod tests {
             summary_context.pointer("/changelog/histories/0/items/0/toString"),
             Some(&serde_json::Value::String("Done".to_owned()))
         );
+        let categories = planning
+            .list_workflow_statuses()
+            .await
+            .expect("mock workflow status categories")
+            .into_iter()
+            .filter_map(|status| {
+                status
+                    .status_category
+                    .map(|category| (status.id, category.key))
+            })
+            .collect();
+        let histories = summary_context["changelog"]["histories"]
+            .as_array()
+            .unwrap();
+        let transitions = crate::application::daily::status_transitions(Some(histories));
+        let at =
+            crate::application::daily::parse_jira_timestamp(transitions[0]["at"].as_str().unwrap())
+                .unwrap();
+        let membership = crate::application::sprint_report::report_membership(
+            &summary_context["fields"],
+            &transitions,
+            &categories,
+            Some((
+                at - time::Duration::seconds(1),
+                at + time::Duration::seconds(1),
+            )),
+        );
+        assert!(membership.completed_during_period);
+        assert!(!membership.classification_incomplete);
         let mock_parent = planning
             .get_issue_with_changelog("MOCK-200", Some("mock-story-points"))
             .await

@@ -20,7 +20,11 @@ export interface AiSummaryRequest {
   managedProjectId: string;
   sprintId: string;
   preset: "weekly" | "custom";
-  period?: string;
+  period?: {
+    startAt: string;
+    endExclusive: string;
+    timeZone: string;
+  };
   customPrompt?: string;
   previousResult?: string;
   action?: "generate" | "shorter" | "longer" | "regenerate";
