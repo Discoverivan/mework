@@ -1048,8 +1048,9 @@ export function SettingsPage({ section = "integrations", focusActivity, mockMode
             <Card aria-label={t("settings.aiProviders.aria")} className="min-w-0">
               <CardHeader variant="section" className="flex-row flex-wrap items-center gap-3 space-y-0 py-2">
                 <div className="min-w-[16rem] flex-1">
-                  <h2 id="ai-providers-title" className="text-base font-semibold leading-tight">{t("settings.aiProviders.title")}</h2>
+                  <h2 id="ai-providers-title" className="text-sm font-semibold leading-tight">{t("settings.aiProviders.title")}</h2>
                 </div>
+                <div className="ml-auto flex shrink-0 items-center gap-1.5">
                 <Select value={selectedAiGroup} onValueChange={(value) => setSelectedAiGroup(value as "cli" | "api")}>
                   <SelectTrigger aria-label={t("settings.aiProviders.groups")} className="h-9 shrink-0"><SelectValue /></SelectTrigger>
                   <SelectContent>
@@ -1060,7 +1061,7 @@ export function SettingsPage({ section = "integrations", focusActivity, mockMode
                 {selectedAiGroup === "cli" ? (
                   <DropdownMenu open={addAiMenuOpen} onOpenChange={handleCliMenuOpenChange}>
                     <DropdownMenuTrigger asChild>
-                      <CreateButton iconOnly type="button" variant="ghost" className="ml-auto size-9" aria-label={t("settings.aiProviders.addCli")} title={t("settings.aiProviders.addCli")} disabled={allCliAdded || addingAi} />
+                      <CreateButton iconOnly type="button" variant="ghost" className="size-9" aria-label={t("settings.aiProviders.addCli")} title={t("settings.aiProviders.addCli")} disabled={allCliAdded || addingAi} />
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="end" className="w-max min-w-0">
                       {cliMenuOptions.map(({ id, name, ready, reason, checking }) => (
@@ -1083,8 +1084,9 @@ export function SettingsPage({ section = "integrations", focusActivity, mockMode
                     </DropdownMenuContent>
                   </DropdownMenu>
                 ) : (
-                  <CreateButton iconOnly type="button" variant="ghost" className="ml-auto size-9" aria-label={t("settings.aiProviders.addApi")} title={t("settings.aiProviders.addApi")} onClick={() => openOpenAiCompatibleDialog()} />
+                  <CreateButton iconOnly type="button" variant="ghost" className="size-9" aria-label={t("settings.aiProviders.addApi")} title={t("settings.aiProviders.addApi")} onClick={() => openOpenAiCompatibleDialog()} />
                 )}
+                </div>
               </CardHeader>
                 <CardContent className="px-4 pb-0 pt-0">
                   {aiData.providers.length === 0 && !loading && !pendingCliProvider ? (
@@ -1110,7 +1112,7 @@ export function SettingsPage({ section = "integrations", focusActivity, mockMode
                                 </p></Hint>
                               ) : null}
                             </div>
-                            <div className="ml-auto flex shrink-0 items-center gap-1.5">
+                            <div data-action-size="normal" className="ml-auto flex shrink-0 items-center gap-1.5">
                               <Hint content={aiProviderMessage(candidate, t)}><span className="mr-1 flex items-center gap-1.5 text-[13px] text-muted-foreground [&_svg]:size-[18px]">
                                 {aiStatusIcon(candidate.status)}
                                 {t(AI_STATUS_LABEL_KEYS[candidate.status])}
@@ -1365,7 +1367,7 @@ export function SettingsPage({ section = "integrations", focusActivity, mockMode
                   selected && "border-primary",
                 )}
               >
-                <CardHeader className="flex-row items-center justify-between space-y-0 gap-4 px-4 pb-4 pt-3.5">
+                <CardHeader data-action-size="normal" className="flex-row items-center justify-between space-y-0 gap-4 px-4 pb-4 pt-3.5">
                   <div className="grid min-w-0 flex-1 gap-1.5">
                     <p className="text-base font-semibold leading-tight">{candidate.label}</p>
                     <CardDescription className="leading-snug">

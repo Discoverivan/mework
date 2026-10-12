@@ -1,5 +1,15 @@
 import { invoke } from "@tauri-apps/api/core";
 import { APP_EVENT, emitAppEvent } from "@/app/app-events";
+import type { ReviewCommentDiscussionScope, ReviewCommentDiscussion, ReviewCommentDecision } from "@/shared/contracts/developer";
+
+export const getCommentDiscussions = (request: ReviewCommentDiscussionScope) =>
+  invoke<ReviewCommentDiscussion[]>("pull_request_comment_discussions", { request });
+
+export const sendCommentDiscussion = (request: ReviewCommentDiscussionScope & { index: number; revision: number; message: string }) =>
+  invoke<ReviewCommentDiscussion>("pull_request_comment_discussion_send", { request });
+
+export const decideCommentDiscussion = (request: ReviewCommentDiscussionScope & { index: number; revision: number; decision: ReviewCommentDecision; reason: string }) =>
+  invoke<ReviewCommentDiscussion>("pull_request_comment_discussion_decide", { request });
 import type {
   BitbucketProject,
   BitbucketRepository,
@@ -155,7 +165,7 @@ const discussionReadRequest = (pullRequest: MyPullRequest, commentId?: number) =
 
 export const markAllPullRequestsRead = (pullRequests: MyPullRequest[]) =>
   invoke<{ markedCount: number }>("pull_request_review_mark_all_read", {
-    discussions: pullRequests.map((pullRequest) => discussionReadRequest(pullRequest)),
+    discussions: pullRequests.map((pullRequest) => ({ ...discussionReadRequest(pullRequest), latestCommit: pullRequest.latestCommit })),
   });
 
 export const markPullRequestDiscussionRead = (pullRequest: MyPullRequest, commentId?: number) =>

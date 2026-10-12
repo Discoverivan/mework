@@ -140,19 +140,23 @@ describe("SettingsPage integrations smoke tests", () => {
       return { ai: { providers, settings: persisted }, prompt: prompt ? persistedPrompt : null, arbiterPrompt: scope === "pullRequestReview" ? persistedArbiterPrompt : null };
     });
     const view = render(<SettingsPage section="ai" />);
-    const mode = within(await screen.findByRole("radiogroup", { name: "Review mode" }));
+    const mode = await screen.findByRole("combobox", { name: "Review mode" });
+    function chooseMode(label: string) {
+      fireEvent.click(mode);
+      fireEvent.click(screen.getByRole("option", { name: label }));
+    }
     const review = within(screen.getByRole("region", { name: "Pull request review" }));
     const reviewHeader = screen.getByRole("heading", { name: "Pull request review" }).closest("header");
-    expect(within(reviewHeader!).getByRole("radiogroup", { name: "Review mode" })).toBeInTheDocument();
+    expect(within(reviewHeader!).getByRole("combobox", { name: "Review mode" })).toBeInTheDocument();
     await screen.findByRole("combobox", { name: "Suggest fixes" });
-    fireEvent.click(mode.getByRole("radio", { name: "Single review" }));
-    expect(mode.getByRole("radio", { name: "Review with arbiter" })).toBeChecked();
-    fireEvent.click(mode.getByRole("radio", { name: "Review with arbiter" }));
-    expect(mode.getByRole("radio", { name: "Single review" })).toBeChecked();
-    fireEvent.click(mode.getByRole("radio", { name: "Review with arbiter" }));
+    chooseMode("Review with arbiter");
+    expect(mode).toHaveTextContent("Review with arbiter");
+    chooseMode("Single review");
+    expect(mode).toHaveTextContent("Single review");
+    chooseMode("Review with arbiter");
     fireEvent.click(review.getByRole("button", { name: "Cancel" }));
-    expect(mode.getByRole("radio", { name: "Single review" })).toBeChecked();
-    fireEvent.click(mode.getByRole("radio", { name: "Review with arbiter" }));
+    expect(mode).toHaveTextContent("Single review");
+    chooseMode("Review with arbiter");
     const count = within(screen.getByRole("region", { name: "Independent reviewers" })).getByRole("textbox", { name: "Independent reviews" });
     fireEvent.change(count, { target: { value: "" } });
     expect(review.getByRole("button", { name: "Save" })).toBeDisabled();
@@ -200,7 +204,7 @@ describe("SettingsPage integrations smoke tests", () => {
     getAiSettingsMock.mockResolvedValue({ providers, settings: persisted });
     vi.mocked(getPromptSettings).mockResolvedValue([persistedPrompt, persistedArbiterPrompt]);
     render(<SettingsPage section="ai" />);
-    expect(within(await screen.findByRole("radiogroup", { name: "Review mode" })).getByRole("radio", { name: "Review with arbiter" })).toBeChecked();
+    expect(await screen.findByRole("combobox", { name: "Review mode" })).toHaveTextContent("Review with arbiter");
     expect(screen.getByRole("textbox", { name: "Independent reviews" })).toHaveValue("9");
     expect(screen.getByRole("combobox", { name: "Arbiter model" })).toHaveTextContent("example-arbiter-model");
     expect(await screen.findByRole("combobox", { name: "Suggest fixes" })).toHaveTextContent("Enabled");

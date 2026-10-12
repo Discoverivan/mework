@@ -3,6 +3,7 @@ import { Info } from "lucide-react";
 
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { useI18n } from "@/i18n/context";
+import { formatDisplayDateTime } from "@/lib/display-date";
 
 import { formatRelativeDate } from "./pull-request-formatting";
 import type { PullRequestSortOrder } from "./pull-request-projects";
@@ -10,13 +11,6 @@ import type { PullRequestSortOrder } from "./pull-request-projects";
 const POLL_INTERVAL_MS = 300_000;
 
 type PullRequestListKind = "review" | "authored";
-
-function formatSyncTimestamp(timestamp: number, locale?: string): string {
-  return new Intl.DateTimeFormat(locale, {
-    dateStyle: "short",
-    timeStyle: "short",
-  }).format(new Date(timestamp));
-}
 
 export function PullRequestStatus({
   kind,
@@ -39,7 +33,7 @@ export function PullRequestStatus({
 }) {
   const { locale, t } = useI18n();
   const relativeLastSync = lastSyncAt == null ? undefined : formatRelativeDate(lastSyncAt, t);
-  const formattedLastSync = lastSyncAt == null ? undefined : formatSyncTimestamp(lastSyncAt, locale);
+  const formattedLastSync = lastSyncAt == null ? undefined : formatDisplayDateTime(lastSyncAt, locale);
   const remaining = lastSyncAt == null ? undefined : Math.max(0, lastSyncAt + POLL_INTERVAL_MS - now);
   const nextUpdate = remaining == null
     ? t("pr.sync.first")
@@ -87,29 +81,21 @@ export function PullRequestStatus({
             <Info className="size-3.5" aria-hidden="true" />
           </button></Hint>
         </PopoverTrigger>
-        <PopoverContent align="start" aria-label={t("pr.status.details")} className="w-max max-w-[min(20rem,calc(100vw-2rem))] space-y-2">
+        <PopoverContent align="start" aria-label={t("pr.status.details")} className="w-max max-w-[calc(100vw-2rem)] space-y-2">
           <p className="text-xs font-medium text-foreground">{t("pr.status.details")}</p>
-          <dl className="grid grid-cols-[minmax(0,1fr)_auto] gap-x-5 gap-y-1 text-xs">
-            <dt className="text-muted-foreground">
-              {t(kind === "review" ? "pr.status.reviewLabel" : "pr.status.authoredLabel")}
-            </dt>
-            <dd className="text-right text-foreground">{count}</dd>
-            <dt className="text-muted-foreground">{t("pr.status.filters")}</dt>
-            <dd className="text-right text-foreground">
+          <dl className="space-y-1 text-xs [&>div]:[overflow-wrap:anywhere] [&_dt]:inline [&_dt]:text-muted-foreground [&_dd]:inline [&_dd]:text-foreground">
+            <div><dt>{t(kind === "review" ? "pr.status.reviewLabel" : "pr.status.authoredLabel")}:</dt>{" "}<dd>{count}</dd></div>
+            <div><dt>{t("pr.status.filters")}:</dt>{" "}<dd>
               {filterMode && (filterMode === "allow" || activeFilterCount > 0)
                 ? `${t(filterMode === "allow" ? "pr.filters.whitelist" : "pr.filters.blacklist")} · ${activeFilterCount}`
                 : activeFilterCount === 0 ? t("pr.status.noFilters") : activeFilterCount}
-            </dd>
-            <dt className="text-muted-foreground">{t("pr.status.sort")}</dt>
-            <dd className="text-right text-foreground">
+            </dd></div>
+            <div><dt>{t("pr.status.sort")}:</dt>{" "}<dd>
               {t(sortOrder === "newest" ? "pr.options.newestFirst" : "pr.options.oldestFirst")}
-            </dd>
-            <dt className="text-muted-foreground">{t("pr.status.lastUpdate")}</dt>
-            <dd className="text-right text-foreground">{formattedLastSync ?? t("pr.status.notYet")}</dd>
-            <dt className="text-muted-foreground">{t("pr.status.autoRefresh")}</dt>
-            <dd className="text-right text-foreground">{t("pr.status.everyFiveMinutes")}</dd>
-            <dt className="text-muted-foreground">{t("pr.status.nextUpdate")}</dt>
-            <dd className="text-right text-foreground">{nextUpdate}</dd>
+            </dd></div>
+            <div><dt>{t("pr.status.lastUpdate")}:</dt>{" "}<dd>{formattedLastSync ?? t("pr.status.notYet")}</dd></div>
+            <div><dt>{t("pr.status.autoRefresh")}:</dt>{" "}<dd>{t("pr.status.everyFiveMinutes")}</dd></div>
+            <div><dt>{t("pr.status.nextUpdate")}:</dt>{" "}<dd>{nextUpdate}</dd></div>
           </dl>
         </PopoverContent>
       </Popover>

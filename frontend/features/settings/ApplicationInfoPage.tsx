@@ -14,6 +14,7 @@ import { beginUpdateCheck, checkForAvailableUpdate, recordUpdateCheckResult } fr
 import { installAvailableUpdate } from "@/components/shared/update-install";
 import { clearDismissedUpdateNotice, dismissUpdateNotice, useDismissedUpdateVersion } from "@/components/shared/update-notice";
 import { useI18n } from "@/i18n/context";
+import { formatDisplayDateTime } from "@/lib/display-date";
 import { EMPTY_UPDATE_AVAILABILITY, type UpdateAvailabilitySnapshot } from "@/shared/contracts/updates";
 import { listReleaseNotesVersions, loadAvailableUpdateReleaseNotes, loadReleaseNoteVersion, prefetchOlderReleaseNotes, type ReleaseNote } from "@/release-notes";
 
@@ -263,7 +264,7 @@ export function ApplicationInfoPage({
           time: new Intl.DateTimeFormat(currentLocale, { hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(lastCheckedAt),
         })
       : t("applicationInfo.lastCheckedAt", {
-          dateTime: new Intl.DateTimeFormat(currentLocale, { dateStyle: "medium", timeStyle: "short" }).format(lastCheckedAt),
+          dateTime: formatDisplayDateTime(lastCheckedAt, currentLocale),
         })
     : t("applicationInfo.lastCheckedNever");
 

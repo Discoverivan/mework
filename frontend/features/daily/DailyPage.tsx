@@ -8,6 +8,7 @@ import { ArrowLeft, ArrowRight, CalendarDays, ChevronDown, Copy, ExternalLink, M
 import { PageHeader } from "@/components/shared/PageHeader";
 import { StatusToast } from "@/components/shared/StatusToast";
 import { useInfoPopoverAnchor } from "@/components/shared/use-info-popover-anchor";
+import { formatDisplayDate } from "@/lib/display-date";
 import { useI18n } from "@/i18n/context";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { badgeVariants } from "@/components/ui/badge";
@@ -93,9 +94,9 @@ function dateFromInputValue(value?: string): Date | undefined {
   return new Date(year, month - 1, day);
 }
 
-function formatDateRange(range: DateRange | undefined, locale: string, placeholder: string): string {
+function formatDateRange(range: DateRange | undefined, placeholder: string): string {
   if (!range?.from) return placeholder;
-  const format = (date: Date) => new Intl.DateTimeFormat(locale, { dateStyle: "medium" }).format(date);
+  const format = formatDisplayDate;
   return range.to ? `${format(range.from)} – ${format(range.to)}` : `${format(range.from)} – …`;
 }
 
@@ -302,7 +303,7 @@ function TaskStatusMenu({
 }
 
 export function DailyPage() {
-  const { t, language, locale } = useI18n();
+  const { t, language } = useI18n();
   const [assigneesLayout, setAssigneesLayout] = useState(readAssigneesLayout);
   const [draftAssigneesLayout, setDraftAssigneesLayout] = useState(assigneesLayout);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -898,7 +899,7 @@ export function DailyPage() {
                           className="w-full justify-start text-left font-normal"
                         >
                           <CalendarDays data-icon="inline-start" aria-hidden="true" />
-                          {formatDateRange(aiDateRange, locale, t("daily.aiSelectDateRange"))}
+                          {formatDateRange(aiDateRange, t("daily.aiSelectDateRange"))}
                         </Button>
                       </PopoverTrigger>
                       <PopoverContent className="w-auto p-0" align="start">
@@ -1046,7 +1047,7 @@ export function DailyPage() {
 
           <section className="daily-tasks-column" aria-label={t("daily.selectedTasks")}>
             {selectedOwner ? (
-              <Card data-info-popover-boundary className="daily-selected-member-card">
+              <Card data-icon-size="normal" data-info-popover-boundary className="daily-selected-member-card">
                 <CardHeader variant="section" className="daily-selected-member-header">
                   <div className="flex min-w-0 items-center gap-3">
                     {selectedMember ? <MemberAvatar member={selectedMember} className="h-9 w-9 shrink-0" managedProjectId={workspace.managedProjectId} /> : null}

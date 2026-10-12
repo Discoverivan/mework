@@ -1,0 +1,114 @@
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { expect, it, vi } from "vitest";
+import type { MyPullRequest, PullRequestReviewState, ReviewCommentDiscussion } from "@/shared/contracts/developer";
+import { PullRequestReviewDialog } from "./PullRequestReviewDialog";
+import { decideCommentDiscussion, getCommentDiscussions, getPullRequestCommentMatches, sendCommentDiscussion } from "../api";
+
+vi.mock("../api", () => ({
+  getPullRequestCommentMatches: vi.fn().mockResolvedValue({ matches: [] }),
+  getCommentDiscussions: vi.fn(),
+  sendCommentDiscussion: vi.fn(),
+  decideCommentDiscussion: vi.fn(),
+}));
+
+it("discusses a finding, applies its revision, restores history, and publishes only on request", async () => {
+  const original = "Check the divisor before division.";
+  const revised = "Check the divisor at the public entry point.";
+  const pr: MyPullRequest = { integrationId: "example-integration", projectKey: "EXAMPLE", repositorySlug: "example-repository", repositoryName: "Example repository", pullRequestId: "1", title: "Example change", state: "OPEN", sourceBranch: "example-feature", targetBranch: "main", authorDisplayName: "Example author", latestCommit: "example-commit", myDecision: "not_reviewed", activity: "read" };
+  const review: PullRequestReviewState = { runId: "example-run", status: "completed", reviewedCommit: "example-commit", error: null, startedAt: 1, finishedAt: 2, result: { verdict: "needs_changes", description: "Example arithmetic", summary: "One finding", comments: [{ severity: "high", file: "src/example.rs", line: 1, comment: original }] } };
+  pr.url = "https://example.invalid/projects/EXAMPLE/repos/example-repository/pull-requests/1";
+  let saved: ReviewCommentDiscussion | undefined;
+  vi.mocked(getCommentDiscussions).mockImplementation(async () => saved ? [saved] : []);
+  vi.mocked(sendCommentDiscussion).mockImplementation(async request => {
+    saved = { index: request.index, revision: 2, decision: "undecided", reason: "", appliedComment: null, turns: [{ message: request.message, assessment: { verdict: "revised", explanation: "The helper already checks division.\n\nThe public entry point still needs a guard.\n\n- Check `divisor` before calling the helper.\n- Preserve the existing helper validation.", comment: revised } }] };
+    return saved;
+  });
+  vi.mocked(decideCommentDiscussion).mockImplementation(async request => {
+    saved = { ...saved!, revision: saved!.revision + 1, decision: request.decision, reason: request.reason, appliedComment: request.decision === "revised" ? revised : null };
+    return saved;
+  });
+  const publish = vi.fn().mockResolvedValue({ commentId: 1 });
+  const props = { open: true, pullRequest: pr, review, reviewerActions: true, onOpenChange: vi.fn(), onOpenPullRequest: vi.fn(), onRerunReview: vi.fn(), onPublishComment: publish };
+  vi.mocked(getPullRequestCommentMatches).mockRejectedValueOnce({ code: "authentication_required", retryable: false });
+  const view = render(<PullRequestReviewDialog {...props} />);
+  const retry = await screen.findByRole("button", { name: "Retry comment comparison for src/example.rs" });
+  expect(retry.nextElementSibling).toBe(screen.getByRole("status", { name: "Comment status for src/example.rs" }));
+  expect(screen.getByRole("status", { name: "Comment status for src/example.rs" })).toHaveAttribute("data-tooltip", "Bitbucket rejected authentication while loading existing comments. Retry the check; if this persists, verify the integration credentials.");
+  expect(publish).not.toHaveBeenCalled();
+  fireEvent.click(retry);
+  await waitFor(() => expect(screen.queryByRole("button", { name: "Retry comment comparison for src/example.rs" })).not.toBeInTheDocument());
+  const discuss = await screen.findByRole("button", { name: "Discuss finding in src/example.rs with AI" });
+  await waitFor(() => expect(discuss).toBeEnabled());
+  const sourceLocation = screen.getByRole("link", { name: "src/example.rs:1" });
+  fireEvent.click(discuss);
+  let dialog = screen.getByRole("dialog", { name: "Discuss with AI" });
+  expect(within(dialog).getByRole("status")).toHaveTextContent("Decision not made");
+  const sendMessage = within(dialog).getByRole("button", { name: "Send to AI" });
+  expect(sendMessage).toBeDisabled();
+  expect(sendMessage.parentElement).toContainElement(within(dialog).getByLabelText("Question or additional context"));
+  const messageField = within(dialog).getByLabelText("Question or additional context");
+  expect(messageField).toHaveClass("border-0");
+  fireEvent.pointerEnter(within(dialog).getByText("Question or additional context"));
+  expect(messageField).not.toHaveAttribute("data-pointer-hover");
+  fireEvent.pointerEnter(messageField);
+  expect(messageField).toHaveAttribute("data-pointer-hover", "true");
+  fireEvent.pointerLeave(messageField);
+  expect(within(dialog).queryByLabelText("Reason for dismissal")).not.toBeInTheDocument();
+  expect(within(dialog).getByRole("heading", { name: "Finding" })).toBeInTheDocument();
+  expect(within(dialog).queryByText("Reviewed commit: example-commit")).not.toBeInTheDocument();
+  fireEvent.click(within(dialog).getByRole("button", { name: "Show finding details" }));
+  expect(await screen.findByText("Reviewed commit: example-commit")).toBeInTheDocument();
+  fireEvent.click(within(dialog).getByRole("button", { name: "Show finding details" }));
+  expect(within(dialog).getByLabelText("Severity: High").parentElement).toContainElement(within(dialog).getByRole("status"));
+  const discussionLocation = within(dialog).getByRole("link", { name: "src/example.rs:1" });
+  expect(discussionLocation).toHaveAttribute("href", `${pr.url}/diff#src/example.rs?t=1`);
+  expect(discussionLocation.className).toBe(sourceLocation.className);
+  expect(discussionLocation.querySelector("wbr")).toBeInTheDocument();
+  fireEvent.change(within(dialog).getByLabelText("Question or additional context"), { target: { value: "The helper already checks the divisor." } });
+  expect(sendMessage).toBeEnabled();
+  fireEvent.click(within(dialog).getByRole("button", { name: "Send to AI" }));
+  await within(dialog).findByText(revised);
+  expect(within(dialog).getByRole("status")).toHaveTextContent("Decision not made");
+  expect(within(dialog).getByRole("group", { name: "Your message" })).toHaveTextContent("The helper already checks the divisor.");
+  const explanation = within(dialog).getByRole("group", { name: "AI response" });
+  expect(explanation).toHaveTextContent("Finding revised");
+  const firstParagraph = within(explanation).getByText("The helper already checks division.");
+  const secondParagraph = within(explanation).getByText("The public entry point still needs a guard.");
+  expect(firstParagraph.tagName).toBe("P");
+  expect(secondParagraph.tagName).toBe("P");
+  expect(firstParagraph).not.toBe(secondParagraph);
+  expect(within(explanation).getAllByRole("listitem")).toHaveLength(2);
+  expect(within(explanation).getByText("divisor").tagName).toBe("CODE");
+  expect(within(dialog).getByRole("group", { name: "Proposed comment" })).toHaveTextContent(revised);
+  fireEvent.click(within(dialog).getByRole("button", { name: "Keep original" }));
+  await waitFor(() => expect(within(dialog).getByRole("status")).toHaveTextContent("Original finding retained"));
+  fireEvent.click(within(dialog).getByRole("button", { name: "Apply revision" }));
+  await waitFor(() => expect(within(dialog).getByRole("status")).toHaveTextContent("Revised comment applied"));
+  expect(within(dialog).getByRole("status").parentElement!.parentElement).toContainElement(within(dialog).getByRole("heading", { name: "Discuss with AI" }));
+  expect(publish).not.toHaveBeenCalled();
+  fireEvent.click(within(dialog).getAllByRole("button", { name: "Close" })[0]);
+  view.unmount();
+  render(<PullRequestReviewDialog {...props} />);
+  await screen.findByText(revised);
+  fireEvent.click(screen.getByRole("button", { name: "Discuss finding in src/example.rs with AI" }));
+  dialog = screen.getByRole("dialog", { name: "Discuss with AI" });
+  expect(within(dialog).getByText("The helper already checks the divisor.")).toBeInTheDocument();
+  fireEvent.click(within(dialog).getByRole("button", { name: "Dismiss finding" }));
+  const dismissal = screen.getByRole("dialog", { name: "Dismiss finding" });
+  const reason = within(dismissal).getByLabelText("Reason for dismissal");
+  expect(reason).toHaveValue("");
+  fireEvent.change(reason, { target: { value: "The public entry point already validates the divisor." } });
+  fireEvent.click(within(dismissal).getByRole("button", { name: "Dismiss finding" }));
+  await waitFor(() => expect(screen.queryByRole("dialog", { name: "Dismiss finding" })).not.toBeInTheDocument());
+  expect(within(dialog).getByRole("status")).toHaveTextContent("Finding dismissed locally");
+  expect(saved!.reason).toBe("The public entry point already validates the divisor.");
+  expect(publish).not.toHaveBeenCalled();
+  fireEvent.click(within(dialog).getByRole("button", { name: "Apply revision" }));
+  await within(dialog).findByText("Revised comment applied");
+  fireEvent.click(within(dialog).getAllByRole("button", { name: "Close" })[0]);
+  const send = screen.getByRole("button", { name: "Publish comment for src/example.rs" });
+  await waitFor(() => expect(send).toBeEnabled());
+  fireEvent.pointerDown(send, { button: 0, ctrlKey: false });
+  fireEvent.click(await screen.findByRole("menuitem", { name: "Send as is" }));
+  await waitFor(() => expect(publish).toHaveBeenCalledWith(pr, expect.objectContaining({ comment: revised })));
+});

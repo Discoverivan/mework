@@ -19,6 +19,9 @@ import { AuthoredPullRequestsPage } from "./AuthoredPullRequestsPage";
 
 vi.mock("../settings/api", () => ({ getAiSettings: vi.fn() }));
 vi.mock("./api", () => ({
+  getCommentDiscussions: vi.fn().mockResolvedValue([]),
+  sendCommentDiscussion: vi.fn(),
+  decideCommentDiscussion: vi.fn(),
   getPullRequestReviewSettings: vi.fn(),
   getPullRequestReviewStates: vi.fn(),
   getPullRequestCommentMatches: vi.fn().mockResolvedValue({ matches: [] }),

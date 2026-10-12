@@ -4,6 +4,7 @@ import { listen } from "@tauri-apps/api/event";
 import { ArrowLeft, ArrowRight, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useI18n } from "@/i18n/context";
+import { formatDisplayDate } from "@/lib/display-date";
 import type { DailyPresenterState, DailySubtask } from "@/shared/contracts/developer";
 import type { TeamMember } from "@/shared/contracts/planning";
 import { readUpdatedTeamMembers } from "../planning/team-members-state";
@@ -53,12 +54,8 @@ function reconcilePresenterMembers(state: DailyPresenterState, members = readUpd
 }
 
 function formatDate(locale: string): string {
-  return new Intl.DateTimeFormat(locale, {
-    weekday: "long",
-    day: "2-digit",
-    month: "long",
-    year: "numeric",
-  }).format(new Date());
+  const now = new Date();
+  return `${new Intl.DateTimeFormat(locale, { weekday: "long" }).format(now)}, ${formatDisplayDate(now)}`;
 }
 
 function MemberAvatar({ member, managedProjectId }: { member: TeamMember; managedProjectId: string }) {

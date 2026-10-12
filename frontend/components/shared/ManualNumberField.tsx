@@ -19,13 +19,14 @@ interface ManualNumberFieldProps {
   scale?: number;
   allowDecimals?: boolean;
   minVisibleDigits?: number;
+  size?: "default" | "compact";
   disabled?: boolean;
   errors: { required: string; number: string; range: string; whole?: string };
   onChange: (value: number) => void;
   onValidityChange?: (valid: boolean) => void;
 }
 
-export function ManualNumberField({ id, label, labelledBy, description, value, min, max, scale = 1, allowDecimals = false, minVisibleDigits, disabled = false, errors, onChange, onValidityChange }: ManualNumberFieldProps) {
+export function ManualNumberField({ id, label, labelledBy, description, value, min, max, scale = 1, allowDecimals = false, minVisibleDigits, size = "default", disabled = false, errors, onChange, onValidityChange }: ManualNumberFieldProps) {
   const [draft, setDraft] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [showError, setShowError] = useState(false);
@@ -62,9 +63,11 @@ export function ManualNumberField({ id, label, labelledBy, description, value, m
     <Popover open={!disabled && showError && Boolean(error)} onOpenChange={setShowError}>
       <PopoverAnchor asChild><Input
         id={id}
-        className={cn("h-9", minVisibleDigits === undefined ? "w-12 min-w-full" : "w-auto min-w-0 tabular-nums")}
-        style={minVisibleDigits === undefined ? undefined : {
-          width: `calc(${Math.max(minVisibleDigits, (draft ?? String(value)).length)}ch + 1.5rem + 2px)`,
+        data-number-size={size}
+        className={cn("app-number-field text-center tabular-nums", size === "compact" ? "h-6" : "h-9", minVisibleDigits === undefined ? "w-12" : "w-auto")}
+        style={{
+          minWidth: `calc(${Math.max(minVisibleDigits ?? 2, (draft ?? String(value)).length)}ch + var(--number-field-padding, 1.5rem) + 2px)`,
+          width: minVisibleDigits === undefined ? undefined : `calc(${Math.max(minVisibleDigits, (draft ?? String(value)).length)}ch + var(--number-field-padding, 1.5rem) + 2px)`,
         }}
         type="text"
         inputMode={allowDecimals ? "decimal" : "numeric"}

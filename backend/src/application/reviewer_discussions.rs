@@ -38,6 +38,8 @@ pub struct DiscussionStatus {
 struct CommentCheckpoint {
     text_hash: String,
     state: Option<String>,
+    #[serde(default)]
+    thread_resolved: Option<bool>,
 }
 
 /// Independent of the reviewed commit and the code's read checkpoint. No comment bodies.
@@ -93,6 +95,7 @@ impl DiscussionState {
                     .map(|byte| format!("{byte:02x}"))
                     .collect(),
                 state: comment.state.clone(),
+                thread_resolved: comment.thread_resolved,
             };
             let previous = self.comments.get(id).cloned();
             if self.initialized && !observed.deleted {
@@ -118,20 +121,10 @@ impl DiscussionState {
                         );
                     }
                 }
-                if own_thread
-                    && previous
+                if own_thread && !is_me(observed.actor, account_key) {
+                    let kind = previous
                         .as_ref()
-                        .is_some_and(|value| value.state != checkpoint.state)
-                    && !is_me(observed.actor, account_key)
-                {
-                    let kind = match (
-                        previous.as_ref().and_then(|value| value.state.as_deref()),
-                        checkpoint.state.as_deref(),
-                    ) {
-                        (Some("OPEN"), Some("RESOLVED")) => Some(DiscussionChangeKind::Resolved),
-                        (Some("RESOLVED"), Some("OPEN")) => Some(DiscussionChangeKind::Reopened),
-                        _ => None,
-                    };
+                        .and_then(|previous| resolution_change(previous, &checkpoint));
                     if let Some(kind) = kind {
                         self.push_change(
                             *id,
@@ -196,6 +189,22 @@ fn is_me(user: Option<&BitbucketUser>, account_key: &str) -> bool {
             .flatten()
             .any(|value| value.eq_ignore_ascii_case(account_key))
     })
+}
+
+fn resolution_change(
+    previous: &CommentCheckpoint,
+    current: &CommentCheckpoint,
+) -> Option<DiscussionChangeKind> {
+    // Thread resolution and task resolution are separate Bitbucket fields.
+    match (previous.thread_resolved, current.thread_resolved) {
+        (Some(false), Some(true)) => Some(DiscussionChangeKind::Resolved),
+        (Some(true), Some(false)) => Some(DiscussionChangeKind::Reopened),
+        _ => match (previous.state.as_deref(), current.state.as_deref()) {
+            (Some("OPEN"), Some("RESOLVED")) => Some(DiscussionChangeKind::Resolved),
+            (Some("RESOLVED"), Some("OPEN")) => Some(DiscussionChangeKind::Reopened),
+            _ => None,
+        },
+    }
 }
 
 #[allow(clippy::too_many_arguments)]

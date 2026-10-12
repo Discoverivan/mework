@@ -13,6 +13,7 @@ import {
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { EmptyState } from "@/components/shared/EmptyState";
 import { PageHeader } from "@/components/shared/PageHeader";
+import { formatDisplayDate } from "@/lib/display-date";
 import {
   Table,
   TableBody,
@@ -66,10 +67,9 @@ function numberFormatter(locale: string): Intl.NumberFormat {
   return new Intl.NumberFormat(locale, { maximumFractionDigits: 0 });
 }
 
-function shortDateLabel(dateKey: string, locale: string): string {
+function shortDateLabel(dateKey: string): string {
   const [year, month, day] = dateKey.split("-").map(Number);
-  return new Intl.DateTimeFormat(locale, { month: "short", day: "numeric" })
-    .format(new Date(year, month - 1, day));
+  return formatDisplayDate(new Date(year, month - 1, day), { year: false });
 }
 
 function buildSeries(data: AiUsageStatistics): ChartSeries[] {
@@ -157,7 +157,7 @@ function UsageChart({ data, period, locale, description }: {
           tickMargin={8}
           minTickGap={24}
           interval="preserveStartEnd"
-          tickFormatter={(value) => shortDateLabel(String(value), locale)}
+          tickFormatter={(value) => shortDateLabel(String(value))}
         />
         <YAxis
           axisLine={false}
@@ -172,7 +172,7 @@ function UsageChart({ data, period, locale, description }: {
           content={(
             <UsageTooltipContent
               onPositioned={setTooltipPositioned}
-              labelFormatter={(value) => shortDateLabel(String(value), locale)}
+              labelFormatter={(value) => shortDateLabel(String(value))}
               formatter={(value, name) => (
                 <div className="flex w-full items-center justify-between gap-4">
                   <span className="text-muted-foreground">{chartConfig[String(name)]?.label ?? String(name)}</span>

@@ -826,7 +826,7 @@ export function CreateTaskPage() {
           }}
           disabled={teamsLoading || teams.length === 0}
         >
-          <SelectTrigger id="create-task-team-select" aria-label={t("task.team")}>
+          <SelectTrigger id="create-task-team-select" aria-label={t("task.team")} className="h-9 text-[13.5px]">
             <SelectValue placeholder={teamsLoading ? t("task.loadingTeams") : t("task.selectTeam")} />
           </SelectTrigger>
           <SelectContent>
@@ -871,10 +871,10 @@ export function CreateTaskPage() {
           </DialogHeader>
           <DialogBody>
             <form autoComplete="off" id="create-task-form" className="create-task-form" onSubmit={submitPrompt}>
-              <div className="grid gap-2">
-                <Label htmlFor="create-task-form-sprint">{t("task.sprint")}</Label>
+              <div className="flex items-center gap-3">
+                <Label htmlFor="create-task-form-sprint" alignment="inline" className="shrink-0">{t("task.sprint")}</Label>
                 <Select value={selectedSprintId} onValueChange={setSelectedSprintId} disabled={selectedContext?.sprintsLoading || !selectedContext?.sprints.length}>
-                  <SelectTrigger id="create-task-form-sprint" aria-label={t("task.sprint")}><SelectValue placeholder={selectedContext?.sprintsLoading ? t("task.loadingSprints") : t("task.noSprints")} /></SelectTrigger>
+                  <SelectTrigger id="create-task-form-sprint" className="min-w-0" aria-label={t("task.sprint")}><SelectValue placeholder={selectedContext?.sprintsLoading ? t("task.loadingSprints") : t("task.noSprints")} /></SelectTrigger>
                   <SelectContent>{selectedContext?.sprints.map((sprint) => <SelectItem key={sprint.id} value={sprint.id}>{sprint.name}</SelectItem>)}</SelectContent>
                 </Select>
               </div>

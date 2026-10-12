@@ -145,8 +145,8 @@ export function ActionSettingsSection({ defaults, renderActionHeader, renderMode
       || (scope === "pullRequestReview" && promptChanged(settings.find((item) => item.action === "reviewArbiter"), savedSettings.find((item) => item.action === "reviewArbiter")))
       || sectionChanged?.(scope);
     const headerControl = renderActionHeader?.(scope);
-    return <header className="rounded-t-[inherit]"><CardHeader variant="section" className="flex-row flex-wrap items-center gap-3 space-y-0 py-2 last:rounded-b-none">
-      <CardTitle className="text-[15px] font-semibold leading-tight">{t(label)}</CardTitle>
+    return <header className="rounded-t-[inherit]"><CardHeader variant="section" className="flex-row flex-wrap items-center gap-3 space-y-0 py-1.5 last:rounded-b-none">
+      <CardTitle className="text-sm font-semibold leading-tight">{t(label)}</CardTitle>
       {headerControl ? <div className="flex min-w-fit flex-1 justify-center">{headerControl}</div> : null}
       <div className="ml-auto flex shrink-0 items-center gap-2">
         <Button type="button" variant="outline" size="sm" disabled={!changed || loading || disabled || saving} onClick={() => cancelSection(scope)}>{t("settings.common.cancel")}</Button>

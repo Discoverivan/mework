@@ -968,7 +968,7 @@ export function ManagedProjectsSettings({
                           {project.confluenceSpace ? ` · ${project.confluenceSpace.spaceName} (${project.confluenceSpace.spaceKey})` : ""}
                         </CardDescription>
                       </div>
-                      <div className="ml-auto flex items-center gap-2">
+                      <div data-icon-size="normal" className="ml-auto flex items-center gap-2">
                         <Button
                           type="button"
                           variant="ghost"
@@ -1519,6 +1519,7 @@ export function ManagedProjectsSettings({
                         </div>
                         <p className="text-xs leading-4 text-muted-foreground">{member.displayName}</p>
                       </div>
+                      <div data-icon-size="normal" className="flex shrink-0 items-center gap-2">
                       <Button
                         type="button"
                         variant="ghost"
@@ -1547,6 +1548,7 @@ export function ManagedProjectsSettings({
                           ? <LoaderCircle className="size-4 animate-spin" aria-hidden="true" />
                           : <Trash2 className="size-4" aria-hidden="true" />}
                       </Button>
+                      </div>
                       </div>
                     </Fragment>
                   );

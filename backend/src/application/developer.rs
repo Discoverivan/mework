@@ -2047,15 +2047,19 @@ pub async fn mark_pull_request_read(
             auto_review_completed: false,
             discussion: DiscussionState::default(),
         });
-    if latest_commit.is_some() {
-        snapshot.latest_commit = latest_commit;
+    if snapshot.latest_commit.is_none() {
+        snapshot.latest_commit = latest_commit.clone();
     }
-    snapshot.activity = PullRequestActivity::Read;
+    // A polling snapshot may advance while the user is marking the displayed commit read.
+    if snapshot.latest_commit == latest_commit || latest_commit.is_none() {
+        snapshot.activity = PullRequestActivity::Read;
+    }
+    let activity = snapshot.activity;
     save_pull_request_activity_state(pool, &state).await?;
     Ok(PullRequestActivityStatus {
         integration_id: integration_id.to_owned(),
         pull_request_id: pull_request_id.to_owned(),
-        activity: PullRequestActivity::Read,
+        activity,
     })
 }
 
@@ -2066,41 +2070,7 @@ pub async fn mark_all_pull_requests_read(
     let _state_guard = pull_request_state_lock().lock().await;
     let cache = load_pull_request_cache(pool).await?;
     let mut state = load_pull_request_activity_state(pool).await?;
-    let mut marked_count = 0_u64;
-    for (integration_id, integration) in &mut state.integrations {
-        for (key, snapshot) in &mut integration.pull_requests {
-            let through_revision =
-                discussions
-                    .as_ref()
-                    .map_or(snapshot.discussion.status.revision, |requests| {
-                        requests
-                            .iter()
-                            .filter(|request| {
-                                request.integration_id == *integration_id
-                                    && pull_request_state_key(
-                                        &request.project_key,
-                                        &request.repository_slug,
-                                        &request.pull_request_id,
-                                    ) == *key
-                            })
-                            .map(|request| request.through_revision)
-                            .max()
-                            .unwrap_or(0)
-                    });
-            if snapshot.activity != PullRequestActivity::Read
-                || snapshot
-                    .discussion
-                    .status
-                    .changes
-                    .iter()
-                    .any(|change| change.revision <= through_revision)
-            {
-                marked_count = marked_count.saturating_add(1);
-            }
-            snapshot.activity = PullRequestActivity::Read;
-            snapshot.discussion.mark_read(through_revision, None);
-        }
-    }
+    // Normalize cached/legacy identities before applying the displayed read checkpoints.
     for pull_request in deduplicate_cached_pull_requests(cache.values) {
         let state_key = pull_request_state_key(
             &pull_request.project_key,
@@ -2125,18 +2095,55 @@ pub async fn mark_all_pull_requests_read(
                 .entry(state_key)
                 .or_insert(legacy_snapshot.unwrap_or(PullRequestActivitySnapshot {
                     latest_commit: None,
-                    activity: PullRequestActivity::Read,
+                    activity: pull_request.activity,
                     auto_review_completed: false,
                     discussion: DiscussionState::default(),
                 }))
         };
-        if snapshot.activity != PullRequestActivity::Read {
-            marked_count = marked_count.saturating_add(1);
-        }
-        if pull_request.latest_commit.is_some() {
+        if snapshot.latest_commit.is_none() {
             snapshot.latest_commit = pull_request.latest_commit;
         }
-        snapshot.activity = PullRequestActivity::Read;
+    }
+    let mut marked_count = 0_u64;
+    for (integration_id, integration) in &mut state.integrations {
+        for (key, snapshot) in &mut integration.pull_requests {
+            let request = discussions.as_ref().and_then(|requests| {
+                requests
+                    .iter()
+                    .filter(|request| {
+                        request.integration_id == *integration_id
+                            && pull_request_state_key(
+                                &request.project_key,
+                                &request.repository_slug,
+                                &request.pull_request_id,
+                            ) == *key
+                    })
+                    .max_by_key(|request| request.through_revision)
+            });
+            if discussions.is_some() && request.is_none() {
+                continue;
+            }
+            let through_revision = request.map_or(snapshot.discussion.status.revision, |request| {
+                request.through_revision
+            });
+            let code_was_seen = request
+                .and_then(|request| request.latest_commit.as_ref())
+                .is_none_or(|commit| snapshot.latest_commit.as_ref() == Some(commit));
+            if (code_was_seen && snapshot.activity != PullRequestActivity::Read)
+                || snapshot
+                    .discussion
+                    .status
+                    .changes
+                    .iter()
+                    .any(|change| change.revision <= through_revision)
+            {
+                marked_count = marked_count.saturating_add(1);
+            }
+            if code_was_seen {
+                snapshot.activity = PullRequestActivity::Read;
+            }
+            snapshot.discussion.mark_read(through_revision, None);
+        }
     }
     save_pull_request_activity_state(pool, &state).await?;
     Ok(PullRequestReadAllStatus { marked_count })
@@ -2151,6 +2158,8 @@ pub struct DiscussionReadRequest {
     pub pull_request_id: String,
     pub through_revision: u64,
     pub comment_id: Option<u64>,
+    /// Used by mark-all to preserve commits that were not in the displayed snapshot.
+    pub latest_commit: Option<String>,
 }
 
 pub async fn mark_pull_request_discussion_read(
@@ -3551,7 +3560,7 @@ mod tests {
         };
 
         let server = MockServer::start().await;
-        let root = serde_json::json!({"id": 11, "version": 1, "text": "Check shutdown.", "state": "OPEN",
+        let root = serde_json::json!({"id": 11, "version": 1, "text": "Check shutdown.", "state": "OPEN", "threadResolved": false,
             "author": {"name": "example-reviewer"}, "comments": []});
         let mount_feed = |comment: serde_json::Value| {
             Mock::given(method("GET"))
@@ -3596,7 +3605,7 @@ mod tests {
         server.reset().await;
         let mut updated = root;
         updated["version"] = 2.into();
-        updated["state"] = "RESOLVED".into();
+        updated["threadResolved"] = true.into();
         updated["comments"] = serde_json::json!([{"id": 12, "version": 0, "text": "I added the cleanup.", "author": {"name": "example-author"}}]);
         mount_feed(updated).mount(&server).await;
         snapshot.discussion.observe(
@@ -3662,12 +3671,45 @@ mod tests {
                 pull_request_id: "7".into(),
                 through_revision: revision,
                 comment_id: Some(12),
+                latest_commit: None,
             },
         )
         .await
         .unwrap();
         assert_eq!(status.changes.len(), 1);
         assert_eq!(status.changes[0].kind, DiscussionChangeKind::Resolved);
+        mark_all_pull_requests_read(
+            &pool,
+            Some(vec![super::DiscussionReadRequest {
+                integration_id: "example-integration".into(),
+                project_key: "DEMO".into(),
+                repository_slug: "sample-repository".into(),
+                pull_request_id: "7".into(),
+                through_revision: revision,
+                comment_id: None,
+                latest_commit: Some("commit-1".into()),
+            }]),
+        )
+        .await
+        .unwrap();
+        let status = mark_pull_request_read(
+            &pool,
+            "example-integration",
+            "DEMO",
+            "sample-repository",
+            "7",
+            Some("commit-1".into()),
+        )
+        .await
+        .unwrap();
+        assert_eq!(status.activity, PullRequestActivity::Updated);
+        let restored = super::load_pull_request_activity_state(&pool)
+            .await
+            .unwrap();
+        let snapshot =
+            &restored.integrations["example-integration"].pull_requests["DEMO/sample-repository/7"];
+        assert_eq!(snapshot.latest_commit.as_deref(), Some("commit-2"));
+        assert!(snapshot.discussion.status.changes.is_empty());
         mark_all_pull_requests_read(&pool, None).await.unwrap();
         let restored = super::load_pull_request_activity_state(&pool)
             .await

@@ -117,7 +117,7 @@
     margin-block-start: 0;
   }
 
-  :root[data-button-style="quiet"] .app-toggle:not(.review-mode-option) {
+  :root[data-button-style="quiet"] .app-toggle {
     height: auto;
     min-height: 2rem;
     padding: 0.25rem 0.375rem;
@@ -237,9 +237,9 @@
   }
 
   :root:is([data-button-style="filled"], [data-button-style="filled_borderless"]) .app-action-text:not(:where(.app-shell aside *)):not([data-button-variant="link"]):is([data-action-tone="delete"], [data-button-variant="destructive"]):not(:disabled):is(:hover, :focus-visible) {
-    border-color: transparent;
-    background: var(--app-action-color);
-    color: var(--destructive-foreground);
+    border-color: var(--app-action-color);
+    background: var(--app-action-background, var(--secondary));
+    color: var(--app-action-color);
   }
 
   /* Compensate for empty icon edges beside action labels. */
@@ -281,16 +281,6 @@
 
   :root[data-button-style="quiet"] .pr-filter-mode-option[data-state="on"] {
     font-weight: 600;
-  }
-
-  :root[data-button-style="quiet"] .review-mode-option {
-    border-color: transparent;
-    background: transparent;
-    color: var(--muted-foreground);
-  }
-
-  :root[data-button-style="quiet"] .review-mode-option:is([data-state="on"], :enabled:hover, :enabled:focus-visible) {
-    color: var(--primary);
   }
 
   :root:is([data-button-style="filled"], [data-button-style="filled_borderless"]) .pr-filter-mode,
@@ -362,9 +352,9 @@
     border-color: var(--input);
   }
 
-/* Filled actions except destructive text actions signal hover through their border and foreground. */
+/* Filled actions signal hover through their border and foreground. */
 :root:is([data-button-style="filled"], [data-button-style="filled_borderless"]) .app-icon-button:not(:where(.app-shell aside *)):not(:disabled):is(:hover, :focus-visible),
-:root:is([data-button-style="filled"], [data-button-style="filled_borderless"]) .app-action-text:not(:where(.app-shell aside *)):not([data-button-variant="link"]):not([data-action-tone="delete"]):not([data-button-variant="destructive"]):not(:disabled):is(:hover, :focus-visible) {
+:root:is([data-button-style="filled"], [data-button-style="filled_borderless"]) .app-action-text:not(:where(.app-shell aside *)):not([data-button-variant="link"]):not(:disabled):is(:hover, :focus-visible) {
   background: var(--app-action-background, var(--secondary));
   border-color: var(--app-action-color);
 }
@@ -469,4 +459,91 @@
 /* Viewed PRs have a complete neutral frame; retain the 4px status-marker inset. */
 :root[data-panel-style="bordered"] [data-slot="card"][data-pr-status-marker="neutral"] {
   padding-left: 3px;
+}
+
+/* Subform actions are smaller than page/dialog actions. Keep existing tiny controls. */
+:root[data-button-style] :where([data-slot="card"], [data-subform]) .flex:has(> :is(.app-action-text, .app-icon-button) + :is(.app-action-text, .app-icon-button)):not(:has(> :not(:is(.app-action-text, .app-icon-button)))):not([data-action-size="normal"] *):not(:where(.app-dialog-actions, .app-dialog-actions *)) {
+  column-gap: 6px;
+}
+
+:root[data-button-style] :where([data-slot="card"], [data-subform]) .app-action-text:not([data-action-size="normal"] *):not(:where(.app-dialog-actions *, [role="combobox"], [aria-pressed], [data-day])) {
+  max-height: 32px;
+  gap: 6px;
+  padding-block: 4px;
+  padding-inline: 10px;
+  font-size: 13px;
+}
+
+:root[data-button-style="quiet"] :is([data-slot="card"], [data-subform]) .app-action-text:not(:where(.app-dialog-actions *, .app-shell aside *, [role="combobox"], [aria-pressed], [data-day])) {
+  padding-left: 0;
+  padding-right: 6px;
+}
+
+:root[data-button-style] :where([data-slot="card"], [data-subform]) .app-icon-button:not([data-action-size="normal"] *):not(:where(.app-dialog-actions *, [role="combobox"], [aria-pressed], [data-day])) {
+  max-width: 32px;
+  max-height: 32px;
+}
+
+:root[data-button-style] :where([data-slot="card"], [data-subform]) :is(.app-action-text, .app-icon-button):not([data-action-size="normal"] *):not([data-icon-size="normal"] *):not(:where(.app-dialog-actions *, [role="combobox"], [aria-pressed], [data-day])) svg {
+  width: 14px;
+  height: 14px;
+  max-width: 14px;
+  max-height: 14px;
+}
+
+/* Match provider/model pickers and single-line fields to their subform actions. */
+:root[data-button-style] :where([data-slot="card"], [data-subform]) :is([role="combobox"], input.app-control-border):not([data-control-size="normal"] *):not(:where(.app-dialog-actions *)) {
+  max-height: 32px;
+  gap: 6px;
+  padding-block: 4px;
+  padding-inline: 10px;
+  font-size: 13px;
+}
+
+:root[data-button-style] :where([data-slot="card"], [data-subform]) [role="combobox"]:not([data-control-size="normal"] *) svg {
+  width: 14px;
+  height: 14px;
+}
+
+:root[data-button-style="quiet"] :is([data-slot="card"], [data-subform]) :is([role="combobox"], input.app-control-border) {
+  padding-left: 0;
+}
+
+/* Numeric content has balanced space; width accounts for the actual field padding. */
+:root[data-button-style] :where([data-slot="card"], [data-subform]) input.app-number-field {
+  --number-field-padding: 20px;
+}
+
+:root[data-button-style="quiet"] input.app-number-field {
+  --number-field-padding: 0.75rem;
+  text-align: left;
+}
+
+:root[data-button-style="quiet"] :where([data-slot="card"], [data-subform]) input.app-number-field {
+  --number-field-padding: 10px;
+}
+
+/* Explicit small counters retain enough room for digits and both inset edges. */
+:root[data-button-style] input.app-number-field[data-number-size="compact"] {
+  --number-field-padding: 12px;
+  height: 24px;
+  max-height: 24px;
+  padding: 2px 6px;
+  font-size: 13px;
+}
+
+:root[data-button-style="quiet"] input.app-number-field[data-number-size="compact"] {
+  --number-field-padding: 6px;
+  padding-left: 0;
+}
+
+/* Editable search/menu fields keep their inner inset in Minimal. */
+:root[data-button-style="quiet"] :is(input.app-control-border[type="search"], [data-slot="popover-content"] input.app-control-border) {
+  padding-inline: 12px;
+  padding-left: 12px;
+  padding-right: 12px;
+}
+
+:root[data-button-style="quiet"] input.monitor-auto-width-input {
+  --monitor-input-padding: 10px;
 }

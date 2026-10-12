@@ -139,6 +139,27 @@ export interface PullRequestReviewChangedEvent {
   review: PullRequestReviewState;
 }
 
+export interface ReviewCommentDiscussionScope extends PullRequestReviewStateRequest {
+  runId: string;
+}
+
+export type ReviewCommentDecision = "original" | "revised" | "dismissed";
+
+export interface ReviewCommentAssessment {
+  verdict: "kept" | "revised" | "withdrawn" | "insufficient_context";
+  explanation: string;
+  comment: string | null;
+}
+
+export interface ReviewCommentDiscussion {
+  index: number;
+  revision: number;
+  turns: { message: string; assessment: ReviewCommentAssessment | null }[];
+  decision: "undecided" | ReviewCommentDecision;
+  reason: string;
+  appliedComment: string | null;
+}
+
 export interface PullRequestCommentMatchesRequest extends PullRequestReviewStateRequest {
   comments: PullRequestReviewComment[];
 }

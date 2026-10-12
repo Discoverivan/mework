@@ -399,7 +399,7 @@ describe("DailyPage smoke test", () => {
     expect(rangeStart.parentElement).toHaveClass("size-[var(--cell-size)]");
     fireEvent.click(rangeStart);
     fireEvent.click(screen.getByRole("button", { name: /30 September/ }));
-    expect(screen.getByRole("button", { name: "Date range" })).toHaveTextContent(/28 Sept 2026 – 30 Sept 2026/);
+    expect(screen.getByRole("button", { name: "Date range" })).toHaveTextContent("28.09.2026 – 30.09.2026");
     fireEvent.click(screen.getByRole("button", { name: "Generate" }));
     const result = await screen.findByRole("textbox", { name: "AI summary result" });
     expect(result).toHaveValue("Sprint progress report");
