@@ -495,6 +495,7 @@ export function GeneralSettingsPage() {
                     type="button"
                     variant="ghost"
                     size="icon"
+                    data-action-size="inline"
                     className="h-6 w-6 text-muted-foreground hover:text-foreground [&_svg]:!size-3.5"
                     onClick={() => void handleTestNotification("taskTracker")}
                     disabled={loading || testingNotifications.has("taskTracker") || !(settings?.notificationsEnabled ?? true) || !(settings?.taskTrackerNotificationsEnabled ?? true)}
@@ -529,6 +530,7 @@ export function GeneralSettingsPage() {
                     type="button"
                     variant="ghost"
                     size="icon"
+                    data-action-size="inline"
                     className="h-6 w-6 text-muted-foreground hover:text-foreground [&_svg]:!size-3.5"
                     onClick={() => void handleTestNotification("review")}
                     disabled={loading || testingNotifications.has("review") || !(settings?.notificationsEnabled ?? true) || !(settings?.reviewNotificationsEnabled ?? true)}
@@ -565,6 +567,7 @@ export function GeneralSettingsPage() {
                     type="button"
                     variant="ghost"
                     size="icon"
+                    data-action-size="inline"
                     className="h-6 w-6 text-muted-foreground hover:text-foreground [&_svg]:!size-3.5"
                     onClick={() => void handleTestNotification("authored")}
                     disabled={loading || testingNotifications.has("authored") || !(settings?.notificationsEnabled ?? true) || !(settings?.authoredNotificationsEnabled ?? true)}

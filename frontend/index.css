@@ -463,14 +463,14 @@
 
 /* Primary page toolbar controls follow the PR filter/action row geometry. */
 :root[data-button-style] :is([data-slot="page-toolbar"], [data-control-size="page"]) :is([role="combobox"], input.app-control-border),
-:root[data-button-style] [data-action-size="page"] :is(.app-action-text, .app-icon-button) {
+:root[data-button-style] [data-action-size="page"] :is(.app-action-text, .app-icon-button):not([data-action-size="inline"]) {
   height: 36px;
   min-height: 36px;
   max-height: 36px;
   font-size: 13.5px;
 }
 
-:root[data-button-style] [data-action-size="page"] .app-icon-button {
+:root[data-button-style] [data-action-size="page"] .app-icon-button:not([data-action-size="inline"]) {
   width: 36px;
   max-width: 36px;
 }
