@@ -462,24 +462,25 @@
 }
 
 /* Primary page toolbar controls follow the PR filter/action row geometry. */
-:root[data-button-style] [data-slot="page-toolbar"] :is([role="combobox"], input.app-control-border, .app-action-text, .app-icon-button) {
+:root[data-button-style] :is([data-slot="page-toolbar"], [data-control-size="page"]) :is([role="combobox"], input.app-control-border),
+:root[data-button-style] [data-action-size="page"] :is(.app-action-text, .app-icon-button) {
   height: 36px;
   min-height: 36px;
   max-height: 36px;
   font-size: 13.5px;
 }
 
-:root[data-button-style] [data-slot="page-toolbar"] .app-icon-button {
+:root[data-button-style] [data-action-size="page"] .app-icon-button {
   width: 36px;
   max-width: 36px;
 }
 
 /* Subform actions are smaller than page/dialog actions. Keep existing tiny controls. */
-:root[data-button-style] :where([data-slot="card"], [data-subform]) .flex:has(> :is(.app-action-text, .app-icon-button) + :is(.app-action-text, .app-icon-button)):not(:has(> :not(:is(.app-action-text, .app-icon-button)))):not([data-action-size="normal"] *):not(:where(.app-dialog-actions, .app-dialog-actions *)) {
+:root[data-button-style] :where([data-slot="card"], [data-subform]) .flex:has(> :is(.app-action-text, .app-icon-button) + :is(.app-action-text, .app-icon-button)):not(:has(> :not(:is(.app-action-text, .app-icon-button)))):not(:is([data-action-size="normal"], [data-action-size="page"]) *):not(:where(.app-dialog-actions, .app-dialog-actions *)) {
   column-gap: 6px;
 }
 
-:root[data-button-style] :where([data-slot="card"], [data-subform]) .app-action-text:not([data-action-size="normal"] *):not(:where(.app-dialog-actions *, [role="combobox"], [aria-pressed], [data-day])) {
+:root[data-button-style] :where([data-slot="card"], [data-subform]) .app-action-text:not(:is([data-action-size="normal"], [data-action-size="page"]) *):not(:where(.app-dialog-actions *, [role="combobox"], [aria-pressed], [data-day])) {
   max-height: 32px;
   gap: 6px;
   padding-block: 4px;
@@ -492,12 +493,12 @@
   padding-right: 6px;
 }
 
-:root[data-button-style] :where([data-slot="card"], [data-subform]) .app-icon-button:not([data-action-size="normal"] *):not(:where(.app-dialog-actions *, [role="combobox"], [aria-pressed], [data-day])) {
+:root[data-button-style] :where([data-slot="card"], [data-subform]) .app-icon-button:not(:is([data-action-size="normal"], [data-action-size="page"]) *):not(:where(.app-dialog-actions *, [role="combobox"], [aria-pressed], [data-day])) {
   max-width: 32px;
   max-height: 32px;
 }
 
-:root[data-button-style] :where([data-slot="card"], [data-subform]) :is(.app-action-text, .app-icon-button):not([data-action-size="normal"] *):not([data-icon-size="normal"] *):not(:where(.app-dialog-actions *, [role="combobox"], [aria-pressed], [data-day])) svg {
+:root[data-button-style] :where([data-slot="card"], [data-subform]) :is(.app-action-text, .app-icon-button):not(:is([data-action-size="normal"], [data-action-size="page"]) *):not([data-icon-size="normal"] *):not(:where(.app-dialog-actions *, [role="combobox"], [aria-pressed], [data-day])) svg {
   width: 14px;
   height: 14px;
   max-width: 14px;
@@ -505,7 +506,7 @@
 }
 
 /* Match provider/model pickers and single-line fields to their subform actions. */
-:root[data-button-style] :where([data-slot="card"], [data-subform]) :is([role="combobox"], input.app-control-border):not([data-control-size="normal"] *):not(:where(.app-dialog-actions *)) {
+:root[data-button-style] :where([data-slot="card"], [data-subform]) :is([role="combobox"], input.app-control-border):not(:is([data-control-size="normal"], [data-control-size="page"]) *):not(:where(.app-dialog-actions *)) {
   max-height: 32px;
   gap: 6px;
   padding-block: 4px;
@@ -513,7 +514,7 @@
   font-size: 13px;
 }
 
-:root[data-button-style] :where([data-slot="card"], [data-subform]) [role="combobox"]:not([data-control-size="normal"] *) svg {
+:root[data-button-style] :where([data-slot="card"], [data-subform]) [role="combobox"]:not(:is([data-control-size="normal"], [data-control-size="page"]) *) svg {
   width: 14px;
   height: 14px;
 }

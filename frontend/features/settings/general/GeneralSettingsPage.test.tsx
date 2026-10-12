@@ -311,7 +311,7 @@ describe("GeneralSettingsPage", () => {
 
     const terminalSelect = await screen.findByRole("combobox", { name: "Terminal" });
     expect(terminalSelect).toHaveTextContent("Default terminal");
-    expect(terminalSelect.closest('[data-control-size="normal"]')).not.toBeNull();
+    expect(terminalSelect.closest('[data-control-size="page"]')).not.toBeNull();
     fireEvent.click(terminalSelect);
     expect(screen.getByRole("option", { name: "Default terminal" })).toBeInTheDocument();
     expect(screen.getByRole("option", { name: "Kitty" })).toBeInTheDocument();

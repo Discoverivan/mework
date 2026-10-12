@@ -221,7 +221,7 @@ export function GeneralSettingsPage() {
     settings.notificationPermission !== "granted";
 
   return (
-    <section className="space-y-4" data-action-size="normal" aria-label={t("general.heading")}>
+    <section className="space-y-4" data-action-size="page" aria-label={t("general.heading")}>
       {loading ? (
         <Alert role="status" aria-live="polite">
           <AlertDescription>{t("general.loading")}</AlertDescription>
@@ -244,7 +244,7 @@ export function GeneralSettingsPage() {
               {t("general.languageDescription")}
             </CardDescription>
           </div>
-          <Button type="button" variant="outline" size="icon" className="size-9 shrink-0" disabled={saving || appearanceSaving}
+          <Button type="button" variant="outline" size="icon" className="shrink-0" disabled={saving || appearanceSaving}
             aria-expanded={languageExpanded} aria-controls="general-language-details"
             aria-label={t(languageExpanded ? "general.collapseLanguage" : "general.expandLanguage")}
             title={t(languageExpanded ? "general.collapseLanguage" : "general.expandLanguage")}
@@ -253,7 +253,7 @@ export function GeneralSettingsPage() {
           </Button>
         </CardHeader>
         <SettingsReveal open={languageExpanded} id="general-language-details">
-        <CardContent data-control-size="normal" className="flex flex-col gap-3 px-4 pb-3.5 pt-3.5">
+        <CardContent data-control-size="page" className="flex flex-col gap-3 px-4 pb-3.5 pt-3.5">
           <div className="flex flex-wrap items-center justify-between gap-4">
             <div className="min-w-0">
               <Label htmlFor="general-language" alignment="inline" className="font-medium">
@@ -304,7 +304,7 @@ export function GeneralSettingsPage() {
             <CardTitle className="text-base font-semibold leading-tight">{t("general.appearance")}</CardTitle>
             <CardDescription className="mt-1 leading-snug">{t("general.appearanceDescription")}</CardDescription>
           </div>
-          <Button type="button" variant="outline" size="icon" className="size-9 shrink-0" disabled={saving || appearanceSaving || buttonStyleSaving || panelStyleSaving}
+          <Button type="button" variant="outline" size="icon" className="shrink-0" disabled={saving || appearanceSaving || buttonStyleSaving || panelStyleSaving}
             aria-expanded={appearanceExpanded} aria-controls="general-appearance-details"
             aria-label={t(appearanceExpanded ? "general.collapseAppearance" : "general.expandAppearance")}
             title={t(appearanceExpanded ? "general.collapseAppearance" : "general.expandAppearance")}
@@ -313,7 +313,7 @@ export function GeneralSettingsPage() {
           </Button>
         </CardHeader>
         <SettingsReveal open={appearanceExpanded} id="general-appearance-details">
-        <CardContent data-control-size="normal" className="space-y-3.5 px-4 py-3.5">
+        <CardContent data-control-size="page" className="space-y-3.5 px-4 py-3.5">
           <div className="flex flex-wrap items-center justify-between gap-4">
             <div className="min-w-0 flex-1">
               <Label htmlFor="general-theme" alignment="inline" className="font-medium">
@@ -382,7 +382,7 @@ export function GeneralSettingsPage() {
       </Card>
 
       <Card>
-        <CardHeader variant="section" data-control-size="normal" className="space-y-4">
+        <CardHeader variant="section" data-control-size="page" className="space-y-4">
           <div className="flex flex-wrap items-center justify-between gap-4">
             <div className="-translate-y-px min-w-0 flex-1">
               <Label htmlFor="general-terminal" alignment="inline" className="text-base font-semibold leading-tight">
