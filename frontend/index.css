@@ -383,9 +383,9 @@
   color: var(--primary);
 }
 
-/* Only bordered buttons draw an interaction boundary; text inputs keep their own focus feedback. */
+/* Only bordered controls draw an interaction boundary. */
 :root:not(:is([data-button-style="quiet"], [data-button-style="filled_borderless"])) .app-control-border:not([aria-invalid="true"]):enabled:is([data-pointer-hover="true"], :focus-visible, [aria-expanded="true"]),
-:root:not([data-button-style="quiet"]) .app-control-border:not(:is(button, [role="button"], [data-button-variant], .app-toggle)):not(:where(:root[data-button-style="filled_borderless"] input:is([type="number"], [inputmode="numeric"], [inputmode="decimal"]))):not([aria-invalid="true"]):enabled:is([data-pointer-hover="true"], :focus) {
+:root:not(:is([data-button-style="quiet"], [data-button-style="filled_borderless"])) .app-control-border:not(:is(button, [role="button"], [data-button-variant], .app-toggle)):not([aria-invalid="true"]):enabled:is([data-pointer-hover="true"], :focus) {
   border-color: var(--primary) !important;
 }
 
@@ -403,9 +403,17 @@
   border-color: var(--destructive) !important;
 }
 
-/* Borderless numeric fields indicate validation through the value instead of a frame. */
-:root[data-button-style="filled_borderless"] input:is([type="number"], [inputmode="numeric"], [inputmode="decimal"]) {
+/* Borderless fields signal interaction and validation through their value. */
+:root[data-button-style="filled_borderless"] :is(input, textarea).app-control-border {
   border-color: transparent !important;
+}
+
+:root:is([data-button-style="quiet"], [data-button-style="filled_borderless"]) :is(input, textarea).app-control-border:not([aria-invalid="true"]):not([data-field-warning="true"]):enabled:is([data-pointer-hover="true"], :focus) {
+  color: var(--primary);
+}
+
+:root[data-button-style="filled_borderless"] :is(input, textarea).app-control-border[aria-invalid="true"] {
+  color: var(--destructive);
 }
 
 :root:is([data-button-style="filled"], [data-button-style="filled_borderless"]) input:is([type="number"], [inputmode="numeric"], [inputmode="decimal"])[aria-invalid="true"] {

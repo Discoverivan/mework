@@ -68,17 +68,19 @@ it("highlights open pickers through text and the selected border style", () => {
     const input = screen.getByRole("textbox", { name: "Example query" });
     fireEvent.pointerEnter(input);
     const hoveredBorder = getComputedStyle(input).borderColor;
-    expect(hoveredBorder).toBe("rgb(70, 90, 180)");
+    expect(hoveredBorder).toBe("rgba(0, 0, 0, 0)");
+    expect(getComputedStyle(input).color).toBe("rgb(70, 90, 180)");
     input.focus();
     fireEvent.pointerLeave(input);
     style.textContent += "\n";
     expect(getComputedStyle(input).borderColor).toBe(hoveredBorder);
+    expect(getComputedStyle(input).color).toBe("rgb(70, 90, 180)");
     expect(getComputedStyle(input).boxShadow).toBe("none");
     expect(getComputedStyle(picker).borderColor).toBe("rgba(0, 0, 0, 0)");
     expect(getComputedStyle(picker).color).toBe("rgb(70, 90, 180)");
     input.blur();
     style.textContent += "\n";
-    expect(getComputedStyle(input).borderColor).toBe("rgb(100, 100, 100)");
+    expect(getComputedStyle(input).borderColor).toBe("rgba(0, 0, 0, 0)");
     picker.setAttribute("aria-expanded", "false");
     picker.focus();
     style.textContent += "\n";
@@ -92,7 +94,7 @@ it("highlights open pickers through text and the selected border style", () => {
     picker.removeAttribute("data-example-keyboard-focus");
     picker.setAttribute("aria-expanded", "true");
     style.textContent += "\n";
-    expect(getComputedStyle(picker).borderColor).toBe(hoveredBorder);
+    expect(getComputedStyle(picker).borderColor).toBe("rgb(70, 90, 180)");
     expect(getComputedStyle(picker).color).toBe("rgb(70, 90, 180)");
     picker.setAttribute("aria-expanded", "false");
     style.textContent += "\n";
@@ -100,7 +102,7 @@ it("highlights open pickers through text and the selected border style", () => {
     expect(getComputedStyle(picker).borderColor).toBe("rgb(100, 100, 100)");
     picker.setAttribute("data-example-keyboard-focus", "true");
     style.textContent += "\n";
-    expect(getComputedStyle(picker).borderColor).toBe(hoveredBorder);
+    expect(getComputedStyle(picker).borderColor).toBe("rgb(70, 90, 180)");
     document.documentElement.dataset.buttonStyle = "quiet";
     picker.setAttribute("aria-expanded", "true");
     style.textContent += "\n";
@@ -108,6 +110,10 @@ it("highlights open pickers through text and the selected border style", () => {
     expect(getComputedStyle(picker).paddingLeft).toBe("0px");
     expect(getComputedStyle(input).paddingLeft).toBe("0px");
     expect(getComputedStyle(input).paddingRight).toBe("12px");
+    input.focus();
+    style.textContent += "\n";
+    expect(getComputedStyle(input).borderColor).toBe("rgba(0, 0, 0, 0)");
+    expect(getComputedStyle(input).color).toBe("rgb(70, 90, 180)");
   } finally {
     style.remove();
     if (previousStyle === undefined) delete document.documentElement.dataset.buttonStyle;
