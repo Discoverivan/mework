@@ -48,6 +48,8 @@
 
 ## shadcn/ui design system rules
 
+- Select triggers default to the same 36 px / 13.5 px / 4 px vertical geometry as primary buttons. Select menus inherit their trigger's font size across the portal; compact triggers use 4 px vertical option padding. Compact card/subform field labels use 13 px text alongside their controls; preserve section headings and explicitly normal/page-size settings surfaces.
+
 - Shared text, numeric, and multiline fields follow the selected button appearance. Filled without border and Minimal keep borders transparent during hover, typing/focus, and validation; show primary-colored values for direct hover/focus and destructive-colored values for invalid input. Warning/error feedback takes precedence. Keep existing control padding and label-hover isolation.
 
 - Shared `Button` defaults (including main dialog confirmation/cancel actions) use 36 px height, 13.5 px text, and 4 px vertical padding; default icon actions are 36 px square. Minimal/Quiet changes appearance and horizontal alignment, not this default height. Preserve explicit smaller inline actions and the shared 32 px subform limits; use the large size only when intentionally required.

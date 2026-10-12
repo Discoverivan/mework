@@ -511,6 +511,10 @@
 }
 
 /* Match provider/model pickers and single-line fields to their subform actions. */
+:root[data-button-style] :where([data-slot="card"], [data-subform]) :is([data-slot="label"], [data-slot="field-label"]):not(:is([data-control-size="normal"], [data-control-size="page"], [data-action-size="page"]) *):not([data-card-header-variant="section"] *) {
+  font-size: 13px;
+}
+
 :root[data-button-style] :where([data-slot="card"], [data-subform]) :is([role="combobox"], input.app-control-border):not(:is([data-control-size="normal"], [data-control-size="page"]) *):not(:where(.app-dialog-actions *)) {
   max-height: 32px;
   gap: 6px;

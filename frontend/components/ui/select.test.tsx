@@ -10,7 +10,7 @@ it("distinguishes automatic focus, pointer movement and keyboard selection", asy
   Element.prototype.scrollIntoView = vi.fn();
   const changed = vi.fn();
   render(<Select defaultValue="first" onValueChange={changed}>
-    <SelectTrigger aria-label="Example choice"><SelectValue /></SelectTrigger>
+    <SelectTrigger aria-label="Example choice" style={{ height: "32px", fontSize: "13px" }}><SelectValue /></SelectTrigger>
     <SelectContent>
       <SelectItem value="first">First example</SelectItem>
       <SelectItem value="second">Second example</SelectItem>
@@ -18,6 +18,8 @@ it("distinguishes automatic focus, pointer movement and keyboard selection", asy
   </Select>);
   fireEvent.click(screen.getByRole("combobox", { name: "Example choice" }));
   const first = screen.getByRole("option", { name: "First example" });
+  expect(screen.getByRole("listbox").style.getPropertyValue("--select-trigger-font-size")).toBe("13px");
+  expect(screen.getByRole("listbox").style.getPropertyValue("--select-item-padding-y")).toBe("4px");
   await waitFor(() => expect(first).toHaveFocus());
   expect(first).toHaveAttribute("data-keyboard-navigation", "false");
   expect(first).not.toHaveAttribute("data-pointer-hover");
