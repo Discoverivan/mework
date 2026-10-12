@@ -1246,6 +1246,7 @@ fn mock_pull_request(id: u64, authored: bool, activity: PullRequestActivity) -> 
         },
         needs_action: !authored && id != 41,
         activity,
+        discussion: Default::default(),
         review: super::mock_reviews::review(id, now),
     }
 }

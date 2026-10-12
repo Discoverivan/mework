@@ -29,6 +29,7 @@ mod review_arbitration;
 pub mod review_comment_matches;
 pub mod review_instructions;
 mod review_locations;
+pub mod reviewer_discussions;
 pub mod sprint_report;
 pub mod task_tracker;
 pub mod token_burner;

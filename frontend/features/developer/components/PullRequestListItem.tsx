@@ -3,6 +3,7 @@ import { Check, CheckCircle2, CircleAlert, Clock3, ExternalLink, Loader2, Messag
 import { useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
@@ -19,6 +20,7 @@ import { cn } from "@/lib/utils";
 import type { TranslationKey } from "@/i18n/locales/en";
 import { formatRelativeDate } from "./pull-request-formatting";
 import { PullRequestReviewDetails } from "./PullRequestReviewDetails";
+import { PullRequestDiscussionUpdates } from "./PullRequestDiscussionUpdates";
 
 export type PullRequestListMode = "reviewer" | "author";
 
@@ -140,6 +142,9 @@ export interface PullRequestListItemProps {
   onMarkViewed: (pullRequest: MyPullRequest) => void;
   onStartReview: (pullRequest: MyPullRequest) => void;
   onOpenResults: (pullRequest: MyPullRequest) => void;
+  onDiscussionRead?: (pullRequest: MyPullRequest, commentId?: number) => void;
+  discussionPending?: boolean;
+  actionError?: string;
   onBlacklistProject?: (pullRequest: MyPullRequest) => void;
   onBlacklistRepository?: (pullRequest: MyPullRequest) => void;
   onBlacklistAuthor?: (pullRequest: MyPullRequest) => void;
@@ -161,6 +166,9 @@ export function PullRequestListItem({
   onMarkViewed,
   onStartReview,
   onOpenResults,
+  onDiscussionRead,
+  discussionPending = false,
+  actionError,
   onBlacklistProject,
   onBlacklistRepository,
   onBlacklistAuthor,
@@ -192,6 +200,7 @@ export function PullRequestListItem({
     ? t("pr.aiProviderRequired")
     : reviewLabel;
   const needsAction = mode === "author" && (pullRequest.needsAction || (pullRequest.reviewSummary?.needsWork ?? 0) > 0);
+  const hasDiscussion = mode === "reviewer" && (pullRequest.discussion?.changes.length ?? 0) > 0;
   const reviewSummary = pullRequest.reviewSummary ?? { approved: 0, needsWork: 0, comments: 0 };
   const externalUrl = safePullRequestUrl(pullRequest.url);
   const { icon: DecisionIcon, tone: decisionTone } = reviewDecisionAppearance[pullRequest.myDecision];
@@ -199,8 +208,8 @@ export function PullRequestListItem({
   return (
     <Card
       data-info-popover-boundary
-      data-pr-status-marker={needsAction || pullRequest.activity !== "read" ? "colored" : "neutral"}
-      className={needsAction ? "border-l-4 border-l-rose-500" : pullRequest.activity === "read" ? "border-l-4 border-l-transparent" : "border-l-4 border-l-blue-500"}
+      data-pr-status-marker={needsAction || pullRequest.activity !== "read" || hasDiscussion ? "colored" : "neutral"}
+      className={cn("border-l-4", needsAction ? "border-l-rose-500" : pullRequest.activity !== "read" ? "border-l-blue-500" : hasDiscussion ? "border-l-discussion" : "border-l-transparent")}
     >
       <CardContent className="flex items-center gap-3 p-4">
         {mode === "reviewer" ? <ReviewerDecisionIcon decision={pullRequest.myDecision} /> : (
@@ -214,6 +223,7 @@ export function PullRequestListItem({
               {showProjectKey ? `${pullRequest.projectKey}/` : ""}{pullRequest.repositorySlug} <span className="ml-2 text-muted-foreground">#{pullRequest.pullRequestId}</span>
             </p>
             <ActivityBadge activity={pullRequest.activity} />
+            {hasDiscussion && onDiscussionRead ? <PullRequestDiscussionUpdates pullRequest={pullRequest} pending={discussionPending} onRead={onDiscussionRead} /> : null}
           </div>
           <div className="flex min-w-0 items-center gap-2 pr-review-card-title">
             <h2 className="min-w-0 flex-1 break-words text-sm font-semibold leading-5">
@@ -314,7 +324,7 @@ export function PullRequestListItem({
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
                 <DropdownMenuGroup>
-                  {pullRequest.activity !== "read" ? <DropdownMenuItem onSelect={() => onMarkViewed(pullRequest)}><Check aria-hidden="true" />{t("pr.markViewed")}</DropdownMenuItem> : null}
+                  {pullRequest.activity !== "read" || hasDiscussion ? <DropdownMenuItem disabled={discussionPending} onSelect={() => onMarkViewed(pullRequest)}><Check aria-hidden="true" />{t("pr.markViewed")}</DropdownMenuItem> : null}
                   <DropdownMenuItem disabled={!externalUrl} onSelect={() => { if (externalUrl) { window.open(externalUrl, "_blank", "noopener,noreferrer"); onOpenPullRequest(pullRequest); } }}><ExternalLink aria-hidden="true" />{t("pr.dialog.openWeb")}</DropdownMenuItem>
                 </DropdownMenuGroup>
                 {mode === "reviewer" ? <>
@@ -338,6 +348,12 @@ export function PullRequestListItem({
           </div>
         </div>
       </CardContent>
+      {actionError ? <CardContent className="px-4 pb-4 pt-0">
+        <Alert variant="destructive" className="px-4 py-3">
+          <AlertTitle>{t("pr.actionFailed")}</AlertTitle>
+          <AlertDescription>{actionError}</AlertDescription>
+        </Alert>
+      </CardContent> : null}
     </Card>
   );
 }

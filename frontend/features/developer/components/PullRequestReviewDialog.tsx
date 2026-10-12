@@ -25,7 +25,7 @@ import {
   AiVerdictBadge,
   reviewSeveritySections,
 } from "./PullRequestListItem";
-import { formatRelativeDate } from "./pull-request-formatting";
+import { formatRelativeDate, pullRequestCommentUrl } from "./pull-request-formatting";
 import { PullRequestReviewDetails } from "./PullRequestReviewDetails";
 import { reviewCommentPath } from "./review-comment-path";
 import { normalizeReviewMarkdown } from "./review-markdown";
@@ -91,18 +91,6 @@ function CommentLocation({ comment }: { comment: PullRequestReviewComment }) {
   const segments = reviewCommentPath(comment.file).split("/");
   const filename = segments.pop();
   return <>{segments.map((segment, index) => <span key={index}>{segment}/<wbr /></span>)}<span className="inline-block max-w-full break-all">{filename}{comment.line != null ? `:${comment.line}` : ""}</span></>;
-}
-
-function existingCommentUrl(pullRequestUrl: string | undefined, commentId: number): string | undefined {
-  if (!pullRequestUrl || !Number.isSafeInteger(commentId) || commentId <= 0) return undefined;
-  try {
-    const url = new URL(pullRequestUrl);
-    if (!["http:", "https:"].includes(url.protocol) || url.username || url.password || !/\/pull-requests\/\d+(?:\/.*)?$/.test(url.pathname)) return undefined;
-    url.pathname = url.pathname.replace(/(\/pull-requests\/\d+)(?:\/.*)?$/, "$1/overview");
-    url.search = new URLSearchParams({ commentId: String(commentId) }).toString();
-    url.hash = "";
-    return url.href;
-  } catch { return undefined; }
 }
 
 export function PullRequestReviewDialog({
@@ -325,7 +313,7 @@ export function PullRequestReviewDialog({
                               const published = publishedComments.has(key);
                               const matched = commentMatches.find((match) => match.index === index);
                               const existingId = publishedComments.get(key) ?? matched?.commentId;
-                              const matchedUrl = existingId != null ? existingCommentUrl(pullRequest?.url, existingId) : undefined;
+                              const matchedUrl = existingId != null ? pullRequestCommentUrl(pullRequest?.url, existingId) : undefined;
                               const commentPending = pendingCommentKeys.has(JSON.stringify([publicationScope, key]));
                               const status: CommentStatus = commentPending ? "publishing"
                                 : published ? "published"

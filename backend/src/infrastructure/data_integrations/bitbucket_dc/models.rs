@@ -136,6 +136,9 @@ pub struct BitbucketParticipant {
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct BitbucketPullRequestActivity {
+    pub user: Option<BitbucketUser>,
+    #[serde(rename = "createdDate")]
+    pub created_date: Option<i64>,
     pub comment: Option<BitbucketComment>,
     #[serde(rename = "commentAnchor")]
     pub comment_anchor: Option<BitbucketCommentAnchor>,
@@ -154,6 +157,7 @@ pub struct BitbucketComment {
     #[serde(rename = "updatedDate")]
     pub updated_date: Option<i64>,
     pub deleted: Option<bool>,
+    pub state: Option<String>,
     #[serde(default)]
     pub comments: Vec<BitbucketComment>,
     pub permitted: Option<bool>,

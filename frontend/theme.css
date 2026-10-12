@@ -21,6 +21,7 @@
   --destructive-foreground: #ffffff;
   --success: #2f9e8f;
   --warning: #d97706;
+  --discussion: #7c3aed;
   --border: #d9e0ea;
   --input: #b8c4d4;
   --ring: #465fc7;
@@ -50,6 +51,7 @@
   --destructive-foreground: #11151c;
   --success: #66d9c8;
   --warning: #fbbf24;
+  --discussion: #a78bfa;
   --border: #2a3240;
   --input: #354258;
   --ring: #8eb8ff;

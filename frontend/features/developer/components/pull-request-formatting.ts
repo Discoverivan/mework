@@ -3,6 +3,18 @@ import type { TranslationParams } from "@/i18n/types";
 
 type Translator = (key: TranslationKey, params?: TranslationParams) => string;
 
+export function pullRequestCommentUrl(pullRequestUrl: string | undefined, commentId: number): string | undefined {
+  if (!pullRequestUrl || !Number.isSafeInteger(commentId) || commentId <= 0) return undefined;
+  try {
+    const url = new URL(pullRequestUrl);
+    if (!["http:", "https:"].includes(url.protocol) || url.username || url.password || !/\/pull-requests\/\d+(?:\/.*)?$/.test(url.pathname)) return undefined;
+    url.pathname = url.pathname.replace(/(\/pull-requests\/\d+)(?:\/.*)?$/, "$1/overview");
+    url.search = new URLSearchParams({ commentId: String(commentId) }).toString();
+    url.hash = "";
+    return url.href;
+  } catch { return undefined; }
+}
+
 export function formatRelativeDate(timestamp?: number, t?: Translator): string {
   if (timestamp == null || !Number.isFinite(timestamp)) return t ? t("pr.relative.unknown") : "Unknown update";
   const seconds = Math.max(0, Math.floor((Date.now() - timestamp) / 1000));

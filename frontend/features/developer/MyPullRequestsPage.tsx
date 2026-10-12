@@ -55,6 +55,7 @@ import {
   listMyPullRequests,
   markAllPullRequestsRead,
   markPullRequestRead,
+  markPullRequestDiscussionRead,
   publishPullRequestComment,
   refreshMyPullRequests,
   removePullRequestReviewer,
@@ -221,18 +222,32 @@ export function MyPullRequestsPage() {
   const [now, setNow] = useState(() => Date.now());
   const [readAllPending, setReadAllPending] = useState(false);
   const [reviewStartingKeys, setReviewStartingKeys] = useState<Set<string>>(() => new Set());
+  const [pullRequestErrors, setPullRequestErrors] = useState<Record<string, string | undefined>>({});
   const [reviewDialogKey, setReviewDialogKey] = useState<string>();
   const [removeReviewerTarget, setRemoveReviewerTarget] = useState<MyPullRequest>();
   const [removingReviewer, setRemovingReviewer] = useState(false);
   const [removeReviewerError, setRemoveReviewerError] = useState<string>();
   const [pendingDecisionKeys, setPendingDecisionKeys] = useState<Set<string>>(() => new Set());
   const pendingDecisionKeysRef = useRef(new Set<string>());
+  const [discussionPendingKeys, setDiscussionPendingKeys] = useState<Set<string>>(() => new Set());
+  const discussionPendingKeysRef = useRef(new Set<string>());
+  const discussionReadCheckpoints = useRef(new Map<string, Map<number | "all", number>>());
+
+  const applyDiscussionCheckpoints = useCallback((item: MyPullRequest): MyPullRequest => {
+    const checkpoint = discussionReadCheckpoints.current.get(pullRequestKey(item));
+    if (!checkpoint || !item.discussion) return item;
+    return { ...item, discussion: { ...item.discussion, changes: item.discussion.changes.filter((change) =>
+      change.revision > Math.max(checkpoint.get("all") ?? 0, checkpoint.get(change.commentId) ?? 0),
+    ) } };
+  }, []);
 
   const applyPage = useCallback((page: MyPullRequestPage) => {
     setPullRequests((current) => {
       const currentByKey = new Map(current.map((item) => [pullRequestKey(item), item]));
       const nextValues = (Array.isArray(page.values) ? page.values : []).map((item) => {
         const previous = currentByKey.get(pullRequestKey(item));
+        item = applyDiscussionCheckpoints((previous?.discussion?.revision ?? 0) > (item.discussion?.revision ?? 0)
+          ? { ...item, discussion: previous?.discussion } : item);
         const preservedReview = previous?.review?.status === "running"
           && previous.latestCommit === item.latestCommit
           && item.review == null
@@ -249,7 +264,7 @@ export function MyPullRequestsPage() {
       setLastSyncAt(page.lastUpdatedAt);
       setNow(page.lastUpdatedAt);
     }
-  }, []);
+  }, [applyDiscussionCheckpoints]);
 
   const aiReviewReady = aiSettings?.settings.provider !== null && aiSettings?.providers.some((provider) =>
     matchesSelectedAiProvider(aiSettings.settings, provider)
@@ -331,7 +346,7 @@ export function MyPullRequestsPage() {
         return next;
       });
       setPullRequests((current) => sortPullRequests(current.map((item) =>
-        pullRequestKey(item) === key ? { ...item, review } : item,
+        pullRequestKey(item) === key && item.latestCommit === review.reviewedCommit ? { ...item, review } : item,
       )));
     });
   }, []);
@@ -471,7 +486,7 @@ export function MyPullRequestsPage() {
   const filteredPullRequests = pullRequests.filter((pullRequest) => matchesSettings(pullRequest, settings));
   const visiblePullRequests = sortPullRequestsByUpdatedDate(
     filteredPullRequests.filter((pullRequest) =>
-      quickFilter === "all" || pullRequest.myDecision === "not_reviewed",
+      quickFilter === "all" || pullRequest.myDecision === "not_reviewed" || (pullRequest.discussion?.changes.length ?? 0) > 0,
     ),
     displayPreferences.sortOrder,
   );
@@ -619,11 +634,12 @@ export function MyPullRequestsPage() {
   }
 
   async function applyReviewDecision(target: MyPullRequest, action: "approve" | "needs_work") {
-    setError(undefined);
+    const key = pullRequestKey(target);
+    setPullRequestErrors((current) => ({ ...current, [key]: undefined }));
     try {
       await updateReviewDecision(target, action);
     } catch (reason) {
-      setError(commandError(reason));
+      setPullRequestErrors((current) => ({ ...current, [key]: commandError(reason) }));
     }
   }
 
@@ -638,19 +654,60 @@ export function MyPullRequestsPage() {
         pullRequest.pullRequestId,
         pullRequest.latestCommit,
       );
-      setPullRequests((current) => sortPullRequests(current.map((item) => pullRequestKey(item) === key ? { ...item, activity: readState.activity } : item)));
+      setPullRequests((current) => sortPullRequests(current.map((item) => pullRequestKey(item) === key && item.latestCommit === pullRequest.latestCommit ? { ...item, activity: readState.activity } : item)));
       emitAppEvent(APP_EVENT.pullRequestActivityChanged);
     } catch (reason) {
       setError(commandError(reason));
     }
   }
 
+  async function markDiscussionRead(pullRequest: MyPullRequest, commentId?: number) {
+    const key = pullRequestKey(pullRequest);
+    if (discussionPendingKeysRef.current.has(key)) return;
+    discussionPendingKeysRef.current.add(key);
+    setDiscussionPendingKeys(new Set(discussionPendingKeysRef.current));
+    setError(undefined);
+    try {
+      const discussion = await markPullRequestDiscussionRead(pullRequest, commentId);
+      const checkpoint = discussionReadCheckpoints.current.get(key) ?? new Map<number | "all", number>();
+      const checkpointKey = commentId ?? "all";
+      checkpoint.set(checkpointKey, Math.max(checkpoint.get(checkpointKey) ?? 0, pullRequest.discussion?.revision ?? 0));
+      discussionReadCheckpoints.current.set(key, checkpoint);
+      setPullRequests((current) => current.map((item) => pullRequestKey(item) !== key ? item : applyDiscussionCheckpoints({
+        ...item, discussion: (item.discussion?.revision ?? 0) > discussion.revision ? item.discussion : discussion,
+      })));
+      emitAppEvent(APP_EVENT.pullRequestActivityChanged);
+    } catch (reason) {
+      setError(t("pr.discussion.readError", { error: commandError(reason) }));
+    } finally {
+      discussionPendingKeysRef.current.delete(key);
+      setDiscussionPendingKeys(new Set(discussionPendingKeysRef.current));
+    }
+  }
+
+  async function markViewed(pullRequest: MyPullRequest) {
+    if (pullRequest.activity !== "read") await markRead(pullRequest);
+    if (pullRequest.discussion?.changes.length) await markDiscussionRead(pullRequest);
+  }
+
   async function markAllRead() {
+    if (readAllPending) return;
     setReadAllPending(true);
     setError(undefined);
     try {
-      await markAllPullRequestsRead();
-      setPullRequests((current) => sortPullRequests(current.map((item) => ({ ...item, activity: "read" }))));
+      await markAllPullRequestsRead(pullRequests);
+      const marked = new Map(pullRequests.map((item) => [pullRequestKey(item), item]));
+      for (const item of pullRequests) {
+        if (!item.discussion) continue;
+        const key = pullRequestKey(item);
+        const checkpoint = discussionReadCheckpoints.current.get(key) ?? new Map<number | "all", number>();
+        checkpoint.set("all", Math.max(checkpoint.get("all") ?? 0, item.discussion.revision));
+        discussionReadCheckpoints.current.set(key, checkpoint);
+      }
+      setPullRequests((current) => sortPullRequests(current.map((item) => {
+        const previous = marked.get(pullRequestKey(item));
+        return applyDiscussionCheckpoints({ ...item, activity: previous && previous.latestCommit === item.latestCommit ? "read" : item.activity });
+      })));
       emitAppEvent(APP_EVENT.pullRequestActivityChanged);
     } catch (reason) {
       setError(commandError(reason));
@@ -661,23 +718,26 @@ export function MyPullRequestsPage() {
 
   async function startReview(pullRequest: MyPullRequest) {
     const key = pullRequestKey(pullRequest);
+    setPullRequestErrors((current) => ({ ...current, [key]: undefined }));
     if (!aiReviewReady) {
-      setError(t("pr.aiProviderRequired"));
+      setPullRequestErrors((current) => ({ ...current, [key]: t("pr.aiProviderRequired") }));
       return;
     }
     if (!pullRequest.url || !pullRequest.latestCommit) {
-      setError(t("pr.reviewSourceMissing"));
+      setPullRequestErrors((current) => ({ ...current, [key]: t("pr.reviewSourceMissing") }));
       return;
     }
-    setError(undefined);
     setReviewStartingKeys((current) => new Set(current).add(key));
     try {
       const review = await startPullRequestReview(pullRequest);
       setPullRequests((current) => sortPullRequests(current.map((item) =>
-        pullRequestKey(item) === key ? { ...item, review } : item,
+        pullRequestKey(item) === key && item.latestCommit === review.reviewedCommit ? { ...item, review } : item,
       )));
     } catch (reason) {
-      setError(commandError(reason));
+      const code = typeof reason === "object" && reason !== null && "code" in reason ? reason.code : undefined;
+      const message = code === "pull_request_changed" ? t("pr.reviewChangedAgain")
+        : code === "pull_request_unavailable" ? t("pr.reviewNoLongerAvailable") : commandError(reason);
+      setPullRequestErrors((current) => ({ ...current, [key]: message }));
     } finally {
       setReviewStartingKeys((current) => {
         if (!current.has(key)) return current;
@@ -734,9 +794,12 @@ export function MyPullRequestsPage() {
         mode="reviewer"
         aiReviewReady={aiReviewReady}
         reviewStarting={reviewStartingKeys.has(itemKey)}
+        actionError={pullRequestErrors[itemKey]}
         showProjectKey={showProjectKey}
         onOpenPullRequest={(item) => void markRead(item)}
-        onMarkViewed={(item) => void markRead(item)}
+        onMarkViewed={(item) => void markViewed(item)}
+        onDiscussionRead={(item, commentId) => void markDiscussionRead(item, commentId)}
+        discussionPending={discussionPendingKeys.has(itemKey)}
         onStartReview={(item) => void startReview(item)}
         onBlacklistProject={(item) => void blacklistPullRequest(item, "project")}
         onBlacklistRepository={(item) => void blacklistPullRequest(item, "repository")}
@@ -840,7 +903,7 @@ export function MyPullRequestsPage() {
             aria-label={t("pr.readAll")}
             title={t("pr.readAll")}
             onClick={() => void markAllRead()}
-            disabled={loading || readAllPending || pullRequests.every((item) => item.activity === "read")}
+            disabled={loading || readAllPending || pullRequests.every((item) => item.activity === "read" && !item.discussion?.changes.length)}
           >
             {readAllPending ? <RefreshCw className="animate-spin" aria-hidden="true" /> : <CheckCheck aria-hidden="true" />}
           </Button>

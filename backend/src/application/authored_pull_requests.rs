@@ -816,6 +816,7 @@ mod tests {
                 created_date: Some(1),
                 updated_date: Some(1),
                 deleted: Some(false),
+                state: None,
                 comments: Vec::new(),
                 permitted: None,
                 anchor: None,
@@ -1087,6 +1088,7 @@ mod tests {
             review_summary: PullRequestReviewSummaryDto::default(),
             needs_action: false,
             activity: PullRequestActivity::New,
+            discussion: Default::default(),
             review: None,
         }];
         let mut state = ActivityState::default();
@@ -1122,6 +1124,7 @@ mod tests {
                 created_date: None,
                 updated_date: None,
                 deleted: Some(false),
+                state: None,
                 comments: vec![BitbucketComment {
                     id: 3,
                     version: 1,
@@ -1130,6 +1133,7 @@ mod tests {
                     created_date: None,
                     updated_date: None,
                     deleted: Some(false),
+                    state: None,
                     comments: Vec::new(),
                     permitted: None,
                     anchor: None,
@@ -1147,6 +1151,7 @@ mod tests {
                 created_date: None,
                 updated_date: None,
                 deleted: Some(true),
+                state: None,
                 comments: Vec::new(),
                 permitted: None,
                 anchor: None,
@@ -1184,6 +1189,7 @@ mod tests {
                 review_summary: PullRequestReviewSummaryDto::default(),
                 needs_action: index >= 120,
                 activity: PullRequestActivity::Updated,
+                discussion: Default::default(),
                 review: None,
             })
             .collect();

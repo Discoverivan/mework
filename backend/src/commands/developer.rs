@@ -73,9 +73,14 @@ pub async fn bitbucket_pull_request_unread_counts(
         reviewer: reviewer_page
             .values
             .iter()
-            .filter(|pull_request| pull_request.activity != PullRequestActivity::Read)
             .filter(|pull_request| {
-                !request.reviewer_pending_only || pull_request.my_decision == "not_reviewed"
+                pull_request.activity != PullRequestActivity::Read
+                    || !pull_request.discussion.changes.is_empty()
+            })
+            .filter(|pull_request| {
+                !request.reviewer_pending_only
+                    || pull_request.my_decision == "not_reviewed"
+                    || !pull_request.discussion.changes.is_empty()
             })
             .count() as u64,
         authored,
@@ -148,14 +153,7 @@ pub async fn pull_request_review_start(
     app: AppHandle,
     request: PullRequestReviewRequest,
 ) -> Result<PullRequestReviewDto, DeveloperCommandError> {
-    developer_review::start_review(&state, &app, request)
-        .await
-        .map_err(|message| DeveloperCommandError {
-            code: "review_start_failed".to_owned(),
-            message,
-            retryable: true,
-            details: None,
-        })
+    developer_review::start_review_checked(&state, &app, request).await
 }
 
 #[tauri::command]
@@ -209,10 +207,19 @@ pub async fn pull_request_review_mark_read(
 }
 
 #[tauri::command]
+pub async fn pull_request_discussion_mark_read(
+    state: State<'_, SqlitePool>,
+    request: developer::DiscussionReadRequest,
+) -> Result<crate::application::reviewer_discussions::DiscussionStatus, DeveloperCommandError> {
+    developer::mark_pull_request_discussion_read(&state, request).await
+}
+
+#[tauri::command]
 pub async fn pull_request_review_mark_all_read(
     state: State<'_, SqlitePool>,
+    discussions: Option<Vec<developer::DiscussionReadRequest>>,
 ) -> Result<PullRequestReadAllStatus, DeveloperCommandError> {
-    developer::mark_all_pull_requests_read(&state).await
+    developer::mark_all_pull_requests_read(&state, discussions).await
 }
 
 #[tauri::command]

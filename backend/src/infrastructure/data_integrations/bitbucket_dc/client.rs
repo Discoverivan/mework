@@ -437,6 +437,57 @@ impl BitbucketDcClient {
         Ok(body)
     }
 
+    pub async fn list_pull_request_activities_page(
+        &self,
+        project_key: &str,
+        repository_slug: &str,
+        pull_request_id: u64,
+        start: u64,
+        limit: u64,
+    ) -> Result<BitbucketPage<BitbucketPullRequestActivity>, BitbucketDcError> {
+        validate_path_segment(project_key)?;
+        validate_path_segment(repository_slug)?;
+        validate_limit(limit)?;
+        // GET /comments is file-scoped and requires path. The activity feed
+        // provides all PR comments and keeps inline anchors on the activity.
+        self.fetch_page(
+            &[
+                "rest",
+                "api",
+                "1.0",
+                "projects",
+                project_key,
+                "repos",
+                repository_slug,
+                "pull-requests",
+                &pull_request_id.to_string(),
+                "activities",
+            ],
+            &[("limit", limit.to_string()), ("start", start.to_string())],
+        )
+        .await
+    }
+
+    pub async fn list_pull_request_activities(
+        &self,
+        project_key: &str,
+        repository_slug: &str,
+        pull_request_id: u64,
+        limit: u64,
+    ) -> Result<Vec<BitbucketPullRequestActivity>, BitbucketDcError> {
+        validate_limit(limit)?;
+        self.collect_pages(|start| {
+            self.list_pull_request_activities_page(
+                project_key,
+                repository_slug,
+                pull_request_id,
+                start,
+                limit,
+            )
+        })
+        .await
+    }
+
     pub async fn list_pull_request_comments_page(
         &self,
         project_key: &str,
@@ -445,26 +496,13 @@ impl BitbucketDcClient {
         start: u64,
         limit: u64,
     ) -> Result<BitbucketPage<BitbucketComment>, BitbucketDcError> {
-        validate_path_segment(project_key)?;
-        validate_path_segment(repository_slug)?;
-        validate_limit(limit)?;
-        // GET /comments is file-scoped and requires path. The activity feed
-        // provides all PR comments and keeps inline anchors on the activity.
-        let page: BitbucketPage<BitbucketPullRequestActivity> = self
-            .fetch_page(
-                &[
-                    "rest",
-                    "api",
-                    "1.0",
-                    "projects",
-                    project_key,
-                    "repos",
-                    repository_slug,
-                    "pull-requests",
-                    &pull_request_id.to_string(),
-                    "activities",
-                ],
-                &[("limit", limit.to_string()), ("start", start.to_string())],
+        let page = self
+            .list_pull_request_activities_page(
+                project_key,
+                repository_slug,
+                pull_request_id,
+                start,
+                limit,
             )
             .await?;
         fn inherit_anchor(

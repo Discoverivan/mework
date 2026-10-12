@@ -432,6 +432,7 @@ pub fn run() {
             commands::developer::pull_request_review_state,
             commands::developer::pull_request_review_states,
             commands::developer::pull_request_review_mark_read,
+            commands::developer::pull_request_discussion_mark_read,
             commands::developer::pull_request_review_mark_all_read,
             commands::developer::pull_request_review_publish_comment,
             commands::developer::pull_request_review_comment_matches,

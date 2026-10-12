@@ -441,6 +441,16 @@ pub async fn start_review<R: Runtime>(
     app: &AppHandle<R>,
     request: PullRequestReviewRequest,
 ) -> Result<PullRequestReviewDto, String> {
+    start_review_checked(pool, app, request)
+        .await
+        .map_err(|error| error.message)
+}
+
+pub async fn start_review_checked<R: Runtime>(
+    pool: &SqlitePool,
+    app: &AppHandle<R>,
+    request: PullRequestReviewRequest,
+) -> Result<PullRequestReviewDto, crate::application::developer::DeveloperCommandError> {
     let diff = crate::application::developer::pull_request_diff(
         pool,
         &request.integration_id,
@@ -449,9 +459,12 @@ pub async fn start_review<R: Runtime>(
         &request.pull_request_id,
         request.latest_commit.as_deref().unwrap_or_default(),
     )
-    .await
-    .map_err(|error| error.message)?;
-    start_review_with_diff(pool, app, request, diff).await
+    .await?;
+    start_review_with_diff(pool, app, request, diff)
+        .await
+        .map_err(|message| {
+            crate::application::developer::command_error("review_start_failed", &message, true)
+        })
 }
 
 pub async fn start_review_with_diff<R: Runtime>(
