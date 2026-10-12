@@ -48,6 +48,8 @@
 
 ## shadcn/ui design system rules
 
+- Shared `Button` defaults (including main dialog confirmation/cancel actions) use 36 px height, 13.5 px text, and 4 px vertical padding; default icon actions are 36 px square. Minimal/Quiet changes appearance and horizontal alignment, not this default height. Preserve explicit smaller inline actions and the shared 32 px subform limits; use the large size only when intentionally required.
+
 - Primary page filter/action rows use shared `PageToolbar` (also used by `PageHeader` actions): selects, combobox triggers, inputs, and text/icon actions are 36 px high with 13.5 px text; icon buttons are 36 px square. The same shared geometry applies to settings surfaces marked `data-action-size="page"` / `data-control-size="page"`, including General Settings. Do not repeat these sizes in feature components; keep compact subform controls at 32 px.
 
 - Human-readable absolute dates use shared `formatDisplayDate` / `formatDisplayDateTime` from `@/lib/display-date`: `DD.MM.YYYY` in both languages, or `DD.MM` for compact chart axes where the year is redundant. Keep localized weekday/month names in calendar navigation and relative-time phrases. Do not change ISO command/storage timestamps, native date-input values, date keys, exports, or filename/log-date conventions solely to match display formatting.

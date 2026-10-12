@@ -125,8 +125,6 @@
 
   /* Keep sidebar geometry stable when switching the action appearance. */
   :root[data-button-style="quiet"] .app-icon-button:not(:where(.app-shell aside *)) {
-    max-width: 2rem;
-    max-height: 2rem;
     padding: 0.25rem;
   }
 
@@ -180,8 +178,6 @@
   }
 
   :root[data-button-style="quiet"] .app-action-text:not(:where(.app-shell aside *)) {
-    height: auto;
-    min-height: 2rem;
     padding: 0.25rem 0.375rem;
   }
 

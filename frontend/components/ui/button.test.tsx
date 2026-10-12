@@ -15,7 +15,7 @@ import { ToggleGroup, ToggleGroupItem } from "./toggle-group";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogTitle } from "./alert-dialog";
 import { DialogBody, DialogFooter } from "./dialog";
 
-it("uses compact actions and fields in subforms while keeping main form actions unchanged", () => {
+it("uses compact actions and fields in subforms while keeping main form actions at their primary size", () => {
   const css = readFileSync(resolve(import.meta.dirname, "../../index.css"), "utf8");
   const style = document.createElement("style");
   style.textContent = css.slice(css.indexOf(".app-icon-button,"));
@@ -52,8 +52,8 @@ it("uses compact actions and fields in subforms while keeping main form actions 
       expect(getComputedStyle(icon).maxWidth).toBe("32px");
       expect(getComputedStyle(icon.querySelector("svg")!).width).toBe("14px");
       const primaryIcon = screen.getByRole("button", { name: "Primary settings icon" });
-      if (appearance === "quiet") expect(getComputedStyle(primaryIcon).maxWidth).toBe("32px");
-      else expect(getComputedStyle(primaryIcon).maxWidth).not.toBe("32px");
+      expect(getComputedStyle(primaryIcon).maxWidth).not.toBe("32px");
+      expect(primaryIcon).toHaveClass("h-9", "w-9");
       expect(getComputedStyle(primaryIcon.querySelector("svg")!).width).not.toBe("14px");
       expect(getComputedStyle(primaryIcon.parentElement!).columnGap).not.toBe("6px");
       if (appearance === "quiet") {
@@ -176,7 +176,7 @@ it("applies the minimal action style to form and confirmation buttons", () => {
       expect(getComputedStyle(button).backgroundColor).toBe("rgba(0, 0, 0, 0)");
       expect(getComputedStyle(button).borderColor).toBe("rgba(0, 0, 0, 0)");
       expect(getComputedStyle(button).paddingLeft).toBe(button.closest(".app-dialog-actions") ? "12px" : "6px");
-      expect(getComputedStyle(button).minHeight).toBe("32px");
+      expect(button).toHaveClass("h-9", "text-[13.5px]");
     }
     expect(getComputedStyle(screen.getByText("Remove item")).getPropertyValue("--app-action-color")).toBe("var(--destructive)");
     expect(getComputedStyle(screen.getByText("Keep item").closest(".app-dialog-actions")!).gap).toBe("0.5rem");
