@@ -380,15 +380,12 @@ describe("MyPullRequestsPage", () => {
     expect(screen.getByText("NEW").closest(".pr-review-card-meta")).toBeInTheDocument();
     expect(screen.getByText("UPDATED").closest(".pr-review-card-meta")).toBeInTheDocument();
     const refreshButton = screen.getByRole("button", { name: "Refresh" });
-    expect(refreshButton).toHaveClass("h-9");
     expect(refreshButton.querySelector("svg.lucide-refresh-cw")).not.toBeNull();
     expect(refreshButton).not.toHaveTextContent("Refresh");
     const readAllButton = screen.getByRole("button", { name: "Mark all as read" });
-    expect(readAllButton).toHaveClass("h-9");
     expect(readAllButton).not.toHaveTextContent("Mark all as read");
     expect(readAllButton.parentElement).toBe(refreshButton.parentElement);
     const permanentFiltersButton = screen.getByRole("button", { name: "Filters" });
-    expect(permanentFiltersButton).toHaveClass("h-9");
     expect(permanentFiltersButton).not.toHaveTextContent("Filters");
     expect(within(permanentFiltersButton.parentElement!).getAllByRole("button")[0]).toBe(permanentFiltersButton);
     expect(permanentFiltersButton.parentElement).toHaveClass("ml-auto");

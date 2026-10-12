@@ -1,3 +1,4 @@
+import { PageToolbar } from "@/components/shared/PageToolbar";
 import { useCallback, useEffect, useState } from "react";
 import { CheckCheck, RefreshCw, Settings2 } from "lucide-react";
 
@@ -346,9 +347,9 @@ export function AuthoredPullRequestsPage() {
         ) : undefined}
       />
 
-      <div className="flex flex-wrap items-center gap-2">
+      <PageToolbar>
         <Select value={quickFilter} onValueChange={(value) => setQuickFilter(value as "all" | "needs_action")}>
-          <SelectTrigger aria-label={t("pr.quickFilters.authored")} className="h-9 text-[13.5px]">
+          <SelectTrigger aria-label={t("pr.quickFilters.authored")}>
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
@@ -361,7 +362,7 @@ export function AuthoredPullRequestsPage() {
             type="button"
             variant="outline"
             size="icon"
-            className="h-9 w-9"
+
             aria-label={t("pr.displayOptions")}
             title={t("pr.displayOptions")}
             onClick={() => setDisplayOptionsOpen(true)}
@@ -374,7 +375,7 @@ export function AuthoredPullRequestsPage() {
             type="button"
             variant="outline"
             size="icon"
-            className="h-9 w-9"
+
             aria-label={polling ? t("pr.refreshing") : t("pr.refresh")}
             title={polling ? t("pr.refreshing") : t("pr.refresh")}
             onClick={() => void syncPullRequests()}
@@ -387,7 +388,7 @@ export function AuthoredPullRequestsPage() {
             variant="outline"
             size="icon"
             actionTone="neutral"
-            className="h-9 w-9"
+
             aria-label={t("pr.readAll")}
             title={t("pr.readAll")}
             onClick={() => void markAllRead()}
@@ -396,7 +397,7 @@ export function AuthoredPullRequestsPage() {
             {readAllPending ? <RefreshCw className="animate-spin" aria-hidden="true" /> : <CheckCheck aria-hidden="true" />}
           </Button>
         </div>
-      </div>
+      </PageToolbar>
 
       {loading ? <div role="status" aria-label={t("pr.loadingAuthored")}>{t("pr.loading")}</div> : null}
       {error ? (

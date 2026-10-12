@@ -42,11 +42,16 @@ pub struct CronExplanationDto {
 fn cron_explanation(bytes: &[u8]) -> Result<CronExplanationDto, String> {
     let mut result: CronExplanationDto =
         serde_json::from_slice(bytes).map_err(|_| "AI returned an invalid cron explanation")?;
-    result.explanation = result.explanation.trim().to_owned();
-    if result.explanation.is_empty() || result.explanation.chars().count() > 4000 {
+    result.explanation = validated_cron_explanation(result.explanation)?;
+    Ok(result)
+}
+
+fn validated_cron_explanation(explanation: String) -> Result<String, String> {
+    let explanation = explanation.trim().to_owned();
+    if explanation.is_empty() || explanation.chars().count() > 4000 {
         return Err("AI returned an invalid cron explanation".into());
     }
-    Ok(result)
+    Ok(explanation)
 }
 
 pub async fn explain_cron(
@@ -91,11 +96,7 @@ fn cron_generation(bytes: &[u8]) -> Result<CronGenerationDto, String> {
         result.expression = required_text(&result.expression, "Cron expression", 200)?;
         next_check_at(TaskTrackerScheduleKind::Cron, &result.expression, now_ms())?;
     }
-    result.explanation = cron_explanation(
-        &serde_json::to_vec(&serde_json::json!({"explanation": result.explanation}))
-            .map_err(|e| e.to_string())?,
-    )?
-    .explanation;
+    result.explanation = validated_cron_explanation(result.explanation)?;
     Ok(result)
 }
 
@@ -1648,6 +1649,24 @@ mod tests {
         should_compare_snapshot, validate_max_tracked_issues, TaskTrackerMonitorExportRequest,
         TaskTrackerScheduleKind,
     };
+
+    #[test]
+    fn accepts_a_generated_cron_response_and_schedules_it() {
+        let generated = super::cron_generation(
+            br#"{"expression":" 0 9 * * 1-5 ","explanation":" Every weekday at nine UTC. "}"#,
+        )
+        .unwrap();
+        assert_eq!(generated.expression, "0 9 * * 1-5");
+        assert_eq!(generated.explanation, "Every weekday at nine UTC.");
+        let monday = time::macros::datetime!(2026-10-12 08:00 UTC);
+        let next = next_check_at(
+            TaskTrackerScheduleKind::Cron,
+            &generated.expression,
+            monday.unix_timestamp() * 1000,
+        )
+        .unwrap();
+        assert_eq!(next, (monday.unix_timestamp() + 3600) * 1000);
+    }
 
     #[test]
     fn resets_change_detection_after_a_monitor_exceeds_its_issue_limit() {

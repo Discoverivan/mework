@@ -461,6 +461,19 @@
   padding-left: 3px;
 }
 
+/* Primary page toolbar controls follow the PR filter/action row geometry. */
+:root[data-button-style] [data-slot="page-toolbar"] :is([role="combobox"], input.app-control-border, .app-action-text, .app-icon-button) {
+  height: 36px;
+  min-height: 36px;
+  max-height: 36px;
+  font-size: 13.5px;
+}
+
+:root[data-button-style] [data-slot="page-toolbar"] .app-icon-button {
+  width: 36px;
+  max-width: 36px;
+}
+
 /* Subform actions are smaller than page/dialog actions. Keep existing tiny controls. */
 :root[data-button-style] :where([data-slot="card"], [data-subform]) .flex:has(> :is(.app-action-text, .app-icon-button) + :is(.app-action-text, .app-icon-button)):not(:has(> :not(:is(.app-action-text, .app-icon-button)))):not([data-action-size="normal"] *):not(:where(.app-dialog-actions, .app-dialog-actions *)) {
   column-gap: 6px;

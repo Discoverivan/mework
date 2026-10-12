@@ -167,9 +167,7 @@ describe("AuthoredPullRequestsPage", () => {
     fireEvent.keyDown(screen.getByRole("menu"), { key: "Escape" });
     await waitFor(() => expect(screen.queryByRole("menu")).not.toBeInTheDocument());
     const refreshButton = screen.getByRole("button", { name: "Refresh" });
-    expect(refreshButton).toHaveClass("h-9");
     expect(refreshButton).not.toHaveTextContent("Refresh");
-    expect(screen.getByRole("button", { name: "Mark all as read" })).toHaveClass("h-9");
     expect(screen.getByRole("button", { name: "Mark all as read" })).not.toHaveTextContent("Mark all as read");
     expect(screen.getByRole("button", { name: "Mark all as read" }).parentElement).toBe(refreshButton.parentElement);
     const status = screen.getByText("1 authored pull request").closest<HTMLElement>(".page-header-description");

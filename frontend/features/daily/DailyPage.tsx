@@ -1,3 +1,4 @@
+import { PageToolbar } from "@/components/shared/PageToolbar";
 import { Hint } from "@/components/ui/tooltip";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { APP_EVENT, subscribeAppEvent } from "@/app/app-events";
@@ -681,7 +682,7 @@ export function DailyPage() {
         </DialogContent>
       </Dialog>
 
-      <div className="flex flex-wrap items-center gap-2">
+      <PageToolbar>
         {!loadingProjects && projects.length > 0 ? (
           <Select value={selectedProjectId} onValueChange={setSelectedProjectId}>
             <SelectTrigger id="daily-team-select" aria-label={t("daily.team")}>
@@ -708,7 +709,7 @@ export function DailyPage() {
                 aria-label={t("daily.sprint")}
                 aria-expanded={sprintPickerOpen}
                 disabled={loadingWorkspace}
-                className="h-10 w-fit max-w-full justify-between gap-2 px-3 font-normal"
+                className="w-fit max-w-full justify-between gap-2 px-3 font-normal"
               >
                 <span className="truncate">{selectedSprint?.name ?? t("daily.selectSprint")}</span>
                 <ChevronDown aria-hidden="true" className="-mr-1 size-4 shrink-0 opacity-50" />
@@ -778,7 +779,7 @@ export function DailyPage() {
             type="button"
             variant="outline"
             size="icon"
-            className="h-9 w-9"
+
             aria-label={t("daily.openSprintBoard")}
             title={t("daily.openSprintBoard")}
             disabled={!workspace || loadingWorkspace}
@@ -794,7 +795,7 @@ export function DailyPage() {
             type="button"
             variant="outline"
             size="icon"
-            className="h-9 w-9"
+
             aria-label={t("daily.aiSummary")}
             title={t("daily.aiSummary")}
             disabled={!workspace || loadingWorkspace}
@@ -813,7 +814,7 @@ export function DailyPage() {
             type="button"
             variant={presenterOpen ? "secondary" : "default"}
             size="icon"
-            className="h-9 w-9"
+
             disabled={presenterBusy || !workspace || loadingWorkspace || (!presenterOpen && !selectedMember)}
             aria-busy={presenterBusy}
             aria-pressed={presenterOpen}
@@ -828,7 +829,7 @@ export function DailyPage() {
             type="button"
             variant="outline"
             size="icon"
-            className="h-9 w-9"
+
             aria-label={refreshingStatuses ? t("daily.refreshing") : t("daily.refresh")}
             title={refreshingStatuses ? t("daily.refreshing") : t("daily.refresh")}
             disabled={!selectedProjectId || loadingWorkspace || refreshingStatuses}
@@ -842,7 +843,7 @@ export function DailyPage() {
           <CreateButton
             iconOnly
             type="button"
-            className="h-9 w-9"
+
             aria-label={t("daily.createTask")}
             title={t("daily.createTask")}
             disabled={!selectedProjectId || !workspace}
@@ -852,7 +853,7 @@ export function DailyPage() {
             }}
           />
         </div>
-      </div>
+      </PageToolbar>
 
       <Dialog open={aiSummaryOpen} onOpenChange={(open) => { if (!aiBusy) setAiSummaryOpen(open); }}>
         <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl">

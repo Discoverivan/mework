@@ -1,3 +1,4 @@
+import { PageToolbar } from "@/components/shared/PageToolbar";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { APP_EVENT, subscribeAppEvent } from "@/app/app-events";
 import { readUpdatedTeamMembers } from "../planning/team-members-state";
@@ -816,7 +817,7 @@ export function CreateTaskPage() {
         className="page-header--create-task"
       />
 
-      <div className="mb-4 flex flex-wrap items-center gap-2">
+      <PageToolbar className="mb-4">
         <Select
           value={selectedTeamId ?? ""}
           onValueChange={(teamId) => {
@@ -826,7 +827,7 @@ export function CreateTaskPage() {
           }}
           disabled={teamsLoading || teams.length === 0}
         >
-          <SelectTrigger id="create-task-team-select" aria-label={t("task.team")} className="h-9 text-[13.5px]">
+          <SelectTrigger id="create-task-team-select" aria-label={t("task.team")}>
             <SelectValue placeholder={teamsLoading ? t("task.loadingTeams") : t("task.selectTeam")} />
           </SelectTrigger>
           <SelectContent>
@@ -836,13 +837,12 @@ export function CreateTaskPage() {
         <div className="ml-auto flex items-center gap-2">
           <CreateButton
             type="button"
-            className="h-9"
             onClick={() => setDialogOpen(true)}
             aria-label={t("task.new")}
             title={t("task.new")}
           />
         </div>
-      </div>
+      </PageToolbar>
 
       {teamsError ? <p className="text-sm text-destructive" role="alert">{teamsError}</p> : null}
       {selectedTeam && selectedContext?.membersUnavailable ? <p className="text-sm text-muted-foreground">{t("task.membersUnavailable", { team: selectedTeam.name })}</p> : null}

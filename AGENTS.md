@@ -48,6 +48,8 @@
 
 ## shadcn/ui design system rules
 
+- Primary page filter/action rows use shared `PageToolbar` (also used by `PageHeader` actions): selects, combobox triggers, inputs, and text/icon actions are 36 px high with 13.5 px text; icon buttons are 36 px square. Do not repeat these sizes in feature components. Keep the existing 32 px subform rules and normal General Settings controls separate from this page-toolbar scope.
+
 - Human-readable absolute dates use shared `formatDisplayDate` / `formatDisplayDateTime` from `@/lib/display-date`: `DD.MM.YYYY` in both languages, or `DD.MM` for compact chart axes where the year is redundant. Keep localized weekday/month names in calendar navigation and relative-time phrases. Do not change ISO command/storage timestamps, native date-input values, date keys, exports, or filename/log-date conventions solely to match display formatting.
 
 - Explanatory `i` popovers use shared `InfoPopover` with localized `label` and `title`, its 12 px title/body typography, spacing, trigger, and anchored positioning. Feature content supplies only the explanation/examples; do not duplicate Popover/Info trigger markup or override the shared font size. Existing specialized metadata popovers must keep the same small typography when their distinct behavior requires custom markup.

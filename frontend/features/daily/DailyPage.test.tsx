@@ -248,14 +248,13 @@ describe("DailyPage smoke test", () => {
     expect(screen.queryByText("Unavailable")).not.toBeInTheDocument();
     expect(screen.queryByText("Active sprint: Sprint 42")).not.toBeInTheDocument();
     const aiSummaryButton = screen.getByRole("button", { name: "AI Summary" });
-    expect(aiSummaryButton).toHaveClass("h-9", "w-9");
     expect(aiSummaryButton).not.toHaveTextContent("AI Summary");
     const refreshButton = screen.getByRole("button", { name: "Refresh" });
     const sprintBoardButton = screen.getByRole("button", { name: "Open sprint board in Jira" });
     const assigneeBoardButton = screen.getByRole("button", { name: "Open sprint board for this assignee in Jira" });
     const presenterButton = screen.getByRole("button", { name: "Presenter view" });
     const createTaskButton = screen.getByRole("button", { name: "Create task for this sprint" });
-    expect(createTaskButton).toHaveClass("h-9", "w-9", "app-icon-button");
+    expect(createTaskButton).toHaveClass("app-icon-button");
     expect(createTaskButton).not.toHaveTextContent("Create");
     expect(createTaskButton.querySelector("svg.lucide-plus")).toBeInTheDocument();
     fireEvent.click(sprintBoardButton);
@@ -267,9 +266,7 @@ describe("DailyPage smoke test", () => {
     expect(assigneeBoardButton.parentElement).toHaveAttribute("data-tooltip", "Open sprint board for this assignee in Jira");
     fireEvent.click(createTaskButton);
     expect(window.location.hash).toBe("#product/create-task?team=managed-1&sprint=sprint-1&new=1");
-    expect(refreshButton).toHaveClass("h-9", "w-9");
     expect(refreshButton).not.toHaveTextContent("Refresh");
-    expect(presenterButton).toHaveClass("h-9", "w-9");
     expect(presenterButton).not.toHaveTextContent("Presenter view");
     expect(presenterButton.querySelector("svg.lucide-presentation")).toBeInTheDocument();
     expect(createTaskButton.parentElement).toBe(refreshButton.parentElement);

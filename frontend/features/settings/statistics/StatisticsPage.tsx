@@ -249,7 +249,7 @@ export function StatisticsPage() {
         description={t("statistics.description")}
         actions={(
           <Select value={period} onValueChange={(value) => setPeriod(value as AiUsagePeriod)}>
-            <SelectTrigger className="h-9" aria-label={t("statistics.period")}><SelectValue /></SelectTrigger>
+            <SelectTrigger aria-label={t("statistics.period")}><SelectValue /></SelectTrigger>
             <SelectContent>
               {PERIODS.map((option) => <SelectItem key={option.value} value={option.value}>{t(option.label)}</SelectItem>)}
             </SelectContent>
