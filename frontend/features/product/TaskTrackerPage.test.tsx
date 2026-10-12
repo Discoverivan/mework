@@ -8,6 +8,8 @@ import { I18nContext } from "@/i18n/context";
 import { ru } from "@/i18n/locales/ru";
 import { AppLanguage, APP_LANGUAGE_LOCALES } from "@/i18n/types";
 import {
+  generateTaskTrackerCron,
+  explainTaskTrackerCron,
   checkTaskTrackerNow,
   listTaskTrackerMonitors,
   saveTaskTrackerMonitor,
@@ -20,6 +22,8 @@ import type { TaskTrackerMonitor } from "@/shared/contracts/task-tracker";
 vi.mock("@tauri-apps/plugin-dialog", () => ({ save: vi.fn() }));
 vi.mock("@tauri-apps/plugin-opener", () => ({ openUrl: vi.fn() }));
 vi.mock("@/shared/contracts/task-tracker", () => ({
+  generateTaskTrackerCron: vi.fn(),
+  explainTaskTrackerCron: vi.fn(),
   checkTaskTrackerNow: vi.fn(),
   deleteTaskTrackerMonitor: vi.fn(),
   listTaskTrackerMonitors: vi.fn(),
@@ -62,6 +66,8 @@ const monitor: TaskTrackerMonitor = {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  vi.mocked(generateTaskTrackerCron).mockResolvedValue({ expression: "0 9 * * 1-5", explanation: "Every weekday at nine UTC." });
+  vi.mocked(explainTaskTrackerCron).mockResolvedValue({ explanation: "Every five minutes in UTC." });
   vi.mocked(listTaskTrackerMonitors).mockResolvedValue([monitor]);
   vi.mocked(validateTaskTrackerJql).mockResolvedValue({ issueCount: 1, truncated: false, issues: monitor.issues });
   vi.mocked(saveTaskTrackerMonitor).mockResolvedValue(monitor);
@@ -103,20 +109,59 @@ describe("TaskTrackerPage", () => {
     expect(copyJqlButton.parentElement?.querySelector("code")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Edit monitor" }));
     expect(screen.getByRole("dialog")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Delete" }).parentElement).toHaveClass("mr-auto");
-    expect(screen.getByRole("dialog").querySelector("label")?.textContent).toBe("Enabled");
+    expect(screen.getByRole("button", { name: "Delete" }).parentElement).toHaveClass("app-dialog-actions");
+    expect(screen.getByRole("button", { name: "Cancel" })).toHaveAttribute("data-dialog-cancel");
+    expect(screen.getByRole("dialog").querySelector("label")?.textContent).toBe("Name");
+    fireEvent.click(screen.getByRole("combobox", { name: "Mode" }));
+    fireEvent.click(screen.getByRole("option", { name: "Cron" }));
+    expect(screen.getByLabelText("Cron expression")).toHaveValue("*/5 * * * *");
+    expect(screen.getByLabelText("Cron expression")).toHaveAttribute("aria-invalid", "false");
+    fireEvent.pointerDown(screen.getByRole("button", { name: "Cron actions" }), { button: 0, ctrlKey: false });
+    fireEvent.click(screen.getByRole("menuitem", { name: "Cron format and examples" }));
+    expect(await screen.findByText("Every 5 minutes.")).toBeInTheDocument();
+    fireEvent.click(screen.getAllByRole("button", { name: "Close" }).find((button) => button.hasAttribute("data-dialog-cancel"))!);
+    fireEvent.change(screen.getByLabelText("Cron expression"), { target: { value: "0 9 * * *" } });
+    fireEvent.click(screen.getByRole("combobox", { name: "Mode" }));
+    fireEvent.click(screen.getByRole("option", { name: "Period" }));
+    expect(screen.getByLabelText("Interval")).toHaveValue("5");
+    fireEvent.click(screen.getByRole("combobox", { name: "Mode" }));
+    fireEvent.click(screen.getByRole("option", { name: "Cron" }));
+    expect(screen.getByLabelText("Cron expression")).toHaveValue("0 9 * * *");
+    fireEvent.pointerDown(screen.getByRole("button", { name: "Cron actions" }), { button: 0, ctrlKey: false });
+    fireEvent.click(screen.getByRole("menuitem", { name: "AI, explain" }));
+    await waitFor(() => expect(screen.getByText("Every five minutes in UTC.")).toBeInTheDocument());
+    expect(explainTaskTrackerCron).toHaveBeenCalledWith("0 9 * * *");
+    fireEvent.click(screen.getAllByRole("button", { name: "Close" }).find((button) => button.hasAttribute("data-dialog-cancel"))!);
+    fireEvent.pointerDown(screen.getByRole("button", { name: "Cron actions" }), { button: 0, ctrlKey: false });
+    fireEvent.click(screen.getByRole("menuitem", { name: "Create cron with AI" }));
+    fireEvent.change(screen.getByLabelText("Schedule description"), { target: { value: "Every weekday at nine UTC" } });
+    fireEvent.click(screen.getByRole("button", { name: "Generate" }));
+    await waitFor(() => expect(screen.getByText("Every weekday at nine UTC.")).toBeInTheDocument());
+    expect(generateTaskTrackerCron).toHaveBeenCalledWith("Every weekday at nine UTC");
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText } });
+    fireEvent.click(screen.getByRole("button", { name: "Copy cron" }));
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith("0 9 * * 1-5"));
+    fireEvent.click(screen.getByRole("button", { name: "Use cron" }));
+    expect(screen.getByLabelText("Cron expression")).toHaveValue("0 9 * * 1-5");
+
+    expect(screen.getByRole("button", { name: "Save" })).toBeEnabled();
+    fireEvent.click(screen.getByRole("switch", { name: "Enabled" }));
+    expect(screen.getByRole("switch", { name: "Enabled" })).not.toBeChecked();
     vi.mocked(validateTaskTrackerJql).mockResolvedValueOnce({ issueCount: 10, truncated: true, issues: monitor.issues });
-    fireEvent.click(screen.getByRole("button", { name: "Validate JQL" }));
+    const validateButton = screen.getByRole("button", { name: "Validate" });
+    expect(validateButton.parentElement).toHaveAttribute("data-card-header-variant", "section");
+    fireEvent.click(validateButton);
     await waitFor(() => expect(validateTaskTrackerJql).toHaveBeenCalledWith(monitor.jql));
     expect(screen.getByText("JQL is valid. Issues found: 10+")).toBeInTheDocument();
-    expect(screen.getByRole("dialog")).not.toHaveTextContent("Example task");
+    expect(screen.getByRole("dialog", { name: "Edit monitor" })).not.toHaveTextContent("Example task");
     fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
     fireEvent.click(screen.getByRole("button", { name: "Create monitor" }));
     const createDialog = screen.getByRole("dialog");
     expect(screen.getByLabelText("Name")).toBeInTheDocument();
     expect(createDialog.textContent).toContain("Enabled");
     expect(screen.getByRole("button", { name: "Create" })).toBeInTheDocument();
-    expect(screen.getByLabelText("Name").closest("[class*='overflow-y-auto']")).toHaveClass("pr-3");
+    expect(screen.getByLabelText("Name").closest("[class*='overflow-y-auto']")).toHaveClass("app-dialog-sections");
     fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
     fireEvent.click(screen.getByRole("button", { name: /Filters/ }));
     fireEvent.click(screen.getByRole("checkbox", { name: "Only changed" }));
@@ -268,8 +313,8 @@ describe("TaskTrackerPage", () => {
     expect(importButton).toHaveAttribute("data-tooltip", "Import from JSON");
     expect(importButton).not.toHaveTextContent("Import from JSON");
     expect(importButton.querySelector("svg")).toBeInTheDocument();
-    expect(importButton.parentElement).toHaveClass("mr-auto");
-    expect(screen.getByLabelText("Maximum tracked issues")).toHaveValue(100);
+    expect(importButton.parentElement).toHaveAttribute("data-card-header-variant", "section");
+    expect(screen.getByLabelText("Maximum tracked issues")).toHaveValue("100");
     const file = new File([JSON.stringify({
       format: "mework-task-tracker-monitor",
       version: 1,
@@ -287,11 +332,24 @@ describe("TaskTrackerPage", () => {
 
     await waitFor(() => expect(screen.getByLabelText("Name")).toHaveValue("Imported monitor"));
     expect(screen.getByLabelText("JQL")).toHaveValue("project = DEMO");
-    expect(screen.getByLabelText("Maximum tracked issues")).toHaveValue(250);
-    expect(screen.getByLabelText("Schedule")).toHaveValue("period");
-    expect(screen.getByLabelText("Seconds")).toHaveValue("600");
-    expect(screen.getByRole("checkbox", { name: "New issues" })).toBeChecked();
-    expect(screen.getByRole("checkbox", { name: "Removed issues" })).not.toBeChecked();
+    expect(screen.getByLabelText("Maximum tracked issues")).toHaveValue("250");
+    expect(screen.getByRole("combobox", { name: "Mode" })).toHaveTextContent("Period");
+    expect(screen.getByLabelText("Interval")).toHaveValue("10");
+    expect(screen.getByRole("combobox", { name: "Interval unit" })).toHaveTextContent("Minutes");
+    expect(screen.getByRole("switch", { name: "New issues" })).toBeChecked();
+    expect(screen.getByRole("switch", { name: "Removed issues" })).not.toBeChecked();
+    fireEvent.click(screen.getByRole("switch", { name: "Track events" }));
+    expect(screen.getByRole("switch", { name: "New issues" })).toBeDisabled();
+    fireEvent.click(screen.getByRole("switch", { name: "Track events" }));
+    expect(screen.getByRole("switch", { name: "New issues" })).toBeEnabled();
+    expect(screen.getByRole("switch", { name: "Removed issues" })).not.toBeChecked();
+    const maxIssues = screen.getByRole("textbox", { name: "Maximum tracked issues" });
+    fireEvent.change(maxIssues, { target: { value: "350" } });
+    fireEvent.change(screen.getByRole("textbox", { name: "Interval" }), { target: { value: "2" } });
+    fireEvent.click(screen.getByRole("combobox", { name: "Interval unit" }));
+    fireEvent.click(screen.getByRole("option", { name: "Hours" }));
+    fireEvent.click(screen.getByRole("button", { name: "Create" }));
+    await waitFor(() => expect(saveTaskTrackerMonitor).toHaveBeenCalledWith(expect.objectContaining({ maxTrackedIssues: 350, scheduleValue: "7200", trackedEvents: ["newIssues", "statusChanges"] })));
   });
 
   it("opens a JSON save dialog and writes the monitor settings to the chosen path", async () => {

@@ -10,6 +10,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { PageHeader } from "@/components/shared/PageHeader";
 import { useI18n } from "@/i18n/context";
+import { formatDisplayDate } from "@/lib/display-date";
 import type { ConfluenceSearchResult } from "@/shared/contracts/confluence";
 import { listIntegrations } from "@/features/settings/api";
 import { listManagedProjects } from "@/features/settings/planning-projects/api";
@@ -20,7 +21,7 @@ import { searchConfluence } from "./api";
 const ALL_SPACES_VALUE = "__all_spaces__";
 
 export function ConfluenceSearchPage() {
-  const { locale, t } = useI18n();
+  const { t } = useI18n();
   const [integrationId, setIntegrationId] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   const [teamSpaces, setTeamSpaces] = useState<ManagedProjectSettings[]>([]);
@@ -137,14 +138,14 @@ export function ConfluenceSearchPage() {
           {results.length === 0 ? (
             <Card><CardContent className="px-4 py-3 text-sm text-muted-foreground">{t("confluence.noResults")}</CardContent></Card>
           ) : results.map((result) => (
-            <Card key={`${result.id}:${result.url ?? "no-url"}`}>
+            <Card data-icon-size="normal" key={`${result.id}:${result.url ?? "no-url"}`}>
               <CardHeader className="gap-2 pb-3">
                 <div className="flex items-start justify-between gap-4">
                   <div className="min-w-0 space-y-1">
                     <CardTitle className="text-base leading-snug">{result.title}</CardTitle>
                     <CardDescription>
                       {result.spaceName ?? t("confluence.unknownSpace")}
-                      {result.lastModified ? ` · ${new Intl.DateTimeFormat(locale, { dateStyle: "medium" }).format(new Date(result.lastModified))}` : ""}
+                      {result.lastModified ? ` · ${formatDisplayDate(result.lastModified)}` : ""}
                     </CardDescription>
                   </div>
                   {result.url ? (

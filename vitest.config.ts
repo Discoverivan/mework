@@ -11,6 +11,8 @@ export default defineConfig({
   },
   test: {
     environment: "jsdom",
+    // Bound concurrent DOM environments so CI and local smoke checks use the same budget.
+    maxWorkers: 2,
     globals: true,
     setupFiles: ["./frontend/test/setup.ts"],
   },

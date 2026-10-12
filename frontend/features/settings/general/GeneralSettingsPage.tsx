@@ -221,7 +221,7 @@ export function GeneralSettingsPage() {
     settings.notificationPermission !== "granted";
 
   return (
-    <section className="space-y-4" aria-label={t("general.heading")}>
+    <section className="space-y-4" data-action-size="page" aria-label={t("general.heading")}>
       {loading ? (
         <Alert role="status" aria-live="polite">
           <AlertDescription>{t("general.loading")}</AlertDescription>
@@ -244,7 +244,7 @@ export function GeneralSettingsPage() {
               {t("general.languageDescription")}
             </CardDescription>
           </div>
-          <Button type="button" variant="outline" size="icon" className="size-9 shrink-0" disabled={saving || appearanceSaving}
+          <Button type="button" variant="outline" size="icon" className="shrink-0" disabled={saving || appearanceSaving}
             aria-expanded={languageExpanded} aria-controls="general-language-details"
             aria-label={t(languageExpanded ? "general.collapseLanguage" : "general.expandLanguage")}
             title={t(languageExpanded ? "general.collapseLanguage" : "general.expandLanguage")}
@@ -253,7 +253,7 @@ export function GeneralSettingsPage() {
           </Button>
         </CardHeader>
         <SettingsReveal open={languageExpanded} id="general-language-details">
-        <CardContent className="flex flex-col gap-3 px-4 pb-3.5 pt-3.5">
+        <CardContent data-control-size="page" className="flex flex-col gap-3 px-4 pb-3.5 pt-3.5">
           <div className="flex flex-wrap items-center justify-between gap-4">
             <div className="min-w-0">
               <Label htmlFor="general-language" alignment="inline" className="font-medium">
@@ -265,7 +265,7 @@ export function GeneralSettingsPage() {
             </div>
             <div className="w-full sm:w-auto">
               <Select value={language} onValueChange={(value) => void handlePreferencesChange({ language: value as AppLanguage })} disabled={loading || saving || appearanceSaving}>
-                <SelectTrigger id="general-language" aria-label={t("general.languageUi")}><SelectValue /></SelectTrigger>
+                <SelectTrigger data-menu-align="end" id="general-language" aria-label={t("general.languageUi")}><SelectValue /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value={AppLanguage.English}>English</SelectItem>
                   <SelectItem value={AppLanguage.Russian}>Русский</SelectItem>
@@ -285,7 +285,7 @@ export function GeneralSettingsPage() {
             </div>
             <div className="w-full sm:w-auto">
               <Select value={settings?.aiResponseLanguage ?? AiResponseLanguage.SameAsUi} onValueChange={(value) => void handlePreferencesChange({ aiResponseLanguage: value as AiResponseLanguage })} disabled={loading || saving || settings === null}>
-                <SelectTrigger id="general-ai-response-language" aria-label={t("general.aiResponseLanguage")}><SelectValue /></SelectTrigger>
+                <SelectTrigger data-menu-align="end" id="general-ai-response-language" aria-label={t("general.aiResponseLanguage")}><SelectValue /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value={AiResponseLanguage.SameAsUi}>{t("general.aiResponseLanguageSameAsUi")}</SelectItem>
                   <SelectItem value={AiResponseLanguage.English}>{t("general.aiResponseLanguageEnglish")}</SelectItem>
@@ -304,7 +304,7 @@ export function GeneralSettingsPage() {
             <CardTitle className="text-base font-semibold leading-tight">{t("general.appearance")}</CardTitle>
             <CardDescription className="mt-1 leading-snug">{t("general.appearanceDescription")}</CardDescription>
           </div>
-          <Button type="button" variant="outline" size="icon" className="size-9 shrink-0" disabled={saving || appearanceSaving || buttonStyleSaving || panelStyleSaving}
+          <Button type="button" variant="outline" size="icon" className="shrink-0" disabled={saving || appearanceSaving || buttonStyleSaving || panelStyleSaving}
             aria-expanded={appearanceExpanded} aria-controls="general-appearance-details"
             aria-label={t(appearanceExpanded ? "general.collapseAppearance" : "general.expandAppearance")}
             title={t(appearanceExpanded ? "general.collapseAppearance" : "general.expandAppearance")}
@@ -313,7 +313,7 @@ export function GeneralSettingsPage() {
           </Button>
         </CardHeader>
         <SettingsReveal open={appearanceExpanded} id="general-appearance-details">
-        <CardContent className="space-y-3.5 px-4 py-3.5">
+        <CardContent data-control-size="page" className="space-y-3.5 px-4 py-3.5">
           <div className="flex flex-wrap items-center justify-between gap-4">
             <div className="min-w-0 flex-1">
               <Label htmlFor="general-theme" alignment="inline" className="font-medium">
@@ -325,7 +325,7 @@ export function GeneralSettingsPage() {
             </div>
             <div className="w-full sm:w-auto">
               <Select value={themePreference} onValueChange={(value) => void handlePreferencesChange({ themePreference: value as ThemePreference })} disabled={loading || saving || appearanceSaving}>
-                <SelectTrigger id="general-theme" aria-label={t("general.theme")}><SelectValue /></SelectTrigger>
+                <SelectTrigger data-menu-align="end" id="general-theme" aria-label={t("general.theme")}><SelectValue /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="system">{t("general.themeSystem")}</SelectItem>
                   <SelectItem value="light">{t("general.themeLight")}</SelectItem>
@@ -347,7 +347,7 @@ export function GeneralSettingsPage() {
                     setError(t("general.saveError", { error: errorMessage(saveError, t("common.unknownError")) }))
                   );
                 }} disabled={loading || saving || panelStyleSaving}>
-                <SelectTrigger id="general-panel-style" aria-label={t("general.panelStyle")}><SelectValue /></SelectTrigger>
+                <SelectTrigger data-menu-align="end" id="general-panel-style" aria-label={t("general.panelStyle")}><SelectValue /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="bordered">{t("general.panelStyleBordered")}</SelectItem>
                   <SelectItem value="borderless">{t("general.panelStyleBorderless")}</SelectItem>
@@ -368,7 +368,7 @@ export function GeneralSettingsPage() {
                     setError(t("general.saveError", { error: errorMessage(saveError, t("common.unknownError")) }))
                   );
                 }} disabled={loading || saving || buttonStyleSaving}>
-                <SelectTrigger id="general-button-style" aria-label={t("general.buttonStyle")}><SelectValue /></SelectTrigger>
+                <SelectTrigger data-menu-align="end" id="general-button-style" aria-label={t("general.buttonStyle")}><SelectValue /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="filled">{t("general.buttonStyleFilled")}</SelectItem>
                   <SelectItem value="filled_borderless">{t("general.buttonStyleFilledBorderless")}</SelectItem>
@@ -382,7 +382,7 @@ export function GeneralSettingsPage() {
       </Card>
 
       <Card>
-        <CardHeader variant="section" className="space-y-4">
+        <CardHeader variant="section" data-control-size="page" className="space-y-4">
           <div className="flex flex-wrap items-center justify-between gap-4">
             <div className="-translate-y-px min-w-0 flex-1">
               <Label htmlFor="general-terminal" alignment="inline" className="text-base font-semibold leading-tight">
@@ -394,7 +394,7 @@ export function GeneralSettingsPage() {
             </div>
             <div className="w-full sm:w-auto">
               <Select value={terminalPreferences?.selectedTerminal ?? ""} onValueChange={(value) => void handleTerminalPreferenceChange(value)} disabled={loading || terminalLoading || terminalSaving || terminalPreferences === null}>
-                <SelectTrigger id="general-terminal" aria-label={t("general.terminal")}>
+                <SelectTrigger data-menu-align="end" id="general-terminal" aria-label={t("general.terminal")}>
                   <SelectValue placeholder={terminalLoading ? t("general.terminalLoading") : t("general.terminalOptionsUnavailable")} />
                 </SelectTrigger>
                 <SelectContent>
@@ -495,6 +495,7 @@ export function GeneralSettingsPage() {
                     type="button"
                     variant="ghost"
                     size="icon"
+                    data-action-size="inline"
                     className="h-6 w-6 text-muted-foreground hover:text-foreground [&_svg]:!size-3.5"
                     onClick={() => void handleTestNotification("taskTracker")}
                     disabled={loading || testingNotifications.has("taskTracker") || !(settings?.notificationsEnabled ?? true) || !(settings?.taskTrackerNotificationsEnabled ?? true)}
@@ -529,6 +530,7 @@ export function GeneralSettingsPage() {
                     type="button"
                     variant="ghost"
                     size="icon"
+                    data-action-size="inline"
                     className="h-6 w-6 text-muted-foreground hover:text-foreground [&_svg]:!size-3.5"
                     onClick={() => void handleTestNotification("review")}
                     disabled={loading || testingNotifications.has("review") || !(settings?.notificationsEnabled ?? true) || !(settings?.reviewNotificationsEnabled ?? true)}
@@ -565,6 +567,7 @@ export function GeneralSettingsPage() {
                     type="button"
                     variant="ghost"
                     size="icon"
+                    data-action-size="inline"
                     className="h-6 w-6 text-muted-foreground hover:text-foreground [&_svg]:!size-3.5"
                     onClick={() => void handleTestNotification("authored")}
                     disabled={loading || testingNotifications.has("authored") || !(settings?.notificationsEnabled ?? true) || !(settings?.authoredNotificationsEnabled ?? true)}

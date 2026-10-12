@@ -1,17 +1,17 @@
 import type { ReactNode } from "react";
-import { buttonVariants } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { ManualNumberField } from "@/components/shared/ManualNumberField";
-import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useI18n } from "@/i18n/context";
 import { cn } from "@/lib/utils";
 import type { AiProvider, AiSettingsProfile, ReviewArbitrationSettings as Settings } from "@/shared/contracts/settings";
 import { AiOverrideEditor } from "./AiOverrideEditor";
 
-const reviewModeOptionClassName = cn(
-  buttonVariants({ variant: "outline", size: "sm" }),
-  "review-mode-option relative h-[30px] bg-background px-[14px] text-muted-foreground transition-none hover:bg-background hover:text-foreground data-[state=on]:bg-primary data-[state=on]:text-primary-foreground data-[state=on]:hover:bg-primary data-[state=on]:hover:text-primary-foreground/80",
-);
+function AnimatedReviewSection({ expanded, children }: { expanded: boolean; children: ReactNode }) {
+  return <div aria-hidden={!expanded} inert={!expanded} className={cn("grid transition-[grid-template-rows,opacity] duration-200 ease-in-out motion-reduce:transition-none", expanded ? "grid-rows-[1fr] opacity-100" : "grid-rows-[0fr] opacity-0")}>
+    <div className="min-h-0 overflow-hidden">{children}</div>
+  </div>;
+}
 
 export function ReviewModeControl({ settings, disabled, onChange }: {
   settings: Settings;
@@ -19,21 +19,17 @@ export function ReviewModeControl({ settings, disabled, onChange }: {
   onChange: (settings: Settings) => void;
 }) {
   const { t } = useI18n();
-  const singleLabel = t("settings.ai.reviewModeSingle");
-  const arbiterLabel = t("settings.ai.reviewModeArbiter");
-  return <ToggleGroup type="single" size="sm" role="radiogroup" aria-label={t("settings.ai.reviewMode")}
+  return <Select
     value={settings.enabled ? "arbiter" : "single"} disabled={disabled}
-    onValueChange={() => onChange({ ...settings, enabled: !settings.enabled })}
-    className="w-fit gap-0">
-    <ToggleGroupItem value="single" title={t("settings.ai.reviewModeSingleHelp")}
-      className={cn(reviewModeOptionClassName, "rounded-r-none")}>
-      {singleLabel}
-    </ToggleGroupItem>
-    <ToggleGroupItem value="arbiter" title={t("settings.ai.reviewModeArbiterHelp")}
-      className={cn(reviewModeOptionClassName, "-ml-px rounded-l-none")}>
-      {arbiterLabel}
-    </ToggleGroupItem>
-  </ToggleGroup>;
+    onValueChange={value => onChange({ ...settings, enabled: value === "arbiter" })}>
+    <SelectTrigger aria-label={t("settings.ai.reviewMode")} title={t(settings.enabled ? "settings.ai.reviewModeArbiterHelp" : "settings.ai.reviewModeSingleHelp")} className="h-9">
+      <SelectValue />
+    </SelectTrigger>
+    <SelectContent>
+      <SelectItem value="single">{t("settings.ai.reviewModeSingle")}</SelectItem>
+      <SelectItem value="arbiter">{t("settings.ai.reviewModeArbiter")}</SelectItem>
+    </SelectContent>
+  </Select>;
 }
 
 export function ReviewArbitrationSettings({ settings, profile, providers, disabled, fieldErrors, fieldWarnings, onChange, onProfileChange, onReviewCountValidityChange, reviewCountReset, children, arbiterStatus, arbiterInstructions, arbiterRetries }: {
@@ -54,7 +50,9 @@ export function ReviewArbitrationSettings({ settings, profile, providers, disabl
 }) {
   const { t } = useI18n();
   return <div className="@container flex flex-col gap-3">
-    {!settings.enabled ? children : <div className="flex flex-col gap-4">
+    <div>
+      <AnimatedReviewSection expanded={settings.enabled}>
+      <div className="space-y-4 pb-2">
       <section aria-labelledby="ai-review-arbiter-title" className="flex min-w-0 flex-col gap-3">
         <h4 id="ai-review-arbiter-title" className="text-sm font-medium">{t("settings.ai.reviewArbiter")}</h4>
         <div className="flex flex-col gap-4">
@@ -71,17 +69,21 @@ export function ReviewArbitrationSettings({ settings, profile, providers, disabl
         </div>
       </section>
       <Separator />
-      <section aria-labelledby="ai-reviewers-title" className="flex min-w-0 flex-col gap-3">
-        <div className="flex flex-wrap items-center gap-3 [&_input]:h-6 [&_input]:w-6 [&_input]:min-w-0 [&_input]:p-0.5 [&_input]:text-center [&_input]:leading-none">
+      </div>
+      </AnimatedReviewSection>
+      <section aria-labelledby={settings.enabled ? "ai-reviewers-title" : undefined} className="flex min-w-0 flex-col">
+      <AnimatedReviewSection expanded={settings.enabled}>
+        <div className="flex flex-wrap items-center gap-3 pb-3 [&_input]:text-center">
           <h4 id="ai-reviewers-title" className="text-sm font-medium">{t("settings.ai.independentReviewers")}</h4>
           <span id="ai-review-count-label" className="sr-only">{t("settings.ai.reviewCount")}</span>
           <ManualNumberField key={reviewCountReset} id="ai-review-count" label={t("settings.ai.reviewCount")} labelledBy="ai-review-count-label"
-            value={settings.reviewCount} min={2} max={9} disabled={disabled}
+            value={settings.reviewCount} min={2} max={9} minVisibleDigits={1} size="compact" disabled={disabled}
             errors={{ required: t("settings.ai.reviewCountRequired"), number: t("settings.ai.reviewCountInteger"), range: t("settings.ai.reviewCountRange") }}
             onChange={(reviewCount) => onChange({ ...settings, reviewCount })} onValidityChange={onReviewCountValidityChange} />
         </div>
+      </AnimatedReviewSection>
         {children}
       </section>
-    </div>}
+    </div>
   </div>;
 }

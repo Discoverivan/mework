@@ -113,22 +113,22 @@ function ActivityBadge({ activity }: { activity: MyPullRequest["activity"] }) {
   );
 }
 
-export function AiVerdictBadge({ verdict, review }: { verdict: "ok" | "needs_changes"; review?: PullRequestReviewState }) {
+export function AiVerdictBadge({ verdict, review, className }: { verdict: "ok" | "needs_changes"; review?: PullRequestReviewState; className?: string }) {
   const { t } = useI18n();
   const approved = verdict === "ok";
   const label = t(approved ? "pr.decision.approved" : "pr.decision.needsWork");
   return (
     <Badge
       variant="outline"
-      className={cn("h-7 gap-1.5 px-2.5 py-0", review && "pr-1.5", approved ? "text-success" : "text-warning")}
+      className={cn("h-7 gap-1.5 border-input px-2.5 py-0", review && "pr-1.5", approved ? "text-success" : "text-warning", className)}
       aria-label={t("pr.aiVerdict", { verdict: label })}
     >
       <Sparkles className="size-3" aria-hidden="true" />
       {t("pr.aiVerdictLabel")}
-      <Separator orientation="vertical" className="h-4" />
+      <Separator orientation="vertical" className="h-4 bg-input" />
       {approved ? <CheckCircle2 className="size-3.5" aria-hidden="true" /> : <CircleAlert className="size-3.5" aria-hidden="true" />}
       {label}
-      {review ? <><Separator orientation="vertical" className="h-4" /><PullRequestReviewDetails review={review} inBadge /></> : null}
+      {review ? <><Separator orientation="vertical" className="h-4 bg-input" /><PullRequestReviewDetails review={review} inBadge /></> : null}
     </Badge>
   );
 }
@@ -207,6 +207,7 @@ export function PullRequestListItem({
 
   return (
     <Card
+      data-icon-size="normal"
       data-info-popover-boundary
       data-pr-status-marker={needsAction || pullRequest.activity !== "read" || hasDiscussion ? "colored" : "neutral"}
       className={cn("border-l-4", needsAction ? "border-l-rose-500" : pullRequest.activity !== "read" ? "border-l-blue-500" : hasDiscussion ? "border-l-discussion" : "border-l-transparent")}

@@ -158,6 +158,8 @@ pub struct BitbucketComment {
     pub updated_date: Option<i64>,
     pub deleted: Option<bool>,
     pub state: Option<String>,
+    #[serde(rename = "threadResolved")]
+    pub thread_resolved: Option<bool>,
     #[serde(default)]
     pub comments: Vec<BitbucketComment>,
     pub permitted: Option<bool>,

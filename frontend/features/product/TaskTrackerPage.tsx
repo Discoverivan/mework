@@ -2,17 +2,25 @@ import { Hint } from "@/components/ui/tooltip";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { save } from "@tauri-apps/plugin-dialog";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import { AlertTriangle, Check, CheckCheck, ChevronDown, ChevronUp, Copy, Download, ExternalLink, Pencil, Radar, RefreshCw, SlidersHorizontal, Trash2, Upload, X } from "lucide-react";
+import { AlertTriangle, Check, CheckCheck, ChevronDown, ChevronUp, Copy, Download, ExternalLink, Pencil, Radar, RefreshCw, SlidersHorizontal, MoreHorizontal, CircleHelp, Info, Sparkles, Trash2, Upload, X } from "lucide-react";
 
 import { APP_EVENT, emitAppEvent, subscribeAppEvent } from "@/app/app-events";
 import { PageHeader } from "@/components/shared/PageHeader";
 import { EmptyState } from "@/components/shared/EmptyState";
+import { ManualNumberField } from "@/components/shared/ManualNumberField";
+import { FieldValidationHint } from "@/components/shared/FieldValidationHint";
+import { MarkdownContent } from "@/components/shared/MarkdownContent";
+import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from "@/components/ui/dropdown-menu";
 import { useI18n, type I18nContextValue } from "@/i18n/context";
 import type { TranslationKey } from "@/i18n/locales/en";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { CreateButton } from "@/components/shared/CreateButton";
 import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Separator } from "@/components/ui/separator";
+import { Textarea } from "@/components/ui/textarea";
 import {
   Dialog,
   DialogBody,
@@ -27,6 +35,8 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { issueStatusBadgeClass } from "@/lib/issue-status-badge";
 import {
+  generateTaskTrackerCron,
+  explainTaskTrackerCron,
   checkTaskTrackerNow,
   deleteTaskTrackerMonitor,
   listTaskTrackerMonitors,
@@ -718,41 +728,312 @@ interface MonitorDialogProps {
   onDelete: () => void;
 }
 
+const MONITOR_PERIOD_UNITS = { seconds: 1, minutes: 60, hours: 3600, days: 86400 } as const;
+type MonitorPeriodUnit = keyof typeof MONITOR_PERIOD_UNITS;
+const MAX_MONITOR_PERIOD_SECONDS = 31_536_000;
+const DEFAULT_MONITOR_CRON = "*/5 * * * *";
+
+// Immediate form feedback mirrors the Rust parse_cron grammar; the core still validates saves.
+function monitorCronError(value: string, t: I18nContextValue["t"]): string | undefined {
+  if (!value.trim()) return t("forms.numberRequired");
+  const fields = value.trim().split(/\s+/);
+  if (fields.length !== 5) return t("taskTracker.cron.fieldsRequired");
+  const bounds = [[0, 59], [0, 23], [1, 31], [1, 12], [0, 6]] as const;
+  const names = ["minute", "hour", "day", "month", "weekday"] as const;
+  const unsigned = (raw: string) => /^\+?\d+$/.test(raw) && Number(raw) <= 4_294_967_295;
+  for (const [index, field] of fields.entries()) {
+    const [min, max] = bounds[index];
+    const valid = field.split(",").every((part) => {
+      const [range, step, extraStep] = part.split("/");
+      if (extraStep !== undefined || (step !== undefined && (!unsigned(step) || Number(step) === 0))) return false;
+      if (range === "*") return true;
+      const values = range.split("-");
+      if (values.length > 2 || !values.every(unsigned)) return false;
+      const from = Number(values[0]);
+      const to = Number(values[1] ?? values[0]);
+      return from >= min && to <= max && from <= to;
+    });
+    if (!valid) return t("taskTracker.cron.invalidField", { field: t(`taskTracker.cron.field.${names[index]}`), min, max });
+  }
+  return undefined;
+}
+
+function MonitorPeriodField({ seconds, disabled, t, onChange, onValidityChange }: {
+  seconds: string; disabled: boolean; t: I18nContextValue["t"];
+  onChange: (value: string) => void; onValidityChange: (valid: boolean) => void;
+}) {
+  const [unit, setUnit] = useState<MonitorPeriodUnit>(() => {
+    const value = Number(seconds);
+    return (["days", "hours", "minutes"] as const).find((candidate) => value > 0 && value % MONITOR_PERIOD_UNITS[candidate] === 0) ?? "seconds";
+  });
+  const effectiveUnit = Number(seconds) % MONITOR_PERIOD_UNITS[unit] === 0 ? unit : "seconds";
+  useEffect(() => { setUnit(effectiveUnit); }, [effectiveUnit]);
+  const factor = MONITOR_PERIOD_UNITS[effectiveUnit];
+  const max = Math.floor(MAX_MONITOR_PERIOD_SECONDS / factor);
+  return <div className="flex items-center gap-2">
+    <ManualNumberField key={effectiveUnit} id="monitor-schedule-value" label={t("taskTracker.field.interval")} labelledBy="monitor-interval-label"
+      value={Number(seconds) / factor} min={1} max={max} minVisibleDigits={1} disabled={disabled}
+      errors={{ required: t("forms.numberRequired"), number: t("forms.numberInvalid"), whole: t("forms.numberInvalid"), range: t("forms.numberRange", { min: 1, max }) }}
+      onChange={(value) => onChange(String(value * factor))} onValidityChange={onValidityChange} />
+    <Select value={effectiveUnit} disabled={disabled} onValueChange={(value) => {
+      const nextUnit = value as MonitorPeriodUnit;
+      onChange(String(Number(seconds) / factor * MONITOR_PERIOD_UNITS[nextUnit]));
+      setUnit(nextUnit);
+    }}>
+      <SelectTrigger aria-label={t("taskTracker.field.intervalUnit")}><SelectValue /></SelectTrigger>
+      <SelectContent>{(Object.keys(MONITOR_PERIOD_UNITS) as MonitorPeriodUnit[]).map((value) => <SelectItem key={value} value={value}>{t(`taskTracker.interval.${value}`)}</SelectItem>)}</SelectContent>
+    </Select>
+  </div>;
+}
+
+function CronActions({ expression, disabled, invalid, onApply }: { expression: string; disabled: boolean; invalid: boolean; onApply: (expression: string) => void }) {
+  const { t } = useI18n();
+  const [mode, setMode] = useState<"help" | "explain" | "generate" | null>(null);
+  const [responses, setResponses] = useState<Record<string, { pending?: boolean; explanation?: string; error?: string }>>({});
+  const pending = useRef(new Set<string>());
+  const key = expression.trim();
+  const response = responses[key];
+  const [description, setDescription] = useState("");
+  const [generating, setGenerating] = useState(false);
+  const generationLock = useRef(false);
+  const [generated, setGenerated] = useState<{ expression: string; explanation: string }>();
+  const [generationError, setGenerationError] = useState<string>();
+  const [copiedCron, setCopiedCron] = useState<string>();
+  const [copyError, setCopyError] = useState<string>();
+  async function copyCron(value: string) {
+    setCopyError(undefined);
+    try { await navigator.clipboard.writeText(value); setCopiedCron(value); }
+    catch { setCopyError(value); }
+  }
+  async function explain() {
+    setMode("explain");
+    if (pending.current.has(key) || response?.explanation) return;
+    pending.current.add(key);
+    setResponses((current) => ({ ...current, [key]: { pending: true } }));
+    try {
+      const result = await explainTaskTrackerCron(key);
+      setResponses((current) => ({ ...current, [key]: { explanation: result.explanation } }));
+    } catch (reason) {
+      setResponses((current) => ({ ...current, [key]: { error: errorMessage(reason, t("common.unknownError")) } }));
+    } finally { pending.current.delete(key); }
+  }
+  async function generate() {
+    if (generationLock.current) return;
+    generationLock.current = true;
+    setGenerating(true); setGenerationError(undefined); setGenerated(undefined); setCopiedCron(undefined); setCopyError(undefined);
+    try { setGenerated(await generateTaskTrackerCron(description.trim())); }
+    catch (reason) { setGenerationError(errorMessage(reason, t("common.unknownError"))); }
+    finally { generationLock.current = false; setGenerating(false); }
+  }
+  const title = t(mode === "generate" ? "taskTracker.cron.aiGenerate" : mode === "explain" ? "taskTracker.cron.aiTitle" : "taskTracker.cron.helpTitle");
+  return <>
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild><Button type="button" variant="ghost" size="icon" className="size-8 shrink-0" disabled={disabled} aria-label={t("taskTracker.cron.actions")} title={t("taskTracker.cron.actions")}><MoreHorizontal aria-hidden="true" className="size-4" /></Button></DropdownMenuTrigger>
+      <DropdownMenuContent align="end">
+        <DropdownMenuItem onSelect={() => setMode("help")}><Info aria-hidden="true" />{t("taskTracker.cron.helpTitle")}</DropdownMenuItem>
+        <DropdownMenuItem disabled={invalid} onSelect={() => void explain()}><CircleHelp aria-hidden="true" />{t("taskTracker.cron.aiExplain")}</DropdownMenuItem>
+        <DropdownMenuItem onSelect={() => setMode("generate")}><Sparkles aria-hidden="true" />{t("taskTracker.cron.aiGenerate")}</DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+    <Dialog open={mode !== null} onOpenChange={(open) => { if (!open) setMode(null); }}>
+      <DialogContent className="max-w-lg" {...(mode !== "generate" ? { "aria-describedby": undefined } : {})}>
+        <DialogHeader><DialogTitle>{title}</DialogTitle>{mode === "generate" ? <DialogDescription>{t("taskTracker.cron.generateDescription")}</DialogDescription> : null}</DialogHeader>
+        <DialogBody layout="sections">
+          {mode === "help" ? <>
+            <Card>
+              <CardHeader variant="section" className="py-2"><CardTitle className="text-sm font-semibold leading-tight">{t("taskTracker.cron.syntaxTitle")}</CardTitle></CardHeader>
+              <CardContent className="space-y-2 p-4 text-sm"><p>{t("taskTracker.cron.format")}</p><p>{t("taskTracker.cron.syntax")}</p></CardContent>
+            </Card>
+            <Card>
+              <CardHeader variant="section" className="py-2"><CardTitle className="text-sm font-semibold leading-tight">{t("taskTracker.cron.examplesTitle")}</CardTitle></CardHeader>
+              <CardContent className="p-4">
+                <ul className="space-y-3 text-sm">{([
+                  [DEFAULT_MONITOR_CRON, "taskTracker.cron.everyFiveMinutes"],
+                  ["0 9 * * *", "taskTracker.cron.dailyAtNine"],
+                  ["0 9 * * 1-5", "taskTracker.cron.weekdaysAtNine"],
+                ] as const).map(([value, label], index) => <li key={value}>
+                  {index > 0 ? <Separator className="mb-3" /> : null}
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <Label htmlFor={`cron-example-${index}`} alignment="inline" className="font-normal">{t(label)}</Label>
+                    <div className="flex max-w-full items-center gap-1.5">
+                      <Input id={`cron-example-${index}`} readOnly value={value} className="w-auto min-w-0 [field-sizing:content]" />
+                      <Button type="button" variant="ghost" size="icon" className="size-8 shrink-0" aria-label={t("taskTracker.cron.copyExpression", { expression: value })} title={t(copiedCron === value ? "taskTracker.cron.copied" : "taskTracker.cron.copy")} onClick={() => void copyCron(value)}>{copiedCron === value ? <Check aria-hidden="true" /> : <Copy aria-hidden="true" />}</Button>
+                    </div>
+                  </div>
+                  {copyError === value ? <p role="alert" className="mt-1 text-sm text-destructive">{t("taskTracker.cron.copyFailed")}</p> : null}
+                </li>)}</ul>
+              </CardContent>
+            </Card>
+          </> : mode === "explain" ? <>
+            <Card>
+              <CardHeader variant="section" className="py-2"><CardTitle className="text-sm font-semibold leading-tight">{t("taskTracker.cron.analyzed")}</CardTitle></CardHeader>
+              <CardContent className="space-y-1 p-4">
+                <div className="flex items-center gap-1.5">
+                  <Input readOnly aria-label={t("taskTracker.cron.analyzed")} value={key} className="w-auto min-w-0 max-w-full font-mono [field-sizing:content]" />
+                  <Button type="button" variant="ghost" size="icon" className="size-8 shrink-0" aria-label={t("taskTracker.cron.copy")} title={t(copiedCron === key ? "taskTracker.cron.copied" : "taskTracker.cron.copy")} onClick={() => void copyCron(key)}>{copiedCron === key ? <Check aria-hidden="true" /> : <Copy aria-hidden="true" />}</Button>
+                </div>
+                {copyError === key ? <p role="alert" className="text-sm text-destructive">{t("taskTracker.cron.copyFailed")}</p> : null}
+              </CardContent>
+            </Card>
+            <Card>
+              <CardHeader variant="section" className="py-2"><CardTitle className="text-sm font-semibold leading-tight">{t("taskTracker.cron.syntaxTitle")}</CardTitle></CardHeader>
+              <CardContent className="space-y-2 p-4 text-sm"><p>{t("taskTracker.cron.format")}</p><p>{t("taskTracker.cron.syntax")}</p></CardContent>
+            </Card>
+            <Card>
+              <CardHeader variant="section" className="py-2"><CardTitle className="text-sm font-semibold leading-tight">{t("taskTracker.cron.explanationTitle")}</CardTitle></CardHeader>
+              <CardContent className="p-4">
+                {response?.explanation ? <MarkdownContent>{response.explanation}</MarkdownContent>
+                  : response?.error ? <p role="alert" className="text-sm text-destructive">{response.error}</p>
+                  : <p role="status" className="text-sm text-muted-foreground">{t("taskTracker.cron.aiPending")}</p>}
+              </CardContent>
+            </Card>
+          </> : <>
+            <Card>
+              <CardHeader variant="section" className="py-2"><CardTitle id="cron-description-label" className="text-sm font-semibold leading-tight">{t("taskTracker.cron.description")}</CardTitle></CardHeader>
+              <CardContent className="space-y-4 p-4">
+                <div className="flex items-end gap-2 rounded-md border border-input bg-background p-1 focus-within:ring-2 focus-within:ring-ring">
+                  <Textarea id="cron-description" aria-labelledby="cron-description-label" rows={1} className="min-h-8 min-w-0 flex-1 resize-none border-0 bg-transparent px-2 py-1 [field-sizing:content]" maxLength={4000} value={description} disabled={generating} placeholder={t("taskTracker.cron.descriptionPlaceholder")} onChange={(event) => { setDescription(event.target.value); setGenerated(undefined); setGenerationError(undefined); }} />
+                  <Button type="button" variant="outline" size="sm" className="shrink-0" disabled={generating || !description.trim()} onClick={() => void generate()}><Sparkles aria-hidden="true" />{t(generating ? "taskTracker.cron.generating" : "taskTracker.cron.generate")}</Button>
+                </div>
+                {generated && !generated.expression ? <Alert variant="destructive" className="bg-background px-4 py-3"><AlertDescription><MarkdownContent className="text-destructive [&_p]:text-inherit">{generated.explanation}</MarkdownContent></AlertDescription></Alert> : null}
+                {generationError ? <Alert variant="destructive"><AlertDescription>{generationError}</AlertDescription></Alert> : null}
+              </CardContent>
+            </Card>
+            {generated?.expression ? <Card>
+              <CardHeader variant="section" className="py-2"><CardTitle className="text-sm font-semibold leading-tight">{t("taskTracker.cron.generatedTitle")}</CardTitle></CardHeader>
+              <CardContent className="space-y-4 p-4">
+                <div className="space-y-1">
+                  <Label htmlFor="generated-cron">{t("taskTracker.field.cron")}</Label>
+                  <div className="flex items-center gap-1.5">
+                    <Input id="generated-cron" readOnly value={generated.expression} className="min-w-0 flex-1 font-mono" />
+                    <Button type="button" variant="ghost" size="icon" className="size-8 shrink-0" aria-label={t("taskTracker.cron.copy")} title={t(copiedCron === generated.expression ? "taskTracker.cron.copied" : "taskTracker.cron.copy")} onClick={() => void copyCron(generated.expression)}>{copiedCron === generated.expression ? <Check aria-hidden="true" /> : <Copy aria-hidden="true" />}</Button>
+                  </div>
+                  {copyError === generated.expression ? <p role="alert" className="text-sm text-destructive">{t("taskTracker.cron.copyFailed")}</p> : null}
+                </div>
+                <div className="space-y-1">
+                  <Label id="generated-cron-explanation-label">{t("taskTracker.cron.explanationTitle")}</Label>
+                  <div role="textbox" aria-readonly="true" aria-multiline="true" aria-labelledby="generated-cron-explanation-label" tabIndex={0} className="rounded-md border border-input bg-background px-3 py-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"><MarkdownContent>{generated.explanation}</MarkdownContent></div>
+                </div>
+              </CardContent>
+            </Card> : null}
+          </>}
+        </DialogBody>
+        <DialogFooter>
+          <Button data-dialog-cancel type="button" variant="outline" onClick={() => setMode(null)}>{t("common.close")}</Button>
+          {mode === "generate" ? <Button type="button" actionTone="success" disabled={generating || disabled || !generated?.expression} onClick={() => { if (generated?.expression) { onApply(generated.expression); setMode(null); } }}>{t("taskTracker.cron.apply")}</Button> : null}
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  </>;
+}
+
 function MonitorDialog({ t, open, editing, draft, saving, validating, validation, error, onOpenChange, onChange, onValidate, onImport, onSave, onDelete }: MonitorDialogProps) {
   const importInputRef = useRef<HTMLInputElement>(null);
+  const [maxIssuesValid, setMaxIssuesValid] = useState(true);
+  const [periodValid, setPeriodValid] = useState(true);
+  const cronError = draft.scheduleKind === "cron" ? monitorCronError(draft.scheduleValue, t) : undefined;
+  const scheduleValues = useRef<Record<TaskTrackerScheduleKind, string>>({ period: "300", cron: DEFAULT_MONITOR_CRON });
+  useEffect(() => {
+    if (!open) scheduleValues.current = { period: "300", cron: DEFAULT_MONITOR_CRON };
+    else scheduleValues.current[draft.scheduleKind] = draft.scheduleValue;
+  }, [open, draft.scheduleKind, draft.scheduleValue]);
+  const previousEvents = useRef<TaskTrackerEventKind[]>(ALL_EVENTS);
+  const eventsEnabled = draft.trackedEvents.length > 0;
+  useEffect(() => {
+    if (!open) previousEvents.current = ALL_EVENTS;
+    else if (draft.trackedEvents.length > 0) previousEvents.current = draft.trackedEvents;
+  }, [open, draft.trackedEvents]);
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent>
+      <DialogContent className="max-w-2xl">
         <DialogHeader><DialogTitle>{editing ? t("taskTracker.dialog.edit") : t("taskTracker.dialog.create")}</DialogTitle><DialogDescription>{t("taskTracker.dialog.description")}</DialogDescription></DialogHeader>
-        <DialogBody className="pr-3">
-          <div className="space-y-4">
-            <div className="flex items-center gap-3"><Switch checked={draft.enabled} onCheckedChange={(checked) => onChange("enabled", checked)} /><Label alignment="inline">{t("taskTracker.enabled")}</Label></div>
-            <div><Label htmlFor="monitor-name">{t("taskTracker.field.name")}</Label><Input id="monitor-name" className="mt-1" value={draft.name} onChange={(event) => onChange("name", event.target.value)} placeholder={t("taskTracker.field.namePlaceholder")} /></div>
-            <div>
-              <Label htmlFor="monitor-jql">JQL</Label>
-              <textarea autoComplete="off" id="monitor-jql" className="mt-1 min-h-24 w-full rounded-md border border-input bg-background px-3 py-2 font-mono text-sm" value={draft.jql} onChange={(event) => onChange("jql", event.target.value)} placeholder="project = DEMO AND resolution = Unresolved" />
-              <Button type="button" variant="outline" size="sm" className="mt-2" disabled={validating || !draft.jql.trim()} onClick={onValidate}>{validating ? t("taskTracker.validatingJql") : t("taskTracker.validateJql")}</Button>
-              {validation ? <p className="mt-2 text-sm text-muted-foreground">{t("taskTracker.jqlValid", { count: validation.truncated ? `${validation.count}+` : validation.count })}</p> : null}
-            </div>
-            <div><Label htmlFor="monitor-max-tracked-issues">{t("taskTracker.field.maxTrackedIssues")}</Label><Input id="monitor-max-tracked-issues" type="number" min={1} max={MAX_ALLOWED_TRACKED_ISSUES} step={1} className="mt-1" value={draft.maxTrackedIssues} onChange={(event) => onChange("maxTrackedIssues", Number(event.target.value))} /></div>
-            <div className="grid gap-4 sm:grid-cols-2"><div><Label htmlFor="monitor-schedule-kind">{t("taskTracker.field.schedule")}</Label><select autoComplete="off" id="monitor-schedule-kind" className="mt-1 h-9 w-full rounded-md border border-input bg-background px-3 text-sm" value={draft.scheduleKind} onChange={(event) => onChange("scheduleKind", event.target.value as TaskTrackerScheduleKind)}><option value="period">{t("taskTracker.schedule.period")}</option><option value="cron">{t("taskTracker.schedule.cron")}</option></select></div><div><Label htmlFor="monitor-schedule-value">{draft.scheduleKind === "period" ? t("taskTracker.field.seconds") : t("taskTracker.field.cron")}</Label><Input id="monitor-schedule-value" className="mt-1" value={draft.scheduleValue} onChange={(event) => onChange("scheduleValue", event.target.value)} placeholder={draft.scheduleKind === "period" ? "300" : "*/10 * * * *"} /></div></div>
-            <fieldset><legend className="text-sm font-medium">{t("taskTracker.field.trackEvents")}</legend><div className="mt-2 grid gap-2 sm:grid-cols-2">{ALL_EVENTS.map((event) => <label key={event} className="flex items-center gap-2 text-sm"><input type="checkbox" checked={draft.trackedEvents.includes(event)} onChange={(change) => onChange("trackedEvents", change.target.checked ? [...draft.trackedEvents, event] : draft.trackedEvents.filter((value) => value !== event))} />{t(EVENT_LABEL_KEYS[event])}</label>)}</div></fieldset>
-            {error ? <Alert variant="destructive"><AlertDescription>{error}</AlertDescription></Alert> : null}
-          </div>
-        </DialogBody>
-        <DialogFooter className="flex-row justify-between gap-2">
-          <div className="mr-auto flex items-center gap-2">
-            {!editing ? <>
+        <DialogBody layout="sections">
+          <Card data-info-popover-boundary>
+            <CardHeader variant="section" className="flex-row items-center justify-between gap-2 space-y-0 py-2">
+              <CardTitle className="text-sm font-semibold leading-tight">{t("taskTracker.dialog.settings")}</CardTitle>
+              {!editing ? <>
               <input ref={importInputRef} type="file" accept=".json,application/json" aria-label={t("taskTracker.import.fileLabel")} className="sr-only" onChange={(event) => { const file = event.target.files?.[0]; if (file) onImport(file); event.currentTarget.value = ""; }} />
               <Button type="button" variant="outline" size="icon" aria-label={t("taskTracker.import.action")} title={t("taskTracker.import.action")} onClick={() => importInputRef.current?.click()}>
                 <Upload className="size-4" aria-hidden="true" />
               </Button>
-            </> : <Button type="button" variant="ghost" actionTone="delete" className="text-muted-foreground hover:bg-transparent hover:text-destructive" title={t("common.delete")} onClick={onDelete}><Trash2 className="mr-2 size-4" aria-hidden="true" />{t("taskTracker.delete")}</Button>}
-          </div>
+              </> : null}
+            </CardHeader>
+            <CardContent className="space-y-4 p-4">
+              <div className="grid grid-cols-[max-content_minmax(0,1fr)] items-center gap-3">
+                <Label htmlFor="monitor-name" alignment="inline">{t("taskTracker.field.name")}</Label><Input id="monitor-name" className="w-auto min-w-0 max-w-full justify-self-end [field-sizing:content]"
+                  value={draft.name} disabled={saving} onChange={(event) => onChange("name", event.target.value)} placeholder={t("taskTracker.field.namePlaceholder")} />
+              </div>
+              <Separator />
+              <div className="flex items-center justify-between gap-3">
+                <Label htmlFor="monitor-enabled" alignment="inline">{t("taskTracker.enabled")}</Label>
+                <Switch id="monitor-enabled" checked={draft.enabled} onCheckedChange={(checked) => onChange("enabled", checked)} disabled={saving} />
+              </div>
+              <Separator />
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <Label id="monitor-max-tracked-issues-label" htmlFor="monitor-max-tracked-issues" alignment="inline">{t("taskTracker.field.maxTrackedIssues")}</Label>
+                <ManualNumberField id="monitor-max-tracked-issues" label={t("taskTracker.field.maxTrackedIssues")} labelledBy="monitor-max-tracked-issues-label"
+                  value={draft.maxTrackedIssues} min={1} max={MAX_ALLOWED_TRACKED_ISSUES} disabled={saving}
+                  errors={{ required: t("forms.numberRequired"), number: t("forms.numberInvalid"), whole: t("forms.numberInvalid"), range: t("forms.numberRange", { min: 1, max: MAX_ALLOWED_TRACKED_ISSUES }) }}
+                  onChange={(value) => onChange("maxTrackedIssues", value)} onValidityChange={setMaxIssuesValid} />
+              </div>
+              <Separator />
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <Label htmlFor="monitor-schedule-kind" alignment="inline">{t("taskTracker.field.schedule")}</Label>
+                <div data-menu-align="end" className="flex min-w-0 max-w-full flex-wrap items-center gap-3">
+                  <Select value={draft.scheduleKind} disabled={saving} onValueChange={(value) => {
+                    const nextKind = value as TaskTrackerScheduleKind;
+                    scheduleValues.current[draft.scheduleKind] = draft.scheduleValue;
+                    onChange("scheduleKind", nextKind);
+                    onChange("scheduleValue", scheduleValues.current[nextKind]);
+                  }}>
+                    <SelectTrigger id="monitor-schedule-kind" aria-label={t("taskTracker.field.scheduleMode")}><SelectValue /></SelectTrigger>
+                    <SelectContent><SelectItem value="period">{t("taskTracker.schedule.period")}</SelectItem><SelectItem value="cron">{t("taskTracker.schedule.cron")}</SelectItem></SelectContent>
+                  </Select>
+                  <Label id="monitor-interval-label" htmlFor="monitor-schedule-value" className="sr-only">{draft.scheduleKind === "period" ? t("taskTracker.field.interval") : t("taskTracker.field.cron")}</Label>
+                  {draft.scheduleKind === "period" ? <MonitorPeriodField seconds={draft.scheduleValue} disabled={saving} t={t} onChange={(value) => onChange("scheduleValue", value)} onValidityChange={setPeriodValid} />
+                    : <div className="flex min-w-0 max-w-full items-center gap-2"><FieldValidationHint error={cronError}><Input id="monitor-schedule-value" className="monitor-auto-width-input min-w-0 max-w-full font-mono"
+                      style={{ width: `calc(${Math.max(DEFAULT_MONITOR_CRON.length, draft.scheduleValue.length)}ch + var(--monitor-input-padding, 20px) + 2px)` }}
+                      value={draft.scheduleValue} disabled={saving} onChange={(event) => onChange("scheduleValue", event.target.value)} placeholder={DEFAULT_MONITOR_CRON} /></FieldValidationHint>
+                      <CronActions expression={draft.scheduleValue} disabled={saving} invalid={Boolean(cronError)} onApply={(value) => onChange("scheduleValue", value)} />
+                    </div>}
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader variant="section" className="flex-row items-center justify-between gap-2 space-y-0 py-2">
+              <CardTitle id="monitor-jql-label" className="text-sm font-semibold leading-tight">{t("taskTracker.field.jql")}</CardTitle>
+              <Button type="button" variant="outline" size="sm" disabled={saving || validating || !draft.jql.trim()} onClick={onValidate}>{validating ? t("taskTracker.validatingJql") : t("taskTracker.validateJql")}</Button>
+            </CardHeader>
+            <CardContent className="space-y-3 p-4">
+              <Textarea id="monitor-jql" aria-labelledby="monitor-jql-label" rows={1} className="min-h-8 resize-none py-1 font-mono [field-sizing:content]" value={draft.jql} disabled={saving} onChange={(event) => onChange("jql", event.target.value)} placeholder="project = DEMO AND resolution = Unresolved" />
+              {validation ? <p role="status" className="text-sm text-muted-foreground">{t("taskTracker.jqlValid", { count: validation.truncated ? `${validation.count}+` : validation.count })}</p> : null}
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader variant="section" className="flex-row items-center justify-between gap-3 space-y-0 py-2.5">
+              <CardTitle id="monitor-events-label" className="text-sm font-semibold leading-tight">{t("taskTracker.field.trackEvents")}</CardTitle>
+              <Switch size="md" aria-labelledby="monitor-events-label" checked={eventsEnabled} disabled={saving} onCheckedChange={(checked) => {
+                if (!checked) previousEvents.current = draft.trackedEvents;
+                onChange("trackedEvents", checked ? previousEvents.current : []);
+              }} />
+            </CardHeader>
+            <CardContent className="p-4">
+              {ALL_EVENTS.map((event, index) => <div key={event}>
+                {index > 0 ? <Separator className="my-3" /> : null}
+                <div className="flex items-center justify-between gap-3">
+                  <Label htmlFor={`monitor-event-${event}`} alignment="inline">{t(EVENT_LABEL_KEYS[event])}</Label>
+                  <Switch id={`monitor-event-${event}`} size="sm" checked={(eventsEnabled ? draft.trackedEvents : previousEvents.current).includes(event)} disabled={saving || !eventsEnabled} onCheckedChange={(checked) => onChange("trackedEvents", checked ? [...draft.trackedEvents, event] : draft.trackedEvents.filter((value) => value !== event))} />
+                </div>
+              </div>)}
+            </CardContent>
+          </Card>
+          {error ? <Alert variant="destructive"><AlertDescription>{error}</AlertDescription></Alert> : null}
+        </DialogBody>
+        <DialogFooter>
           <Button data-dialog-cancel type="button" variant="outline" onClick={() => onOpenChange(false)}>{t("taskTracker.cancel")}</Button>
-          <div className="ml-auto flex items-center gap-2">
-            <Button type="button" actionTone={editing ? "edit" : "add"} disabled={saving} onClick={onSave}>{saving ? t("taskTracker.saving") : editing ? t("taskTracker.saveChanges") : t("taskTracker.create")}</Button>
-          </div>
+          {editing ? <Button type="button" variant="outline" actionTone="delete" disabled={saving} title={t("common.delete")} onClick={onDelete}><Trash2 aria-hidden="true" />{t("taskTracker.delete")}</Button> : null}
+          <Button type="button" actionTone="success" disabled={saving || !maxIssuesValid || Boolean(cronError) || (draft.scheduleKind === "period" && !periodValid)} onClick={onSave}>{saving ? t("taskTracker.saving") : editing ? t("taskTracker.saveChanges") : t("taskTracker.create")}</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

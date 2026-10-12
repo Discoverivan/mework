@@ -13,6 +13,7 @@ import {
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { EmptyState } from "@/components/shared/EmptyState";
 import { PageHeader } from "@/components/shared/PageHeader";
+import { formatDisplayDate } from "@/lib/display-date";
 import {
   Table,
   TableBody,
@@ -66,10 +67,9 @@ function numberFormatter(locale: string): Intl.NumberFormat {
   return new Intl.NumberFormat(locale, { maximumFractionDigits: 0 });
 }
 
-function shortDateLabel(dateKey: string, locale: string): string {
+function shortDateLabel(dateKey: string): string {
   const [year, month, day] = dateKey.split("-").map(Number);
-  return new Intl.DateTimeFormat(locale, { month: "short", day: "numeric" })
-    .format(new Date(year, month - 1, day));
+  return formatDisplayDate(new Date(year, month - 1, day), { year: false });
 }
 
 function buildSeries(data: AiUsageStatistics): ChartSeries[] {
@@ -157,7 +157,7 @@ function UsageChart({ data, period, locale, description }: {
           tickMargin={8}
           minTickGap={24}
           interval="preserveStartEnd"
-          tickFormatter={(value) => shortDateLabel(String(value), locale)}
+          tickFormatter={(value) => shortDateLabel(String(value))}
         />
         <YAxis
           axisLine={false}
@@ -172,7 +172,7 @@ function UsageChart({ data, period, locale, description }: {
           content={(
             <UsageTooltipContent
               onPositioned={setTooltipPositioned}
-              labelFormatter={(value) => shortDateLabel(String(value), locale)}
+              labelFormatter={(value) => shortDateLabel(String(value))}
               formatter={(value, name) => (
                 <div className="flex w-full items-center justify-between gap-4">
                   <span className="text-muted-foreground">{chartConfig[String(name)]?.label ?? String(name)}</span>
@@ -242,14 +242,15 @@ export function StatisticsPage() {
   const hasUsage = (data?.total.requestCount ?? 0) > 0;
 
   return (
-    <section className="flex flex-col gap-4 p-4 md:p-6" aria-labelledby="statistics-page-title">
+    <section className="flex flex-col gap-4" aria-labelledby="statistics-page-title">
       <PageHeader
         title={t("statistics.title")}
         titleId="statistics-page-title"
+        spacing="grouped"
         description={t("statistics.description")}
         actions={(
           <Select value={period} onValueChange={(value) => setPeriod(value as AiUsagePeriod)}>
-            <SelectTrigger className="h-9" aria-label={t("statistics.period")}><SelectValue /></SelectTrigger>
+            <SelectTrigger aria-label={t("statistics.period")}><SelectValue /></SelectTrigger>
             <SelectContent>
               {PERIODS.map((option) => <SelectItem key={option.value} value={option.value}>{t(option.label)}</SelectItem>)}
             </SelectContent>

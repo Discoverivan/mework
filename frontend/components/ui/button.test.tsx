@@ -8,11 +8,87 @@ import { Sparkles, Trash2 } from "lucide-react";
 
 import { Button } from "./button";
 import { Input } from "./input";
+import { Label } from "./label";
 import { Card, CardHeader } from "./card";
 import { CreateButton } from "@/components/shared/CreateButton";
 import { EmptyState } from "@/components/shared/EmptyState";
 import { ToggleGroup, ToggleGroupItem } from "./toggle-group";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogTitle } from "./alert-dialog";
+import { DialogBody, DialogFooter } from "./dialog";
+
+it("uses compact actions and fields in subforms while keeping main form actions at their primary size", () => {
+  const css = readFileSync(resolve(import.meta.dirname, "../../index.css"), "utf8");
+  const style = document.createElement("style");
+  style.textContent = css.slice(css.indexOf(".app-icon-button,"));
+  document.head.append(style);
+  const previousStyle = document.documentElement.dataset.buttonStyle;
+  try {
+    render(<>
+      <Card><div className="flex gap-2"><Button>Panel action</Button><Button size="icon" aria-label="Panel icon"><Trash2 /></Button></div>
+        <DialogFooter><Button>Main form action</Button><Button>Other main action</Button></DialogFooter>
+      </Card>
+      <DialogBody><Button>Subform action</Button><Button role="combobox" aria-label="Example picker" variant="outline">Example picker</Button><Label htmlFor="example-field">Example field</Label><Input id="example-field" /></DialogBody>
+      <Button>Page action</Button>
+      <section data-action-size="normal"><Card><div className="flex gap-2"><Button>Primary settings action</Button><Button size="icon" aria-label="Primary settings icon"><Trash2 /></Button></div></Card></section>
+      <Card><div data-control-size="normal"><Button role="combobox" aria-label="Described setting picker" variant="outline"><Sparkles />Example choice</Button><Input aria-label="Described setting field" /></div></Card>
+      <Card><div data-icon-size="normal" className="flex gap-2"><Button size="icon" aria-label="Object row action"><Trash2 /></Button><Button size="icon" aria-label="Other object row action"><Sparkles /></Button></div></Card>
+      <DialogBody><Input type="search" aria-label="Search examples" /><div data-slot="popover-content"><Input aria-label="Picker search" /></div></DialogBody>
+    </>);
+    for (const appearance of ["filled", "filled_borderless", "quiet"]) {
+      document.documentElement.dataset.buttonStyle = appearance;
+      style.textContent += "\n";
+      for (const name of ["Panel action", "Subform action"]) {
+        const action = getComputedStyle(screen.getByRole("button", { name }));
+        expect(action.maxHeight).toBe("32px");
+        expect(action.fontSize).toBe("13px");
+        expect(action.paddingInline).toBe("10px");
+        if (appearance === "quiet") {
+          expect(action.paddingLeft).toBe("0px");
+          expect(action.paddingRight).toBe("6px");
+        }
+      }
+      const icon = screen.getByRole("button", { name: "Panel icon" });
+      expect(getComputedStyle(icon.parentElement!).columnGap).toBe("6px");
+      expect(getComputedStyle(screen.getByRole("button", { name: "Main form action" }).parentElement!).columnGap).not.toBe("6px");
+      expect(getComputedStyle(icon).maxWidth).toBe("32px");
+      expect(getComputedStyle(icon.querySelector("svg")!).width).toBe("14px");
+      expect(getComputedStyle(screen.getByText("Example field")).fontSize).toBe("13px");
+      const primaryIcon = screen.getByRole("button", { name: "Primary settings icon" });
+      expect(getComputedStyle(primaryIcon).maxWidth).not.toBe("32px");
+      expect(primaryIcon).toHaveClass("h-9", "w-9");
+      expect(getComputedStyle(primaryIcon.querySelector("svg")!).width).not.toBe("14px");
+      expect(getComputedStyle(primaryIcon.parentElement!).columnGap).not.toBe("6px");
+      if (appearance === "quiet") {
+        expect(getComputedStyle(screen.getByRole("button", { name: "Primary settings action" })).paddingLeft).toBe("0px");
+        expect(getComputedStyle(screen.getByRole("button", { name: "Main form action" })).paddingLeft).not.toBe("0px");
+        for (const search of [screen.getByRole("searchbox", { name: "Search examples" }), screen.getByRole("textbox", { name: "Picker search" })]) {
+          expect(getComputedStyle(search).paddingLeft).toBe("12px");
+          expect(getComputedStyle(search).paddingRight).toBe("12px");
+        }
+      }
+      const objectAction = screen.getByRole("button", { name: "Object row action" });
+      expect(getComputedStyle(objectAction).maxWidth).toBe("32px");
+      expect(getComputedStyle(objectAction.querySelector("svg")!).width).not.toBe("14px");
+      expect(getComputedStyle(objectAction.parentElement!).columnGap).toBe("6px");
+      for (const field of [screen.getByRole("combobox", { name: "Described setting picker" }), screen.getByRole("textbox", { name: "Described setting field" })]) {
+        expect(getComputedStyle(field).maxHeight).not.toBe("32px");
+      }
+      expect(getComputedStyle(screen.getByRole("combobox", { name: "Described setting picker" }).querySelector("svg")!).width).not.toBe("14px");
+      for (const field of [screen.getByRole("combobox", { name: "Example picker" }), screen.getByRole("textbox", { name: "Example field" })]) {
+        expect(getComputedStyle(field).maxHeight).toBe("32px");
+        expect(getComputedStyle(field).fontSize).toBe("13px");
+        if (appearance === "quiet") expect(getComputedStyle(field).paddingLeft).toBe("0px");
+      }
+      for (const action of [screen.getByRole("button", { name: "Main form action" }), screen.getByRole("button", { name: "Page action" }), screen.getByRole("button", { name: "Primary settings action" })]) {
+        expect(getComputedStyle(action).maxHeight).not.toBe("32px");
+      }
+    }
+  } finally {
+    style.remove();
+    if (previousStyle === undefined) delete document.documentElement.dataset.buttonStyle;
+    else document.documentElement.dataset.buttonStyle = previousStyle;
+  }
+});
 
 it("keeps Filled action backgrounds while highlighting text and visible borders", () => {
   const css = readFileSync(resolve(import.meta.dirname, "../../index.css"), "utf8");
@@ -29,10 +105,12 @@ it("keeps Filled action backgrounds while highlighting text and visible borders"
       <Button actionTone="edit">Save</Button>
       <Button variant="outline" actionTone="neutral">Cancel</Button>
       <Button variant="ghost" size="sm" actionTone="remove"><Trash2 aria-hidden="true" />Remove</Button>
+      <Button actionTone="delete">Dismiss</Button>
+      <Button variant="destructive">Delete</Button>
     </>);
     for (const appearance of ["filled", "filled_borderless"]) {
       document.documentElement.dataset.buttonStyle = appearance;
-      for (const [name, tone, color] of [["Needs work", "warning", "warning"], ["Approve", "success", "success"], ["Save", "edit", "primary"], ["Cancel", "neutral", "primary"], ["Remove", "remove", "destructive"]]) {
+      for (const [name, tone, color] of [["Needs work", "warning", "warning"], ["Approve", "success", "success"], ["Save", "edit", "primary"], ["Cancel", "neutral", "primary"], ["Remove", "remove", "destructive"], ["Dismiss", "delete", "destructive"], ["Delete", undefined, "destructive"]]) {
         const button = screen.getByRole("button", { name });
         button.blur();
         style.textContent += "\n";
@@ -44,7 +122,7 @@ it("keeps Filled action backgrounds while highlighting text and visible borders"
         expect(getComputedStyle(button).background).toBe(background);
         expect(getComputedStyle(button).color).toBe("rgb(70, 90, 180)");
         expect(getComputedStyle(button).borderColor).toBe(appearance === "filled" ? "rgb(70, 90, 180)" : "rgba(0, 0, 0, 0)");
-        expect(button).toHaveAttribute("data-action-tone", tone);
+        if (tone) expect(button).toHaveAttribute("data-action-tone", tone);
         expect(getComputedStyle(button).getPropertyValue("--app-action-color")).toBe(`var(--${color})`);
         button.blur();
         fireEvent.mouseOut(button);
@@ -100,7 +178,7 @@ it("applies the minimal action style to form and confirmation buttons", () => {
       expect(getComputedStyle(button).backgroundColor).toBe("rgba(0, 0, 0, 0)");
       expect(getComputedStyle(button).borderColor).toBe("rgba(0, 0, 0, 0)");
       expect(getComputedStyle(button).paddingLeft).toBe(button.closest(".app-dialog-actions") ? "12px" : "6px");
-      expect(getComputedStyle(button).minHeight).toBe("32px");
+      expect(button).toHaveClass("h-9", "text-[13.5px]");
     }
     expect(getComputedStyle(screen.getByText("Remove item")).getPropertyValue("--app-action-color")).toBe("var(--destructive)");
     expect(getComputedStyle(screen.getByText("Keep item").closest(".app-dialog-actions")!).gap).toBe("0.5rem");

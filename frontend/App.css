@@ -393,6 +393,10 @@ body,
   min-width: 0;
 }
 
+.page-header[data-spacing="grouped"] {
+  margin-bottom: 0;
+}
+
 .page-header-description {
   margin: 4px 0 0;
   color: var(--muted-foreground);

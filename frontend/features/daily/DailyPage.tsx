@@ -1,3 +1,4 @@
+import { PageToolbar } from "@/components/shared/PageToolbar";
 import { Hint } from "@/components/ui/tooltip";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { APP_EVENT, subscribeAppEvent } from "@/app/app-events";
@@ -8,6 +9,7 @@ import { ArrowLeft, ArrowRight, CalendarDays, ChevronDown, Copy, ExternalLink, M
 import { PageHeader } from "@/components/shared/PageHeader";
 import { StatusToast } from "@/components/shared/StatusToast";
 import { useInfoPopoverAnchor } from "@/components/shared/use-info-popover-anchor";
+import { formatDisplayDate } from "@/lib/display-date";
 import { useI18n } from "@/i18n/context";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { badgeVariants } from "@/components/ui/badge";
@@ -93,9 +95,9 @@ function dateFromInputValue(value?: string): Date | undefined {
   return new Date(year, month - 1, day);
 }
 
-function formatDateRange(range: DateRange | undefined, locale: string, placeholder: string): string {
+function formatDateRange(range: DateRange | undefined, placeholder: string): string {
   if (!range?.from) return placeholder;
-  const format = (date: Date) => new Intl.DateTimeFormat(locale, { dateStyle: "medium" }).format(date);
+  const format = formatDisplayDate;
   return range.to ? `${format(range.from)} – ${format(range.to)}` : `${format(range.from)} – …`;
 }
 
@@ -302,7 +304,7 @@ function TaskStatusMenu({
 }
 
 export function DailyPage() {
-  const { t, language, locale } = useI18n();
+  const { t, language } = useI18n();
   const [assigneesLayout, setAssigneesLayout] = useState(readAssigneesLayout);
   const [draftAssigneesLayout, setDraftAssigneesLayout] = useState(assigneesLayout);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -659,7 +661,7 @@ export function DailyPage() {
                     <CardDescription className="mt-1 text-xs leading-snug">{t("daily.assigneesLayoutDescription")}</CardDescription>
                   </div>
                   <Select value={draftAssigneesLayout} onValueChange={(value) => setDraftAssigneesLayout(value as AssigneesLayout)}>
-                    <SelectTrigger id="daily-assignees-layout" aria-labelledby="daily-assignees-layout-label" className="h-9"><SelectValue /></SelectTrigger>
+                    <SelectTrigger data-menu-align="end" id="daily-assignees-layout" aria-labelledby="daily-assignees-layout-label" className="h-9"><SelectValue /></SelectTrigger>
                     <SelectContent>
                       <SelectItem value="top">{t("daily.assigneesLayout.top")}</SelectItem>
                       <SelectItem value="left">{t("daily.assigneesLayout.left")}</SelectItem>
@@ -680,7 +682,7 @@ export function DailyPage() {
         </DialogContent>
       </Dialog>
 
-      <div className="flex flex-wrap items-center gap-2">
+      <PageToolbar>
         {!loadingProjects && projects.length > 0 ? (
           <Select value={selectedProjectId} onValueChange={setSelectedProjectId}>
             <SelectTrigger id="daily-team-select" aria-label={t("daily.team")}>
@@ -707,7 +709,7 @@ export function DailyPage() {
                 aria-label={t("daily.sprint")}
                 aria-expanded={sprintPickerOpen}
                 disabled={loadingWorkspace}
-                className="h-10 w-fit max-w-full justify-between gap-2 px-3 font-normal"
+                className="w-fit max-w-full justify-between gap-2 px-3 font-normal"
               >
                 <span className="truncate">{selectedSprint?.name ?? t("daily.selectSprint")}</span>
                 <ChevronDown aria-hidden="true" className="-mr-1 size-4 shrink-0 opacity-50" />
@@ -777,7 +779,7 @@ export function DailyPage() {
             type="button"
             variant="outline"
             size="icon"
-            className="h-9 w-9"
+
             aria-label={t("daily.openSprintBoard")}
             title={t("daily.openSprintBoard")}
             disabled={!workspace || loadingWorkspace}
@@ -793,7 +795,7 @@ export function DailyPage() {
             type="button"
             variant="outline"
             size="icon"
-            className="h-9 w-9"
+
             aria-label={t("daily.aiSummary")}
             title={t("daily.aiSummary")}
             disabled={!workspace || loadingWorkspace}
@@ -812,7 +814,7 @@ export function DailyPage() {
             type="button"
             variant={presenterOpen ? "secondary" : "default"}
             size="icon"
-            className="h-9 w-9"
+
             disabled={presenterBusy || !workspace || loadingWorkspace || (!presenterOpen && !selectedMember)}
             aria-busy={presenterBusy}
             aria-pressed={presenterOpen}
@@ -827,7 +829,7 @@ export function DailyPage() {
             type="button"
             variant="outline"
             size="icon"
-            className="h-9 w-9"
+
             aria-label={refreshingStatuses ? t("daily.refreshing") : t("daily.refresh")}
             title={refreshingStatuses ? t("daily.refreshing") : t("daily.refresh")}
             disabled={!selectedProjectId || loadingWorkspace || refreshingStatuses}
@@ -841,7 +843,7 @@ export function DailyPage() {
           <CreateButton
             iconOnly
             type="button"
-            className="h-9 w-9"
+
             aria-label={t("daily.createTask")}
             title={t("daily.createTask")}
             disabled={!selectedProjectId || !workspace}
@@ -851,7 +853,7 @@ export function DailyPage() {
             }}
           />
         </div>
-      </div>
+      </PageToolbar>
 
       <Dialog open={aiSummaryOpen} onOpenChange={(open) => { if (!aiBusy) setAiSummaryOpen(open); }}>
         <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
@@ -898,7 +900,7 @@ export function DailyPage() {
                           className="w-full justify-start text-left font-normal"
                         >
                           <CalendarDays data-icon="inline-start" aria-hidden="true" />
-                          {formatDateRange(aiDateRange, locale, t("daily.aiSelectDateRange"))}
+                          {formatDateRange(aiDateRange, t("daily.aiSelectDateRange"))}
                         </Button>
                       </PopoverTrigger>
                       <PopoverContent className="w-auto p-0" align="start">
@@ -1046,7 +1048,7 @@ export function DailyPage() {
 
           <section className="daily-tasks-column" aria-label={t("daily.selectedTasks")}>
             {selectedOwner ? (
-              <Card data-info-popover-boundary className="daily-selected-member-card">
+              <Card data-icon-size="normal" data-info-popover-boundary className="daily-selected-member-card">
                 <CardHeader variant="section" className="daily-selected-member-header">
                   <div className="flex min-w-0 items-center gap-3">
                     {selectedMember ? <MemberAvatar member={selectedMember} className="h-9 w-9 shrink-0" managedProjectId={workspace.managedProjectId} /> : null}

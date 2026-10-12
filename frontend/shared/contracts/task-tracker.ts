@@ -91,3 +91,9 @@ export const validateTaskTrackerJql = (jql: string) =>
 
 export const checkTaskTrackerNow = (id: string) =>
   invoke<TaskTrackerMonitor>("task_tracker_check_now", { id });
+
+export const explainTaskTrackerCron = (expression: string) =>
+  invoke<{ explanation: string }>("task_tracker_explain_cron", { request: { expression } });
+
+export const generateTaskTrackerCron = (description: string) =>
+  invoke<{ expression: string; explanation: string }>("task_tracker_generate_cron", { request: { description } });

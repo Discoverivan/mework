@@ -6,12 +6,13 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { useInfoPopoverAnchor } from "@/components/shared/use-info-popover-anchor";
 import { useI18n } from "@/i18n/context";
 import { cn } from "@/lib/utils";
+import { formatDisplayDateTime } from "@/lib/display-date";
 import type { PullRequestReviewState } from "@/shared/contracts/developer";
 
 import { formatRelativeDate } from "./pull-request-formatting";
 
 export function PullRequestReviewDetails({ review, inBadge = false }: { review: PullRequestReviewState; inBadge?: boolean }) {
-  const { t } = useI18n();
+  const { locale, t } = useI18n();
   const { triggerRef, alignOffset, onOpenChange } = useInfoPopoverAnchor();
   const finishedAt = review.finishedAt != null ? new Date(review.finishedAt) : undefined;
   const execution = review.execution;
@@ -28,7 +29,7 @@ export function PullRequestReviewDetails({ review, inBadge = false }: { review: 
       <PopoverContent align="end" alignOffset={alignOffset} sideOffset={8} aria-label={t("pr.dialog.reviewDetails")} className="w-max max-w-[min(20rem,calc(100vw-2rem))] space-y-2">
         <p className="text-xs font-medium text-foreground">{t("pr.dialog.reviewDetails")}</p>
         <div className="space-y-1.5 text-xs text-muted-foreground">
-          {finishedAt ? <p>{t(review.status === "failed" ? "pr.dialog.endedAt" : "pr.dialog.completedAt")} <time className="text-foreground" dateTime={finishedAt.toISOString()}>{finishedAt.toLocaleString("ru-RU", { hour12: false })} · {formatRelativeDate(review.finishedAt ?? undefined, t)}</time></p> : null}
+          {finishedAt ? <p>{t(review.status === "failed" ? "pr.dialog.endedAt" : "pr.dialog.completedAt")} <time className="text-foreground" dateTime={finishedAt.toISOString()}>{formatDisplayDateTime(finishedAt, locale, { seconds: true, hour12: false })} · {formatRelativeDate(review.finishedAt ?? undefined, t)}</time></p> : null}
           {execution ? (
             <dl aria-label={t("pr.dialog.aiConfiguration")} className="grid gap-1">
               <div className="min-w-0 [overflow-wrap:anywhere]"><dt className="inline whitespace-nowrap">{t("settings.ai.provider")}:</dt>{" "}<dd className="inline text-foreground">{execution.providerName}</dd></div>

@@ -436,6 +436,9 @@ pub fn run() {
             commands::developer::pull_request_review_mark_all_read,
             commands::developer::pull_request_review_publish_comment,
             commands::developer::pull_request_review_comment_matches,
+            commands::developer::pull_request_comment_discussions,
+            commands::developer::pull_request_comment_discussion_send,
+            commands::developer::pull_request_comment_discussion_decide,
             commands::developer::pull_request_review_set_decision,
             commands::developer::pull_request_review_remove_reviewer,
             commands::developer::bitbucket_search_users,
@@ -548,6 +551,8 @@ pub fn run() {
             commands::task_tracker::task_tracker_set_enabled,
             commands::task_tracker::task_tracker_set_sort,
             commands::task_tracker::task_tracker_validate_jql,
+            commands::task_tracker::task_tracker_explain_cron,
+            commands::task_tracker::task_tracker_generate_cron,
             commands::task_tracker::task_tracker_check_now,
         ])
         .build(tauri::generate_context!())

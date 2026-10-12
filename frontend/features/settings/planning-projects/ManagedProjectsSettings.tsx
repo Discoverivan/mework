@@ -922,6 +922,7 @@ export function ManagedProjectsSettings({
         actions={(
           <CreateButton
             type="button"
+            label={t("common.add")}
             className="h-9"
             onClick={startAdd}
             disabled={controlsDisabled}
@@ -968,7 +969,7 @@ export function ManagedProjectsSettings({
                           {project.confluenceSpace ? ` · ${project.confluenceSpace.spaceName} (${project.confluenceSpace.spaceKey})` : ""}
                         </CardDescription>
                       </div>
-                      <div className="ml-auto flex items-center gap-2">
+                      <div data-icon-size="normal" className="ml-auto flex items-center gap-2">
                         <Button
                           type="button"
                           variant="ghost"
@@ -1254,7 +1255,7 @@ export function ManagedProjectsSettings({
                     setDefaultTaskSprintId(nextId);
                     setDefaultTaskSprintName(taskSprints.find((sprint) => sprint.id === nextId)?.name ?? "");
                   }} disabled={controlsDisabled || taskSprintsLoading}>
-                    <SelectTrigger id={`default-task-sprint-${detailProject.id}`} aria-label={t("teams.defaultSprint")}><SelectValue /></SelectTrigger>
+                    <SelectTrigger data-menu-align="end" id={`default-task-sprint-${detailProject.id}`} aria-label={t("teams.defaultSprint")}><SelectValue /></SelectTrigger>
                     <SelectContent>
                       <SelectItem value={NO_SELECTION}>{taskSprintsLoading ? t("teams.loadingSprints") : t("teams.noDefaultSprint")}</SelectItem>
                       {defaultTaskSprintId && !taskSprints.some((sprint) => sprint.id === defaultTaskSprintId) ? (
@@ -1279,7 +1280,7 @@ export function ManagedProjectsSettings({
                       setDefaultEpicLinkKey(nextKey);
                       setDefaultEpicLinkSummary(selected?.summary ?? (nextKey ? defaultEpicLinkSummary : ""));
                     }} disabled={controlsDisabled}>
-                      <SelectTrigger id={`default-epic-link-${detailProject.id}`} aria-label={t("teams.defaultEpic")}><SelectValue /></SelectTrigger>
+                      <SelectTrigger data-menu-align="end" id={`default-epic-link-${detailProject.id}`} aria-label={t("teams.defaultEpic")}><SelectValue /></SelectTrigger>
                       <SelectContent>
                         <SelectItem value={NO_SELECTION}>{t("teams.noDefaultEpic")}</SelectItem>
                         {defaultEpicLinkKey && !epicPreviewIssues.some((issue) => issue.key === defaultEpicLinkKey) ? (
@@ -1519,6 +1520,7 @@ export function ManagedProjectsSettings({
                         </div>
                         <p className="text-xs leading-4 text-muted-foreground">{member.displayName}</p>
                       </div>
+                      <div data-icon-size="normal" className="flex shrink-0 items-center gap-2">
                       <Button
                         type="button"
                         variant="ghost"
@@ -1547,6 +1549,7 @@ export function ManagedProjectsSettings({
                           ? <LoaderCircle className="size-4 animate-spin" aria-hidden="true" />
                           : <Trash2 className="size-4" aria-hidden="true" />}
                       </Button>
+                      </div>
                       </div>
                     </Fragment>
                   );

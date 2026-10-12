@@ -93,7 +93,7 @@ DialogDescription.displayName = DialogPrimitive.Description.displayName;
 type DialogBodyProps = { children: ReactNode; className?: string; layout?: "sections" };
 
 function DialogBody({ className, children, layout }: DialogBodyProps) {
-  return <div className={cn("-m-1 max-h-[70vh] overflow-y-auto p-1", layout === "sections" && "app-dialog-sections flex flex-col", className)}>{children}</div>;
+  return <div data-subform className={cn("-m-1 max-h-[70vh] overflow-y-auto p-1", layout === "sections" && "app-dialog-sections flex flex-col [&>*]:shrink-0", className)}>{children}</div>;
 }
 
 export {

@@ -42,6 +42,9 @@ vi.mock("../settings/api", () => ({
 }));
 
 vi.mock("./api", () => ({
+  getCommentDiscussions: vi.fn().mockResolvedValue([]),
+  sendCommentDiscussion: vi.fn(),
+  decideCommentDiscussion: vi.fn(),
   getPullRequestReviewSettings: vi.fn(),
   getReviewInstructionRules: vi.fn(),
   saveReviewInstructionRules: vi.fn(),
@@ -377,15 +380,12 @@ describe("MyPullRequestsPage", () => {
     expect(screen.getByText("NEW").closest(".pr-review-card-meta")).toBeInTheDocument();
     expect(screen.getByText("UPDATED").closest(".pr-review-card-meta")).toBeInTheDocument();
     const refreshButton = screen.getByRole("button", { name: "Refresh" });
-    expect(refreshButton).toHaveClass("h-9");
     expect(refreshButton.querySelector("svg.lucide-refresh-cw")).not.toBeNull();
     expect(refreshButton).not.toHaveTextContent("Refresh");
     const readAllButton = screen.getByRole("button", { name: "Mark all as read" });
-    expect(readAllButton).toHaveClass("h-9");
     expect(readAllButton).not.toHaveTextContent("Mark all as read");
     expect(readAllButton.parentElement).toBe(refreshButton.parentElement);
     const permanentFiltersButton = screen.getByRole("button", { name: "Filters" });
-    expect(permanentFiltersButton).toHaveClass("h-9");
     expect(permanentFiltersButton).not.toHaveTextContent("Filters");
     expect(within(permanentFiltersButton.parentElement!).getAllByRole("button")[0]).toBe(permanentFiltersButton);
     expect(permanentFiltersButton.parentElement).toHaveClass("ml-auto");
@@ -767,7 +767,7 @@ describe("MyPullRequestsPage", () => {
     expect(screen.queryByText("UPDATED")).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "AI review results" }));
     expect(markPullRequestDiscussionRead).not.toHaveBeenCalled();
-    fireEvent.click(within(screen.getByRole("dialog", { name: "AI review results" })).getByRole("button", { name: "Close" }));
+    fireEvent.click(within(screen.getByRole("dialog", { name: "AI review results" })).getAllByRole("button", { name: "Close" }).find(button => button.hasAttribute("data-dialog-cancel"))!);
     fireEvent.click(indicator);
     expect(await screen.findByText("A reply was added or updated in your discussion")).toBeInTheDocument();
     expect(screen.getByText("Your discussion was resolved")).toBeInTheDocument();
@@ -879,7 +879,7 @@ describe("MyPullRequestsPage", () => {
 
     let dialog = await screen.findByRole("dialog", { name: "AI review results" });
     expect(within(dialog).getByText("Example review failure details")).toBeInTheDocument();
-    expect(within(dialog).getAllByRole("button").map((button) => button.textContent)).toEqual(["", "Cancel", "Retry review", "Close"]);
+    expect(within(dialog).getAllByRole("button").map((button) => button.textContent)).toEqual(["", "Close", "Retry review", "Close"]);
     expect(within(dialog).getByRole("link", { name: "Open in browser" })).toHaveAttribute("href", pullRequests[0].url);
     fireEvent.click(within(dialog).getByRole("button", { name: "Show review details" }));
     failureDetails = await screen.findByRole("dialog", { name: "Review details" });
@@ -1008,7 +1008,7 @@ describe("MyPullRequestsPage", () => {
     await waitFor(() => expect(within(dialog).getByRole("button", { name: "Needs work" })).not.toBeDisabled());
     expect(invalidateCounts).toHaveBeenCalledOnce();
     unsubscribeCounts();
-    fireEvent.click(within(dialog).getByRole("button", { name: "Close" }));
+    fireEvent.click(within(dialog).getAllByRole("button", { name: "Close" }).find(button => button.hasAttribute("data-dialog-cancel"))!);
     await waitFor(() => expect(within(card).getByRole("button", { name: "Review decision" }).querySelector("svg.lucide-circle-check")).toBeInTheDocument());
   });
 
@@ -1038,7 +1038,7 @@ describe("MyPullRequestsPage", () => {
     const dialog = await screen.findByRole("dialog", { name: "AI review results" });
     expect(within(dialog).getByText("The AI review has no comments.")).toBeInTheDocument();
     expect(dialog.querySelector("details")).toBeNull();
-    fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
+    fireEvent.click(within(dialog).getAllByRole("button", { name: "Close" }).find(button => button.hasAttribute("data-dialog-cancel"))!);
     await waitFor(() => expect(screen.queryByRole("dialog", { name: "AI review results" })).not.toBeInTheDocument());
     fireEvent.click(screen.getByRole("button", { name: "AI review results" }));
     expect(within(await screen.findByRole("dialog", { name: "AI review results" })).getByText("The AI review has no comments.")).toBeInTheDocument();
@@ -1150,7 +1150,7 @@ describe("MyPullRequestsPage", () => {
     const openInBrowser = screen.getByRole("link", { name: "Open in browser" });
     expect(openInBrowser).toHaveAttribute("href", pullRequests[0].url);
     expect(openInBrowser).toHaveAttribute("data-tooltip", "Open in browser");
-    expect(openInBrowser).toHaveClass("app-icon-button", "size-8");
+    expect(openInBrowser).toHaveClass("app-icon-button", "size-7");
     expect(openInBrowser.parentElement).toContainElement(screen.getByRole("heading", { name: "AI review results" }));
     expect(screen.getByRole("button", { name: "Re-run review" })).toHaveClass("app-action-text", "h-9");
     expect(openInBrowser).toHaveTextContent("");
@@ -1271,7 +1271,8 @@ describe("MyPullRequestsPage", () => {
     expect(screen.queryByText("An existing discussion already fully covers this finding.")).not.toBeInTheDocument();
     const duplicateCard = existing.closest("li")!;
     expect(duplicateCard.lastElementChild).toContainElement(duplicateStatus);
-    expect(duplicateCard.lastElementChild).toHaveClass("justify-end");
+    expect(existing.parentElement).toHaveClass("mr-auto");
+    expect(existing.nextElementSibling).toBe(duplicateStatus);
     expect(duplicateCard.lastElementChild).toContainElement(existing);
     expect(duplicateCard.firstElementChild).toContainElement(screen.getByRole("link", { name: "src/timeout.ts:18" }));
     const partialStatus = screen.getByRole("status", { name: "Comment status for src/retry.ts" });

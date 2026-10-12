@@ -104,7 +104,7 @@ export function DataRetentionSettings() {
               <div role="group" aria-labelledby={`retention-${field}-label`}
               className="flex flex-wrap items-center justify-between gap-x-4 gap-y-3 py-3 last:pb-0">
               <Hint content={t(`dataRetention.${field}Help`)}><span id={`retention-${field}-label`} className="text-sm font-medium leading-none">{label}</span></Hint>
-              <div className="flex flex-wrap items-center gap-3">
+              <div data-menu-align="end" className="flex flex-wrap items-center gap-3">
               <Select value={period.mode} disabled={saving} onValueChange={(mode) => {
                 setValid((current) => ({ ...current, [field]: true }));
                 setDraft((current) => current && { ...current, [field]: { ...current[field], mode: mode as RetentionMode } });
@@ -131,7 +131,7 @@ export function DataRetentionSettings() {
               </div>
               {field === "diagnosticLogs" && period.mode !== "disabled" ? <div className="flex basis-full flex-wrap items-center justify-between gap-x-4 gap-y-3">
                 <span id="retention-log-size-label" className="sr-only">{t("dataRetention.logSize")}</span>
-                <div className="ml-auto flex flex-wrap items-center gap-3">
+                <div data-menu-align="end" className="ml-auto flex flex-wrap items-center gap-3">
                 <Select value={draft.diagnosticLogSizeLimit === null ? "unlimited" : "limited"} disabled={saving} onValueChange={(mode) => {
                   setValid((current) => ({ ...current, diagnosticLogSizeLimit: true }));
                   setDraft((current) => current && { ...current, diagnosticLogSizeLimit: mode === "unlimited" ? null : { value: 100, unit: "mib" } });

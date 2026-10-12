@@ -1,3 +1,4 @@
+import { PageToolbar } from "@/components/shared/PageToolbar";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { CheckCheck, Filter, RefreshCw, Settings2, Trash2, FilePenLine } from "lucide-react";
 
@@ -843,9 +844,9 @@ export function MyPullRequestsPage() {
         ) : undefined}
       />
 
-      <div className="flex flex-wrap items-center gap-2">
+      <PageToolbar>
         <Select value={quickFilter} onValueChange={(value) => setQuickFilter(value as "all" | "pending")}>
-          <SelectTrigger aria-label={t("pr.quickFilters.review")} className="h-9 text-[13.5px]">
+          <SelectTrigger aria-label={t("pr.quickFilters.review")}>
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
@@ -858,7 +859,7 @@ export function MyPullRequestsPage() {
             type="button"
             variant="outline"
             size="icon"
-            className="h-9 w-9"
+
             aria-label={t("pr.permanentFilters")}
             title={t("pr.permanentFilters")}
             onClick={openSettings}
@@ -866,14 +867,14 @@ export function MyPullRequestsPage() {
           >
             <Filter aria-hidden="true" />
           </Button>
-          <Button type="button" variant="outline" size="icon" className="h-9 w-9" aria-label={t("pr.instructions.title")} title={t("pr.instructions.title")} onClick={() => { setInstructionTarget(undefined); setInstructionsOpen(true); }} disabled={loading}>
+          <Button type="button" variant="outline" size="icon" aria-label={t("pr.instructions.title")} title={t("pr.instructions.title")} onClick={() => { setInstructionTarget(undefined); setInstructionsOpen(true); }} disabled={loading}>
             <FilePenLine aria-hidden="true" />
           </Button>
           <Button
             type="button"
             variant="outline"
             size="icon"
-            className="h-9 w-9"
+
             aria-label={t("pr.displayOptions")}
             title={t("pr.displayOptions")}
             onClick={() => setDisplayOptionsOpen(true)}
@@ -886,7 +887,7 @@ export function MyPullRequestsPage() {
             type="button"
             variant="outline"
             size="icon"
-            className="h-9 w-9"
+
             aria-label={polling ? t("pr.refreshing") : t("pr.refresh")}
             title={polling ? t("pr.refreshing") : t("pr.refresh")}
             onClick={() => void syncPullRequests()}
@@ -899,7 +900,7 @@ export function MyPullRequestsPage() {
             variant="outline"
             size="icon"
             actionTone="neutral"
-            className="h-9 w-9"
+
             aria-label={t("pr.readAll")}
             title={t("pr.readAll")}
             onClick={() => void markAllRead()}
@@ -908,7 +909,7 @@ export function MyPullRequestsPage() {
             {readAllPending ? <RefreshCw className="animate-spin" aria-hidden="true" /> : <CheckCheck aria-hidden="true" />}
           </Button>
         </div>
-      </div>
+      </PageToolbar>
 
       {loading ? <div role="status" aria-label={t("pr.loadingReview")}>{t("pr.loading")}</div> : null}
       {error ? (

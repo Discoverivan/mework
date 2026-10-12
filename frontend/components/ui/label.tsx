@@ -25,6 +25,7 @@ const Label = React.forwardRef<
 >(({ alignment, className, title, ...props }, ref) => (
   <Hint content={title}>
     <LabelPrimitive.Root
+      data-slot="label"
       ref={ref}
       className={cn(labelVariants({ alignment }), className)}
       {...props}

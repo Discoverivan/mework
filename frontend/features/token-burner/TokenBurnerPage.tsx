@@ -593,7 +593,7 @@ export function TokenBurnerPage() {
                     <Label id="burner-daily-target-label" htmlFor="burner-daily-target" alignment="inline" className="font-medium">{t("tokenBurner.dailyTargetField")}</Label>
                     <CardDescription className="mt-1 text-xs leading-snug">{dailyTargetHelp}</CardDescription>
                   </div>
-                  <div className="flex w-full items-center gap-3 sm:w-auto">
+                  <div data-menu-align="end" className="flex w-full items-center gap-3 sm:w-auto">
                     <ManualNumberField id="burner-daily-target" labelledBy="burner-daily-target-label" label={t("tokenBurner.dailyTargetField")}
                       description={dailyTargetHelp} value={targetAmount} min={1000} max={100_000_000} scale={TOKEN_UNITS[targetUnit]} allowDecimals
                       disabled={settingsSaving} onValidityChange={setDailyTargetValid}
@@ -612,7 +612,7 @@ export function TokenBurnerPage() {
                     <Label id="burner-request-delay-label" htmlFor="burner-request-delay" alignment="inline" className="font-medium">{t("tokenBurner.delayBetweenRequests")}</Label>
                     <CardDescription className="mt-1 text-xs leading-snug">{delayHelp}</CardDescription>
                   </div>
-                  <div className="flex w-full items-center gap-3 sm:w-auto">
+                  <div data-menu-align="end" className="flex w-full items-center gap-3 sm:w-auto">
                     <ManualNumberField id="burner-request-delay" labelledBy="burner-request-delay-label" label={t("tokenBurner.delayBetweenRequests")}
                       description={delayHelp} value={delayAmount} min={0} max={MAX_DELAY_SECONDS} scale={DELAY_UNITS[delayUnit]} allowDecimals
                       disabled={settingsSaving} onValidityChange={setDelayValid}

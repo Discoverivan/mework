@@ -107,11 +107,11 @@ export function PullRequestDisplayOptionsDialog({
             <CardHeader variant="section" className="py-3">
               <CardTitle id="pull-request-display-options" className="text-base font-semibold leading-tight">{t("pr.options.display")}</CardTitle>
             </CardHeader>
-            <CardContent className="px-4 pb-4">
+            <CardContent data-menu-align="end" className="px-4 pb-4">
               <div className="flex min-h-9 flex-wrap items-center justify-between gap-3 py-3">
                 <Label htmlFor="pull-request-sort-order" alignment="inline" className="min-w-0 flex-1 text-sm font-medium leading-tight">{t("pr.options.sortOrder")}</Label>
                 <Select value={draftSort} onValueChange={(value) => setDraftSort(value as PullRequestSortOrder)}>
-                  <SelectTrigger id="pull-request-sort-order" aria-label={t("pr.options.sortOrder")} className="h-9"><SelectValue /></SelectTrigger>
+                  <SelectTrigger id="pull-request-sort-order" aria-label={t("pr.options.sortOrder")}><SelectValue /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="newest">{t("pr.options.newestFirst")}</SelectItem>
                     <SelectItem value="oldest">{t("pr.options.oldestFirst")}</SelectItem>
@@ -123,7 +123,7 @@ export function PullRequestDisplayOptionsDialog({
                 <div className="flex min-h-9 flex-wrap items-center justify-between gap-3 py-3 last:pb-0">
                   <Label id="pull-request-grouping-label" htmlFor="pull-request-grouping" alignment="inline" className="min-w-0 flex-1 text-sm font-medium leading-tight">{t("pr.options.grouping")}</Label>
                   <Select value={draftGrouping} onValueChange={(value) => setDraftGrouping(value as PullRequestGrouping)}>
-                    <SelectTrigger id="pull-request-grouping" aria-label={t("pr.options.grouping")} className="h-9"><SelectValue /></SelectTrigger>
+                    <SelectTrigger id="pull-request-grouping" aria-label={t("pr.options.grouping")}><SelectValue /></SelectTrigger>
                     <SelectContent>
                       <SelectItem value="none">{t("pr.options.groupNone")}</SelectItem>
                       <SelectItem value="project">{t("pr.options.groupProject")}</SelectItem>

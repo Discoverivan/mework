@@ -29,6 +29,30 @@ const fn default_page_size() -> u64 {
 }
 
 #[tauri::command]
+pub async fn pull_request_comment_discussions(
+    state: State<'_, SqlitePool>,
+    request: crate::application::review_comment_discussions::Scope,
+) -> Result<Vec<crate::application::review_comment_discussions::Discussion>, String> {
+    crate::application::review_comment_discussions::load(&state, request).await
+}
+
+#[tauri::command]
+pub async fn pull_request_comment_discussion_send(
+    state: State<'_, SqlitePool>,
+    request: crate::application::review_comment_discussions::SendRequest,
+) -> Result<crate::application::review_comment_discussions::Discussion, String> {
+    crate::application::review_comment_discussions::send(&state, request).await
+}
+
+#[tauri::command]
+pub async fn pull_request_comment_discussion_decide(
+    state: State<'_, SqlitePool>,
+    request: crate::application::review_comment_discussions::DecisionRequest,
+) -> Result<crate::application::review_comment_discussions::Discussion, String> {
+    crate::application::review_comment_discussions::decide(&state, request).await
+}
+
+#[tauri::command]
 pub async fn pull_request_review_instruction_rules(
     state: State<'_, SqlitePool>,
 ) -> Result<Vec<crate::application::review_instructions::ReviewInstructionRule>, String> {

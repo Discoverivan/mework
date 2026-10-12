@@ -585,6 +585,7 @@ pub async fn start_review_with_diff<R: Runtime>(
         instructions_changed: false,
     };
     state.reviews.insert(key.clone(), run.clone());
+    super::review_comment_discussions::capture_context(pool, &run.run_id, &request, &diff).await?;
     save_state(pool, &state).await?;
     active_review_runs()
         .lock()
@@ -902,8 +903,12 @@ pub(crate) async fn prune_old_reviews(
     )
     .map_err(|_| "Failed to serialize retained review runs".to_owned())?;
     sqlx::query("DELETE FROM review_arbitration_stages WHERE created_at < ? AND run_id NOT IN (SELECT value FROM json_each(?))")
-        .bind(cutoff).bind(retained_runs).execute(pool).await
+        .bind(cutoff).bind(&retained_runs).execute(pool).await
         .map_err(|_| "Failed to prune review arbitration diagnostics".to_owned())?;
+    // Discard unused code snapshots, while preserving context for durable user discussions.
+    sqlx::query("DELETE FROM review_discussion_contexts WHERE run_id NOT IN (SELECT value FROM json_each(?)) AND NOT EXISTS (SELECT 1 FROM review_comment_discussions WHERE review_comment_discussions.run_id = review_discussion_contexts.run_id)")
+        .bind(&retained_runs).execute(pool).await
+        .map_err(|_| "Failed to prune unused discussion contexts".to_owned())?;
     if previous_count != state.reviews.len() {
         save_state(pool, &state).await?;
     }

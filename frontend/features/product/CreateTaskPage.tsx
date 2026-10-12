@@ -1,3 +1,4 @@
+import { PageToolbar } from "@/components/shared/PageToolbar";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { APP_EVENT, subscribeAppEvent } from "@/app/app-events";
 import { readUpdatedTeamMembers } from "../planning/team-members-state";
@@ -816,7 +817,7 @@ export function CreateTaskPage() {
         className="page-header--create-task"
       />
 
-      <div className="mb-4 flex flex-wrap items-center gap-2">
+      <PageToolbar className="mb-4">
         <Select
           value={selectedTeamId ?? ""}
           onValueChange={(teamId) => {
@@ -836,13 +837,12 @@ export function CreateTaskPage() {
         <div className="ml-auto flex items-center gap-2">
           <CreateButton
             type="button"
-            className="h-9"
             onClick={() => setDialogOpen(true)}
             aria-label={t("task.new")}
             title={t("task.new")}
           />
         </div>
-      </div>
+      </PageToolbar>
 
       {teamsError ? <p className="text-sm text-destructive" role="alert">{teamsError}</p> : null}
       {selectedTeam && selectedContext?.membersUnavailable ? <p className="text-sm text-muted-foreground">{t("task.membersUnavailable", { team: selectedTeam.name })}</p> : null}
@@ -871,10 +871,10 @@ export function CreateTaskPage() {
           </DialogHeader>
           <DialogBody>
             <form autoComplete="off" id="create-task-form" className="create-task-form" onSubmit={submitPrompt}>
-              <div className="grid gap-2">
-                <Label htmlFor="create-task-form-sprint">{t("task.sprint")}</Label>
+              <div className="flex items-center gap-3">
+                <Label htmlFor="create-task-form-sprint" alignment="inline" className="shrink-0">{t("task.sprint")}</Label>
                 <Select value={selectedSprintId} onValueChange={setSelectedSprintId} disabled={selectedContext?.sprintsLoading || !selectedContext?.sprints.length}>
-                  <SelectTrigger id="create-task-form-sprint" aria-label={t("task.sprint")}><SelectValue placeholder={selectedContext?.sprintsLoading ? t("task.loadingSprints") : t("task.noSprints")} /></SelectTrigger>
+                  <SelectTrigger id="create-task-form-sprint" className="min-w-0" aria-label={t("task.sprint")}><SelectValue placeholder={selectedContext?.sprintsLoading ? t("task.loadingSprints") : t("task.noSprints")} /></SelectTrigger>
                   <SelectContent>{selectedContext?.sprints.map((sprint) => <SelectItem key={sprint.id} value={sprint.id}>{sprint.name}</SelectItem>)}</SelectContent>
                 </Select>
               </div>

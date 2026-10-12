@@ -91,3 +91,27 @@ pub async fn task_tracker_check_now<R: tauri::Runtime>(
 ) -> Result<TaskTrackerMonitorDto, String> {
     task_tracker::check_now(&state, &app, &id).await
 }
+
+#[tauri::command]
+pub async fn task_tracker_explain_cron(
+    mode: State<'_, DevMockMode>,
+    state: State<'_, SqlitePool>,
+    request: task_tracker::CronExplanationRequest,
+) -> Result<task_tracker::CronExplanationDto, String> {
+    if mode.is_enabled() {
+        return Err("AI explanation is disabled in mock mode".into());
+    }
+    task_tracker::explain_cron(&state, request).await
+}
+
+#[tauri::command]
+pub async fn task_tracker_generate_cron(
+    mode: State<'_, DevMockMode>,
+    state: State<'_, SqlitePool>,
+    request: task_tracker::CronGenerationRequest,
+) -> Result<task_tracker::CronGenerationDto, String> {
+    if mode.is_enabled() {
+        return Err("AI generation is disabled in mock mode".into());
+    }
+    task_tracker::generate_cron(&state, request).await
+}

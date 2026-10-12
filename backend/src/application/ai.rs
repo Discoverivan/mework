@@ -991,6 +991,12 @@ pub(crate) async fn stored_settings_for_activity(
     Ok(effective_settings(load(pool).await?, activity))
 }
 
+pub async fn settings_for_defaults(pool: &SqlitePool) -> Result<AiSettings, String> {
+    let data = dto(pool).await?;
+    validate_selected_settings(&data.settings, &data.providers)?;
+    Ok(data.settings)
+}
+
 pub async fn settings_for_activity(
     pool: &SqlitePool,
     activity: AiActivity,
