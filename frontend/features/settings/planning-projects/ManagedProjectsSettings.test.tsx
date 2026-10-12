@@ -206,7 +206,7 @@ describe("ManagedProjectsSettings task creation settings", () => {
     expect(deleteTeamButton.querySelector("svg.lucide-trash-2")).not.toBeNull();
     const addTeamButton = await screen.findByRole("button", { name: "Add team" });
     expect(addTeamButton.querySelector("svg.lucide-plus")).not.toBeNull();
-    expect(addTeamButton).toHaveTextContent("Create");
+    expect(addTeamButton).toHaveTextContent("Add");
     expect(addTeamButton.closest("header")).toHaveClass("page-header");
     fireEvent.click(addTeamButton);
     expect(screen.queryByRole("textbox", { name: "Team name" })).not.toBeInTheDocument();

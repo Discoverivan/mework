@@ -16,6 +16,7 @@ export const ru: Record<TranslationKey, string> = {
   "tokenBurner.statusHelp.ready": "Выбранные AI-провайдер и модель доступны для проверок.",
   "tokenBurner.statusHelp.aiMissing": "Для проверки моделей нужны подключённый AI-провайдер и доступная модель.",
   "common.create": "Создать",
+  "common.add": "Добавить",
   "common.edit": "Редактировать",
   "common.delete": "Удалить",
   "common.refresh": "Обновить",

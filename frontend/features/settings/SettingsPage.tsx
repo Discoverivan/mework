@@ -1004,7 +1004,7 @@ export function SettingsPage({ section = "integrations", focusActivity, mockMode
           actions={section === "integrations" ? (
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <CreateButton type="button" variant="ghost" className="h-9" aria-label={t("settings.data.add")} title={t("settings.data.add")} disabled={loading || availableIntegrationProviders.length === 0} />
+                <CreateButton type="button" variant="ghost" label={t("common.add")} aria-label={t("settings.data.add")} title={t("settings.data.add")} disabled={loading || availableIntegrationProviders.length === 0} />
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
                 {availableIntegrationProviders.map((candidate) => (

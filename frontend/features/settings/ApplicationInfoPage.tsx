@@ -269,7 +269,7 @@ export function ApplicationInfoPage({
     : t("applicationInfo.lastCheckedNever");
 
   return (
-    <section className="space-y-4" aria-labelledby="application-info-title">
+    <section className="space-y-4" data-action-size="page" aria-labelledby="application-info-title">
       <PageHeader title={t("applicationInfo.title")} titleId="application-info-title" />
       <Card className="application-info-card">
         <div className="application-info-topline">

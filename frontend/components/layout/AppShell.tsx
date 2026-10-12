@@ -181,7 +181,7 @@ export function AppShell({
           <img src="/mework-icon.png" alt="" aria-hidden="true" />
           <strong>mework</strong>
         </div>
-        <nav className="sidebar-navigation">
+        <nav className="sidebar-navigation" data-action-size="page">
           <div className="settings-nav-group" aria-labelledby="developer-nav-title">
             <span id="developer-nav-title" className="settings-nav-heading">{t("nav.developer")}</span>
             <div className="settings-nav-children">

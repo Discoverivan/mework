@@ -10,6 +10,7 @@ export interface PageHeaderProps {
   meta?: ReactNode;
   actions?: ReactNode;
   className?: string;
+  spacing?: "standalone" | "grouped";
 }
 
 /**
@@ -23,9 +24,10 @@ export function PageHeader({
   meta,
   actions,
   className,
+  spacing = "standalone",
 }: PageHeaderProps) {
   return (
-    <header className={cn("page-header", className)}>
+    <header data-spacing={spacing} className={cn("page-header", className)}>
       <div className="page-header-copy">
         <h1 id={titleId}>{title}</h1>
         {description ? <p className="page-header-description">{description}</p> : null}

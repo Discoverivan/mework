@@ -12,6 +12,7 @@ export const en = {
   "tokenBurner.statusHelp.ready": "The selected AI provider and model are available for reviews.",
   "tokenBurner.statusHelp.aiMissing": "Model testing requires a connected AI provider and an available model.",
   "common.create": "Create",
+  "common.add": "Add",
   "common.edit": "Edit",
   "common.delete": "Delete",
   "common.refresh": "Refresh",

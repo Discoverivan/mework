@@ -242,10 +242,11 @@ export function StatisticsPage() {
   const hasUsage = (data?.total.requestCount ?? 0) > 0;
 
   return (
-    <section className="flex flex-col gap-4 p-4 md:p-6" aria-labelledby="statistics-page-title">
+    <section className="flex flex-col gap-4" aria-labelledby="statistics-page-title">
       <PageHeader
         title={t("statistics.title")}
         titleId="statistics-page-title"
+        spacing="grouped"
         description={t("statistics.description")}
         actions={(
           <Select value={period} onValueChange={(value) => setPeriod(value as AiUsagePeriod)}>

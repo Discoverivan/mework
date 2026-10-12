@@ -468,6 +468,7 @@
   min-height: 36px;
   max-height: 36px;
   font-size: 13.5px;
+  padding-block: 4px;
 }
 
 :root[data-button-style] [data-action-size="page"] .app-icon-button:not([data-action-size="inline"]) {

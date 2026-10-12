@@ -922,6 +922,7 @@ export function ManagedProjectsSettings({
         actions={(
           <CreateButton
             type="button"
+            label={t("common.add")}
             className="h-9"
             onClick={startAdd}
             disabled={controlsDisabled}
