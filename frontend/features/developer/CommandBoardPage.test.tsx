@@ -54,10 +54,12 @@ describe("CommandBoardPage", () => {
 
     expect(screen.getByRole("dialog")).toBeInTheDocument();
     expect(screen.getByLabelText("Name")).toBeInTheDocument();
-    expect(screen.getByLabelText("Name")).not.toHaveAttribute("placeholder");
-    expect(screen.getByText("No script selected")).toBeInTheDocument();
+    expect(screen.getByLabelText("Name")).toHaveAttribute("placeholder", "Run project checks");
+    expect(screen.getByPlaceholderText("No script selected")).toHaveAttribute("readonly");
+    expect(screen.getByRole("heading", { name: "Command settings" })).toBeInTheDocument();
+    expect(screen.getByLabelText("Name").closest(".app-dialog-sections")).toBeInTheDocument();
+    expect(screen.getByLabelText("Additional arguments")).toHaveClass("app-control-border");
     expect(screen.getByRole("button", { name: "Choose script" })).toBeInTheDocument();
-    expect(screen.queryByRole("textbox", { name: "Selected script" })).not.toBeInTheDocument();
     expect(screen.queryByLabelText("Launch command")).not.toBeInTheDocument();
   });
 
@@ -68,16 +70,18 @@ describe("CommandBoardPage", () => {
     await screen.findByText("No commands yet");
     fireEvent.click(screen.getByRole("button", { name: "Add command" }));
     fireEvent.click(screen.getByRole("button", { name: "Choose script" }));
-    await waitFor(() => expect(screen.getByLabelText("Selected script")).toHaveTextContent("restart.command"));
+    await waitFor(() => expect(screen.getByLabelText("Selected script")).toHaveValue("restart.command"));
     expect(open).toHaveBeenCalledWith({ directory: false, multiple: false });
     expect(screen.getByLabelText("Working directory (optional)")).toHaveValue("/tmp/tools");
     fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Restart gateway" } });
+    fireEvent.change(screen.getByLabelText("Additional arguments"), { target: { value: "--verbose" } });
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
 
     await waitFor(() => expect(saveMock).toHaveBeenCalledWith(expect.objectContaining({
       name: "Restart gateway",
       scriptPath: "/tmp/tools/restart.command",
       workingDirectory: "/tmp/tools",
+      arguments: "--verbose",
     })));
     expect(await screen.findByRole("button", { name: "Run Restart gateway" })).toBeInTheDocument();
   });

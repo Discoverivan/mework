@@ -534,6 +534,8 @@ export const ru: Record<TranslationKey, string> = {
   "command.addTitle": "Добавление команды",
   "command.dialogDescription": "Настройте локальный скрипт для быстрого запуска.",
   "command.name": "Название",
+  "command.namePlaceholder": "Запустить проверки проекта",
+  "command.settings": "Настройки команды",
   "command.scriptFile": "Файл скрипта",
   "command.selectedScript": "Выбранный скрипт",
   "command.noScript": "Скрипт не выбран",

@@ -106,7 +106,7 @@ it("discusses a finding, applies its revision, restores history, and publishes o
   fireEvent.click(within(dialog).getByRole("button", { name: "Apply revision" }));
   await within(dialog).findByText("Revised comment applied");
   fireEvent.click(within(dialog).getAllByRole("button", { name: "Close" })[0]);
-  const send = screen.getByRole("button", { name: "Publish comment for src/example.rs" });
+  const send = await screen.findByRole("button", { name: "Publish comment for src/example.rs" });
   await waitFor(() => expect(send).toBeEnabled());
   fireEvent.pointerDown(send, { button: 0, ctrlKey: false });
   fireEvent.click(await screen.findByRole("menuitem", { name: "Send as is" }));
