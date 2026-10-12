@@ -6,6 +6,7 @@ import type {
   BitbucketUser,
   MyPullRequest,
   MyPullRequestPage,
+  PullRequestDiscussionStatus,
   PullRequestPublishableComment,
   PullRequestCommentMatches,
   PullRequestCommentMatchesRequest,
@@ -25,20 +26,32 @@ export const listMyPullRequests = (start = 0, limit = 100) =>
     request: { start, limit },
   });
 
-export const refreshMyPullRequests = (start = 0, limit = 100) =>
-  invoke<MyPullRequestPage>("bitbucket_my_pull_requests_refresh", {
+type PullRequestScope = "reviewer" | "author";
+const refreshes = new Map<string, Promise<MyPullRequestPage>>();
+const reviewStarts = new Map<string, Promise<PullRequestReviewState>>();
+
+function refreshPullRequests(scope: PullRequestScope, start: number, limit: number): Promise<MyPullRequestPage> {
+  const key = JSON.stringify([scope, start, limit]);
+  const existing = refreshes.get(key);
+  if (existing) return existing;
+  const promise = invoke<MyPullRequestPage>(scope === "reviewer" ? "bitbucket_my_pull_requests_refresh" : "bitbucket_authored_pull_requests_refresh", {
     request: { start, limit },
-  });
+  }).then((page) => {
+    emitAppEvent(scope === "reviewer" ? APP_EVENT.reviewerPullRequestsUpdated : APP_EVENT.authoredPullRequestsUpdated, page);
+    return page;
+  }).finally(() => { refreshes.delete(key); });
+  refreshes.set(key, promise);
+  return promise;
+}
+
+export const refreshMyPullRequests = (start = 0, limit = 100) => refreshPullRequests("reviewer", start, limit);
 
 export const listAuthoredPullRequests = (start = 0, limit = 100) =>
   invoke<MyPullRequestPage>("bitbucket_authored_pull_requests", {
     request: { start, limit },
   });
 
-export const refreshAuthoredPullRequests = (start = 0, limit = 100) =>
-  invoke<MyPullRequestPage>("bitbucket_authored_pull_requests_refresh", {
-    request: { start, limit },
-  });
+export const refreshAuthoredPullRequests = (start = 0, limit = 100) => refreshPullRequests("author", start, limit);
 
 export const markAuthoredPullRequestRead = (
   integrationId: string,
@@ -53,7 +66,7 @@ export const markAuthoredPullRequestRead = (
 export const markAllAuthoredPullRequestsRead = () =>
   invoke<{ markedCount: number }>("authored_pull_requests_mark_all_read");
 
-export const startPullRequestReview = (pullRequest: MyPullRequest) =>
+const invokeReviewStart = (pullRequest: MyPullRequest) =>
   invoke<PullRequestReviewState>("pull_request_review_start", {
     request: {
       integrationId: pullRequest.integrationId,
@@ -75,6 +88,29 @@ export const startPullRequestReview = (pullRequest: MyPullRequest) =>
       url: pullRequest.url,
     },
   });
+
+export function startPullRequestReview(pullRequest: MyPullRequest, scope: PullRequestScope = "reviewer"): Promise<PullRequestReviewState> {
+  const key = JSON.stringify([pullRequest.integrationId, pullRequest.projectKey, pullRequest.repositorySlug, pullRequest.pullRequestId]);
+  const existing = reviewStarts.get(key);
+  if (existing) return existing;
+  const promise = (async () => {
+    try {
+      return await invokeReviewStart(pullRequest);
+    } catch (reason) {
+      if (typeof reason !== "object" || reason === null || !("code" in reason) || reason.code !== "pull_request_changed") throw reason;
+      // Retry read-only analysis once using the freshly polled snapshot, before any AI work started.
+      const page = await refreshPullRequests(scope, 0, 100);
+      const latest = page.values.find((item) => item.integrationId === pullRequest.integrationId
+        && item.projectKey === pullRequest.projectKey && item.repositorySlug === pullRequest.repositorySlug && item.pullRequestId === pullRequest.pullRequestId);
+      if (!latest || latest.state !== "OPEN") {
+        throw { code: "pull_request_unavailable", retryable: false };
+      }
+      return await invokeReviewStart(latest);
+    }
+  })().finally(() => { reviewStarts.delete(key); });
+  reviewStarts.set(key, promise);
+  return promise;
+}
 
 export const getPullRequestReviewState = (pullRequest: MyPullRequest) =>
   invoke<PullRequestReviewState | null>("pull_request_review_state", {
@@ -108,8 +144,24 @@ export const markPullRequestRead = (
     latestCommit,
   });
 
-export const markAllPullRequestsRead = () =>
-  invoke<{ markedCount: number }>("pull_request_review_mark_all_read");
+const discussionReadRequest = (pullRequest: MyPullRequest, commentId?: number) => ({
+  integrationId: pullRequest.integrationId,
+  projectKey: pullRequest.projectKey,
+  repositorySlug: pullRequest.repositorySlug,
+  pullRequestId: pullRequest.pullRequestId,
+  throughRevision: pullRequest.discussion?.revision ?? 0,
+  commentId,
+});
+
+export const markAllPullRequestsRead = (pullRequests: MyPullRequest[]) =>
+  invoke<{ markedCount: number }>("pull_request_review_mark_all_read", {
+    discussions: pullRequests.map((pullRequest) => discussionReadRequest(pullRequest)),
+  });
+
+export const markPullRequestDiscussionRead = (pullRequest: MyPullRequest, commentId?: number) =>
+  invoke<PullRequestDiscussionStatus>("pull_request_discussion_mark_read", {
+    request: discussionReadRequest(pullRequest, commentId),
+  });
 
 export const publishPullRequestComment = (
   pullRequest: MyPullRequest,

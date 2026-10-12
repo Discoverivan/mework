@@ -18,6 +18,7 @@ import {
   listMyPullRequests,
   markAllPullRequestsRead,
   markPullRequestRead,
+  markPullRequestDiscussionRead,
   publishPullRequestComment,
   refreshMyPullRequests,
   removePullRequestReviewer,
@@ -49,6 +50,7 @@ vi.mock("./api", () => ({
   listMyPullRequests: vi.fn(),
   markAllPullRequestsRead: vi.fn(),
   markPullRequestRead: vi.fn(),
+  markPullRequestDiscussionRead: vi.fn(),
   refreshMyPullRequests: vi.fn(),
   removePullRequestReviewer: vi.fn(),
   savePullRequestReviewSettings: vi.fn(),
@@ -221,6 +223,7 @@ describe("MyPullRequestsPage", () => {
     getReviewStatesMock.mockResolvedValue({});
     getCommentMatchesMock.mockResolvedValue({ matches: [] });
     markPullRequestReadMock.mockResolvedValue({ integrationId: "bitbucket-1", pullRequestId: "7", activity: "read" });
+    vi.mocked(markPullRequestDiscussionRead).mockResolvedValue({ revision: 1, changes: [] });
     markAllPullRequestsReadMock.mockResolvedValue({ markedCount: 2 });
     startReviewMock.mockResolvedValue(runningReview);
     setDecisionMock.mockResolvedValue({ integrationId: "bitbucket-1", pullRequestId: "7", myDecision: "approved" });
@@ -744,6 +747,41 @@ describe("MyPullRequestsPage", () => {
     await waitFor(() => expect(markAllPullRequestsReadMock).toHaveBeenCalledTimes(1));
     expect(screen.queryByText("NEW")).not.toBeInTheDocument();
     expect(screen.queryByText("UPDATED")).not.toBeInTheDocument();
+  });
+
+  it("shows discussion updates separately from code and marks only opened discussions read", async () => {
+    const reviewed = { ...pullRequests[0], activity: "read" as const, review: completedReview, myDecision: "approved" as const };
+    listMyPullRequestsMock.mockResolvedValueOnce({ ...firstPage, values: [reviewed] });
+    await renderFlatPage();
+    const card = screen.getByRole("heading", { name: reviewed.title }).closest("[data-pr-status-marker]")!;
+    const discussion = {
+      revision: 2,
+      changes: [
+        { revision: 1, commentId: 12, kind: "reply" as const, actor: "Example Author", updatedAt: null },
+        { revision: 2, commentId: 11, kind: "resolved" as const, actor: "Example Author", updatedAt: null },
+      ],
+    };
+    emitAppEvent(APP_EVENT.reviewerPullRequestsUpdated, { ...firstPage, values: [{ ...reviewed, discussion }] });
+    const indicator = await screen.findByRole("button", { name: `Discussion updates for ${reviewed.title}: 2` });
+    expect(card).toHaveClass("border-l-discussion");
+    expect(screen.queryByText("UPDATED")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "AI review results" }));
+    expect(markPullRequestDiscussionRead).not.toHaveBeenCalled();
+    fireEvent.click(within(screen.getByRole("dialog", { name: "AI review results" })).getByRole("button", { name: "Close" }));
+    fireEvent.click(indicator);
+    expect(await screen.findByText("A reply was added or updated in your discussion")).toBeInTheDocument();
+    expect(screen.getByText("Your discussion was resolved")).toBeInTheDocument();
+    vi.mocked(markPullRequestDiscussionRead).mockResolvedValueOnce({ ...discussion, changes: [discussion.changes[1]] });
+    const reply = screen.getByRole("link", { name: "Open discussion for comment 12" });
+    expect(reply).toHaveAttribute("href", `${reviewed.url}/overview?commentId=12`);
+    fireEvent.click(reply);
+    await waitFor(() => expect(markPullRequestDiscussionRead).toHaveBeenCalledWith(expect.objectContaining({ discussion }), 12));
+    await waitFor(() => expect(screen.queryByRole("link", { name: "Open discussion for comment 12" })).not.toBeInTheDocument());
+    expect(card).toHaveClass("border-l-discussion");
+    vi.mocked(markPullRequestDiscussionRead).mockResolvedValueOnce({ revision: 2, changes: [] });
+    fireEvent.click(screen.getByRole("button", { name: "Mark discussion updates as read" }));
+    await waitFor(() => expect(card).toHaveClass("border-l-transparent"));
+    expect(startReviewMock).not.toHaveBeenCalled();
   });
 
   it("starts an AI review with the complete PR payload and shows AI review…", async () => {

@@ -175,6 +175,7 @@ export interface PullRequestReviewSummary {
 }
 
 export interface MyPullRequest {
+  discussion?: PullRequestDiscussionStatus;
   authorAccountName?: string | null;
   integrationId: string;
   pullRequestId: string;
@@ -195,6 +196,19 @@ export interface MyPullRequest {
   reviewSummary?: PullRequestReviewSummary;
   needsAction?: boolean;
   review?: PullRequestReviewState;
+}
+
+export interface PullRequestDiscussionChange {
+  revision: number;
+  commentId: number;
+  kind: "reply" | "mention" | "resolved" | "reopened";
+  actor: string | null;
+  updatedAt: number | null;
+}
+
+export interface PullRequestDiscussionStatus {
+  revision: number;
+  changes: PullRequestDiscussionChange[];
 }
 
 export interface PullRequestUnreadCounts {

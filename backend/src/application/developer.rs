@@ -8,6 +8,7 @@ use reqwest::{Client, Url};
 use serde::{Deserialize, Serialize};
 
 use crate::application::developer_review::{self, PullRequestReviewDto};
+use crate::application::reviewer_discussions::{DiscussionState, DiscussionStatus};
 use crate::domain::models::{IntegrationHealthStatus, IntegrationKind};
 use crate::infrastructure::credentials::keyring::{
     integration_credential_store, DEV_KEYRING_SERVICE, PRODUCTION_KEYRING_SERVICE,
@@ -32,7 +33,7 @@ const KEYRING_SERVICE: &str = if cfg!(debug_assertions) {
 const REVIEW_FILTERS_SETTING_KEY: &str = "developer.pull_request_review_filters";
 const REVIEW_FILTERS_SCHEMA_VERSION: i64 = 5;
 const PULL_REQUEST_ACTIVITY_SETTING_KEY: &str = "developer.pull_request_activity";
-const PULL_REQUEST_ACTIVITY_SCHEMA_VERSION: i64 = 1;
+const PULL_REQUEST_ACTIVITY_SCHEMA_VERSION: i64 = 2;
 const PULL_REQUEST_CACHE_SETTING_KEY: &str = "developer.pull_request_cache";
 const PULL_REQUEST_CACHE_SCHEMA_VERSION: i64 = 1;
 const MAX_REVIEW_FILTER_ENTRIES: usize = 100;
@@ -276,6 +277,8 @@ struct PullRequestActivitySnapshot {
     activity: PullRequestActivity,
     #[serde(default)]
     auto_review_completed: bool,
+    #[serde(default)]
+    discussion: DiscussionState,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
@@ -328,6 +331,8 @@ pub struct MyPullRequestDto {
     #[serde(default)]
     pub needs_action: bool,
     pub activity: PullRequestActivity,
+    #[serde(default)]
+    pub discussion: DiscussionStatus,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub review: Option<PullRequestReviewDto>,
 }
@@ -733,6 +738,23 @@ pub async fn pull_request_diff(
     let client =
         BitbucketDcClient::with_bearer_token_and_client(&integration.base_url, secret, http)
             .map_err(map_error)?;
+    review_diff_for_client(
+        &client,
+        project_key,
+        repository_slug,
+        pull_request_id,
+        expected_commit,
+    )
+    .await
+}
+
+async fn review_diff_for_client(
+    client: &BitbucketDcClient,
+    project_key: &str,
+    repository_slug: &str,
+    pull_request_id: u64,
+    expected_commit: &str,
+) -> Result<String, DeveloperCommandError> {
     let current_pull_request = client
         .get_pull_request(project_key, repository_slug, pull_request_id)
         .await
@@ -752,13 +774,12 @@ pub async fn pull_request_diff(
         ));
     }
     if current_pull_request.from_ref.latest_commit.as_deref() != Some(expected_commit) {
-        return Err(command_error(
-            "pull_request_changed",
-            "Pull request changed since it was loaded; refresh the list and try again",
-            false,
+        return Err(changed_pull_request_error(
+            "load_review_diff",
+            "before_diff",
         ));
     }
-    client
+    let diff = client
         .pull_request_diff(project_key, repository_slug, pull_request_id)
         .await
         .map_err(|error| {
@@ -768,7 +789,46 @@ pub async fn pull_request_diff(
                 "GET",
                 "/rest/api/1.0/projects/{project}/repos/{repo}/pull-requests/{id}.diff",
             )
-        })
+        })?;
+    let verified = client
+        .get_pull_request(project_key, repository_slug, pull_request_id)
+        .await
+        .map_err(|error| {
+            map_error_at(
+                error,
+                "verify_review_snapshot",
+                "GET",
+                "/rest/api/1.0/projects/{project}/repos/{repo}/pull-requests/{id}",
+            )
+        })?;
+    if !verified.open || !verified.state.eq_ignore_ascii_case("OPEN") {
+        return Err(command_error(
+            "pull_request_unavailable",
+            "Pull request is no longer open",
+            false,
+        ));
+    }
+    if verified.from_ref.latest_commit != current_pull_request.from_ref.latest_commit
+        || verified.to_ref.latest_commit != current_pull_request.to_ref.latest_commit
+    {
+        return Err(changed_pull_request_error("load_review_diff", "after_diff"));
+    }
+    Ok(diff)
+}
+
+fn changed_pull_request_error(operation: &str, phase: &str) -> DeveloperCommandError {
+    crate::application::logging::info(
+        "developer",
+        "pull_request_snapshot_changed",
+        serde_json::json!({
+            "operation": operation, "phase": phase, "code": "pull_request_changed",
+        }),
+    );
+    command_error(
+        "pull_request_changed",
+        "Pull request changed since it was loaded; refresh the list and try again",
+        phase != "before_write",
+    )
 }
 
 pub async fn sync_my_pull_requests_with_notifications(
@@ -925,6 +985,51 @@ pub async fn sync_my_pull_requests_with_notifications(
                 pull_request,
             );
             dto.activity = activity;
+            if matches_review_settings(&dto, &review_settings) {
+                // Discussion polling is independent of code changes and never schedules AI work.
+                match client
+                    .list_pull_request_activities(
+                        &project_key,
+                        &repository_slug,
+                        pull_request_id.parse().map_err(|_| {
+                            command_error(
+                                "invalid_response",
+                                "Invalid pull request identifier",
+                                false,
+                            )
+                        })?,
+                        100,
+                    )
+                    .await
+                {
+                    Ok(activities) => {
+                        if let Some(snapshot) = activity_state
+                            .integrations
+                            .get_mut(&integration.id)
+                            .and_then(|integration| integration.pull_requests.get_mut(&state_key))
+                        {
+                            snapshot
+                                .discussion
+                                .observe(&activities, &integration.account_key);
+                        }
+                    }
+                    Err(_) => {
+                        crate::application::logging::log_business_failure(
+                            "developer",
+                            "poll_reviewer_discussions",
+                            "discussion_poll_failed",
+                            "Pull request discussion state was preserved after a failed poll",
+                        );
+                    }
+                }
+            }
+            if let Some(snapshot) = activity_state
+                .integrations
+                .get(&integration.id)
+                .and_then(|integration| integration.pull_requests.get(&state_key))
+            {
+                dto.discussion = snapshot.discussion.status.clone();
+            }
             if should_notify
                 && matches!(
                     activity,
@@ -1028,6 +1133,7 @@ pub async fn get_cached_my_pull_requests_page(
                     .or_else(|| integration.pull_requests.get(&pull_request.pull_request_id));
                 if let Some(snapshot) = snapshot {
                     pull_request.activity = snapshot.activity;
+                    pull_request.discussion = snapshot.discussion.status.clone();
                 }
             }
             pull_request
@@ -1289,10 +1395,9 @@ async fn validate_current_pull_request(
         ));
     }
     if current_pull_request.from_ref.latest_commit.as_deref() != Some(latest_commit) {
-        return Err(command_error(
-            "pull_request_changed",
-            "Pull request changed since it was loaded; refresh the list and try again",
-            false,
+        return Err(changed_pull_request_error(
+            "validate_external_action",
+            "before_write",
         ));
     }
     Ok(())
@@ -1940,6 +2045,7 @@ pub async fn mark_pull_request_read(
             latest_commit: latest_commit.clone(),
             activity: PullRequestActivity::Read,
             auto_review_completed: false,
+            discussion: DiscussionState::default(),
         });
     if latest_commit.is_some() {
         snapshot.latest_commit = latest_commit;
@@ -1955,17 +2061,44 @@ pub async fn mark_pull_request_read(
 
 pub async fn mark_all_pull_requests_read(
     pool: &SqlitePool,
+    discussions: Option<Vec<DiscussionReadRequest>>,
 ) -> Result<PullRequestReadAllStatus, DeveloperCommandError> {
     let _state_guard = pull_request_state_lock().lock().await;
     let cache = load_pull_request_cache(pool).await?;
     let mut state = load_pull_request_activity_state(pool).await?;
     let mut marked_count = 0_u64;
-    for integration in state.integrations.values_mut() {
-        for snapshot in integration.pull_requests.values_mut() {
-            if snapshot.activity != PullRequestActivity::Read {
+    for (integration_id, integration) in &mut state.integrations {
+        for (key, snapshot) in &mut integration.pull_requests {
+            let through_revision =
+                discussions
+                    .as_ref()
+                    .map_or(snapshot.discussion.status.revision, |requests| {
+                        requests
+                            .iter()
+                            .filter(|request| {
+                                request.integration_id == *integration_id
+                                    && pull_request_state_key(
+                                        &request.project_key,
+                                        &request.repository_slug,
+                                        &request.pull_request_id,
+                                    ) == *key
+                            })
+                            .map(|request| request.through_revision)
+                            .max()
+                            .unwrap_or(0)
+                    });
+            if snapshot.activity != PullRequestActivity::Read
+                || snapshot
+                    .discussion
+                    .status
+                    .changes
+                    .iter()
+                    .any(|change| change.revision <= through_revision)
+            {
                 marked_count = marked_count.saturating_add(1);
             }
             snapshot.activity = PullRequestActivity::Read;
+            snapshot.discussion.mark_read(through_revision, None);
         }
     }
     for pull_request in deduplicate_cached_pull_requests(cache.values) {
@@ -1994,6 +2127,7 @@ pub async fn mark_all_pull_requests_read(
                     latest_commit: None,
                     activity: PullRequestActivity::Read,
                     auto_review_completed: false,
+                    discussion: DiscussionState::default(),
                 }))
         };
         if snapshot.activity != PullRequestActivity::Read {
@@ -2006,6 +2140,58 @@ pub async fn mark_all_pull_requests_read(
     }
     save_pull_request_activity_state(pool, &state).await?;
     Ok(PullRequestReadAllStatus { marked_count })
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DiscussionReadRequest {
+    pub integration_id: String,
+    pub project_key: String,
+    pub repository_slug: String,
+    pub pull_request_id: String,
+    pub through_revision: u64,
+    pub comment_id: Option<u64>,
+}
+
+pub async fn mark_pull_request_discussion_read(
+    pool: &SqlitePool,
+    request: DiscussionReadRequest,
+) -> Result<DiscussionStatus, DeveloperCommandError> {
+    if [
+        &request.integration_id,
+        &request.project_key,
+        &request.repository_slug,
+        &request.pull_request_id,
+    ]
+    .into_iter()
+    .any(|value| value.trim().is_empty())
+    {
+        return Err(command_error(
+            "invalid_input",
+            "Integration and pull request identifiers are required",
+            false,
+        ));
+    }
+    let _state_guard = pull_request_state_lock().lock().await;
+    let mut state = load_pull_request_activity_state(pool).await?;
+    let key = pull_request_state_key(
+        &request.project_key,
+        &request.repository_slug,
+        &request.pull_request_id,
+    );
+    let Some(snapshot) = state
+        .integrations
+        .get_mut(&request.integration_id)
+        .and_then(|integration| integration.pull_requests.get_mut(&key))
+    else {
+        return Ok(DiscussionStatus::default());
+    };
+    snapshot
+        .discussion
+        .mark_read(request.through_revision, request.comment_id);
+    let status = snapshot.discussion.status.clone();
+    save_pull_request_activity_state(pool, &state).await?;
+    Ok(status)
 }
 
 pub async fn mark_auto_review_completed(
@@ -2315,6 +2501,9 @@ fn record_pull_request_snapshot_with_identity(
             latest_commit: effective_latest_commit,
             activity,
             auto_review_completed,
+            discussion: previous
+                .map(|snapshot| snapshot.discussion)
+                .unwrap_or_default(),
         },
     );
     activity
@@ -2460,6 +2649,7 @@ pub(crate) fn pull_request_dto(
         review_summary: reviewer_summary(&pull_request.reviewers),
         needs_action: false,
         activity: PullRequestActivity::Read,
+        discussion: DiscussionStatus::default(),
         review: None,
     }
 }
@@ -2919,6 +3109,7 @@ mod tests {
             latest_commit: Some(commit.clone()),
             activity: PullRequestActivity::Read,
             auto_review_completed: false,
+            discussion: Default::default(),
         };
         assert!(!should_notify_pull_request(None, Some(&commit), true));
         assert!(should_notify_pull_request(None, Some(&commit), false));
@@ -3113,6 +3304,7 @@ mod tests {
             review_summary: PullRequestReviewSummaryDto::default(),
             needs_action: false,
             activity: PullRequestActivity::New,
+            discussion: Default::default(),
             review: None,
         };
         assert!(matches_review_settings(
@@ -3307,6 +3499,186 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn refreshes_a_stale_review_snapshot_before_loading_a_verified_diff() {
+        use crate::infrastructure::data_integrations::bitbucket_dc::client::BitbucketDcClient;
+        use wiremock::{
+            matchers::{method, path},
+            Mock, MockServer, ResponseTemplate,
+        };
+        let server = MockServer::start().await;
+        let metadata = serde_json::json!({
+            "id": 7, "version": 2, "title": "Example change", "state": "OPEN", "open": true, "closed": false,
+            "fromRef": { "id": "refs/heads/example", "displayId": "example", "latestCommit": "commit-2" },
+            "toRef": { "id": "refs/heads/main", "displayId": "main", "latestCommit": "main-1" },
+            "reviewers": [], "participants": [],
+        });
+        Mock::given(method("GET"))
+            .and(path(
+                "/rest/api/1.0/projects/DEMO/repos/sample-repository/pull-requests/7",
+            ))
+            .respond_with(ResponseTemplate::new(200).set_body_json(metadata))
+            .expect(3)
+            .mount(&server)
+            .await;
+        Mock::given(method("GET"))
+            .and(path(
+                "/rest/api/1.0/projects/DEMO/repos/sample-repository/pull-requests/7.diff",
+            ))
+            .respond_with(ResponseTemplate::new(200).set_body_string("example diff"))
+            .expect(1)
+            .mount(&server)
+            .await;
+        let client = BitbucketDcClient::new(server.uri()).unwrap();
+        let stale =
+            super::review_diff_for_client(&client, "DEMO", "sample-repository", 7, "commit-1")
+                .await
+                .unwrap_err();
+        assert_eq!(stale.code, "pull_request_changed");
+        let diff =
+            super::review_diff_for_client(&client, "DEMO", "sample-repository", 7, "commit-2")
+                .await
+                .unwrap();
+        assert_eq!(diff, "example diff");
+    }
+
+    #[tokio::test]
+    async fn reviewer_discussion_updates_survive_restart_and_have_a_separate_read_checkpoint() {
+        use crate::application::reviewer_discussions::DiscussionChangeKind;
+        use crate::infrastructure::data_integrations::bitbucket_dc::client::BitbucketDcClient;
+        use wiremock::{
+            matchers::{method, path},
+            Mock, MockServer, ResponseTemplate,
+        };
+
+        let server = MockServer::start().await;
+        let root = serde_json::json!({"id": 11, "version": 1, "text": "Check shutdown.", "state": "OPEN",
+            "author": {"name": "example-reviewer"}, "comments": []});
+        let mount_feed = |comment: serde_json::Value| {
+            Mock::given(method("GET"))
+            .and(path("/rest/api/1.0/projects/DEMO/repos/sample-repository/pull-requests/7/activities"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "isLastPage": true, "values": [{"user": {"name": "example-author"}, "comment": comment}],
+            })))
+        };
+        mount_feed(root.clone()).mount(&server).await;
+        let client = BitbucketDcClient::new(server.uri()).unwrap();
+        let directory = tempfile::tempdir().unwrap();
+        let pool = open_database(&directory.path().join("example.sqlite"))
+            .await
+            .unwrap();
+        let mut state = PullRequestActivityState::default();
+        record_pull_request_snapshot_with_identity(
+            &mut state,
+            "example-integration",
+            "DEMO",
+            "sample-repository",
+            "7",
+            Some("commit-1".into()),
+            true,
+        );
+        let snapshot = state
+            .integrations
+            .get_mut("example-integration")
+            .unwrap()
+            .pull_requests
+            .get_mut("DEMO/sample-repository/7")
+            .unwrap();
+        snapshot.auto_review_completed = true;
+        snapshot.discussion.observe(
+            &client
+                .list_pull_request_activities("DEMO", "sample-repository", 7, 100)
+                .await
+                .unwrap(),
+            "example-reviewer",
+        );
+        assert!(snapshot.discussion.status.changes.is_empty());
+
+        server.reset().await;
+        let mut updated = root;
+        updated["version"] = 2.into();
+        updated["state"] = "RESOLVED".into();
+        updated["comments"] = serde_json::json!([{"id": 12, "version": 0, "text": "I added the cleanup.", "author": {"name": "example-author"}}]);
+        mount_feed(updated).mount(&server).await;
+        snapshot.discussion.observe(
+            &client
+                .list_pull_request_activities("DEMO", "sample-repository", 7, 100)
+                .await
+                .unwrap(),
+            "example-reviewer",
+        );
+        assert_eq!(snapshot.discussion.status.changes.len(), 2);
+        assert!(snapshot
+            .discussion
+            .status
+            .changes
+            .iter()
+            .any(|change| change.kind == DiscussionChangeKind::Reply));
+        assert!(snapshot
+            .discussion
+            .status
+            .changes
+            .iter()
+            .any(|change| change.kind == DiscussionChangeKind::Resolved));
+        let revision = snapshot.discussion.status.revision;
+        save_pull_request_activity_state(&pool, &state)
+            .await
+            .unwrap();
+        mark_pull_request_read(
+            &pool,
+            "example-integration",
+            "DEMO",
+            "sample-repository",
+            "7",
+            Some("commit-1".into()),
+        )
+        .await
+        .unwrap();
+        let mut restored = super::load_pull_request_activity_state(&pool)
+            .await
+            .unwrap();
+        let snapshot =
+            &restored.integrations["example-integration"].pull_requests["DEMO/sample-repository/7"];
+        assert_eq!(snapshot.activity, PullRequestActivity::Read);
+        assert!(snapshot.auto_review_completed);
+        assert_eq!(snapshot.discussion.status.changes.len(), 2);
+        record_pull_request_snapshot_with_identity(
+            &mut restored,
+            "example-integration",
+            "DEMO",
+            "sample-repository",
+            "7",
+            Some("commit-2".into()),
+            false,
+        );
+        save_pull_request_activity_state(&pool, &restored)
+            .await
+            .unwrap();
+        let status = super::mark_pull_request_discussion_read(
+            &pool,
+            super::DiscussionReadRequest {
+                integration_id: "example-integration".into(),
+                project_key: "DEMO".into(),
+                repository_slug: "sample-repository".into(),
+                pull_request_id: "7".into(),
+                through_revision: revision,
+                comment_id: Some(12),
+            },
+        )
+        .await
+        .unwrap();
+        assert_eq!(status.changes.len(), 1);
+        assert_eq!(status.changes[0].kind, DiscussionChangeKind::Resolved);
+        mark_all_pull_requests_read(&pool, None).await.unwrap();
+        let restored = super::load_pull_request_activity_state(&pool)
+            .await
+            .unwrap();
+        let snapshot =
+            &restored.integrations["example-integration"].pull_requests["DEMO/sample-repository/7"];
+        assert_eq!(snapshot.latest_commit.as_deref(), Some("commit-2"));
+        assert!(snapshot.discussion.status.changes.is_empty());
+    }
+
+    #[tokio::test]
     async fn mark_read_persists_scoped_activity_status() {
         let directory = tempfile::tempdir().unwrap();
         let pool = open_database(&directory.path().join("mework.sqlite"))
@@ -3382,7 +3754,7 @@ mod tests {
             .await
             .unwrap();
 
-        let status = mark_all_pull_requests_read(&pool).await.unwrap();
+        let status = mark_all_pull_requests_read(&pool, None).await.unwrap();
         assert_eq!(status.marked_count, 2);
         let saved = super::load_pull_request_activity_state(&pool)
             .await

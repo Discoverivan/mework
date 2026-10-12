@@ -91,6 +91,7 @@ export function AuthoredPullRequestsPage() {
   const [lastSyncAt, setLastSyncAt] = useState<number>();
   const [now, setNow] = useState(() => Date.now());
   const [reviewStartingKeys, setReviewStartingKeys] = useState<Set<string>>(() => new Set());
+  const [pullRequestErrors, setPullRequestErrors] = useState<Record<string, string | undefined>>({});
   const [reviewDialogKey, setReviewDialogKey] = useState<string>();
   const [displayOptionsOpen, setDisplayOptionsOpen] = useState(false);
   const [displayPreferences, updateDisplayPreferences] = usePullRequestDisplayPreferences("authored");
@@ -210,7 +211,7 @@ export function AuthoredPullRequestsPage() {
         return next;
       });
       setPullRequests((current) => sortPullRequests(current.map((item) =>
-        pullRequestKey(item) === key ? { ...item, review } : item,
+        pullRequestKey(item) === key && item.latestCommit === review.reviewedCommit ? { ...item, review } : item,
       )));
     });
   }, []);
@@ -252,20 +253,24 @@ export function AuthoredPullRequestsPage() {
 
   async function startReview(pullRequest: MyPullRequest) {
     const key = pullRequestKey(pullRequest);
-    setError(undefined);
+    setPullRequestErrors((current) => ({ ...current, [key]: undefined }));
     setReviewStartingKeys((current) => new Set(current).add(key));
     try {
-      const review = await startPullRequestReview(pullRequest);
+      const review = await startPullRequestReview(pullRequest, "author");
       setPullRequests((current) => sortPullRequests(current.map((item) =>
-        pullRequestKey(item) === key ? { ...item, review } : item,
+        pullRequestKey(item) === key && item.latestCommit === review.reviewedCommit ? { ...item, review } : item,
       )));
     } catch (reason) {
+      const code = typeof reason === "object" && reason !== null && "code" in reason ? reason.code : undefined;
+      const message = code === "pull_request_changed" ? t("pr.reviewChangedAgain")
+        : code === "pull_request_unavailable" ? t("pr.reviewNoLongerAvailable") : commandError(reason);
+      setPullRequestErrors((current) => ({ ...current, [key]: message }));
+    } finally {
       setReviewStartingKeys((current) => {
         const next = new Set(current);
         next.delete(key);
         return next;
       });
-      setError(commandError(reason));
     }
   }
 
@@ -310,6 +315,7 @@ export function AuthoredPullRequestsPage() {
         mode="author"
         aiReviewReady={aiReviewReady}
         reviewStarting={reviewStartingKeys.has(key)}
+        actionError={pullRequestErrors[key]}
         completedLabel={t("pr.viewResults")}
         showProjectKey={showProjectKey}
         onOpenPullRequest={(item) => void markRead(item)}
