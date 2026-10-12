@@ -9,9 +9,12 @@ import { useI18n } from "@/i18n/context";
 import type { TranslationKey } from "@/i18n/locales/en";
 import { CreateButton } from "@/components/shared/CreateButton";
 import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Separator } from "@/components/ui/separator";
+import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import type { CommandBoardColor, CommandBoardItem, CommandBoardSaveRequest } from "@/shared/contracts/command-board";
 import {
@@ -338,37 +341,50 @@ export function CommandBoardPage() {
       </div>
 
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent className="sm:max-w-xl">
+        <DialogContent className="max-w-2xl">
           <DialogHeader>
             <DialogTitle>{t(form.id ? "command.editTitle" : "command.addTitle")}</DialogTitle>
             <DialogDescription>{t("command.dialogDescription")}</DialogDescription>
           </DialogHeader>
-          <form autoComplete="off" id="command-board-form" className="grid gap-4 py-2" onSubmit={(event) => { event.preventDefault(); void handleSave(); }}>
-            <div className="grid gap-2">
-              <Label htmlFor="command-name">{t("command.name")}</Label>
-              <Input id="command-name" value={form.name} onChange={(event) => updateForm("name", event.target.value)} />
-            </div>
-            <div className="grid gap-2">
-              <Label>{t("command.scriptFile")}</Label>
-              <div className="flex gap-2">
-                <Hint content={form.scriptPath || undefined}><div id="command-script" className="flex h-10 min-w-0 flex-1 items-center truncate rounded-md border border-input bg-muted/30 px-3 text-sm text-muted-foreground" aria-label={t("command.selectedScript")}>
-                  {form.scriptPath ? scriptFileName(form.scriptPath) : t("command.noScript")}
-                </div></Hint>
-                <Button type="button" variant="outline" onClick={() => void chooseFile()}>{t("command.chooseScript")}</Button>
-              </div>
-            </div>
-            <div className="grid gap-2">
-              <Label htmlFor="command-arguments">{t("command.arguments")}</Label>
-              <textarea autoComplete="off" id="command-arguments" className="flex min-h-20 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2" value={form.arguments} onChange={(event) => updateForm("arguments", event.target.value)} placeholder="--verbose" rows={2} />
-            </div>
-            <div className="grid gap-2">
-              <Label htmlFor="command-working-directory">{t("command.workingDirectory")}</Label>
-              <Input id="command-working-directory" value={form.workingDirectory} onChange={(event) => updateForm("workingDirectory", event.target.value)} placeholder="/path/to/project" />
-            </div>
-          </form>
+          <DialogBody layout="sections">
+            <form autoComplete="off" id="command-board-form" className="space-y-4" onSubmit={(event) => { event.preventDefault(); void handleSave(); }}>
+              <Card>
+                <CardHeader variant="section" className="py-2">
+                  <CardTitle className="text-sm font-semibold leading-tight">{t("command.settings")}</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-4 p-4">
+                  <div className="grid grid-cols-[max-content_minmax(0,1fr)] items-center gap-3">
+                    <Label htmlFor="command-name" alignment="inline">{t("command.name")}</Label>
+                    <Input id="command-name" className="w-auto min-w-0 max-w-full justify-self-end [field-sizing:content]" value={form.name} disabled={saving} onChange={(event) => updateForm("name", event.target.value)} placeholder={t("command.namePlaceholder")} />
+                  </div>
+                  <Separator />
+                  <div className="grid grid-cols-[max-content_minmax(0,1fr)] items-center gap-3">
+                    <Label htmlFor="command-script" alignment="inline">{t("command.scriptFile")}</Label>
+                    <div className="flex min-w-0 items-center justify-end gap-1.5">
+                      <Input id="command-script" readOnly className="w-auto min-w-0 [field-sizing:content]" aria-label={t("command.selectedScript")} title={form.scriptPath || undefined} value={form.scriptPath ? scriptFileName(form.scriptPath) : ""} placeholder={t("command.noScript")} />
+                      <Button type="button" variant="outline" className="shrink-0" disabled={saving} onClick={() => void chooseFile()}>{t("command.chooseScript")}</Button>
+                    </div>
+                  </div>
+                  <Separator />
+                  <div className="grid grid-cols-[max-content_minmax(0,1fr)] items-center gap-3">
+                    <Label htmlFor="command-working-directory" alignment="inline">{t("command.workingDirectory")}</Label>
+                    <Input id="command-working-directory" className="w-auto min-w-0 max-w-full justify-self-end [field-sizing:content]" value={form.workingDirectory} disabled={saving} onChange={(event) => updateForm("workingDirectory", event.target.value)} placeholder="/path/to/project" />
+                  </div>
+                </CardContent>
+              </Card>
+              <Card>
+                <CardHeader variant="section" className="py-2">
+                  <CardTitle id="command-arguments-label" className="text-sm font-semibold leading-tight">{t("command.arguments")}</CardTitle>
+                </CardHeader>
+                <CardContent className="p-4">
+                  <Textarea id="command-arguments" aria-labelledby="command-arguments-label" className="min-h-8 resize-none py-1 font-mono [field-sizing:content]" value={form.arguments} disabled={saving} onChange={(event) => updateForm("arguments", event.target.value)} placeholder="--verbose" rows={1} />
+                </CardContent>
+              </Card>
+            </form>
+          </DialogBody>
           <DialogFooter>
-            <Button data-dialog-cancel type="button" variant="ghost" onClick={() => setDialogOpen(false)}>{t("settings.common.cancel")}</Button>
-            <Button type="submit" form="command-board-form" actionTone="edit" disabled={saving}>{saving ? t("settings.common.saving") : t("settings.common.save")}</Button>
+            <Button data-dialog-cancel type="button" variant="outline" onClick={() => setDialogOpen(false)}>{t("settings.common.cancel")}</Button>
+            <Button type="submit" form="command-board-form" actionTone="success" disabled={saving}>{saving ? t("settings.common.saving") : t("settings.common.save")}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

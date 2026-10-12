@@ -966,7 +966,7 @@ function MonitorDialog({ t, open, editing, draft, saving, validating, validation
               <Separator />
               <div className="flex items-center justify-between gap-3">
                 <Label htmlFor="monitor-enabled" alignment="inline">{t("taskTracker.enabled")}</Label>
-                <Switch id="monitor-enabled" checked={draft.enabled} onCheckedChange={(checked) => onChange("enabled", checked)} disabled={saving} />
+                <Switch id="monitor-enabled" size="md" checked={draft.enabled} onCheckedChange={(checked) => onChange("enabled", checked)} disabled={saving} />
               </div>
               <Separator />
               <div className="flex flex-wrap items-center justify-between gap-3">

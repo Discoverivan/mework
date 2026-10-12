@@ -530,6 +530,8 @@ export const en = {
   "command.addTitle": "Add command",
   "command.dialogDescription": "Configure a local script for quick access.",
   "command.name": "Name",
+  "command.namePlaceholder": "Run project checks",
+  "command.settings": "Command settings",
   "command.scriptFile": "Script file",
   "command.selectedScript": "Selected script",
   "command.noScript": "No script selected",

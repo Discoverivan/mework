@@ -92,7 +92,7 @@ export function CommentDiscussionDialog({ comment, pullRequestUrl, onOpenLocatio
             </Card>
           </CardContent>
         </Card>
-        <div className="space-y-4" aria-live="polite">
+        <div className={cn("space-y-4", !discussion?.turns.length && "hidden")} aria-live="polite">
           {discussion?.turns.map((turn, index) => <Card key={index} role="group" aria-label={t("pr.discuss.round", { number: index + 1 })} className="border bg-card">
             <CardHeader variant="section" className="py-2">
               <CardTitle className="text-sm font-semibold leading-tight">{t("pr.discuss.round", { number: index + 1 })}</CardTitle>
@@ -111,7 +111,7 @@ export function CommentDiscussionDialog({ comment, pullRequestUrl, onOpenLocatio
             </CardContent>
           </Card>)}
         </div>
-        <div className="flex flex-col gap-[9px]">
+        <div className="flex flex-col gap-2">
           <Label htmlFor="comment-discussion-message">{t("pr.discuss.message")}</Label>
           <div className="flex items-end gap-2 rounded-md border border-input bg-background p-1 focus-within:ring-2 focus-within:ring-ring">
             <Textarea id="comment-discussion-message" rows={1} className="block h-8 min-h-8 min-w-0 flex-1 resize-y rounded-md border-0 bg-transparent px-2 py-1 text-sm" maxLength={8000} value={message} onChange={event => setMessage(event.target.value)} placeholder={t("pr.discuss.placeholder")} />
