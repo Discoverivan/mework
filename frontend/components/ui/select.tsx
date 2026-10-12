@@ -92,8 +92,9 @@ SelectScrollDownButton.displayName =
 const SelectContent = React.forwardRef<
   React.ElementRef<typeof SelectPrimitive.Content>,
   React.ComponentPropsWithoutRef<typeof SelectPrimitive.Content>
->(({ className, children, position = "popper", ...props }, ref) => {
+>(({ className, children, position = "popper", align, ...props }, ref) => {
   const triggerRef = React.useContext(SelectTriggerContext)
+  const [menuAlign, setMenuAlign] = React.useState<"start" | "center" | "end">("start")
   return (
   <SelectPrimitive.Portal>
     <SelectPrimitive.Content
@@ -101,6 +102,8 @@ const SelectContent = React.forwardRef<
         // Portals do not inherit the trigger's compact/page typography.
         const trigger = triggerRef?.current
         if (element && trigger) {
+          const inheritedAlign = trigger.closest("[data-menu-align]")?.getAttribute("data-menu-align")
+          setMenuAlign(inheritedAlign === "end" || inheritedAlign === "center" ? inheritedAlign : "start")
           const triggerStyle = getComputedStyle(trigger)
           element.style.setProperty("--select-trigger-font-size", triggerStyle.fontSize)
           const height = trigger.getBoundingClientRect().height || Number.parseFloat(triggerStyle.height)
@@ -116,6 +119,7 @@ const SelectContent = React.forwardRef<
         className
       )}
       position={position}
+      align={align ?? menuAlign}
       {...props}
       {...useMenuInput<HTMLDivElement>(props)}
     >

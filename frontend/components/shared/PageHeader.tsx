@@ -33,7 +33,7 @@ export function PageHeader({
         {description ? <p className="page-header-description">{description}</p> : null}
         {meta}
       </div>
-      {actions ? <PageToolbar className="page-header-actions">{actions}</PageToolbar> : null}
+      {actions ? <PageToolbar data-menu-align="end" className="page-header-actions">{actions}</PageToolbar> : null}
     </header>
   );
 }

@@ -265,7 +265,7 @@ export function GeneralSettingsPage() {
             </div>
             <div className="w-full sm:w-auto">
               <Select value={language} onValueChange={(value) => void handlePreferencesChange({ language: value as AppLanguage })} disabled={loading || saving || appearanceSaving}>
-                <SelectTrigger id="general-language" aria-label={t("general.languageUi")}><SelectValue /></SelectTrigger>
+                <SelectTrigger data-menu-align="end" id="general-language" aria-label={t("general.languageUi")}><SelectValue /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value={AppLanguage.English}>English</SelectItem>
                   <SelectItem value={AppLanguage.Russian}>Русский</SelectItem>
@@ -285,7 +285,7 @@ export function GeneralSettingsPage() {
             </div>
             <div className="w-full sm:w-auto">
               <Select value={settings?.aiResponseLanguage ?? AiResponseLanguage.SameAsUi} onValueChange={(value) => void handlePreferencesChange({ aiResponseLanguage: value as AiResponseLanguage })} disabled={loading || saving || settings === null}>
-                <SelectTrigger id="general-ai-response-language" aria-label={t("general.aiResponseLanguage")}><SelectValue /></SelectTrigger>
+                <SelectTrigger data-menu-align="end" id="general-ai-response-language" aria-label={t("general.aiResponseLanguage")}><SelectValue /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value={AiResponseLanguage.SameAsUi}>{t("general.aiResponseLanguageSameAsUi")}</SelectItem>
                   <SelectItem value={AiResponseLanguage.English}>{t("general.aiResponseLanguageEnglish")}</SelectItem>
@@ -325,7 +325,7 @@ export function GeneralSettingsPage() {
             </div>
             <div className="w-full sm:w-auto">
               <Select value={themePreference} onValueChange={(value) => void handlePreferencesChange({ themePreference: value as ThemePreference })} disabled={loading || saving || appearanceSaving}>
-                <SelectTrigger id="general-theme" aria-label={t("general.theme")}><SelectValue /></SelectTrigger>
+                <SelectTrigger data-menu-align="end" id="general-theme" aria-label={t("general.theme")}><SelectValue /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="system">{t("general.themeSystem")}</SelectItem>
                   <SelectItem value="light">{t("general.themeLight")}</SelectItem>
@@ -347,7 +347,7 @@ export function GeneralSettingsPage() {
                     setError(t("general.saveError", { error: errorMessage(saveError, t("common.unknownError")) }))
                   );
                 }} disabled={loading || saving || panelStyleSaving}>
-                <SelectTrigger id="general-panel-style" aria-label={t("general.panelStyle")}><SelectValue /></SelectTrigger>
+                <SelectTrigger data-menu-align="end" id="general-panel-style" aria-label={t("general.panelStyle")}><SelectValue /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="bordered">{t("general.panelStyleBordered")}</SelectItem>
                   <SelectItem value="borderless">{t("general.panelStyleBorderless")}</SelectItem>
@@ -368,7 +368,7 @@ export function GeneralSettingsPage() {
                     setError(t("general.saveError", { error: errorMessage(saveError, t("common.unknownError")) }))
                   );
                 }} disabled={loading || saving || buttonStyleSaving}>
-                <SelectTrigger id="general-button-style" aria-label={t("general.buttonStyle")}><SelectValue /></SelectTrigger>
+                <SelectTrigger data-menu-align="end" id="general-button-style" aria-label={t("general.buttonStyle")}><SelectValue /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="filled">{t("general.buttonStyleFilled")}</SelectItem>
                   <SelectItem value="filled_borderless">{t("general.buttonStyleFilledBorderless")}</SelectItem>
@@ -394,7 +394,7 @@ export function GeneralSettingsPage() {
             </div>
             <div className="w-full sm:w-auto">
               <Select value={terminalPreferences?.selectedTerminal ?? ""} onValueChange={(value) => void handleTerminalPreferenceChange(value)} disabled={loading || terminalLoading || terminalSaving || terminalPreferences === null}>
-                <SelectTrigger id="general-terminal" aria-label={t("general.terminal")}>
+                <SelectTrigger data-menu-align="end" id="general-terminal" aria-label={t("general.terminal")}>
                   <SelectValue placeholder={terminalLoading ? t("general.terminalLoading") : t("general.terminalOptionsUnavailable")} />
                 </SelectTrigger>
                 <SelectContent>

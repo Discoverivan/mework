@@ -979,7 +979,7 @@ function MonitorDialog({ t, open, editing, draft, saving, validating, validation
               <Separator />
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <Label htmlFor="monitor-schedule-kind" alignment="inline">{t("taskTracker.field.schedule")}</Label>
-                <div className="flex min-w-0 max-w-full flex-wrap items-center gap-3">
+                <div data-menu-align="end" className="flex min-w-0 max-w-full flex-wrap items-center gap-3">
                   <Select value={draft.scheduleKind} disabled={saving} onValueChange={(value) => {
                     const nextKind = value as TaskTrackerScheduleKind;
                     scheduleValues.current[draft.scheduleKind] = draft.scheduleValue;

@@ -1050,7 +1050,7 @@ export function SettingsPage({ section = "integrations", focusActivity, mockMode
                 <div className="min-w-[16rem] flex-1">
                   <h2 id="ai-providers-title" className="text-sm font-semibold leading-tight">{t("settings.aiProviders.title")}</h2>
                 </div>
-                <div className="ml-auto flex shrink-0 items-center gap-1.5">
+                <div data-menu-align="end" className="ml-auto flex shrink-0 items-center gap-1.5">
                 <Select value={selectedAiGroup} onValueChange={(value) => setSelectedAiGroup(value as "cli" | "api")}>
                   <SelectTrigger aria-label={t("settings.aiProviders.groups")} className="h-9 shrink-0"><SelectValue /></SelectTrigger>
                   <SelectContent>

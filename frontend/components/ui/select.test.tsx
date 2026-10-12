@@ -9,15 +9,16 @@ import { Textarea } from "./textarea";
 it("distinguishes automatic focus, pointer movement and keyboard selection", async () => {
   Element.prototype.scrollIntoView = vi.fn();
   const changed = vi.fn();
-  render(<Select defaultValue="first" onValueChange={changed}>
+  render(<div data-menu-align="end"><Select defaultValue="first" onValueChange={changed}>
     <SelectTrigger aria-label="Example choice" style={{ height: "32px", fontSize: "13px" }}><SelectValue /></SelectTrigger>
     <SelectContent>
       <SelectItem value="first">First example</SelectItem>
       <SelectItem value="second">Second example</SelectItem>
     </SelectContent>
-  </Select>);
+  </Select></div>);
   fireEvent.click(screen.getByRole("combobox", { name: "Example choice" }));
   const first = screen.getByRole("option", { name: "First example" });
+  await waitFor(() => expect(screen.getByRole("listbox")).toHaveAttribute("data-align", "end"));
   expect(screen.getByRole("listbox").style.getPropertyValue("--select-trigger-font-size")).toBe("13px");
   expect(screen.getByRole("listbox").style.getPropertyValue("--select-item-padding-y")).toBe("4px");
   await waitFor(() => expect(first).toHaveFocus());

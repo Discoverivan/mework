@@ -1255,7 +1255,7 @@ export function ManagedProjectsSettings({
                     setDefaultTaskSprintId(nextId);
                     setDefaultTaskSprintName(taskSprints.find((sprint) => sprint.id === nextId)?.name ?? "");
                   }} disabled={controlsDisabled || taskSprintsLoading}>
-                    <SelectTrigger id={`default-task-sprint-${detailProject.id}`} aria-label={t("teams.defaultSprint")}><SelectValue /></SelectTrigger>
+                    <SelectTrigger data-menu-align="end" id={`default-task-sprint-${detailProject.id}`} aria-label={t("teams.defaultSprint")}><SelectValue /></SelectTrigger>
                     <SelectContent>
                       <SelectItem value={NO_SELECTION}>{taskSprintsLoading ? t("teams.loadingSprints") : t("teams.noDefaultSprint")}</SelectItem>
                       {defaultTaskSprintId && !taskSprints.some((sprint) => sprint.id === defaultTaskSprintId) ? (
@@ -1280,7 +1280,7 @@ export function ManagedProjectsSettings({
                       setDefaultEpicLinkKey(nextKey);
                       setDefaultEpicLinkSummary(selected?.summary ?? (nextKey ? defaultEpicLinkSummary : ""));
                     }} disabled={controlsDisabled}>
-                      <SelectTrigger id={`default-epic-link-${detailProject.id}`} aria-label={t("teams.defaultEpic")}><SelectValue /></SelectTrigger>
+                      <SelectTrigger data-menu-align="end" id={`default-epic-link-${detailProject.id}`} aria-label={t("teams.defaultEpic")}><SelectValue /></SelectTrigger>
                       <SelectContent>
                         <SelectItem value={NO_SELECTION}>{t("teams.noDefaultEpic")}</SelectItem>
                         {defaultEpicLinkKey && !epicPreviewIssues.some((issue) => issue.key === defaultEpicLinkKey) ? (

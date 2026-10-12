@@ -661,7 +661,7 @@ export function DailyPage() {
                     <CardDescription className="mt-1 text-xs leading-snug">{t("daily.assigneesLayoutDescription")}</CardDescription>
                   </div>
                   <Select value={draftAssigneesLayout} onValueChange={(value) => setDraftAssigneesLayout(value as AssigneesLayout)}>
-                    <SelectTrigger id="daily-assignees-layout" aria-labelledby="daily-assignees-layout-label" className="h-9"><SelectValue /></SelectTrigger>
+                    <SelectTrigger data-menu-align="end" id="daily-assignees-layout" aria-labelledby="daily-assignees-layout-label" className="h-9"><SelectValue /></SelectTrigger>
                     <SelectContent>
                       <SelectItem value="top">{t("daily.assigneesLayout.top")}</SelectItem>
                       <SelectItem value="left">{t("daily.assigneesLayout.left")}</SelectItem>

@@ -107,7 +107,7 @@ export function PullRequestDisplayOptionsDialog({
             <CardHeader variant="section" className="py-3">
               <CardTitle id="pull-request-display-options" className="text-base font-semibold leading-tight">{t("pr.options.display")}</CardTitle>
             </CardHeader>
-            <CardContent className="px-4 pb-4">
+            <CardContent data-menu-align="end" className="px-4 pb-4">
               <div className="flex min-h-9 flex-wrap items-center justify-between gap-3 py-3">
                 <Label htmlFor="pull-request-sort-order" alignment="inline" className="min-w-0 flex-1 text-sm font-medium leading-tight">{t("pr.options.sortOrder")}</Label>
                 <Select value={draftSort} onValueChange={(value) => setDraftSort(value as PullRequestSortOrder)}>

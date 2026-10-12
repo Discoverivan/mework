@@ -48,6 +48,8 @@
 
 ## shadcn/ui design system rules
 
+- Menus attached to right-side controls align to the trigger's right edge (`align="end"`). Mark right-side Select containers/triggers with `data-menu-align="end"`; shared `SelectContent` carries this placement across its portal while explicit `align` takes precedence. Left-side selectors retain start alignment. Keep Radix viewport collision handling enabled.
+
 - Select triggers default to the same 36 px / 13.5 px / 4 px vertical geometry as primary buttons. Select menus inherit their trigger's font size across the portal; compact triggers use 4 px vertical option padding. Compact card/subform field labels use 13 px text alongside their controls; preserve section headings and explicitly normal/page-size settings surfaces.
 
 - Shared text, numeric, and multiline fields follow the selected button appearance. Filled without border and Minimal keep borders transparent during hover, typing/focus, and validation; show primary-colored values for direct hover/focus and destructive-colored values for invalid input. Warning/error feedback takes precedence. Keep existing control padding and label-hover isolation.
