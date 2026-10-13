@@ -11,23 +11,30 @@ use std::{
 // OpenCode keeps ownership of its credentials. Only non-secret run configuration is created here.
 struct Workspace {
     directory: tempfile::TempDir,
+    config: String,
 }
 impl Workspace {
     fn new() -> Result<Self, String> {
         let directory =
             tempfile::tempdir().map_err(|_| "Unable to prepare OpenCode workspace".to_owned())?;
         let config = json!({
-            "permission": {"*": "deny"}, "share": "disabled", "autoupdate": false,
-            "snapshot": false, "instructions": [], "plugin": [], "mcp": {},
-            "default_agent": "mework", "agent": {"mework": {
+            "permissions": [{"action": "*", "resource": "*", "effect": "deny"}],
+            "share": "disabled", "update": "disable", "snapshots": false,
+            "instructions": [], "skills": [], "warming": false,
+            // Plugin selectors disable activation only after modules are imported.
+            // Block external modules before import, including system-config plugins.
+            "experimental": {"policies": [{"action": "integration.use", "resource": "plugin:*", "effect": "deny"}]},
+            "plugins": ["-*", "opencode.models.dev", "opencode.provider.*", "opencode.config.provider", "opencode.config.agent"],
+            "default_agent": "mework", "agents": {"mework": {
                 "mode": "primary", "description": "Generate a mework structured response",
-                "permission": {"*": "deny"}, "steps": 1,
-                "prompt": "Use only the supplied input. Do not use tools. Return only the JSON object requested by the input."
+                "permissions": [{"action": "*", "resource": "*", "effect": "deny"}], "steps": 1,
+                "system": "Use only the supplied input. Do not use tools. Return only the JSON object requested by the input."
             }}
         });
-        std::fs::write(directory.path().join("opencode.json"), config.to_string())
+        let config = config.to_string();
+        std::fs::write(directory.path().join("opencode.json"), &config)
             .map_err(|_| "Unable to prepare OpenCode configuration".to_owned())?;
-        Ok(Self { directory })
+        Ok(Self { directory, config })
     }
     fn command(&self, binary: &Path) -> Command {
         let mut command = local_cli_command(binary);
@@ -35,17 +42,21 @@ impl Workspace {
         command
             .current_dir(path)
             .env("NO_COLOR", "1")
-            .env("OPENCODE_PURE", "1")
+            .env("OPENCODE_CONFIG_PROJECT_DISABLE", "1")
             .env("OPENCODE_DISABLE_PROJECT_CONFIG", "1")
             .env("OPENCODE_DISABLE_AUTOUPDATE", "1")
             .env("OPENCODE_TEST_HOME", path)
             .env("XDG_CONFIG_HOME", path.join("config"))
             .env("OPENCODE_CONFIG_DIR", path)
             .env("OPENCODE_CONFIG", path.join("opencode.json"))
-            .env("OPENCODE_DB", path.join("session.sqlite"))
-            .env_remove("OPENCODE_CONFIG_CONTENT")
+            // V2 keeps credentials in its own database alongside sessions. Leave its
+            // data/DB paths intact; every standalone invocation creates a fresh session.
+            // Inline config has the highest precedence, including over system agents.
+            .env("OPENCODE_CONFIG_CONTENT", &self.config)
+            .env_remove("PWD")
             .env_remove("OPENCODE_PERMISSION")
             .env_remove("OPENCODE_SERVER_PASSWORD")
+            .env_remove("OPENCODE_PASSWORD")
             .env_remove("OPENCODE_SERVER_USERNAME");
         command
     }
@@ -86,12 +97,13 @@ fn provider(
     }
 }
 fn supported_version(version: &str) -> bool {
-    let mut parts = version.trim().trim_start_matches('v').split('.');
-    let major = parts.next().and_then(|v| v.parse::<u32>().ok());
-    let minor = parts.next().and_then(|v| v.parse::<u32>().ok());
-    let patch = parts.next().and_then(|v| v.parse::<u32>().ok());
-    matches!((major, minor, patch), (Some(1), Some(minor), Some(_)) if minor >= 18)
-        && parts.next().is_none()
+    let version = version
+        .trim()
+        .strip_prefix("opencode ")
+        .unwrap_or(version.trim())
+        .trim_start_matches('v');
+    semver::Version::parse(version)
+        .is_ok_and(|version| version.major == 2 && version.pre.is_empty())
 }
 fn capabilities(binary: &Path, workspace: &Workspace) -> Result<String, String> {
     let mut command = workspace.command(binary);
@@ -106,7 +118,7 @@ fn capabilities(binary: &Path, workspace: &Workspace) -> Result<String, String> 
     )?;
     let version = String::from_utf8_lossy(&bytes).trim().to_owned();
     if !supported_version(&version) {
-        return Err("OpenCode CLI requires a supported stable 1.18+ version".to_owned());
+        return Err("OpenCode CLI requires a stable V2 version".to_owned());
     }
     let mut command = workspace.command(binary);
     command.args(["run", "--help"]);
@@ -119,7 +131,7 @@ fn capabilities(binary: &Path, workspace: &Workspace) -> Result<String, String> 
         None,
     )?;
     let help = String::from_utf8_lossy(&bytes);
-    if ["--pure", "--format", "--model", "--agent", "--title"]
+    if ["--standalone", "--format", "--model", "--agent", "--title"]
         .iter()
         .any(|flag| !help.contains(flag))
     {
@@ -147,7 +159,7 @@ fn inspect_at(binary: &Path) -> AiProviderDto {
         );
     };
     let mut command = workspace.command(binary);
-    command.args(["--pure", "models"]);
+    command.args(["models", "--standalone"]);
     let Ok(output) = capture_cli_output(
         command,
         None,
@@ -269,8 +281,8 @@ fn run_at(
     let input=format!("Return only a JSON object matching this schema. Do not use tools or modify files.\nSchema:\n{schema}\n\nInput:\n{prompt}");
     let mut command = workspace.command(binary);
     command.args([
-        "--pure",
         "run",
+        "--standalone",
         "--format",
         "json",
         "--model",
@@ -293,7 +305,6 @@ fn run_at(
 
 fn parse_result(output: &[u8]) -> Result<(Vec<u8>, Option<AiTokenUsageCounts>), String> {
     let mut text = String::new();
-    let mut finished = false;
     let mut usage = None;
     for line in output
         .split(|b| *b == b'\n')
@@ -318,7 +329,6 @@ fn parse_result(output: &[u8]) -> Result<(Vec<u8>, Option<AiTokenUsageCounts>), 
                 if part.get("reason").and_then(Value::as_str) != Some("stop") {
                     return Err("OpenCode CLI did not complete the response".to_owned());
                 }
-                finished = true;
                 let t = &part["tokens"];
                 if let (Some(input), Some(output), Some(read), Some(write), Some(reasoning)) = (
                     t["input"].as_i64(),
@@ -347,9 +357,9 @@ fn parse_result(output: &[u8]) -> Result<(Vec<u8>, Option<AiTokenUsageCounts>), 
             _ => {}
         }
     }
-    if !finished {
-        return Err("OpenCode CLI returned no completed response".to_owned());
-    }
+    // V2 waits for the session before exiting successfully, but can reconcile
+    // text from persisted messages without emitting a step_finish event.
+    // Usage is optional in that case; the complete JSON object is still required.
     let value: Value = serde_json::from_str(text.trim())
         .map_err(|_| "OpenCode CLI returned invalid structured output".to_owned())?;
     if !value.is_object() {
@@ -371,12 +381,12 @@ mod tests {
         } else {
             "opencode"
         });
-        let events = r#"{"type":"text","part":{"text":"{\"summary\":\"Example task\"}"}}
-{"type":"step_finish","part":{"reason":"stop","tokens":{"input":12,"output":8,"reasoning":0,"cache":{"read":4,"write":2}}}}"#;
+        // V2 may emit only reconciled text after waiting for the session.
+        let events = r#"{"type":"text","part":{"text":"{\"summary\":\"Example task\"}"}}"#;
         #[cfg(windows)]
-        let script=format!("@echo off\nset args=%*\necho %args% | findstr /c:\"--version\" >nul && (echo 1.18.34 & exit /b 0)\necho %args% | findstr /c:\"--help\" >nul && (echo --pure --format --model --agent --title & exit /b 0)\nif not \"%OPENCODE_PURE%\"==\"1\" exit /b 1\nif not \"%OPENCODE_DISABLE_PROJECT_CONFIG%\"==\"1\" exit /b 1\nfindstr /c:\"deny\" opencode.json >nul || exit /b 1\necho %args% | findstr /c:\"models\" >nul && (echo example/sample-model & exit /b 0)\nset /p input=\n{}\n",events.lines().map(|line|format!("echo {line}")).collect::<Vec<_>>().join("\n"));
+        let script=format!("@echo off\nset args=%*\necho %args% | findstr /c:\"--version\" >nul && (echo opencode v2.0.28 & exit /b 0)\necho %args% | findstr /c:\"--help\" >nul && (echo --standalone --format --model --agent --title & exit /b 0)\necho %args% | findstr /c:\"--standalone\" >nul || exit /b 1\nif not \"%OPENCODE_DISABLE_PROJECT_CONFIG%\"==\"1\" exit /b 1\nfindstr /c:\"deny\" opencode.json >nul || exit /b 1\necho %args% | findstr /c:\"models\" >nul && (echo example/sample-model & exit /b 0)\nset /p input=\n{}\n",events.lines().map(|line|format!("echo {line}")).collect::<Vec<_>>().join("\n"));
         #[cfg(not(windows))]
-        let script=format!("#!/bin/sh\ncase \"$*\" in *--version*) echo 1.18.34;exit 0;; *--help*) echo '--pure --format --model --agent --title';exit 0;; esac\n[ \"$OPENCODE_PURE\" = 1 ] && [ \"$OPENCODE_DISABLE_PROJECT_CONFIG\" = 1 ] || exit 1\ngrep -q deny opencode.json || exit 1\ncase \"$*\" in *models*) echo example/sample-model;exit 0;; esac\ncat >/dev/null\nprintf '%s\\n' '{events}'\n");
+        let script=format!("#!/bin/sh\ncase \"$*\" in *--version*) echo opencode v2.0.28;exit 0;; *--help*) echo '--standalone --format --model --agent --title';exit 0;; esac\ncase \"$*\" in *--standalone*) ;; *) exit 1;; esac\n[ \"$OPENCODE_DISABLE_PROJECT_CONFIG\" = 1 ] || exit 1\ngrep -q deny opencode.json || exit 1\ncase \"$*\" in *models*) echo example/sample-model;exit 0;; esac\ncat >/dev/null\nprintf '%s\\n' '{events}'\n");
         std::fs::write(&binary, script).unwrap();
         #[cfg(unix)]
         {
@@ -397,18 +407,68 @@ mod tests {
             serde_json::from_slice::<Value>(&result).unwrap()["summary"],
             "Example task"
         );
-        let usage = usage.unwrap();
-        assert_eq!(
-            (usage.input_tokens, usage.output_tokens, usage.total_tokens),
-            (18, 8, 26)
-        );
+        assert!(usage.is_none());
         let workspace = Workspace::new().unwrap();
         let config: Value = serde_json::from_slice(
             &std::fs::read(workspace.directory.path().join("opencode.json")).unwrap(),
         )
         .unwrap();
-        assert_eq!(config["permission"]["*"], "deny");
-        assert_eq!(config["agent"]["mework"]["permission"]["*"], "deny");
+        assert_eq!(config["permissions"][0]["effect"], "deny");
+        assert_eq!(
+            config["agents"]["mework"]["permissions"][0]["effect"],
+            "deny"
+        );
         assert_eq!(config["share"], "disabled");
+    }
+
+    #[cfg(windows)]
+    #[test]
+    #[ignore = "requires an installed OpenCode V2 binary"]
+    fn blocks_system_plugin_before_module_initialization() {
+        let binary = resolve_binary().expect("Install OpenCode V2 before running this check");
+        let root = tempfile::tempdir().unwrap();
+        let system = root.path().join("system/opencode");
+        let plugin = root.path().join("synthetic-plugin");
+        std::fs::create_dir_all(&system).unwrap();
+        std::fs::create_dir(&plugin).unwrap();
+        let marker = root.path().join("entered");
+        std::fs::write(
+            plugin.join("package.json"),
+            r#"{"name":"synthetic-plugin","type":"module","exports":{"./server":"./index.js"}}"#,
+        )
+        .unwrap();
+        std::fs::write(
+            plugin.join("index.js"),
+            format!(
+                "import fs from 'node:fs'; fs.writeFileSync({}, 'loaded'); export default {{ id: 'example.marker', async setup() {{}} }};",
+                serde_json::to_string(&marker).unwrap()
+            ),
+        )
+        .unwrap();
+        std::fs::write(
+            system.join("opencode.json"),
+            json!({"plugins": [plugin]}).to_string(),
+        )
+        .unwrap();
+        let workspace = Workspace::new().unwrap();
+        capabilities(&binary, &workspace).unwrap();
+        let mut command = workspace.command(&binary);
+        command
+            .env("ProgramData", root.path().join("system"))
+            .args(["models", "--standalone"]);
+        let output = capture_cli_output(
+            command,
+            None,
+            Duration::from_secs(30),
+            "OpenCode CLI",
+            "inspect",
+            None,
+        )
+        .unwrap();
+        assert!(!parse_models(&output).is_empty());
+        assert!(
+            !marker.exists(),
+            "System plugin module must never be imported"
+        );
     }
 }
