@@ -21,6 +21,9 @@ impl Workspace {
             "permissions": [{"action": "*", "resource": "*", "effect": "deny"}],
             "share": "disabled", "update": "disable", "snapshots": false,
             "instructions": [], "skills": [], "warming": false,
+            // Plugin selectors disable activation only after modules are imported.
+            // Block external modules before import, including system-config plugins.
+            "experimental": {"policies": [{"action": "integration.use", "resource": "plugin:*", "effect": "deny"}]},
             "plugins": ["-*", "opencode.models.dev", "opencode.provider.*", "opencode.config.provider", "opencode.config.agent"],
             "default_agent": "mework", "agents": {"mework": {
                 "mode": "primary", "description": "Generate a mework structured response",
@@ -39,6 +42,7 @@ impl Workspace {
         command
             .current_dir(path)
             .env("NO_COLOR", "1")
+            .env("OPENCODE_CONFIG_PROJECT_DISABLE", "1")
             .env("OPENCODE_DISABLE_PROJECT_CONFIG", "1")
             .env("OPENCODE_DISABLE_AUTOUPDATE", "1")
             .env("OPENCODE_TEST_HOME", path)
@@ -415,5 +419,56 @@ mod tests {
             "deny"
         );
         assert_eq!(config["share"], "disabled");
+    }
+
+    #[cfg(windows)]
+    #[test]
+    #[ignore = "requires an installed OpenCode V2 binary"]
+    fn blocks_system_plugin_before_module_initialization() {
+        let binary = resolve_binary().expect("Install OpenCode V2 before running this check");
+        let root = tempfile::tempdir().unwrap();
+        let system = root.path().join("system/opencode");
+        let plugin = root.path().join("synthetic-plugin");
+        std::fs::create_dir_all(&system).unwrap();
+        std::fs::create_dir(&plugin).unwrap();
+        let marker = root.path().join("entered");
+        std::fs::write(
+            plugin.join("package.json"),
+            r#"{"name":"synthetic-plugin","type":"module","exports":{"./server":"./index.js"}}"#,
+        )
+        .unwrap();
+        std::fs::write(
+            plugin.join("index.js"),
+            format!(
+                "import fs from 'node:fs'; fs.writeFileSync({}, 'loaded'); export default {{ id: 'example.marker', async setup() {{}} }};",
+                serde_json::to_string(&marker).unwrap()
+            ),
+        )
+        .unwrap();
+        std::fs::write(
+            system.join("opencode.json"),
+            json!({"plugins": [plugin]}).to_string(),
+        )
+        .unwrap();
+        let workspace = Workspace::new().unwrap();
+        capabilities(&binary, &workspace).unwrap();
+        let mut command = workspace.command(&binary);
+        command
+            .env("ProgramData", root.path().join("system"))
+            .args(["models", "--standalone"]);
+        let output = capture_cli_output(
+            command,
+            None,
+            Duration::from_secs(30),
+            "OpenCode CLI",
+            "inspect",
+            None,
+        )
+        .unwrap();
+        assert!(!parse_models(&output).is_empty());
+        assert!(
+            !marker.exists(),
+            "System plugin module must never be imported"
+        );
     }
 }
