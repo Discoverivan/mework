@@ -60,9 +60,9 @@ export const en = {
   "dataRetention.loadError": "Could not load data retention settings.",
   "dataRetention.saveError": "Could not save data retention settings.",
   "dataRetention.saved": "Data retention settings saved.",
-  "settings.opencode.notFound": "OpenCode CLI was not found. Install stable OpenCode, configure a provider with opencode auth login, then refresh.",
+  "settings.opencode.notFound": "OpenCode CLI was not found. Install stable OpenCode V2, configure a provider with opencode auth login, then refresh.",
   "settings.opencode.unavailable": "OpenCode CLI could not be checked. Verify that it runs from your terminal.",
-  "settings.opencode.unsupported": "Use stable OpenCode 1.18+ (V1) with --pure and JSON output support. V2 preview is not supported yet.",
+  "settings.opencode.unsupported": "Use stable OpenCode V2 with --standalone and JSON output support. V1 is not supported.",
   "settings.opencode.configure": "OpenCode reported no available models. Configure a provider with opencode auth login, then refresh.",
 
   "settings.pi.notFound": "Pi CLI was not found. Install Pi, sign in with /login, then refresh the provider list.",

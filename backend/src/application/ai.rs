@@ -1154,7 +1154,7 @@ fn validate_selected_settings(
     };
     if !provider_status.available || provider_status.status != AiProviderStatus::Connected {
         if provider == AiProviderId::OpenCodeCli {
-            return Err("OpenCode CLI is unavailable. Install stable OpenCode 1.18+, configure a provider with opencode auth login, and refresh AI Settings".to_owned());
+            return Err("OpenCode CLI is unavailable. Install stable OpenCode V2, configure a provider with opencode auth login, and refresh AI Settings".to_owned());
         }
         if provider == AiProviderId::PiCli {
             return Err("Pi CLI is unavailable. Install a current Pi CLI, sign in with /login, and refresh AI Settings".to_owned());

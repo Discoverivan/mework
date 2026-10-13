@@ -64,9 +64,9 @@ export const ru: Record<TranslationKey, string> = {
   "dataRetention.loadError": "Не удалось загрузить настройки хранения данных.",
   "dataRetention.saveError": "Не удалось сохранить настройки хранения данных.",
   "dataRetention.saved": "Настройки хранения данных сохранены.",
-  "settings.opencode.notFound": "OpenCode CLI не найден. Установите стабильный OpenCode, настройте провайдера через opencode auth login и обновите список.",
+  "settings.opencode.notFound": "OpenCode CLI не найден. Установите стабильный OpenCode V2, настройте провайдера через opencode auth login и обновите список.",
   "settings.opencode.unavailable": "Не удалось проверить OpenCode CLI. Убедитесь, что он запускается из терминала.",
-  "settings.opencode.unsupported": "Нужен стабильный OpenCode 1.18+ (V1) с поддержкой --pure и JSON. V2 preview пока не поддерживается.",
+  "settings.opencode.unsupported": "Нужен стабильный OpenCode V2 с поддержкой --standalone и JSON. V1 не поддерживается.",
   "settings.opencode.configure": "OpenCode не сообщил о доступных моделях. Настройте провайдера через opencode auth login и обновите список.",
 
   "settings.pi.notFound": "Pi CLI не найден. Установите Pi, войдите через /login и обновите список провайдеров.",
