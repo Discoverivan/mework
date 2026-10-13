@@ -63,6 +63,33 @@ beforeEach(() => {
 });
 
 describe("CreateTaskPage", () => {
+  it("requires confirmation and a fresh operation key before retrying an uncertain creation", async () => {
+    generateMock.mockResolvedValue({ summary: "Example task", description: "Example description" });
+    createMock
+      .mockRejectedValueOnce(new Error("jira_task_outcome_unknown"))
+      .mockResolvedValueOnce({ id: "10002", key: "DEMO-102", url: "https://jira.example.invalid/browse/DEMO-102" });
+    render(<CreateTaskPage />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Create task" }));
+    fireEvent.change(screen.getByPlaceholderText("Describe your task"), { target: { value: "Example prompt" } });
+    fireEvent.click(screen.getByRole("button", { name: "Create" }));
+    const draft = await screen.findByRole("article", { name: "Editable Jira task draft" });
+    fireEvent.click(within(draft).getByRole("button", { name: "Create" }));
+
+    const createError = await within(draft).findByRole("alert");
+    expect(createError).toHaveTextContent("An unknown error occurred, and we can't confirm whether Jira created this task.");
+    const actionArea = within(draft).getByRole("button", { name: "Delete" }).parentElement?.parentElement;
+    expect(actionArea).toContainElement(createError);
+    fireEvent.click(within(draft).getByRole("button", { name: "Retry task creation" }));
+    expect(screen.getByText("Jira may already contain this task. Check Jira first, and retry only if the task is not present.")).toBeInTheDocument();
+    fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Retry task creation" }));
+
+    await waitFor(() => expect(createMock).toHaveBeenCalledTimes(2));
+    expect(createMock.mock.calls[1][0].operationKey).not.toBe(createMock.mock.calls[0][0].operationKey);
+    expect(createMock.mock.calls[1][0]).toMatchObject({ summary: "Example task", description: "Example description" });
+    expect(await screen.findByRole("article", { name: "Created Jira task DEMO-102" })).toBeInTheDocument();
+  });
+
   it("updates draft assignee choices after a saved team member change", async () => {
     generateMock.mockResolvedValue({ summary: "Example task", description: "Example description" });
     render(<CreateTaskPage />);

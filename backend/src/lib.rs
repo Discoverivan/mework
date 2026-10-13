@@ -64,7 +64,7 @@ pub fn run() {
 
             #[cfg(target_os = "macos")]
             crate::os::notifications::setup();
-            #[cfg(all(desktop, debug_assertions))]
+            #[cfg(all(desktop, any(debug_assertions, target_os = "macos")))]
             crate::os::menu::setup(app)?;
 
             #[cfg(desktop)]
@@ -450,6 +450,7 @@ pub fn run() {
             commands::developer::save_pull_request_review_settings,
             commands::dev_overlay::dev_overlay_enabled,
             commands::dev_overlay::dev_overlay_state,
+            commands::dev_overlay::dev_overlay_set_jira_task_create_failure,
             commands::dev_overlay::dev_overlay_add_task,
             commands::dev_overlay::dev_overlay_add_subtask,
             commands::dev_overlay::dev_overlay_set_task_status,

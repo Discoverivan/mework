@@ -110,6 +110,11 @@ fn mock_control_response(
         ("POST", "/__mock/task/status") => parse_body::<StatusRequest>(request)
             .and_then(|body| mode.set_task_status(&body.issue_key, &body.status))
             .map(|value| json!(value)),
+        ("POST", "/__mock/jira-task-create-failure") => {
+            parse_body::<JiraTaskCreateFailureRequest>(request)
+                .and_then(|body| mode.set_jira_task_create_failure(body.armed))
+                .map(|value| json!(value))
+        }
         ("POST", "/__mock/pull-request") => parse_body::<PullRequestRequest>(request)
             .and_then(|body| mode.add_pull_request(body.authored))
             .map(|value| json!(value)),
@@ -141,6 +146,11 @@ struct SubtaskRequest {
 struct StatusRequest {
     issue_key: String,
     status: String,
+}
+
+#[derive(serde::Deserialize)]
+struct JiraTaskCreateFailureRequest {
+    armed: bool,
 }
 
 #[derive(serde::Deserialize)]
@@ -790,6 +800,22 @@ fn jira_response(
             Err(_) => return json_response(400, json!({"error":"Invalid Jira issue request"})),
         };
         let fields = body.get("fields").unwrap_or(&Value::Null);
+        let is_subtask = fields
+            .pointer("/issuetype/name")
+            .and_then(Value::as_str)
+            .is_some_and(|issue_type| issue_type.eq_ignore_ascii_case("Sub-task"));
+        if !is_subtask {
+            match mode.consume_jira_task_create_failure() {
+                Ok(true) => {
+                    return json_response(
+                        503,
+                        json!({"error":"Mock Jira create response was intentionally interrupted"}),
+                    )
+                }
+                Ok(false) => {}
+                Err(error) => return json_response(500, json!({"error":error})),
+            }
+        }
         return match mode.create_jira_issue(fields) {
             Ok((id, key)) => json_response(201, json!({"id":id,"key":key})),
             Err(error) => json_response(400, json!({"error":error})),
@@ -889,6 +915,76 @@ mod tests {
             jira::{client::JiraClient, models::JiraDeployment, planning::JiraPlanningClient},
         },
     };
+
+    #[tokio::test]
+    async fn mock_jira_create_failure_is_consumed_once_before_writing_and_retry_succeeds() {
+        let mode = DevMockMode::new(true);
+        let server = MockIntegrationServer::start(mode.clone())
+            .await
+            .expect("start local REST stub");
+        let origin = server.urls().jira.strip_suffix("/jira/").unwrap();
+        let client = reqwest::Client::new();
+        let armed = client
+            .post(format!("{origin}/__mock/jira-task-create-failure"))
+            .json(&json!({"armed":true}))
+            .send()
+            .await
+            .expect("arm mock failure")
+            .error_for_status()
+            .expect("mock failure should be armed")
+            .json::<Value>()
+            .await
+            .expect("armed scenario state");
+        assert_eq!(armed["jiraTaskCreateFailureArmed"], true);
+
+        let create_url = format!(
+            "{}/rest/api/2/issue",
+            server.urls().jira.trim_end_matches('/')
+        );
+        let request = json!({"fields":{
+            "summary":"MOCK DATA · Example retry task",
+            "issuetype":{"name":"Task"}
+        }});
+        let failed = client
+            .post(&create_url)
+            .json(&request)
+            .send()
+            .await
+            .expect("mock Jira returns a simulated server error");
+        assert_eq!(failed.status(), reqwest::StatusCode::SERVICE_UNAVAILABLE);
+        assert!(mode
+            .created_jira_issues()
+            .expect("read mock Jira issues")
+            .is_empty());
+        let state = client
+            .get(format!("{origin}/__mock/state"))
+            .send()
+            .await
+            .expect("read mock scenario")
+            .json::<Value>()
+            .await
+            .expect("scenario state response");
+        assert_eq!(state["jiraTaskCreateFailureArmed"], false);
+
+        let created = client
+            .post(&create_url)
+            .json(&request)
+            .send()
+            .await
+            .expect("retry mock Jira creation")
+            .error_for_status()
+            .expect("retry should succeed")
+            .json::<Value>()
+            .await
+            .expect("created mock issue");
+        assert!(created["key"].as_str().is_some());
+        assert_eq!(
+            mode.created_jira_issues()
+                .expect("read created mock issues")
+                .len(),
+            1
+        );
+    }
 
     #[tokio::test]
     async fn ordinary_provider_clients_use_the_shared_loopback_rest_service() {

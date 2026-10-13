@@ -59,6 +59,7 @@ pub struct DevOverlaySnapshot {
     pub sprints: Vec<MockOverlaySprintDto>,
     pub reviewer_pull_requests: MyPullRequestsPageDto,
     pub authored_pull_requests: MyPullRequestsPageDto,
+    pub jira_task_create_failure_armed: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -102,6 +103,7 @@ struct Scenario {
     pull_request_comments: HashMap<String, Vec<MockBitbucketComment>>,
     daily_issue_statuses: HashMap<String, String>,
     jira_issues: HashMap<String, MockJiraIssue>,
+    jira_task_create_failure_armed: bool,
     next_pull_request_id: u64,
 }
 
@@ -470,6 +472,21 @@ impl MockIntegrationState {
         scenario.monitor.last_success_at = Some(now);
         scenario.monitor.changes_after_last_check = 1;
         Ok(scenario.snapshot())
+    }
+
+    pub fn set_jira_task_create_failure(&self, armed: bool) -> Result<DevOverlaySnapshot, String> {
+        self.require_enabled()?;
+        let mut scenario = self.scenario.lock().map_err(|_| state_error())?;
+        scenario.jira_task_create_failure_armed = armed;
+        Ok(scenario.snapshot())
+    }
+
+    pub fn consume_jira_task_create_failure(&self) -> Result<bool, String> {
+        self.require_enabled()?;
+        let mut scenario = self.scenario.lock().map_err(|_| state_error())?;
+        let armed = scenario.jira_task_create_failure_armed;
+        scenario.jira_task_create_failure_armed = false;
+        Ok(armed)
     }
 
     pub fn create_jira_issue(&self, fields: &Value) -> Result<(String, String), String> {
@@ -1084,6 +1101,7 @@ impl Default for Scenario {
                 "In Progress".to_owned(),
             )]),
             jira_issues: HashMap::new(),
+            jira_task_create_failure_armed: false,
             next_pull_request_id: 100,
         }
     }
@@ -1128,6 +1146,7 @@ impl Scenario {
                 .collect(),
             reviewer_pull_requests: page(self.reviewer_pull_requests.clone()),
             authored_pull_requests: page(self.authored_pull_requests.clone()),
+            jira_task_create_failure_armed: self.jira_task_create_failure_armed,
         }
     }
 }

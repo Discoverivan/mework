@@ -1,4 +1,5 @@
 import { FlaskConical, RotateCcw } from "lucide-react";
+import { APP_EVENT, subscribeAppEvent } from "@/app/app-events";
 import { useEffect, useState, type FormEvent } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -16,6 +17,7 @@ import {
 import { Field, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import {
   Select,
@@ -32,6 +34,7 @@ import {
   addDevMockTask,
   getDevOverlayState,
   resetDevMockScenario,
+  setDevMockJiraTaskCreateFailure,
   setDevMockTaskStatus,
   type DevOverlaySnapshot,
 } from "./api";
@@ -63,6 +66,12 @@ export function DevOverlay() {
       setError(reason instanceof Error ? reason.message : String(reason));
     });
   }, []);
+
+  useEffect(() => subscribeAppEvent(APP_EVENT.devOverlayScenarioInvalidated, () => {
+    void refresh().catch((reason: unknown) => {
+      setError(reason instanceof Error ? reason.message : String(reason));
+    });
+  }), []);
 
   const tasks = snapshot?.monitors[0]?.issues ?? [];
   const parentIssues = snapshot?.parentIssues ?? [];
@@ -197,6 +206,19 @@ export function DevOverlay() {
                 <Button type="button" variant="outline" onClick={() => setSubtaskDialogOpen(true)} disabled={busy}>
                   {t("devOverlay.createSubtask")}
                 </Button>
+                <div className="flex items-center justify-between gap-3 rounded-md border border-border p-3">
+                  <div className="min-w-0">
+                    <Label htmlFor="dev-mock-jira-create-failure" className="text-sm">{t("devOverlay.jiraCreateFailure")}</Label>
+                    <p className="mt-1 text-xs text-muted-foreground">{t("devOverlay.jiraCreateFailureDescription")}</p>
+                  </div>
+                  <Switch
+                    id="dev-mock-jira-create-failure"
+                    aria-label={t("devOverlay.jiraCreateFailure")}
+                    checked={snapshot?.jiraTaskCreateFailureArmed ?? false}
+                    onCheckedChange={(armed) => void run(() => setDevMockJiraTaskCreateFailure(armed))}
+                    disabled={busy || snapshot === null}
+                  />
+                </div>
                 <div className="flex flex-col gap-2">
                   <Label htmlFor="dev-mock-task">{t("devOverlay.selectTask")}</Label>
                   <select autoComplete="off"

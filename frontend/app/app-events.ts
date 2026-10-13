@@ -22,6 +22,7 @@ export const APP_EVENT = {
   authoredPullRequestsUpdated: "pull-requests:authored-updated",
   taskTrackerUpdated: "task-tracker:updated",
   taskTrackerReadStateChanged: "task-tracker:read-state-changed",
+  devOverlayScenarioInvalidated: "dev-overlay:scenario-invalidated",
   updateAvailabilityChanged: "updates:availability-changed",
   updateNoticeDismissalChanged: "updates:notice-dismissal-changed",
   tokenBurnerChanged: "token-burner:changed",
@@ -42,6 +43,7 @@ interface AppEventMap {
   [APP_EVENT.authoredPullRequestsUpdated]: MyPullRequestPage;
   [APP_EVENT.taskTrackerUpdated]: TaskTrackerMonitor[];
   [APP_EVENT.taskTrackerReadStateChanged]: TaskTrackerReadStateChanged;
+  [APP_EVENT.devOverlayScenarioInvalidated]: undefined;
   [APP_EVENT.updateAvailabilityChanged]: UpdateAvailabilitySnapshot;
   [APP_EVENT.updateNoticeDismissalChanged]: string | null;
   [APP_EVENT.tokenBurnerChanged]: TokenBurnerSnapshot;

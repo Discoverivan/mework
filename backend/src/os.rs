@@ -1,6 +1,6 @@
 pub mod app_badge;
 pub mod autostart;
-#[cfg(all(desktop, debug_assertions))]
+#[cfg(all(desktop, any(debug_assertions, target_os = "macos")))]
 pub mod menu;
 pub mod notifications;
 pub mod single_instance;

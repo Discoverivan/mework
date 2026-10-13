@@ -18,6 +18,20 @@ pub async fn dev_overlay_state(mode: State<'_, DevMockMode>) -> Result<DevOverla
 }
 
 #[tauri::command]
+pub async fn dev_overlay_set_jira_task_create_failure(
+    mode: State<'_, DevMockMode>,
+    armed: bool,
+) -> Result<DevOverlaySnapshot, String> {
+    require_mock(&mode)?;
+    control_call(
+        "POST",
+        "jira-task-create-failure",
+        Some(&JiraTaskCreateFailureRequest { armed }),
+    )
+    .await
+}
+
+#[tauri::command]
 pub async fn dev_overlay_add_task<R: Runtime>(
     app: AppHandle<R>,
     mode: State<'_, DevMockMode>,
@@ -153,6 +167,11 @@ struct SubtaskRequest {
 struct StatusRequest {
     issue_key: String,
     status: String,
+}
+
+#[derive(Serialize)]
+struct JiraTaskCreateFailureRequest {
+    armed: bool,
 }
 
 #[derive(Serialize)]
