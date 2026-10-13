@@ -6,6 +6,8 @@ export type { DevOverlaySnapshot } from "@/shared/contracts/dev-overlay";
 
 export const devOverlayEnabled = () => invoke<boolean>("dev_overlay_enabled");
 export const getDevOverlayState = () => invoke<DevOverlaySnapshot>("dev_overlay_state");
+export const setDevMockJiraTaskCreateFailure = (armed: boolean) =>
+  invoke<DevOverlaySnapshot>("dev_overlay_set_jira_task_create_failure", { armed });
 export const addDevMockTask = (summary: string) =>
   invoke<DevOverlaySnapshot>("dev_overlay_add_task", { summary });
 export const addDevMockSubtask = (request: {

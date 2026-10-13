@@ -8,4 +8,5 @@ export interface DevOverlaySnapshot {
   sprints: { id: string; name: string; state: string }[];
   reviewerPullRequests: MyPullRequestPage;
   authoredPullRequests: MyPullRequestPage;
+  jiraTaskCreateFailureArmed: boolean;
 }

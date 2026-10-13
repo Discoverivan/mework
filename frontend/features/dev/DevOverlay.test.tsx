@@ -3,8 +3,9 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { I18nProvider } from "@/i18n/I18nProvider";
 import { DevOverlay } from "./DevOverlay";
 
-const { getStateMock, addTaskMock, addSubtaskMock, setStatusMock, addPullRequestMock, resetMock } = vi.hoisted(() => ({
+const { getStateMock, setJiraFailureMock, addTaskMock, addSubtaskMock, setStatusMock, addPullRequestMock, resetMock } = vi.hoisted(() => ({
   getStateMock: vi.fn(),
+  setJiraFailureMock: vi.fn(),
   addTaskMock: vi.fn(),
   addSubtaskMock: vi.fn(),
   setStatusMock: vi.fn(),
@@ -14,6 +15,7 @@ const { getStateMock, addTaskMock, addSubtaskMock, setStatusMock, addPullRequest
 
 vi.mock("./api", () => ({
   getDevOverlayState: getStateMock,
+  setDevMockJiraTaskCreateFailure: setJiraFailureMock,
   addDevMockTask: addTaskMock,
   addDevMockSubtask: addSubtaskMock,
   setDevMockTaskStatus: setStatusMock,
@@ -53,6 +55,7 @@ const scenario = {
   }],
   reviewerPullRequests: { values: [], total: 0, hasMore: false },
   authoredPullRequests: { values: [], total: 0, hasMore: false },
+  jiraTaskCreateFailureArmed: false,
 };
 
 describe("DevOverlay", () => {
@@ -60,6 +63,7 @@ describe("DevOverlay", () => {
     vi.clearAllMocks();
     Element.prototype.scrollIntoView = vi.fn();
     getStateMock.mockResolvedValue(scenario);
+    setJiraFailureMock.mockResolvedValue(scenario);
     addTaskMock.mockResolvedValue(scenario);
     addSubtaskMock.mockResolvedValue(scenario);
     setStatusMock.mockResolvedValue(scenario);
@@ -82,6 +86,22 @@ describe("DevOverlay", () => {
     expect(screen.getByLabelText("Mock task summary")).toBeInTheDocument();
     expect(document.getElementById("dev-mock-controls")).toHaveClass("overflow-y-auto");
     expect(screen.queryByLabelText("Subtask summary")).not.toBeInTheDocument();
+  });
+
+  it("arms the one-shot mock Jira create failure through a native command", async () => {
+    getStateMock
+      .mockResolvedValueOnce(scenario)
+      .mockResolvedValueOnce({ ...scenario, jiraTaskCreateFailureArmed: true });
+    setJiraFailureMock.mockResolvedValue({ ...scenario, jiraTaskCreateFailureArmed: true });
+    render(<I18nProvider><DevOverlay /></I18nProvider>);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Open development scenario" }));
+    const toggle = await screen.findByRole("switch", { name: "Simulate Jira task creation failure" });
+    fireEvent.click(toggle);
+
+    await waitFor(() => expect(setJiraFailureMock).toHaveBeenCalledWith(true));
+    await waitFor(() => expect(toggle).toHaveAttribute("data-state", "checked"));
+    expect(screen.getByText("Fail the next create request with an unknown outcome, then automatically turn this off.")).toBeInTheDocument();
   });
 
   it("runs local task and pull-request scenario actions through native commands", async () => {

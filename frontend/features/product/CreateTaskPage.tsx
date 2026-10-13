@@ -1,6 +1,6 @@
 import { PageToolbar } from "@/components/shared/PageToolbar";
 import { useEffect, useRef, useState, type FormEvent } from "react";
-import { APP_EVENT, subscribeAppEvent } from "@/app/app-events";
+import { APP_EVENT, emitAppEvent, subscribeAppEvent } from "@/app/app-events";
 import { readUpdatedTeamMembers } from "../planning/team-members-state";
 import type { TeamMember } from "@/shared/contracts/planning";
 import { Check, ClipboardList, ExternalLink, LoaderCircle, Pencil, RefreshCw, Sparkles, Trash2 } from "lucide-react";
@@ -11,6 +11,7 @@ import { useI18n } from "@/i18n/context";
 import type { TranslationKey } from "@/i18n/locales/en";
 import type { TranslationParams } from "@/i18n/types";
 import { CreateButton } from "@/components/shared/CreateButton";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -80,6 +81,8 @@ type TaskCard = {
   storyPoints: string;
   status: DraftCardStatus;
   error?: string;
+  operationKey?: string;
+  retryConfirmationRequired?: boolean;
   createdTask?: CreatedJiraTask;
 };
 
@@ -157,6 +160,8 @@ function parsePersistedCard(value: unknown): TaskCard | undefined {
     storyPoints,
     status: restoredAfterCreate ? "ready" : status,
     ...(stringValue(value.error) && !restoredAfterCreate ? { error: stringValue(value.error) } : {}),
+    ...(stringValue(value.operationKey) ? { operationKey: stringValue(value.operationKey) } : {}),
+    ...(value.retryConfirmationRequired === true || restoredAfterCreate ? { retryConfirmationRequired: true } : {}),
     ...(restoredAfterCreate ? { error: "jira_task_creation_interrupted" } : {}),
     ...(createdTask ? { createdTask } : {}),
   };
@@ -337,6 +342,7 @@ export function CreateTaskPage() {
   const [dialogOpen, setDialogOpen] = useState(() => routeContext.openForm ?? false);
   const [prompt, setPrompt] = useState("");
   const [cards, setCards] = useState<TaskCard[]>(() => readPersistedCreateTaskState().cards);
+  const [retryConfirmationCardId, setRetryConfirmationCardId] = useState<string>();
   const [teams, setTeams] = useState<ManagedProject[]>([]);
   const [selectedTeamId, setSelectedTeamId] = useState<string | undefined>(() => routeContext.teamId ?? readPersistedCreateTaskState().selectedTeamId);
   const [selectedSprintId, setSelectedSprintId] = useState(() => routeContext.sprintId ?? "");
@@ -579,12 +585,15 @@ export function CreateTaskPage() {
     setCards((current) => current.filter((card) => card.id !== id));
   };
 
-  const createTask = async (card: TaskCard) => {
+  const createTask = async (card: TaskCard, operationKey = card.operationKey ?? card.id) => {
     if (!card.summary.trim() || !card.description.trim() || card.status !== "ready") return;
-    updateCard(card.id, { status: "creating", error: undefined });
+    const creatingCard = { ...card, status: "creating" as const, operationKey, error: undefined, retryConfirmationRequired: false };
+    const creatingCards = cards.map((item) => item.id === card.id ? creatingCard : item);
+    persistCreateTaskState({ cards: creatingCards, selectedTeamId });
+    setCards(creatingCards);
     try {
       const result = await createJiraTask({
-        operationKey: card.id,
+        operationKey,
         managedProjectId: card.teamId ?? "",
         issueType: card.issueType,
         summary: card.summary,
@@ -594,9 +603,16 @@ export function CreateTaskPage() {
         sprint: card.sprint || undefined,
         storyPoints: card.storyPoints || undefined,
       });
-      updateCard(card.id, { status: "created", createdTask: result });
+      updateCard(card.id, { status: "created", createdTask: result, retryConfirmationRequired: false });
     } catch (error) {
-      updateCard(card.id, { status: "ready", error: taskErrorMessage(error, t) });
+      const errorCode = typeof error === "string" ? error : isRecord(error) ? stringValue(error.message) ?? stringValue(error.code) : undefined;
+      updateCard(card.id, {
+        status: "ready",
+        error: taskErrorMessage(error, t),
+        retryConfirmationRequired: errorCode === "jira_task_outcome_unknown" || errorCode === "jira_task_creation_interrupted",
+      });
+    } finally {
+      emitAppEvent(APP_EVENT.devOverlayScenarioInvalidated);
     }
   };
 
@@ -678,7 +694,6 @@ export function CreateTaskPage() {
           <Pencil className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />
         </div>
         {card.status === "created" && card.createdTask?.warning ? <p className="mb-4 text-sm text-amber-700 dark:text-amber-300" role="status">{taskErrorMessage(card.createdTask.warning, t)}</p> : null}
-        {card.error ? <p className="mb-4 text-sm text-destructive" role="alert">{taskErrorMessage(card.error, t)}</p> : null}
         <div className="grid gap-3">
           <div className="grid gap-3 sm:grid-cols-[7.25rem_minmax(0,1fr)] sm:items-end">
             <div className="grid gap-2">
@@ -775,29 +790,47 @@ export function CreateTaskPage() {
             </div>
           </div>
         </div>
-        <div className="mt-4 flex items-center justify-between border-t border-border pt-3">
-          {card.status === "created" && card.createdTask ? (
-            <>
-              <Button type="button" variant="ghost" className="text-muted-foreground" onClick={() => deleteCard(card.id)}>
-                {t("task.dismiss")}
-              </Button>
-              <Button asChild variant="outline" size="sm">
-                <a href={card.createdTask.url} target="_blank" rel="noreferrer">
-                  {t("task.openJira")} <ExternalLink className="h-3.5 w-3.5" aria-hidden="true" />
-                </a>
-              </Button>
-            </>
-          ) : (
-            <>
-              <Button type="button" variant="ghost" actionTone="delete" className="text-muted-foreground hover:bg-transparent hover:text-destructive" onClick={() => deleteCard(card.id)}>
-                <Trash2 className="mr-2 h-4 w-4" aria-hidden="true" />
-                {t("task.delete")}
-              </Button>
-              <Button type="button" actionTone="add" disabled={!card.teamId || card.status === "creating" || !card.summary.trim() || !card.description.trim()} onClick={() => void createTask(card)}>
-                {card.status === "creating" ? t("task.creating") : t("task.create")}
-              </Button>
-            </>
-          )}
+        <div className="mt-4 border-t border-border pt-3">
+          {card.error ? (
+            <Alert variant="destructive" className="mb-3">
+              <AlertDescription>{taskErrorMessage(card.error, t)}</AlertDescription>
+            </Alert>
+          ) : null}
+          <div className="flex items-center justify-between">
+            {card.status === "created" && card.createdTask ? (
+              <>
+                <Button type="button" variant="ghost" className="text-muted-foreground" onClick={() => deleteCard(card.id)}>
+                  {t("task.dismiss")}
+                </Button>
+                <Button asChild variant="outline" size="sm">
+                  <a href={card.createdTask.url} target="_blank" rel="noreferrer">
+                    {t("task.openJira")} <ExternalLink className="h-3.5 w-3.5" aria-hidden="true" />
+                  </a>
+                </Button>
+              </>
+            ) : (
+              <>
+                <Button type="button" variant="ghost" actionTone="delete" className="text-muted-foreground hover:bg-transparent hover:text-destructive" onClick={() => deleteCard(card.id)}>
+                  <Trash2 className="mr-2 h-4 w-4" aria-hidden="true" />
+                  {t("task.delete")}
+                </Button>
+                <Button
+                  type="button"
+                  actionTone="add"
+                  disabled={!card.teamId || card.status === "creating" || !card.summary.trim() || !card.description.trim()}
+                  onClick={() => {
+                    if (card.retryConfirmationRequired) {
+                      setRetryConfirmationCardId(card.id);
+                    } else {
+                      void createTask(card);
+                    }
+                  }}
+                >
+                  {card.status === "creating" ? t("task.creating") : card.retryConfirmationRequired ? t("task.retryCreate") : t("task.create")}
+                </Button>
+              </>
+            )}
+          </div>
         </div>
       </article>
     );
@@ -888,6 +921,22 @@ export function CreateTaskPage() {
               <Sparkles aria-hidden="true" />
               {t("task.create")}
             </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+      <Dialog open={Boolean(retryConfirmationCardId)} onOpenChange={(open) => { if (!open) setRetryConfirmationCardId(undefined); }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{t("task.retryCreateConfirmationTitle")}</DialogTitle>
+            <DialogDescription>{t("task.retryCreateConfirmationDescription")}</DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button data-dialog-cancel type="button" variant="outline" onClick={() => setRetryConfirmationCardId(undefined)}>{t("settings.common.cancel")}</Button>
+            <Button type="button" actionTone="add" onClick={() => {
+              const card = cards.find((item) => item.id === retryConfirmationCardId);
+              setRetryConfirmationCardId(undefined);
+              if (card) void createTask(card, createCardId());
+            }}>{t("task.retryCreate")}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
