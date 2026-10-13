@@ -1772,7 +1772,67 @@ fn append_openai_content(value: &Value, output: &mut String) {
     }
 }
 
+/// Request JSON mode for structured actions, retaining compatibility with servers
+/// that explicitly reject this optional Chat Completions parameter.
+pub async fn request_openai_structured_response(
+    client: &reqwest::Client,
+    runtime: &OpenAiCompatibleRuntimeConfig,
+    operation: &'static str,
+    mut payload: Value,
+) -> Result<(reqwest::StatusCode, Vec<u8>), reqwest::Error> {
+    payload["response_format"] = serde_json::json!({"type": "json_object"});
+    for attempt in 0..2 {
+        log_openai_chat_request(
+            operation,
+            &runtime.base_url,
+            runtime.allow_insecure_tls,
+            &payload,
+        );
+        let response = client
+            .post(format!("{}/chat/completions", runtime.base_url))
+            .bearer_auth(&runtime.token)
+            .json(&payload)
+            .send_logged(
+                "ai.openai_compatible",
+                operation,
+                crate::application::logging::HttpBodyPolicy::Omit,
+            )
+            .await?;
+        let status = response.status();
+        let body = response.bytes().await.inspect_err(|error| {
+            log_openai_transport_error("structured_response_body", &error.to_string());
+        })?;
+        log_openai_chat_response(operation, status.as_u16(), &body);
+        let unsupported_format = matches!(status.as_u16(), 400 | 422)
+            && serde_json::from_slice::<Value>(&body)
+                .ok()
+                .is_some_and(|error| openai_rejected_response_format(&error));
+        if attempt == 0 && unsupported_format {
+            payload
+                .as_object_mut()
+                .expect("Chat Completions payload is an object")
+                .remove("response_format");
+            crate::application::logging::info(
+                "ai.openai_compatible",
+                "json_mode_unavailable",
+                serde_json::json!({"operation": operation}),
+            );
+            continue;
+        }
+        return Ok((status, body.to_vec()));
+    }
+    unreachable!("the final attempt always returns its response")
+}
+
 pub const OPENAI_MAX_OUTPUT_TOKENS: u64 = 30_000;
+
+pub(crate) fn openai_rejected_response_format(error: &Value) -> bool {
+    error.pointer("/error/param").and_then(Value::as_str) == Some("response_format")
+        && matches!(
+            error.pointer("/error/code").and_then(Value::as_str),
+            Some("unsupported_parameter" | "unsupported_value" | "invalid_parameter")
+        )
+}
 
 async fn load_openai_models(
     base_url: &str,
@@ -1862,6 +1922,46 @@ pub fn test_process_env_lock() -> &'static std::sync::Mutex<()> {
 
 #[cfg(test)]
 mod tests {
+    #[tokio::test]
+    async fn completes_structured_request_when_server_declines_json_mode() {
+        use wiremock::{
+            matchers::{body_partial_json, method, path},
+            Mock, MockServer, ResponseTemplate,
+        };
+        let server = MockServer::start().await;
+        Mock::given(method("POST")).and(path("/v1/chat/completions"))
+            .and(body_partial_json(serde_json::json!({"response_format":{"type":"json_object"}})))
+            .respond_with(ResponseTemplate::new(400).set_body_json(serde_json::json!({"error":{"code":"unsupported_parameter","param":"response_format"}})))
+            .expect(1).mount(&server).await;
+        Mock::given(method("POST")).and(path("/v1/chat/completions"))
+            .and(|request: &wiremock::Request| serde_json::from_slice::<serde_json::Value>(&request.body).unwrap().get("response_format").is_none())
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({"choices":[{"message":{"content":"{\"summary\":\"Example task\"}"}}]})))
+            .expect(1).mount(&server).await;
+        let runtime = super::OpenAiCompatibleRuntimeConfig {
+            base_url: format!("{}/v1", server.uri()),
+            token: String::new(),
+            allow_insecure_tls: false,
+        };
+        let payload = serde_json::json!({"model":"example-model","messages":[{"role":"user","content":"Return JSON with a summary of Example task."}]});
+        let (status, body) = super::request_openai_structured_response(
+            &reqwest::Client::new(),
+            &runtime,
+            "example",
+            payload,
+        )
+        .await
+        .unwrap();
+        assert!(status.is_success());
+        let response: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        let output: serde_json::Value = serde_json::from_str(
+            response["choices"][0]["message"]["content"]
+                .as_str()
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(output["summary"], "Example task");
+    }
+
     #[tokio::test]
     async fn saves_only_the_selected_action_with_its_prompt_and_formatting() {
         let directory = tempfile::tempdir().unwrap();

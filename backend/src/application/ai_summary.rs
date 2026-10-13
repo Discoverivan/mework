@@ -4,7 +4,6 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 use sqlx::SqlitePool;
 
-use crate::application::logging::HttpRequestBuilderExt;
 use crate::application::{ai, ai_prompts, ai_usage_statistics, general};
 
 #[derive(Debug, Clone, serde::Serialize, Deserialize)]
@@ -68,34 +67,29 @@ fn generate_blocking(
         let runtime = runtime
             .ok_or_else(|| "OpenAI-compatible API configuration is unavailable".to_owned())?;
         return tauri::async_runtime::block_on(async {
-            let client = ai::openai_http_client(Duration::from_secs(15 * 60), false)?;
+            let client =
+                ai::openai_http_client(Duration::from_secs(15 * 60), runtime.allow_insecure_tls)?;
+            let structured_prompt = format!(
+                "{prompt}\n\nReturn only a JSON object matching this schema:\n{}",
+                text_schema()
+            );
             let payload = json!({
                 "model": settings.model,
                 "max_tokens": ai::OPENAI_MAX_OUTPUT_TOKENS,
                 "stream": false,
                 "messages": [
                     {"role": "system", "content": ai_prompts::rules(ai_prompts::PromptAction::SprintSummary, language)},
-                    {"role": "user", "content": prompt}
+                    {"role": "user", "content": structured_prompt}
                 ]
             });
-            ai::log_openai_chat_request("sprint_summary", &runtime.base_url, false, &payload);
-            let response = client
-                .post(format!("{}/chat/completions", runtime.base_url))
-                .bearer_auth(&runtime.token)
-                .json(&payload)
-                .send_logged(
-                    "ai.openai_compatible",
-                    "sprint_summary",
-                    crate::application::logging::HttpBodyPolicy::Omit,
-                )
-                .await
-                .map_err(|_| "AI summary request could not be completed".to_owned())?;
-            let status = response.status();
-            let body = response.bytes().await.map_err(|error| {
-                ai::log_openai_transport_error("sprint_summary_response_body", &error.to_string());
-                "AI summary request could not be completed".to_owned()
-            })?;
-            ai::log_openai_chat_response("sprint_summary", status.as_u16(), &body);
+            let (status, body) = ai::request_openai_structured_response(
+                &client,
+                &runtime,
+                "sprint_summary",
+                payload,
+            )
+            .await
+            .map_err(|_| "AI summary request could not be completed".to_owned())?;
             if !status.is_success() {
                 return Err(format!(
                     "AI summary request returned HTTP {}",
@@ -125,7 +119,7 @@ fn generate_blocking(
                     );
                     "AI provider returned no summary".to_owned()
                 })?;
-            let text = validate_text(text).inspect_err(|error| {
+            let text = parse_text(text.as_bytes()).inspect_err(|error| {
                 crate::application::logging::log_business_failure(
                     "ai.openai_compatible",
                     "sprint_summary",
@@ -235,15 +229,16 @@ fn text_schema() -> Value {
 }
 
 fn parse_text(bytes: &[u8]) -> Result<String, String> {
-    let value: AiSummaryResponse = serde_json::from_slice(bytes).map_err(|_| {
-        crate::application::logging::log_parse_failure(
-            "ai.cli",
-            "sprint_summary",
-            "summary_json",
-            bytes,
-        );
-        "AI provider returned an invalid summary".to_owned()
-    })?;
+    let value: AiSummaryResponse =
+        super::ai_structured_output::deserialize(bytes).map_err(|_| {
+            crate::application::logging::log_parse_failure(
+                "ai.cli",
+                "sprint_summary",
+                "summary_json",
+                bytes,
+            );
+            "AI provider returned an invalid summary".to_owned()
+        })?;
     validate_text(value.text).inspect_err(|_| {
         crate::application::logging::log_parse_failure(
             "ai.cli",
@@ -260,4 +255,42 @@ fn validate_text(text: String) -> Result<String, String> {
         return Err("AI provider returned an invalid summary".to_owned());
     }
     Ok(text.to_owned())
+}
+
+#[cfg(test)]
+mod tests {
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn generates_summary_from_openai_json_mode() {
+        use wiremock::{
+            matchers::{body_partial_json, method, path},
+            Mock, MockServer, ResponseTemplate,
+        };
+        let server = MockServer::start().await;
+        Mock::given(method("POST")).and(path("/v1/chat/completions"))
+            .and(body_partial_json(serde_json::json!({"response_format":{"type":"json_object"}})))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({"choices":[{"message":{"content":"{\"text\":\"Example summary\"}"}}]})))
+            .expect(1).mount(&server).await;
+        let runtime = crate::application::ai::OpenAiCompatibleRuntimeConfig {
+            base_url: format!("{}/v1", server.uri()),
+            token: String::new(),
+            allow_insecure_tls: false,
+        };
+        let settings = crate::application::ai::AiSettings {
+            provider: Some(crate::application::ai::AiProviderId::OpenAiCompatible),
+            model: "example-model".into(),
+            ..Default::default()
+        };
+        let (text, _) = tokio::task::spawn_blocking(move || {
+            super::generate_blocking(
+                &settings,
+                Some(runtime),
+                "Summarize Example task",
+                crate::application::general::AppLanguage::English,
+            )
+        })
+        .await
+        .unwrap()
+        .unwrap();
+        assert_eq!(text, "Example summary");
+    }
 }

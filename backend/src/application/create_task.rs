@@ -1315,29 +1315,12 @@ fn execute_openai_task_draft_with_usage(
                 {"role": "user", "content": prompt}
             ]
         });
-        ai::log_openai_chat_request(
-            "task_generation",
-            &runtime.base_url,
-            runtime.allow_insecure_tls,
-            &payload,
-        );
-        let response = client
-            .post(format!("{}/chat/completions", runtime.base_url))
-            .bearer_auth(&runtime.token)
-            .json(&payload)
-            .send_logged(
-                "ai.openai_compatible",
-                "task_generation",
-                crate::application::logging::HttpBodyPolicy::Omit,
-            )
-            .await
-            .map_err(|_| "OpenAI-compatible API task request could not be completed".to_owned())?;
-        let status = response.status();
-        let body = response.bytes().await.map_err(|error| {
-            ai::log_openai_transport_error("task_generation_response_body", &error.to_string());
-            "OpenAI-compatible API task request could not be completed".to_owned()
-        })?;
-        ai::log_openai_chat_response("task_generation", status.as_u16(), &body);
+        let (status, body) =
+            ai::request_openai_structured_response(&client, runtime, "task_generation", payload)
+                .await
+                .map_err(|_| {
+                    "OpenAI-compatible API task request could not be completed".to_owned()
+                })?;
         if status == reqwest::StatusCode::UNAUTHORIZED || status == reqwest::StatusCode::FORBIDDEN {
             return Err(
                 "OpenAI-compatible API authorization failed during task generation".to_owned(),
@@ -1387,15 +1370,16 @@ fn execute_openai_task_draft_with_usage(
 
     let (content, usage) = content;
 
-    let mut draft: TaskDraftDto = serde_json::from_str(&content).map_err(|_| {
-        crate::application::logging::log_parse_failure(
-            "ai.openai_compatible",
-            "task_generation",
-            "task_draft_json",
-            content.as_bytes(),
-        );
-        "OpenAI-compatible API returned invalid task JSON".to_owned()
-    })?;
+    let mut draft: TaskDraftDto = super::ai_structured_output::deserialize(content.as_bytes())
+        .map_err(|_| {
+            crate::application::logging::log_parse_failure(
+                "ai.openai_compatible",
+                "task_generation",
+                "task_draft_json",
+                content.as_bytes(),
+            );
+            "OpenAI-compatible API returned invalid task JSON".to_owned()
+        })?;
     required_text(&draft.summary, "AI summary", 255).inspect_err(|error| {
         crate::application::logging::log_business_failure(
             "ai.openai_compatible",
@@ -1799,6 +1783,7 @@ mod tests {
             .and(header("authorization", "Bearer synthetic-token"))
             .and(body_json(serde_json::json!({
                 "model": "example-model",
+                "response_format": {"type": "json_object"},
                 "max_tokens": 30_000,
                 "stream": false,
                 "messages": [

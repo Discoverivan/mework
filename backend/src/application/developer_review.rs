@@ -14,7 +14,6 @@ use uuid::Uuid;
 
 use super::developer::{self, MyPullRequestDto};
 use crate::application::ai_usage_statistics;
-use crate::application::logging::HttpRequestBuilderExt;
 use crate::infrastructure::db::repositories;
 
 const REVIEW_STATE_SETTING_KEY: &str = "developer.pull_request_reviews";
@@ -1701,32 +1700,11 @@ async fn request_openai_json_content(
             {"role": "user", "content": prompt}
         ]
     });
-    crate::application::ai::log_openai_chat_request(
-        "review",
-        &runtime.base_url,
-        runtime.allow_insecure_tls,
-        &payload,
-    );
-    let response = client
-        .post(format!("{}/chat/completions", runtime.base_url))
-        .bearer_auth(&runtime.token)
-        .json(&payload)
-        .send_logged(
-            "ai.openai_compatible",
-            "review",
-            crate::application::logging::HttpBodyPolicy::Omit,
-        )
-        .await
-        .map_err(|_| "OpenAI-compatible API review request could not be completed".to_owned())?;
-    let status = response.status();
-    let body = response.bytes().await.map_err(|error| {
-        crate::application::ai::log_openai_transport_error(
-            "review_response_body",
-            &error.to_string(),
-        );
-        "OpenAI-compatible API review request could not be completed".to_owned()
-    })?;
-    crate::application::ai::log_openai_chat_response("review", status.as_u16(), &body);
+    let (status, body) = crate::application::ai::request_openai_structured_response(
+        &client, runtime, "review", payload,
+    )
+    .await
+    .map_err(|_| "OpenAI-compatible API review request could not be completed".to_owned())?;
     if status == reqwest::StatusCode::UNAUTHORIZED || status == reqwest::StatusCode::FORBIDDEN {
         return Err("OpenAI-compatible API authorization failed during review".to_owned());
     }
@@ -1767,6 +1745,21 @@ async fn request_openai_json_content(
         .as_ref()
         .and_then(ai_usage_statistics::parse_response_usage)
         .or_else(|| ai_usage_statistics::parse_sse_usage(&body));
+    let content = content
+        .map(|text| {
+            super::ai_structured_output::json_object(&text)
+                .map(str::to_owned)
+                .map_err(|_| {
+                    crate::application::logging::log_parse_failure(
+                        "ai.openai_compatible",
+                        "review",
+                        "structured_json",
+                        text.as_bytes(),
+                    );
+                    "OpenAI-compatible API returned invalid structured output".to_owned()
+                })
+        })
+        .transpose()?;
     Ok((content, usage))
 }
 
@@ -2000,16 +1993,7 @@ pub(super) fn parse_review_result_in_diff(
     diff: Option<&str>,
 ) -> Result<PullRequestReviewResult, String> {
     let text = String::from_utf8_lossy(output).trim().to_owned();
-    let mut parsed = serde_json::from_str::<ProviderReviewResult>(&text)
-        .or_else(|_| {
-            let start = text
-                .find('{')
-                .ok_or(serde_json::Error::io(std::io::Error::other("missing JSON")))?;
-            let end = text
-                .rfind('}')
-                .ok_or(serde_json::Error::io(std::io::Error::other("missing JSON")))?;
-            serde_json::from_str::<ProviderReviewResult>(&text[start..=end])
-        })
+    let mut parsed = super::ai_structured_output::deserialize::<ProviderReviewResult>(output)
         .map_err(|_| {
             crate::application::logging::error(
                 "ai",
@@ -2068,15 +2052,7 @@ pub(super) fn parse_review_result_in_diff(
 fn review_schema_diagnostic(text: &str) -> serde_json::Value {
     // Diagnose the same JSON candidate as the parser, without logging Serde's
     // error text: it can include arbitrary provider values and unknown keys.
-    let candidate = if serde_json::from_str::<serde_json::Value>(text).is_ok() {
-        text
-    } else {
-        text.find('{')
-            .zip(text.rfind('}'))
-            .filter(|(start, end)| start <= end)
-            .map(|(start, end)| &text[start..=end])
-            .unwrap_or(text)
-    };
+    let candidate = super::ai_structured_output::json_object(text).unwrap_or(text);
     let mut deserializer = serde_json::Deserializer::from_str(candidate);
     let result: Result<ProviderReviewResult, _> =
         serde_path_to_error::deserialize(&mut deserializer);
@@ -2605,7 +2581,7 @@ mod tests {
         })
         .to_string();
         let response_body = serde_json::json!({
-            "choices": [{"message": {"content": response_content}}],
+            "choices": [{"message": {"content": format!("Reasoning about {{\"example\":true}}. </think>\n{response_content}")}}],
             "usage": {"prompt_tokens": 70, "completion_tokens": 15, "total_tokens": 85}
         });
         Mock::given(method("POST"))
@@ -2613,6 +2589,7 @@ mod tests {
             .and(header("authorization", "Bearer synthetic-token"))
             .and(body_json(serde_json::json!({
                 "model": "example-model",
+                "response_format": {"type": "json_object"},
                 "max_tokens": 30_000,
                 "stream": false,
                 "messages": [

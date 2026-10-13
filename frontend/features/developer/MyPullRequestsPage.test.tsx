@@ -867,7 +867,8 @@ describe("MyPullRequestsPage", () => {
     expect(rerunButton).toHaveClass("h-5", "w-3.5");
     expect(rerunButton.parentElement).toBe(screen.getByText("AI review error"));
     expect(screen.getByText("AI review error")).toHaveClass("text-destructive");
-    expect(screen.getByRole("button", { name: "AI review error" }).querySelector("svg.lucide-sparkles")).toHaveClass("text-destructive");
+    expect(screen.getByRole("button", { name: "AI review error" }).querySelector("svg.lucide-sparkles")).not.toHaveClass("text-destructive");
+    expect(screen.getByRole("button", { name: "AI review error" })).toHaveAttribute("data-button-variant", "destructive");
     fireEvent.click(screen.getByRole("button", { name: "Show review details" }));
     let failureDetails = await screen.findByRole("dialog", { name: "Review details" });
     expect(failureDetails).toHaveTextContent("Review ended:");
@@ -895,7 +896,7 @@ describe("MyPullRequestsPage", () => {
       integrationId: pullRequests[0].integrationId,
       pullRequestId: pullRequests[0].pullRequestId,
     })));
-    expect(screen.getByRole("button", { name: "AI review…" }).querySelector("svg.lucide-sparkles")).toHaveClass("text-primary");
+    expect(screen.getByRole("button", { name: "AI review…" }).querySelector("svg.lucide-sparkles")).not.toHaveClass("text-primary");
     expect(screen.getByText("AI review in progress")).toHaveAttribute("role", "status");
     expect(screen.queryByText("AI review error")).not.toBeInTheDocument();
     resolveReview(runningReview);
