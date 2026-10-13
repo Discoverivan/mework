@@ -1,4 +1,4 @@
-use super::{capture_cli_output, local_cli_command};
+use super::{capture_cli_output, capture_cli_output_with_status, local_cli_command};
 use crate::application::ai::{AiProviderDto, AiProviderId, AiProviderStatus};
 use crate::application::ai_usage_statistics::AiTokenUsageCounts;
 use serde_json::{json, Value};
@@ -8,16 +8,23 @@ use std::{
     time::Duration,
 };
 
-// OpenCode keeps ownership of its credentials. Only non-secret run configuration is created here.
+// OpenCode keeps ownership of its credentials. Temporary files contain only run
+// restrictions; user provider settings are forwarded in memory to the CLI.
 struct Workspace {
     directory: tempfile::TempDir,
     config: String,
 }
 impl Workspace {
     fn new() -> Result<Self, String> {
+        Self::with_provider_sources(
+            &provider_config_sources(),
+            std::env::var("OPENCODE_CONFIG_CONTENT").ok().as_deref(),
+        )
+    }
+    fn with_provider_sources(sources: &[PathBuf], content: Option<&str>) -> Result<Self, String> {
         let directory =
             tempfile::tempdir().map_err(|_| "Unable to prepare OpenCode workspace".to_owned())?;
-        let config = json!({
+        let mut config = json!({
             "permissions": [{"action": "*", "resource": "*", "effect": "deny"}],
             "share": "disabled", "update": "disable", "snapshots": false,
             "instructions": [], "skills": [], "warming": false,
@@ -27,13 +34,30 @@ impl Workspace {
             "plugins": ["-*", "opencode.models.dev", "opencode.provider.*", "opencode.config.provider", "opencode.config.agent"],
             "default_agent": "mework", "agents": {"mework": {
                 "mode": "primary", "description": "Generate a mework structured response",
-                "permissions": [{"action": "*", "resource": "*", "effect": "deny"}], "steps": 1,
+                // A one-step agent triggers OpenCode's final-step text-summary
+                // instruction immediately, conflicting with structured output.
+                "permissions": [{"action": "*", "resource": "*", "effect": "deny"}], "steps": 2,
                 "system": "Use only the supplied input. Do not use tools. Return only the JSON object requested by the input."
             }}
         });
-        let config = config.to_string();
-        std::fs::write(directory.path().join("opencode.json"), &config)
+        std::fs::write(directory.path().join("opencode.json"), config.to_string())
             .map_err(|_| "Unable to prepare OpenCode configuration".to_owned())?;
+        for source in sources {
+            let text = match std::fs::read_to_string(source) {
+                Ok(text) => text,
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
+                Err(_) => return Err("Unable to read OpenCode provider configuration".to_owned()),
+            };
+            merge_provider_config(&mut config, &text, source.parent())?;
+        }
+        if let Some(content) = content {
+            merge_provider_config(
+                &mut config,
+                content,
+                std::env::current_dir().ok().as_deref(),
+            )?;
+        }
+        let config = config.to_string();
         Ok(Self { directory, config })
     }
     fn command(&self, binary: &Path) -> Command {
@@ -59,6 +83,150 @@ impl Workspace {
             .env_remove("OPENCODE_PASSWORD")
             .env_remove("OPENCODE_SERVER_USERNAME");
         command
+    }
+
+    fn enable_json_mode(&mut self, model: &str) -> bool {
+        let Some((provider_id, model_id)) = model.split_once('/') else {
+            return false;
+        };
+        let mut config: Value =
+            serde_json::from_str(&self.config).expect("Workspace configuration is valid JSON");
+        let native = config["providers"].get(provider_id).is_some();
+        let provider = if native {
+            config["providers"].get(provider_id)
+        } else {
+            config["provider"].get(provider_id)
+        };
+        let Some(provider) = provider else {
+            return false;
+        };
+        let model = &provider["models"][model_id];
+        let package = if native {
+            model.get("package").or_else(|| provider.get("package"))
+        } else {
+            model["provider"].get("npm").or_else(|| provider.get("npm"))
+        }
+        .and_then(Value::as_str);
+        if !matches!(
+            package,
+            Some("@ai-sdk/openai-compatible" | "@opencode/ai/providers/openai-compatible")
+        ) || provider["body"].get("response_format").is_some()
+            || model["body"].get("response_format").is_some()
+            || provider["options"]["body"].get("response_format").is_some()
+            || model["options"].get("response_format").is_some()
+        {
+            return false;
+        }
+        // V2 does not forward agent.request overlays. Legacy compatible-model
+        // options migrate into body; keep each definition in its source format.
+        if native {
+            config["providers"][provider_id]["models"][model_id]["body"]["response_format"] =
+                json!({"type":"json_object"});
+        } else {
+            config["provider"][provider_id]["models"][model_id]["options"]["response_format"] =
+                json!({"type":"json_object"});
+        }
+        self.config = config.to_string();
+        true
+    }
+}
+
+fn provider_config_sources() -> Vec<PathBuf> {
+    let directory = std::env::var_os("OPENCODE_CONFIG_DIR")
+        .filter(|value| !value.is_empty())
+        .map(PathBuf::from)
+        .or_else(|| {
+            std::env::var_os("XDG_CONFIG_HOME")
+                .filter(|value| !value.is_empty())
+                .map(PathBuf::from)
+                .or_else(|| dirs::home_dir().map(|home| home.join(".config")))
+                .map(|root| root.join("opencode"))
+        });
+    let mut sources = directory
+        .into_iter()
+        .flat_map(|directory| {
+            [
+                directory.join("opencode.json"),
+                directory.join("opencode.jsonc"),
+            ]
+        })
+        .collect::<Vec<_>>();
+    if let Some(path) = std::env::var_os("OPENCODE_CONFIG").filter(|value| !value.is_empty()) {
+        sources.push(PathBuf::from(path));
+    }
+    if let Ok(current) = std::env::current_dir() {
+        for source in &mut sources {
+            if source.is_relative() {
+                *source = current.join(&*source);
+            }
+        }
+    }
+    sources
+}
+
+fn merge_provider_config(
+    target: &mut Value,
+    text: &str,
+    base: Option<&Path>,
+) -> Result<(), String> {
+    let source: Value = jsonc_parser::parse_to_serde_value(text, &Default::default())
+        .map_err(|_| "Invalid OpenCode provider configuration".to_owned())?;
+    // V2 accepts both native `providers` and legacy V1 `provider` definitions.
+    // Never carry user agents, permissions, plugins, or other execution settings.
+    for key in ["provider", "providers"] {
+        if let Some(providers) = source.get(key).filter(|value| value.is_object()) {
+            let mut providers = providers.clone();
+            resolve_provider_file_references(&mut providers, base);
+            merge_values(&mut target[key], providers);
+        }
+    }
+    Ok(())
+}
+
+fn merge_values(target: &mut Value, source: Value) {
+    if let (Some(target), Some(source)) = (target.as_object_mut(), source.as_object()) {
+        for (key, value) in source {
+            merge_values(
+                target.entry(key.clone()).or_insert(Value::Null),
+                value.clone(),
+            );
+        }
+    } else {
+        *target = source;
+    }
+}
+
+fn resolve_provider_file_references(value: &mut Value, base: Option<&Path>) {
+    match value {
+        Value::Object(values) => values
+            .values_mut()
+            .for_each(|value| resolve_provider_file_references(value, base)),
+        Value::Array(values) => values
+            .iter_mut()
+            .for_each(|value| resolve_provider_file_references(value, base)),
+        Value::String(text) => {
+            let mut remaining = text.as_str();
+            let mut resolved = String::new();
+            while let Some(start) = remaining.find("{file:") {
+                let reference = &remaining[start + 6..];
+                let Some(end) = reference.find('}') else {
+                    break;
+                };
+                resolved.push_str(&remaining[..start]);
+                let path = Path::new(&reference[..end]);
+                let path = if path.is_absolute() || reference.starts_with('~') {
+                    path.to_path_buf()
+                } else {
+                    base.map(|base| base.join(path))
+                        .unwrap_or_else(|| path.to_path_buf())
+                };
+                resolved.push_str(&format!("{{file:{}}}", path.display()));
+                remaining = &reference[end + 1..];
+            }
+            resolved.push_str(remaining);
+            *text = resolved;
+        }
+        _ => {}
     }
 }
 
@@ -276,31 +444,76 @@ fn run_at(
     if !valid_identifier(model) {
         return Err("Selected OpenCode model is invalid".to_owned());
     }
-    let workspace = Workspace::new()?;
+    run_in_workspace(binary, model, schema, prompt, Workspace::new()?)
+}
+
+fn run_in_workspace(
+    binary: &Path,
+    model: &str,
+    schema: &str,
+    prompt: &str,
+    mut workspace: Workspace,
+) -> Result<(Vec<u8>, Option<AiTokenUsageCounts>), String> {
     capabilities(binary, &workspace)?;
+    let original_config = workspace.config.clone();
+    let json_mode = workspace.enable_json_mode(model);
     let input=format!("Return only a JSON object matching this schema. Do not use tools or modify files.\nSchema:\n{schema}\n\nInput:\n{prompt}");
-    let mut command = workspace.command(binary);
-    command.args([
-        "run",
-        "--standalone",
-        "--format",
-        "json",
-        "--model",
-        model,
-        "--agent",
-        "mework",
-        "--title",
-        "mework AI action",
-    ]);
-    let output = capture_cli_output(
-        command,
-        Some(input),
-        Duration::from_secs(15 * 60),
-        "OpenCode CLI",
-        "run_structured",
-        Some(model),
-    )?;
-    parse_result(&output)
+    for attempt in 0..2 {
+        let mut command = workspace.command(binary);
+        command.args([
+            "run",
+            "--standalone",
+            "--format",
+            "json",
+            "--model",
+            model,
+            "--agent",
+            "mework",
+            "--title",
+            "mework AI action",
+        ]);
+        let captured = capture_cli_output_with_status(
+            command,
+            Some(input.clone()),
+            Duration::from_secs(15 * 60),
+            "OpenCode CLI",
+            "run_structured",
+            Some(model),
+        )?;
+        if captured.success {
+            return parse_result(&captured.output);
+        }
+        if attempt == 0 && json_mode && rejected_json_mode(&captured.output) {
+            workspace.config.clone_from(&original_config);
+            crate::application::logging::info(
+                "ai.cli",
+                "json_mode_unavailable",
+                json!({"provider":"OpenCode CLI","model":model,"operation":"run_structured"}),
+            );
+            continue;
+        }
+        return Err("OpenCode CLI run failed".to_owned());
+    }
+    unreachable!("the final attempt always returns")
+}
+
+fn rejected_json_mode(output: &[u8]) -> bool {
+    output
+        .split(|b| *b == b'\n')
+        .filter_map(|line| serde_json::from_slice::<Value>(line).ok())
+        .any(|event| {
+            if event["type"] != "error"
+                || !matches!(event["error"]["status"].as_u64(), Some(400 | 422))
+            {
+                return false;
+            }
+            let body = &event["error"]["response"]["body"];
+            let body = body
+                .as_str()
+                .and_then(|body| serde_json::from_str::<Value>(body).ok())
+                .unwrap_or_else(|| body.clone());
+            crate::application::ai::openai_rejected_response_format(&body)
+        })
 }
 
 fn parse_result(output: &[u8]) -> Result<(Vec<u8>, Option<AiTokenUsageCounts>), String> {
@@ -360,7 +573,7 @@ fn parse_result(output: &[u8]) -> Result<(Vec<u8>, Option<AiTokenUsageCounts>), 
     // V2 waits for the session before exiting successfully, but can reconcile
     // text from persisted messages without emitting a step_finish event.
     // Usage is optional in that case; the complete JSON object is still required.
-    let value: Value = serde_json::from_str(text.trim())
+    let value: Value = crate::application::ai_structured_output::deserialize(text.as_bytes())
         .map_err(|_| "OpenCode CLI returned invalid structured output".to_owned())?;
     if !value.is_object() {
         return Err("OpenCode CLI returned invalid structured output".to_owned());
@@ -373,6 +586,88 @@ fn parse_result(output: &[u8]) -> Result<(Vec<u8>, Option<AiTokenUsageCounts>), 
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    #[ignore = "requires an installed OpenCode V2 binary"]
+    async fn runs_json_mode_and_recovers_from_an_explicit_server_rejection() {
+        use wiremock::{
+            matchers::{body_partial_json, method, path},
+            Mock, MockServer, ResponseTemplate,
+        };
+        let binary = resolve_binary().expect("Install OpenCode V2 before running this check");
+        let server = MockServer::start().await;
+        Mock::given(method("POST")).and(path("/v1/chat/completions"))
+            .and(body_partial_json(json!({"response_format":{"type":"json_object"}})))
+            .respond_with(ResponseTemplate::new(400).set_body_json(json!({"error":{"code":"unsupported_parameter","param":"response_format","type":"invalid_request_error","message":"Unsupported parameter: response_format"}})))
+            .expect(1).mount(&server).await;
+        Mock::given(method("POST")).and(path("/v1/chat/completions"))
+            .and(|request: &wiremock::Request| {
+                let body: Value = serde_json::from_slice(&request.body).unwrap();
+                body.get("response_format").is_none()
+                    && body.get("tools").is_none_or(|v|v.as_array().is_some_and(Vec::is_empty))
+                    && body.get("reasoning_effort") != Some(&json!("none"))
+            })
+            .respond_with(ResponseTemplate::new(200).insert_header("content-type","text/event-stream")
+                .set_body_string(concat!(
+                    "data: {\"id\":\"example\",\"object\":\"chat.completion.chunk\",\"created\":0,\"model\":\"sample-model\",\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\",\"content\":\"{\\\"summary\\\":\\\"Example task\\\"}\"},\"finish_reason\":null}]}\n\n",
+                    "data: {\"id\":\"example\",\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"stop\"}]}\n\n",
+                    "data: [DONE]\n\n"
+                )))
+            .expect(1).mount(&server).await;
+        let root = tempfile::tempdir().unwrap();
+        let config = root.path().join("opencode.json");
+        std::fs::write(&config,json!({"provider":{"example":{"npm":"@ai-sdk/openai-compatible","options":{"baseURL":format!("{}/v1",server.uri()),"apiKey":""},"models":{"sample-model":{"name":"Example model"}}}}}).to_string()).unwrap();
+        let workspace = Workspace::with_provider_sources(&[config], None).unwrap();
+        let (output, _) = tokio::task::spawn_blocking(move || run_in_workspace(&binary,"example/sample-model",r#"{"type":"object","properties":{"summary":{"type":"string"}},"required":["summary"]}"#,"Summarize Example task",workspace)).await.unwrap().unwrap();
+        assert_eq!(
+            serde_json::from_slice::<Value>(&output).unwrap()["summary"],
+            "Example task"
+        );
+    }
+
+    #[test]
+    fn forwards_only_provider_definitions_in_memory() {
+        let root = tempfile::tempdir().unwrap();
+        let source = root.path().join("opencode.jsonc");
+        std::fs::write(&source, r#"{
+            // Provider definitions must survive the isolated workspace.
+            "providers": {"example": {
+                "package": "@ai-sdk/openai-compatible",
+                "settings": {"baseURL": "https://api.example.invalid/v1", "apiKey": "{file:empty-key}"},
+                "models": {"sample-model": {}},
+            }},
+            "plugins": ["example-plugin"],
+            "permissions": [{"action": "*", "resource": "*", "effect": "allow"}],
+            "agents": {"mework": {"system": "Unrelated user instructions"}},
+        }"#).unwrap();
+        std::fs::write(root.path().join("empty-key"), "").unwrap();
+        let workspace = Workspace::with_provider_sources(
+            &[source],
+            Some(
+                r#"{
+            "providers": {"example": {"settings": {"timeout": 1000}}}
+        }"#,
+            ),
+        )
+        .unwrap();
+        let config: Value = serde_json::from_str(&workspace.config).unwrap();
+        assert!(config["providers"]["example"]["models"]
+            .get("sample-model")
+            .is_some());
+        assert_eq!(config["providers"]["example"]["settings"]["timeout"], 1000);
+        assert_eq!(
+            config["providers"]["example"]["settings"]["apiKey"],
+            format!("{{file:{}}}", root.path().join("empty-key").display())
+        );
+        assert_eq!(config["permissions"][0]["effect"], "deny");
+        assert!(!workspace.config.contains("example-plugin"));
+        assert!(!workspace.config.contains("Unrelated user instructions"));
+        let disk: Value = serde_json::from_slice(
+            &std::fs::read(workspace.directory.path().join("opencode.json")).unwrap(),
+        )
+        .unwrap();
+        assert!(disk.get("providers").is_none());
+    }
+
     #[test]
     fn discovers_models_and_runs_without_tools_or_external_configuration() {
         let directory = tempfile::tempdir().unwrap();
@@ -382,7 +677,7 @@ mod tests {
             "opencode"
         });
         // V2 may emit only reconciled text after waiting for the session.
-        let events = r#"{"type":"text","part":{"text":"{\"summary\":\"Example task\"}"}}"#;
+        let events = r#"{"type":"text","part":{"text":"Reasoning about {\"example\":true}. </think>\n{\"summary\":\"Example task\"}"}}"#;
         #[cfg(windows)]
         let script=format!("@echo off\nset args=%*\necho %args% | findstr /c:\"--version\" >nul && (echo opencode v2.0.28 & exit /b 0)\necho %args% | findstr /c:\"--help\" >nul && (echo --standalone --format --model --agent --title & exit /b 0)\necho %args% | findstr /c:\"--standalone\" >nul || exit /b 1\nif not \"%OPENCODE_DISABLE_PROJECT_CONFIG%\"==\"1\" exit /b 1\nfindstr /c:\"deny\" opencode.json >nul || exit /b 1\necho %args% | findstr /c:\"models\" >nul && (echo example/sample-model & exit /b 0)\nset /p input=\n{}\n",events.lines().map(|line|format!("echo {line}")).collect::<Vec<_>>().join("\n"));
         #[cfg(not(windows))]

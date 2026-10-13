@@ -186,13 +186,10 @@ export function PullRequestListItem({
   const reviewCompleted = review?.status === "completed" && review.result != null;
   const reviewFailed = review?.status === "failed";
   let reviewLabel = t("pr.startAiReview");
-  let reviewIconClassName: string | undefined;
   if (reviewRunning) {
     reviewLabel = t("pr.aiReviewRunning");
-    reviewIconClassName = "text-primary";
   } else if (reviewFailed) {
     reviewLabel = t("pr.aiReviewError");
-    reviewIconClassName = "text-destructive";
   } else if (reviewCompleted) {
     reviewLabel = completedLabel ?? t("pr.reviewResults");
   }
@@ -290,7 +287,7 @@ export function PullRequestListItem({
           <div className="flex items-center gap-2">
             <Button
               type="button"
-              variant="outline"
+              variant={reviewFailed ? "destructive" : "outline"}
               size="icon"
               actionTone={reviewCompleted ? review?.result?.verdict === "ok" ? "success" : "warning" : undefined}
               className="size-8"
@@ -299,10 +296,7 @@ export function PullRequestListItem({
               aria-label={reviewLabel}
               title={reviewTitle}
             >
-              <Sparkles
-                aria-hidden="true"
-                className={reviewIconClassName}
-              />
+              <Sparkles aria-hidden="true" />
             </Button>
             {mode === "reviewer" ? (
               <DropdownMenu>

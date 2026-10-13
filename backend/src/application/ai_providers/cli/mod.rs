@@ -219,14 +219,38 @@ pub(crate) fn run_cli_output(
 
 const OUTPUT_LIMIT: u64 = 8 * 1024 * 1024;
 
+pub(crate) struct CapturedCliOutput {
+    pub success: bool,
+    pub output: Vec<u8>,
+}
+
 pub(crate) fn capture_cli_output(
-    mut command: Command,
+    command: Command,
     input: Option<String>,
     timeout: Duration,
     provider: &'static str,
     operation: &'static str,
     model: Option<&str>,
 ) -> Result<Vec<u8>, String> {
+    let captured =
+        capture_cli_output_with_status(command, input, timeout, provider, operation, model)?;
+    if captured.success {
+        Ok(captured.output)
+    } else {
+        Err(format!("{provider} run failed"))
+    }
+}
+
+// Failure output remains in memory for narrowly scoped protocol handling. Never
+// include it in logs: providers may echo credentials, prompts, or generated text.
+pub(crate) fn capture_cli_output_with_status(
+    mut command: Command,
+    input: Option<String>,
+    timeout: Duration,
+    provider: &'static str,
+    operation: &'static str,
+    model: Option<&str>,
+) -> Result<CapturedCliOutput, String> {
     command
         .stdin(if input.is_some() {
             Stdio::piped()
@@ -288,18 +312,21 @@ pub(crate) fn capture_cli_output(
             .ok_or_else(|| format!("{provider} output could not be read"))?;
         let sent = writer.is_none_or(|writer| writer.join().is_ok_and(|result| result.is_ok()));
         let status = status.ok_or_else(|| format!("{provider} timed out"))?;
-        if !status.success() || !sent {
+        if !sent {
             return Err(format!("{provider} run failed"));
         }
         if output.len() as u64 > OUTPUT_LIMIT {
             return Err(format!("{provider} output is too large"));
         }
-        Ok(output)
+        Ok(CapturedCliOutput {
+            success: status.success(),
+            output,
+        })
     })();
     match &result {
-        Ok(output) => invocation.completed(output.len()),
+        Ok(captured) if captured.success => invocation.completed(captured.output.len()),
         // Prompts and generated text must never enter diagnostics.
-        Err(_) => invocation.failed(exit_code, &[], &[]),
+        _ => invocation.failed(exit_code, &[], &[]),
     }
     result
 }
