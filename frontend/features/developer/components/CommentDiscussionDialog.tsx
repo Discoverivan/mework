@@ -114,7 +114,7 @@ export function CommentDiscussionDialog({ comment, pullRequestUrl, onOpenLocatio
         <div className="flex flex-col gap-2">
           <Label htmlFor="comment-discussion-message">{t("pr.discuss.message")}</Label>
           <div className="flex items-end gap-2">
-            <Textarea id="comment-discussion-message" rows={1} className="block min-h-9 min-w-0 flex-1 resize-y text-sm" maxLength={8000} value={message} onChange={event => setMessage(event.target.value)} placeholder={t("pr.discuss.placeholder")} />
+            <Textarea id="comment-discussion-message" rows={1} className="block min-h-9 min-w-0 flex-1 resize-none bg-control text-sm [field-sizing:content]" maxLength={8000} value={message} onChange={event => setMessage(event.target.value)} placeholder={t("pr.discuss.placeholder")} />
             <Button size="sm" className="shrink-0" actionTone="neutral" disabled={pending || !message.trim() || (discussion?.turns.length ?? 0) >= 30} onClick={() => void send()}>{pending ? <Loader2 className="size-4 animate-spin" aria-hidden="true" /> : <Send className="size-4" aria-hidden="true" />}{t(pending ? "pr.discuss.thinking" : "pr.discuss.send")}</Button>
           </div>
         </div>
