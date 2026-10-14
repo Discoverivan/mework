@@ -225,10 +225,10 @@ describe("SettingsPage integrations smoke tests", () => {
     fireEvent.click(reviewAdvanced.getByRole("combobox", { name: "Instructions" }));
     fireEvent.click(screen.getByRole("option", { name: "Custom" }));
     const dialog = within(screen.getByRole("dialog", { name: "Pull request review" }));
-    expect(screen.queryByText("Default instructions to use as a reference when customizing.")).not.toBeInTheDocument();
-    fireEvent.click(dialog.getByRole("button", { name: "About Built-in prompt" }));
-    expect(screen.getByText("Default instructions to use as a reference when customizing.")).toBeVisible();
-    fireEvent.click(dialog.getByRole("button", { name: "About Built-in prompt" }));
+    expect(dialog.queryByRole("textbox", { name: "Built-in prompt" })).not.toBeInTheDocument();
+    fireEvent.click(dialog.getByRole("button", { name: "About Application rules" }));
+    expect(screen.getByText(/^These rules take precedence over custom instructions/)).toBeVisible();
+    fireEvent.click(dialog.getByRole("button", { name: "About Application rules" }));
     fireEvent.change(dialog.getByLabelText("Your instructions"), { target: { value: "Check concrete example defects." } });
     fireEvent.click(dialog.getByRole("button", { name: "Apply" }));
     fireEvent.click(reviewAdvanced.getByRole("button", { name: "Apply" }));

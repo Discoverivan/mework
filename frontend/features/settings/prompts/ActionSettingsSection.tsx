@@ -232,6 +232,7 @@ export function ActionSettingsSection({ defaults, renderActionHeader, renderHead
   }
 
   const invalid = !draft.trim() || [...draft].length > 20_000;
+  const showBuiltInPrompt = viewing || editing?.action !== "pullRequestReview";
   return <TooltipProvider delayDuration={300}><section aria-labelledby="ai-actions-title" className="flex flex-col gap-3">
     <header className="flex flex-col gap-1">
       <h2 id="ai-actions-title" className="text-lg font-semibold leading-tight">{t("settings.ai.actionsTitle")}</h2>
@@ -278,7 +279,7 @@ export function ActionSettingsSection({ defaults, renderActionHeader, renderHead
           {saveError ? <Alert variant="destructive" role="alert" className="mb-4"><AlertDescription>{t("settings.prompts.saveError")}</AlertDescription></Alert> : null}
           <form autoComplete="off" id="ai-prompt-form" onSubmit={(event) => { event.preventDefault(); if (!invalid) applyInstructions(); }}>
             <FieldGroup className="gap-4">
-              <div className={viewing ? "" : "grid items-start gap-4 lg:grid-cols-2"}>
+              <div className={viewing || !showBuiltInPrompt ? "" : "grid items-start gap-4 lg:grid-cols-2"}>
                 {!viewing ? <Card data-info-popover-boundary className="p-4"><Field data-invalid={invalid} data-disabled={saving || disabled}>
                   <div className="flex items-center gap-1">
                     <FieldLabel htmlFor="ai-prompt-instructions">{t("settings.prompts.instructions")}</FieldLabel>
@@ -287,13 +288,13 @@ export function ActionSettingsSection({ defaults, renderActionHeader, renderHead
                   <Textarea id="ai-prompt-instructions" className={instructionTextareaClassName} rows={1} value={draft} onChange={(event) => setDraft(event.target.value)} disabled={saving || disabled} aria-invalid={invalid} aria-describedby={invalid ? "ai-prompt-help" : undefined} aria-description={t("settings.prompts.instructionsHelp")} />
                   {invalid ? <p className="text-sm text-destructive" id="ai-prompt-help">{t("settings.prompts.validation")}</p> : null}
                 </Field></Card> : null}
-                <Card data-info-popover-boundary className="p-4"><Field>
+                {showBuiltInPrompt ? <Card data-info-popover-boundary className="p-4"><Field>
                   <div className="flex items-center gap-1">
                     <FieldLabel htmlFor="ai-prompt-default">{t("settings.prompts.builtIn")}</FieldLabel>
                     <InfoPopover label={t("settings.prompts.fieldHelp", { field: t("settings.prompts.builtIn") })} title={t("settings.prompts.builtIn")}><p>{t("settings.prompts.builtInHelp")}</p></InfoPopover>
                   </div>
                   <Textarea id="ai-prompt-default" className={instructionTextareaClassName} rows={1} value={editing?.defaultInstructions ?? ""} readOnly />
-                </Field></Card>
+                </Field></Card> : null}
               </div>
               <Card data-info-popover-boundary className="p-4"><Field>
                 <div className="flex items-center gap-1">
