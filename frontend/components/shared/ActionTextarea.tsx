@@ -20,7 +20,7 @@ export function ActionTextarea({ action, className, value, ...props }: Props) {
     if (!field || !actionElement) return;
     const mirror = document.createElement("div");
     mirror.setAttribute("aria-hidden", "true");
-    mirror.style.cssText = "position:absolute;visibility:hidden;pointer-events:none;white-space:pre-wrap;overflow-wrap:break-word;box-sizing:border-box;";
+    mirror.style.cssText = "position:fixed;top:0;left:0;visibility:hidden;pointer-events:none;white-space:pre-wrap;overflow-wrap:break-word;box-sizing:border-box;";
     document.body.append(mirror);
     const measure = () => {
       if (!field.clientWidth) return;
@@ -52,12 +52,17 @@ export function ActionTextarea({ action, className, value, ...props }: Props) {
       field.style.height = `${heightForText(value)}px`;
     };
     measure();
-    const observer = typeof ResizeObserver === "undefined" ? undefined : new ResizeObserver(measure);
+    let resizeFrame = 0;
+    const observer = typeof ResizeObserver === "undefined" ? undefined : new ResizeObserver(() => {
+      cancelAnimationFrame(resizeFrame);
+      resizeFrame = requestAnimationFrame(measure);
+    });
     observer?.observe(field);
     observer?.observe(actionElement);
     document.fonts?.addEventListener("loadingdone", measure);
     return () => {
       observer?.disconnect();
+      cancelAnimationFrame(resizeFrame);
       document.fonts?.removeEventListener("loadingdone", measure);
       mirror.remove();
     };
