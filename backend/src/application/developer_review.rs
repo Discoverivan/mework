@@ -2710,7 +2710,7 @@ mod tests {
         let codex = root.join("codex");
         fs::write(
             &codex,
-            "#!/bin/sh\noutput=''\nwhile [ \"$#\" -gt 0 ]; do\n  if [ \"$1\" = \"--output-last-message\" ]; then output=\"$2\"; shift 2; else shift; fi\ndone\nprintf '%s' '{\"verdict\":\"ok\",\"description\":\"Adds an example change.\",\"summary\":\"No substantial findings\",\"comments\":[]}' > \"$output\"\nprintf '%s\\n' '{\"type\":\"turn.completed\",\"usage\":{\"input_tokens\":40,\"cached_input_tokens\":20,\"output_tokens\":8}}'\n",
+            "#!/bin/sh\noutput=''\nwhile [ \"$#\" -gt 0 ]; do\n  if [ \"$1\" = \"--output-last-message\" ]; then output=\"$2\"; shift 2; else shift; fi\ndone\ncat >/dev/null\nprintf '%s' '{\"verdict\":\"ok\",\"description\":\"Adds an example change.\",\"summary\":\"No substantial findings\",\"comments\":[]}' > \"$output\"\nprintf '%s\\n' '{\"type\":\"turn.completed\",\"usage\":{\"input_tokens\":40,\"cached_input_tokens\":20,\"output_tokens\":8}}'\n",
         )
         .unwrap();
         let mut permissions = fs::metadata(&codex).unwrap().permissions();
