@@ -1,6 +1,7 @@
 import { useState, type ReactNode } from "react";
 import { CheckCircle2, CircleAlert, CircleHelp, FileText, Loader2, Send, XCircle } from "lucide-react";
 import { InfoPopover } from "@/components/shared/InfoPopover";
+import { ActionTextarea } from "@/components/shared/ActionTextarea";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -113,10 +114,9 @@ export function CommentDiscussionDialog({ comment, pullRequestUrl, onOpenLocatio
         </div>
         <div className="flex flex-col gap-2">
           <Label htmlFor="comment-discussion-message">{t("pr.discuss.message")}</Label>
-          <div className="flex items-end gap-2">
-            <Textarea id="comment-discussion-message" rows={1} className="block min-h-9 min-w-0 flex-1 resize-none bg-control text-sm [field-sizing:content]" maxLength={8000} value={message} onChange={event => setMessage(event.target.value)} placeholder={t("pr.discuss.placeholder")} />
-            <Button size="sm" className="shrink-0" actionTone="neutral" disabled={pending || !message.trim() || (discussion?.turns.length ?? 0) >= 30} onClick={() => void send()}>{pending ? <Loader2 className="size-4 animate-spin" aria-hidden="true" /> : <Send className="size-4" aria-hidden="true" />}{t(pending ? "pr.discuss.thinking" : "pr.discuss.send")}</Button>
-          </div>
+          <ActionTextarea id="comment-discussion-message" maxLength={8000} value={message} onChange={event => setMessage(event.target.value)} placeholder={t("pr.discuss.placeholder")} action={
+            <Button size="sm" actionTone="neutral" disabled={pending || !message.trim() || (discussion?.turns.length ?? 0) >= 30} onClick={() => void send()}>{pending ? <Loader2 className="size-4 animate-spin" aria-hidden="true" /> : <Send className="size-4" aria-hidden="true" />}{t(pending ? "pr.discuss.thinking" : "pr.discuss.send")}</Button>
+          } />
         </div>
         {!published && discussion?.decision === "dismissed" ? <div className="space-y-2 rounded-md border px-4 py-3 text-sm text-muted-foreground">
           <p className="font-medium">{t("pr.discuss.reason")}</p>

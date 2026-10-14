@@ -453,6 +453,15 @@
   border-color: var(--primary) !important;
 }
 
+/* Composite multiline editors keep interaction feedback on their outer frame. */
+:root:is([data-button-style="quiet"], [data-button-style="filled_borderless"]) [data-slot="textarea-composer"] {
+  border-color: transparent;
+}
+
+:root [data-slot="textarea-composer"]:is([data-pointer-hover="true"], :focus-within) {
+  border-color: var(--primary);
+}
+
 /* All cards, including empty states, follow the selected interface border style.
    Preserve explicit left borders used for PR status indicators. */
 :root[data-panel-style="bordered"] [data-slot="card"] {

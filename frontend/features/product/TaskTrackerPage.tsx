@@ -6,6 +6,7 @@ import { AlertTriangle, Check, CheckCheck, ChevronDown, ChevronUp, Copy, Downloa
 
 import { APP_EVENT, emitAppEvent, subscribeAppEvent } from "@/app/app-events";
 import { PageHeader } from "@/components/shared/PageHeader";
+import { ActionTextarea } from "@/components/shared/ActionTextarea";
 import { EmptyState } from "@/components/shared/EmptyState";
 import { ManualNumberField } from "@/components/shared/ManualNumberField";
 import { FieldValidationHint } from "@/components/shared/FieldValidationHint";
@@ -891,10 +892,9 @@ function CronActions({ expression, disabled, invalid, onApply }: { expression: s
             <Card>
               <CardHeader variant="section" className="py-2"><CardTitle id="cron-description-label" className="text-sm font-semibold leading-tight">{t("taskTracker.cron.description")}</CardTitle></CardHeader>
               <CardContent className="space-y-4 p-4">
-                <div className="flex items-end gap-2 rounded-md border border-input bg-background p-1 focus-within:ring-2 focus-within:ring-ring">
-                  <Textarea id="cron-description" aria-labelledby="cron-description-label" rows={1} className="min-h-8 min-w-0 flex-1 resize-none border-0 bg-transparent px-2 py-1 [field-sizing:content]" maxLength={4000} value={description} disabled={generating} placeholder={t("taskTracker.cron.descriptionPlaceholder")} onChange={(event) => { setDescription(event.target.value); setGenerated(undefined); setGenerationError(undefined); }} />
-                  <Button type="button" variant="outline" size="sm" className="shrink-0" disabled={generating || !description.trim()} onClick={() => void generate()}><Sparkles aria-hidden="true" />{t(generating ? "taskTracker.cron.generating" : "taskTracker.cron.generate")}</Button>
-                </div>
+                <ActionTextarea id="cron-description" aria-labelledby="cron-description-label" className="bg-background" maxLength={4000} value={description} disabled={generating} placeholder={t("taskTracker.cron.descriptionPlaceholder")} onChange={(event) => { setDescription(event.target.value); setGenerated(undefined); setGenerationError(undefined); }} action={
+                  <Button type="button" variant="outline" size="sm" disabled={generating || !description.trim()} onClick={() => void generate()}><Sparkles aria-hidden="true" />{t(generating ? "taskTracker.cron.generating" : "taskTracker.cron.generate")}</Button>
+                } />
                 {generated && !generated.expression ? <Alert variant="destructive" className="bg-background px-4 py-3"><AlertDescription><MarkdownContent className="text-destructive [&_p]:text-inherit">{generated.explanation}</MarkdownContent></AlertDescription></Alert> : null}
                 {generationError ? <Alert variant="destructive"><AlertDescription>{generationError}</AlertDescription></Alert> : null}
               </CardContent>
