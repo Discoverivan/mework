@@ -1,4 +1,4 @@
-import { DEFAULT_REVIEW_ARBITRATION, type AiActionSettingsScope, type AiSettings } from "@/shared/contracts/settings";
+import { DEFAULT_AI_EXECUTION, DEFAULT_REVIEW_ARBITRATION, type AiActionSettingsScope, type AiSettings } from "@/shared/contracts/settings";
 
 export const ACTION_SETTINGS_SCOPES: AiActionSettingsScope[] = ["default", "pullRequestReview", "taskCreation", "sprintSummary", "tokenBurner"];
 
@@ -6,6 +6,7 @@ export function copyAiSection(target: AiSettings, source: AiSettings, scope: AiA
   if (scope === "default") return {
     ...target, provider: source.provider, providerInstanceId: source.providerInstanceId ?? null,
     model: source.model, reasoning: source.reasoning, fastMode: source.fastMode,
+    execution: source.execution ?? DEFAULT_AI_EXECUTION,
     retries: { ...target.retries, default: source.retries.default },
   };
   return {

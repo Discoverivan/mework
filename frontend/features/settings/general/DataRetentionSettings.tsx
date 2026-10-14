@@ -104,7 +104,7 @@ export function DataRetentionSettings() {
               <div role="group" aria-labelledby={`retention-${field}-label`}
               className="flex flex-wrap items-center justify-between gap-x-4 gap-y-3 py-3 last:pb-0">
               <Hint content={t(`dataRetention.${field}Help`)}><span id={`retention-${field}-label`} className="text-sm font-medium leading-none">{label}</span></Hint>
-              <div data-menu-align="end" className="flex flex-wrap items-center gap-3">
+              <div data-slot="control-group" data-menu-align="end" className="flex flex-wrap items-center gap-y-3">
               <Select value={period.mode} disabled={saving} onValueChange={(mode) => {
                 setValid((current) => ({ ...current, [field]: true }));
                 setDraft((current) => current && { ...current, [field]: { ...current[field], mode: mode as RetentionMode } });
@@ -113,7 +113,7 @@ export function DataRetentionSettings() {
                   title={period.mode === "disabled" ? t(field === "diagnosticLogs" ? "dataRetention.logsDisabledHelp" : "dataRetention.historyDisabledHelp") : undefined}><SelectValue /></SelectTrigger>
                 <SelectContent>{MODES.map((mode) => <SelectItem key={mode} value={mode}>{t(`dataRetention.${mode}`)}</SelectItem>)}</SelectContent>
               </Select>
-              {period.mode === "period" ? <div className="flex items-center gap-2">
+              {period.mode === "period" ? <div data-slot="control-group" className="flex items-center">
               <ManualNumberField id={`retention-${field}`} label={label} labelledBy={`retention-${field}-label`}
                 description={t(`dataRetention.${field}Help`)} value={period.value} min={1} max={max} minVisibleDigits={1} disabled={saving}
                 onChange={(value) => setDraft((current) => current && { ...current, [field]: { ...current[field], value } })}
@@ -131,7 +131,7 @@ export function DataRetentionSettings() {
               </div>
               {field === "diagnosticLogs" && period.mode !== "disabled" ? <div className="flex basis-full flex-wrap items-center justify-between gap-x-4 gap-y-3">
                 <span id="retention-log-size-label" className="sr-only">{t("dataRetention.logSize")}</span>
-                <div data-menu-align="end" className="ml-auto flex flex-wrap items-center gap-3">
+                <div data-slot="control-group" data-menu-align="end" className="ml-auto flex flex-wrap items-center gap-y-3">
                 <Select value={draft.diagnosticLogSizeLimit === null ? "unlimited" : "limited"} disabled={saving} onValueChange={(mode) => {
                   setValid((current) => ({ ...current, diagnosticLogSizeLimit: true }));
                   setDraft((current) => current && { ...current, diagnosticLogSizeLimit: mode === "unlimited" ? null : { value: 100, unit: "mib" } });
@@ -142,7 +142,7 @@ export function DataRetentionSettings() {
                     <SelectItem value="unlimited">{t("dataRetention.unlimitedSize")}</SelectItem>
                   </SelectContent>
                 </Select>
-                {draft.diagnosticLogSizeLimit !== null ? <div className="flex items-center gap-2">
+                {draft.diagnosticLogSizeLimit !== null ? <div data-slot="control-group" className="flex items-center">
                   <ManualNumberField id="retention-log-size" label={t("dataRetention.logSize")} labelledBy="retention-log-size-label" description={t("dataRetention.logSizeHelp")}
                     value={draft.diagnosticLogSizeLimit.value} min={1} max={MAX_LOG_SIZE[draft.diagnosticLogSizeLimit.unit]} minVisibleDigits={1} disabled={saving}
                     onChange={(value) => setDraft((current) => current && { ...current, diagnosticLogSizeLimit: current.diagnosticLogSizeLimit && { ...current.diagnosticLogSizeLimit, value } })}

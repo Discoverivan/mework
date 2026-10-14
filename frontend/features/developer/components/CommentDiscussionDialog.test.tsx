@@ -47,7 +47,8 @@ it("discusses a finding, applies its revision, restores history, and publishes o
   expect(sendMessage).toBeDisabled();
   expect(sendMessage.parentElement).toContainElement(within(dialog).getByLabelText("Question or additional context"));
   const messageField = within(dialog).getByLabelText("Question or additional context");
-  expect(messageField).toHaveClass("border-0");
+  expect(messageField).toHaveClass("app-control-border", "border-input");
+  expect(messageField.parentElement).not.toHaveClass("border", "focus-within:ring-2");
   fireEvent.pointerEnter(within(dialog).getByText("Question or additional context"));
   expect(messageField).not.toHaveAttribute("data-pointer-hover");
   fireEvent.pointerEnter(messageField);
@@ -96,6 +97,7 @@ it("discusses a finding, applies its revision, restores history, and publishes o
   fireEvent.click(within(dialog).getByRole("button", { name: "Dismiss finding" }));
   const dismissal = screen.getByRole("dialog", { name: "Dismiss finding" });
   const reason = within(dismissal).getByLabelText("Reason for dismissal");
+  expect(reason).toHaveClass("px-3!");
   expect(reason).toHaveValue("");
   fireEvent.change(reason, { target: { value: "The public entry point already validates the divisor." } });
   fireEvent.click(within(dismissal).getByRole("button", { name: "Dismiss finding" }));

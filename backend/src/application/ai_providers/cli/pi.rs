@@ -342,17 +342,29 @@ pub fn run_structured_with_usage(
     schema: &str,
     prompt: &str,
     workdir: &Path,
+    execution: &crate::application::ai::AiExecutionSettings,
 ) -> Result<(Vec<u8>, Option<AiTokenUsageCounts>), String> {
     let binary = resolve_binary().ok_or_else(|| "Pi CLI executable was not found".to_owned())?;
-    run_at(&binary, model, schema, prompt, workdir)
+    run_at_with_settings(&binary, model, schema, prompt, workdir, execution)
 }
 
+#[cfg(test)]
 fn run_at(
     binary: &Path,
     model: &str,
     schema: &str,
     prompt: &str,
     workdir: &Path,
+) -> Result<(Vec<u8>, Option<AiTokenUsageCounts>), String> {
+    run_at_with_settings(binary, model, schema, prompt, workdir, &Default::default())
+}
+fn run_at_with_settings(
+    binary: &Path,
+    model: &str,
+    schema: &str,
+    prompt: &str,
+    workdir: &Path,
+    execution: &crate::application::ai::AiExecutionSettings,
 ) -> Result<(Vec<u8>, Option<AiTokenUsageCounts>), String> {
     if !valid_identifier(model) || !model.contains('/') {
         return Err("Selected Pi model is invalid".to_owned());
@@ -366,7 +378,7 @@ fn run_at(
     let output = capture_cli_output(
         command,
         Some(input),
-        Duration::from_secs(15 * 60),
+        execution.timeout(),
         "Pi CLI",
         "run_structured",
         Some(model),

@@ -1,12 +1,11 @@
 use std::{
-    io::Write,
     path::{Path, PathBuf},
     process::Stdio,
 };
 
 use serde_json::Value;
 
-use super::{local_cli_command, run_cli_output, spawn_cli};
+use super::{local_cli_command, run_cli_output};
 use crate::application::ai::{AiProviderDto, AiProviderId, AiProviderStatus};
 use crate::application::ai_usage_statistics::AiTokenUsageCounts;
 
@@ -172,6 +171,7 @@ pub fn run_structured_with_usage(
     schema: &str,
     prompt: &str,
     workdir: &Path,
+    execution: &crate::application::ai::AiExecutionSettings,
 ) -> Result<(Vec<u8>, Option<AiTokenUsageCounts>), String> {
     if !valid_model(model) {
         return Err("Selected Hermes model is invalid".to_owned());
@@ -204,37 +204,15 @@ pub fn run_structured_with_usage(
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
-    let (mut child, invocation) =
-        spawn_cli(&mut command, "hermes", "structured_generation", Some(model))
-            .map_err(|_| "Unable to start Hermes CLI".to_owned())?;
-    let Some(mut stdin) = child.stdin.take() else {
-        invocation.failed(None, &[], &[]);
-        let _ = child.kill();
-        let _ = child.wait();
-        return Err("Unable to send input to Hermes CLI".to_owned());
-    };
-    if stdin.write_all(input.as_bytes()).is_err() {
-        invocation.failed(None, &[], &[]);
-        crate::application::logging::error(
-            "ai.cli",
-            "stdin_write_failure",
-            serde_json::json!({"provider": "hermes", "operation": "structured_generation", "model": model}),
-        );
-        let _ = child.kill();
-        let _ = child.wait();
-        return Err("Unable to send input to Hermes CLI".to_owned());
-    }
-    drop(stdin);
-    let output = child.wait_with_output().map_err(|_| {
-        invocation.failed(None, &[], &[]);
-        "Hermes CLI did not return a result".to_owned()
-    })?;
-    if !output.status.success() {
-        invocation.failed(output.status.code(), &output.stdout, &output.stderr);
-        return Err("Hermes CLI run failed".to_owned());
-    }
-    let result = parse_result(&output.stdout)?;
-    invocation.completed(result.0.len());
+    let output = super::capture_cli_output(
+        command,
+        Some(input),
+        execution.timeout(),
+        "Hermes CLI",
+        "structured_generation",
+        Some(model),
+    )?;
+    let result = parse_result(&output)?;
     Ok(result)
 }
 

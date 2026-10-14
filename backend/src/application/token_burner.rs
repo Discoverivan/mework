@@ -1105,7 +1105,7 @@ async fn execute_iteration<R: Runtime>(
     );
     update_phase(pool, app, iteration_id, "analyzing_potential_issues").await;
     let retries = ai_settings.retries.for_activity(AiActivity::TokenBurner);
-    let max_output_tokens = ai::OPENAI_MAX_OUTPUT_TOKENS as u32;
+    let max_output_tokens = ai_settings.execution.openai_max_output_tokens();
     // Grow the reservation per attempt; retain estimates only when the provider reports no usage.
     let reserved_per_attempt = (prompt.len() as i64).saturating_add(max_output_tokens as i64);
     let previous_reservation: i64 =

@@ -108,6 +108,8 @@ pub struct AiSettings {
     pub reasoning: AiReasoning,
     pub fast_mode: bool,
     #[serde(default)]
+    pub execution: AiExecutionSettings,
+    #[serde(default)]
     pub task_creation: Option<AiSettingsProfile>,
     #[serde(default)]
     pub pull_request_review: Option<AiSettingsProfile>,
@@ -188,9 +190,98 @@ pub struct AiSettingsProfile {
     pub model: String,
     pub reasoning: AiReasoning,
     pub fast_mode: bool,
+    #[serde(default)]
+    pub execution: AiExecutionSettings,
+}
+
+#[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct AiExecutionSettings {
+    #[serde(default = "default_ai_timeout_seconds")]
+    pub timeout_seconds: u64,
+    #[serde(default)]
+    pub max_output_tokens: Option<u32>,
+    #[serde(default)]
+    pub output_tokens_mode: AiOutputTokensMode,
+}
+
+#[derive(Debug, Clone, Copy, Default, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum AiOutputTokensMode {
+    #[default]
+    Unset,
+    Unlimited,
+    Limited,
+}
+
+fn default_ai_timeout_seconds() -> u64 {
+    900
+}
+
+impl Default for AiExecutionSettings {
+    fn default() -> Self {
+        Self {
+            timeout_seconds: default_ai_timeout_seconds(),
+            max_output_tokens: None,
+            output_tokens_mode: AiOutputTokensMode::Unset,
+        }
+    }
+}
+
+impl AiExecutionSettings {
+    pub fn timeout(&self) -> std::time::Duration {
+        std::time::Duration::from_secs(self.timeout_seconds.clamp(60, 7200))
+    }
+
+    pub fn openai_max_output_tokens(&self) -> u32 {
+        self.max_output_tokens
+            .unwrap_or(OPENAI_MAX_OUTPUT_TOKENS as u32)
+    }
+
+    pub fn opencode_max_output_tokens(&self) -> Option<u32> {
+        if self.output_tokens_mode == AiOutputTokensMode::Unlimited {
+            None
+        } else {
+            self.max_output_tokens
+        }
+    }
 }
 
 impl AiSettings {
+    fn normalize_default_output_tokens(&mut self) -> bool {
+        let mut changed = false;
+        // Missing token settings do not introduce an application-owned limit.
+        if self.execution.output_tokens_mode == AiOutputTokensMode::Unset {
+            if self.execution.max_output_tokens.is_some() {
+                self.execution.output_tokens_mode = AiOutputTokensMode::Limited;
+            } else {
+                self.execution.output_tokens_mode = AiOutputTokensMode::Unlimited;
+            }
+            changed = true;
+        }
+        // Separate profiles own their token budget and never inherit this field.
+        for profile in [
+            &mut self.task_creation,
+            &mut self.pull_request_review,
+            &mut self.review_arbiter,
+            &mut self.token_burner,
+            &mut self.sprint_summary,
+        ]
+        .into_iter()
+        .flatten()
+        {
+            if profile.execution.output_tokens_mode == AiOutputTokensMode::Unset {
+                if profile.execution.max_output_tokens.is_some() {
+                    profile.execution.output_tokens_mode = AiOutputTokensMode::Limited;
+                } else {
+                    profile.execution.output_tokens_mode = AiOutputTokensMode::Unlimited;
+                }
+                changed = true;
+            }
+        }
+        changed
+    }
+
     fn normalize_action_retries(&mut self) -> bool {
         let previous = self.retries.clone();
         let default = self.retries.default;
@@ -229,6 +320,7 @@ impl AiSettingsProfile {
         settings.model = self.model.clone();
         settings.reasoning = self.reasoning;
         settings.fast_mode = self.fast_mode;
+        settings.execution = self.execution;
     }
 }
 
@@ -240,6 +332,7 @@ impl Default for AiSettings {
             model: String::new(),
             reasoning: AiReasoning::Medium,
             fast_mode: false,
+            execution: AiExecutionSettings::default(),
             task_creation: None,
             pull_request_review: None,
             review_arbiter: None,
@@ -359,7 +452,8 @@ pub async fn load(pool: &SqlitePool) -> Result<AiSettings, String> {
         settings.retries.actions.pull_request_review =
             Some(legacy_attempts.saturating_sub(1).min(MAX_AI_RETRIES));
     }
-    let normalized = settings.normalize_action_retries();
+    let normalized =
+        settings.normalize_default_output_tokens() | settings.normalize_action_retries();
     if !has_retry_settings || normalized {
         let value = serde_json::to_string(&settings)
             .map_err(|_| "failed to migrate AI retry settings".to_owned())?;
@@ -422,6 +516,7 @@ impl AiSettingsSaveError {
 }
 
 pub async fn save(pool: &SqlitePool, mut settings: AiSettings) -> Result<(), AiSettingsSaveError> {
+    settings.normalize_default_output_tokens();
     settings.normalize_action_retries();
     validate_settings(pool, &settings).await?;
     let value = serde_json::to_string(&settings)
@@ -468,6 +563,7 @@ fn apply_action_settings(
             saved.model = draft.model;
             saved.reasoning = draft.reasoning;
             saved.fast_mode = draft.fast_mode;
+            saved.execution = draft.execution;
             saved.retries.default = draft.retries.default;
         }
         AiSettingsScope::TaskCreation => {
@@ -496,6 +592,7 @@ fn apply_action_settings(
         }
     }
     saved.normalize_action_retries();
+    saved.normalize_default_output_tokens();
     Ok(())
 }
 
@@ -1008,7 +1105,8 @@ pub async fn settings_for_activity(
 }
 
 // Both roles resolve from one snapshot; an absent override always means global defaults.
-pub(super) fn review_settings_snapshot(settings: AiSettings) -> (AiSettings, AiSettings) {
+pub(super) fn review_settings_snapshot(mut settings: AiSettings) -> (AiSettings, AiSettings) {
+    settings.normalize_default_output_tokens();
     let review = effective_settings(settings.clone(), AiActivity::PullRequestReview);
     let mut arbiter = settings;
     if let Some(profile) = arbiter.review_arbiter.clone() {
@@ -1118,6 +1216,7 @@ where
 }
 
 fn effective_settings(mut settings: AiSettings, activity: AiActivity) -> AiSettings {
+    settings.normalize_default_output_tokens();
     let profile = match activity {
         AiActivity::TaskCreation => settings.task_creation.clone(),
         AiActivity::PullRequestReview => settings.pull_request_review.clone(),
@@ -1187,6 +1286,39 @@ async fn validate_settings(
 }
 
 fn validate_setting_values(settings: &AiSettings) -> Result<(), AiSettingsSaveError> {
+    for execution in std::iter::once(&settings.execution).chain(
+        [
+            &settings.task_creation,
+            &settings.pull_request_review,
+            &settings.review_arbiter,
+            &settings.token_burner,
+            &settings.sprint_summary,
+        ]
+        .into_iter()
+        .flatten()
+        .map(|profile| &profile.execution),
+    ) {
+        if !(60..=7200).contains(&execution.timeout_seconds) {
+            return Err("AI request timeout must be between 1 and 120 minutes"
+                .to_owned()
+                .into());
+        }
+        if execution
+            .max_output_tokens
+            .is_some_and(|tokens| !(1..=256_000).contains(&tokens))
+        {
+            return Err("AI output token limit must be between 1 and 256000"
+                .to_owned()
+                .into());
+        }
+        if execution.output_tokens_mode == AiOutputTokensMode::Limited
+            && execution.max_output_tokens.is_none()
+        {
+            return Err("AI output token limit is required in limited mode"
+                .to_owned()
+                .into());
+        }
+    }
     if !(2..=9).contains(&settings.review_arbitration.review_count) {
         return Err("Independent review count must be between 2 and 9"
             .to_owned()
@@ -1779,7 +1911,13 @@ pub async fn request_openai_structured_response(
     runtime: &OpenAiCompatibleRuntimeConfig,
     operation: &'static str,
     mut payload: Value,
+    execution: AiExecutionSettings,
 ) -> Result<(reqwest::StatusCode, Vec<u8>), reqwest::Error> {
+    if execution.output_tokens_mode == AiOutputTokensMode::Unlimited {
+        if let Some(payload) = payload.as_object_mut() {
+            payload.remove("max_tokens");
+        }
+    }
     payload["response_format"] = serde_json::json!({"type": "json_object"});
     for attempt in 0..2 {
         log_openai_chat_request(
@@ -1934,7 +2072,7 @@ mod tests {
             .respond_with(ResponseTemplate::new(400).set_body_json(serde_json::json!({"error":{"code":"unsupported_parameter","param":"response_format"}})))
             .expect(1).mount(&server).await;
         Mock::given(method("POST")).and(path("/v1/chat/completions"))
-            .and(|request: &wiremock::Request| serde_json::from_slice::<serde_json::Value>(&request.body).unwrap().get("response_format").is_none())
+            .and(|request: &wiremock::Request| serde_json::from_slice::<serde_json::Value>(&request.body).unwrap().as_object().is_some_and(|body| !body.contains_key("response_format") && !body.contains_key("max_tokens")))
             .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({"choices":[{"message":{"content":"{\"summary\":\"Example task\"}"}}]})))
             .expect(1).mount(&server).await;
         let runtime = super::OpenAiCompatibleRuntimeConfig {
@@ -1942,12 +2080,16 @@ mod tests {
             token: String::new(),
             allow_insecure_tls: false,
         };
-        let payload = serde_json::json!({"model":"example-model","messages":[{"role":"user","content":"Return JSON with a summary of Example task."}]});
+        let payload = serde_json::json!({"model":"example-model","max_tokens":30000,"messages":[{"role":"user","content":"Return JSON with a summary of Example task."}]});
         let (status, body) = super::request_openai_structured_response(
             &reqwest::Client::new(),
             &runtime,
             "example",
             payload,
+            super::AiExecutionSettings {
+                output_tokens_mode: super::AiOutputTokensMode::Unlimited,
+                ..Default::default()
+            },
         )
         .await
         .unwrap();
@@ -1975,6 +2117,11 @@ mod tests {
             model: "example-review-model".into(),
             reasoning: super::AiReasoning::Medium,
             fast_mode: false,
+            execution: super::AiExecutionSettings {
+                timeout_seconds: 1800,
+                max_output_tokens: Some(64_000),
+                output_tokens_mode: crate::application::ai::AiOutputTokensMode::Limited,
+            },
         };
         let saved = super::AiSettings {
             provider: Some(super::AiProviderId::OpenAiCompatible),
@@ -2025,6 +2172,9 @@ mod tests {
         let loaded = super::load(&pool).await.unwrap();
         assert_eq!(loaded, result.ai.settings);
         let (reviewer, arbiter) = super::review_settings_snapshot(loaded);
+        assert_eq!(reviewer.execution.timeout().as_secs(), 1800);
+        assert_eq!(reviewer.execution.openai_max_output_tokens(), 64_000);
+        assert_eq!(arbiter.execution, reviewer.execution);
         assert_eq!(
             reviewer
                 .retries
@@ -2082,6 +2232,7 @@ mod tests {
                 model: "retired-example-model".to_owned(),
                 reasoning: AiReasoning::Medium,
                 fast_mode: false,
+                execution: Default::default(),
             }),
             ..AiSettings::default()
         };
@@ -2218,6 +2369,7 @@ mod tests {
             model: "example-model".to_owned(),
             reasoning: AiReasoning::Medium,
             fast_mode: false,
+            execution: Default::default(),
         });
         crate::infrastructure::db::repositories::upsert_setting(
             &pool,
@@ -2334,6 +2486,7 @@ mod tests {
             model: "example-model".to_owned(),
             reasoning: AiReasoning::Medium,
             fast_mode: false,
+            execution: Default::default(),
             task_creation: None,
             pull_request_review: None,
             review_arbiter: None,
@@ -2455,6 +2608,11 @@ mod tests {
             model: "example-model".to_owned(),
             reasoning: AiReasoning::Medium,
             fast_mode: false,
+            execution: super::AiExecutionSettings {
+                max_output_tokens: Some(64_000),
+                output_tokens_mode: super::AiOutputTokensMode::Limited,
+                ..Default::default()
+            },
             task_creation: None,
             pull_request_review: Some(super::AiSettingsProfile {
                 provider: AiProviderId::ClaudeCodeCli,
@@ -2462,6 +2620,7 @@ mod tests {
                 model: "sonnet".to_owned(),
                 reasoning: AiReasoning::High,
                 fast_mode: true,
+                execution: Default::default(),
             }),
             token_burner: Some(super::AiSettingsProfile {
                 provider: AiProviderId::OpenAiCompatible,
@@ -2469,6 +2628,10 @@ mod tests {
                 model: "example-review-model".to_owned(),
                 reasoning: AiReasoning::Medium,
                 fast_mode: false,
+                execution: super::AiExecutionSettings {
+                    output_tokens_mode: super::AiOutputTokensMode::Unlimited,
+                    ..Default::default()
+                },
             }),
             sprint_summary: Some(super::AiSettingsProfile {
                 provider: AiProviderId::ClaudeCodeCli,
@@ -2476,6 +2639,7 @@ mod tests {
                 model: "example-summary-model".to_owned(),
                 reasoning: AiReasoning::Low,
                 fast_mode: false,
+                execution: Default::default(),
             }),
             review_arbiter: None,
             review_arbitration: Default::default(),
@@ -2494,6 +2658,17 @@ mod tests {
             super::effective_settings(settings.clone(), super::AiActivity::PullRequestReview);
         let summary = super::effective_settings(settings.clone(), super::AiActivity::SprintSummary);
         let burner = super::effective_settings(settings, super::AiActivity::TokenBurner);
+        assert_eq!(review.execution.max_output_tokens, None);
+        assert_eq!(
+            review.execution.output_tokens_mode,
+            super::AiOutputTokensMode::Unlimited
+        );
+        assert_eq!(task.execution.max_output_tokens, Some(64_000));
+        assert_eq!(
+            burner.execution.output_tokens_mode,
+            super::AiOutputTokensMode::Unlimited
+        );
+        assert_eq!(burner.execution.opencode_max_output_tokens(), None);
         assert_eq!(task.provider, Some(AiProviderId::CodexCli));
         assert_eq!(task.model, "example-model");
         assert_eq!(review.provider, Some(AiProviderId::ClaudeCodeCli));
@@ -2519,6 +2694,7 @@ mod tests {
             model: "gpt-5.5".to_owned(),
             reasoning: AiReasoning::High,
             fast_mode: true,
+            execution: Default::default(),
             task_creation: None,
             pull_request_review: None,
             review_arbiter: None,

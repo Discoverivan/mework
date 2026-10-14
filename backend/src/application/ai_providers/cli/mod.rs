@@ -221,7 +221,9 @@ const OUTPUT_LIMIT: u64 = 8 * 1024 * 1024;
 
 pub(crate) struct CapturedCliOutput {
     pub success: bool,
+    pub status: std::process::ExitStatus,
     pub output: Vec<u8>,
+    pub stderr: Vec<u8>,
 }
 
 pub(crate) fn capture_cli_output(
@@ -251,6 +253,11 @@ pub(crate) fn capture_cli_output_with_status(
     operation: &'static str,
     model: Option<&str>,
 ) -> Result<CapturedCliOutput, String> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::CommandExt;
+        command.process_group(0);
+    }
     command
         .stdin(if input.is_some() {
             Stdio::piped()
@@ -258,11 +265,23 @@ pub(crate) fn capture_cli_output_with_status(
             Stdio::null()
         })
         .stdout(Stdio::piped())
-        .stderr(Stdio::null());
+        .stderr(Stdio::piped());
     let (mut child, invocation) = spawn_cli(&mut command, provider, operation, model)
         .map_err(|_| format!("Unable to start {provider}"))?;
     let mut exit_code = None;
     let result = (|| {
+        let stderr = child.stderr.take();
+        let stderr_reader = thread::spawn(move || {
+            let mut bytes = Vec::new();
+            if let Some(mut stderr) = stderr {
+                stderr
+                    .by_ref()
+                    .take(OUTPUT_LIMIT + 1)
+                    .read_to_end(&mut bytes)?;
+                std::io::copy(&mut stderr, &mut std::io::sink())?;
+            }
+            Ok::<_, std::io::Error>(bytes)
+        });
         let mut stdout = child
             .stdout
             .take()
@@ -290,14 +309,7 @@ pub(crate) fn capture_cli_output_with_status(
                 Ok(Some(status)) => break Some(status),
                 Ok(None) if Instant::now() < deadline => thread::sleep(Duration::from_millis(10)),
                 _ => {
-                    #[cfg(windows)]
-                    {
-                        let _ = local_cli_command("taskkill.exe")
-                            .args(["/PID", &child.id().to_string(), "/T", "/F"])
-                            .stdout(Stdio::null())
-                            .stderr(Stdio::null())
-                            .status();
-                    }
+                    kill_process_group(child.id());
                     let _ = child.kill();
                     let _ = child.wait();
                     break None;
@@ -310,17 +322,25 @@ pub(crate) fn capture_cli_output_with_status(
             .ok()
             .and_then(Result::ok)
             .ok_or_else(|| format!("{provider} output could not be read"))?;
+        let stderr = stderr_reader
+            .join()
+            .ok()
+            .and_then(Result::ok)
+            .ok_or_else(|| format!("{provider} error output could not be read"))?;
         let sent = writer.is_none_or(|writer| writer.join().is_ok_and(|result| result.is_ok()));
-        let status = status.ok_or_else(|| format!("{provider} timed out"))?;
+        let status = status
+            .ok_or_else(|| format!("{provider} timed out after {} seconds", timeout.as_secs()))?;
         if !sent {
             return Err(format!("{provider} run failed"));
         }
-        if output.len() as u64 > OUTPUT_LIMIT {
+        if output.len() as u64 > OUTPUT_LIMIT || stderr.len() as u64 > OUTPUT_LIMIT {
             return Err(format!("{provider} output is too large"));
         }
         Ok(CapturedCliOutput {
             success: status.success(),
+            status,
             output,
+            stderr,
         })
     })();
     match &result {

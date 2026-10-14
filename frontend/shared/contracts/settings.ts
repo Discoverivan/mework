@@ -15,12 +15,21 @@ export type AiCliProviderId = Exclude<AiProviderId, "openai-compatible">;
 export type AiProviderStatus = "loading" | "connected" | "not_configured" | "not_found" | "not_authenticated" | "unavailable";
 export type AiReasoning = "minimal" | "low" | "medium" | "high" | "xhigh";
 
+export interface AiExecutionSettings {
+  timeoutSeconds: number;
+  maxOutputTokens: number | null;
+  outputTokensMode?: "unset" | "unlimited" | "limited";
+}
+
+export const DEFAULT_AI_EXECUTION: AiExecutionSettings = { timeoutSeconds: 900, maxOutputTokens: null, outputTokensMode: "unlimited" };
+
 export interface AiSettingsProfile {
   provider: AiProviderId;
   providerInstanceId?: string | null;
   model: string;
   reasoning: AiReasoning;
   fastMode: boolean;
+  execution?: AiExecutionSettings;
 }
 
 export type AiActivity = "taskCreation" | "pullRequestReview" | "tokenBurner" | "sprintSummary";
@@ -63,6 +72,7 @@ export interface AiSettings {
   model: string;
   reasoning: AiReasoning;
   fastMode: boolean;
+  execution?: AiExecutionSettings;
   taskCreation?: AiSettingsProfile | null;
   pullRequestReview?: AiSettingsProfile | null;
   reviewArbiter?: AiSettingsProfile | null;

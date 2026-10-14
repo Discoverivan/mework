@@ -408,7 +408,7 @@
   border-color: transparent !important;
 }
 
-:root:is([data-button-style="quiet"], [data-button-style="filled_borderless"]) :is(input, textarea).app-control-border:not([aria-invalid="true"]):not([data-field-warning="true"]):enabled:is([data-pointer-hover="true"], :focus) {
+:root:is([data-button-style="quiet"], [data-button-style="filled_borderless"]) input.app-control-border:not([aria-invalid="true"]):not([data-field-warning="true"]):enabled:is([data-pointer-hover="true"], :focus) {
   color: var(--primary);
 }
 
@@ -432,11 +432,11 @@
 }
 
 /* Minimal field values start at the control's left edge. */
-:root[data-button-style="quiet"] :is(.app-field-label, [role="combobox"], input.app-control-border, textarea.app-control-border) {
+:root[data-button-style="quiet"] :is(.app-field-label, [role="combobox"], input.app-control-border) {
   padding-left: 0;
 }
 
-:root[data-button-style="quiet"] .app-control-border:not([aria-invalid="true"]):not([data-field-warning="true"]):enabled:is([data-pointer-hover="true"], :focus-visible, [aria-expanded="true"]) {
+:root[data-button-style="quiet"] .app-control-border:not(textarea):not([aria-invalid="true"]):not([data-field-warning="true"]):enabled:is([data-pointer-hover="true"], :focus-visible, [aria-expanded="true"]) {
   color: var(--primary);
 }
 
@@ -446,6 +446,11 @@
 
 :root .app-control-border[data-field-warning="true"] {
   color: var(--warning);
+}
+
+/* Multiline content stays readable; its boundary carries hover and focus feedback. */
+:root textarea.app-control-border:not([aria-invalid="true"]):not([data-field-warning="true"]):enabled:is([data-pointer-hover="true"], :focus) {
+  border-color: var(--primary) !important;
 }
 
 /* All cards, including empty states, follow the selected interface border style.
@@ -480,11 +485,15 @@
   max-width: 36px;
 }
 
-/* Subform actions are smaller than page/dialog actions. Keep existing tiny controls. */
-:root[data-button-style] :where([data-slot="card"], [data-subform]) .flex:has(> :is(.app-action-text, .app-icon-button) + :is(.app-action-text, .app-icon-button)):not(:has(> :not(:is(.app-action-text, .app-icon-button)))):not(:is([data-action-size="normal"], [data-action-size="page"]) *):not(:where(.app-dialog-actions, .app-dialog-actions *)) {
-  column-gap: 6px;
+/* Compact control groups share action spacing; labels, rows, and panels retain their gaps.
+   Wrapped fields/groups identify themselves so numeric and labeled pickers participate. */
+:root[data-button-style] :where([data-slot="card"], [data-subform]) .flex:has(> :is(.app-action-text, .app-icon-button, [role="combobox"], input.app-control-border, [data-slot="control-field"], [data-slot="control-group"])):not(:has(> :not(:is(.app-action-text, .app-icon-button, [role="combobox"], input.app-control-border, [data-slot="control-field"], [data-slot="control-group"], .sr-only)))):not(:is([data-action-size="normal"], [data-action-size="page"], [data-control-size="normal"], [data-control-size="page"]) *):not(:is([data-action-size="normal"], [data-action-size="page"], [data-control-size="normal"], [data-control-size="page"])):not(:where(.app-dialog-actions, .app-dialog-actions *)),
+/* Field groups can stay compact inside a surface whose actions use page sizing. */
+:root[data-button-style] :where([data-slot="card"], [data-subform]) [data-slot="control-group"]:not(:is([data-control-size="normal"], [data-control-size="page"]) *):not(:is([data-control-size="normal"], [data-control-size="page"])):not(:where(.app-dialog-actions, .app-dialog-actions *)) {
+  column-gap: 8px;
 }
 
+/* Subform actions are smaller than page/dialog actions. Keep existing tiny controls. */
 :root[data-button-style] :where([data-slot="card"], [data-subform]) .app-action-text:not(:is([data-action-size="normal"], [data-action-size="page"]) *):not(:where(.app-dialog-actions *, [role="combobox"], [aria-pressed], [data-day])) {
   max-height: 32px;
   gap: 6px;

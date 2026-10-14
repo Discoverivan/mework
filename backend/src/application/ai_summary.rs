@@ -1,4 +1,4 @@
-use std::{fs, time::Duration};
+use std::fs;
 
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -68,14 +68,14 @@ fn generate_blocking(
             .ok_or_else(|| "OpenAI-compatible API configuration is unavailable".to_owned())?;
         return tauri::async_runtime::block_on(async {
             let client =
-                ai::openai_http_client(Duration::from_secs(15 * 60), runtime.allow_insecure_tls)?;
+                ai::openai_http_client(settings.execution.timeout(), runtime.allow_insecure_tls)?;
             let structured_prompt = format!(
                 "{prompt}\n\nReturn only a JSON object matching this schema:\n{}",
                 text_schema()
             );
             let payload = json!({
                 "model": settings.model,
-                "max_tokens": ai::OPENAI_MAX_OUTPUT_TOKENS,
+                "max_tokens": settings.execution.openai_max_output_tokens(),
                 "stream": false,
                 "messages": [
                     {"role": "system", "content": ai_prompts::rules(ai_prompts::PromptAction::SprintSummary, language)},
@@ -87,6 +87,7 @@ fn generate_blocking(
                 &runtime,
                 "sprint_summary",
                 payload,
+                settings.execution,
             )
             .await
             .map_err(|_| "AI summary request could not be completed".to_owned())?;
@@ -152,6 +153,7 @@ fn generate_blocking(
                     &schema,
                     prompt,
                     &workdir,
+                    &settings.execution,
                 )?;
             return parse_text(&bytes).map(|text| (text, usage));
         }
@@ -162,6 +164,7 @@ fn generate_blocking(
                     &schema,
                     prompt,
                     &workdir,
+                    &settings.execution,
                 )?;
             return parse_text(&bytes).map(|text| (text, usage));
         }
@@ -173,6 +176,7 @@ fn generate_blocking(
                     &schema,
                     prompt,
                     &workdir,
+                    &settings.execution,
                 )?;
             return parse_text(&bytes).map(|text| (text, usage));
         }
@@ -184,6 +188,7 @@ fn generate_blocking(
                     &schema,
                     prompt,
                     &workdir,
+                    &settings.execution,
                 )?;
             return parse_text(&bytes).map(|text| (text, usage));
         }
@@ -208,6 +213,9 @@ fn generate_blocking(
                 }
                 crate::application::ai_providers::cli::codex::RunError::Failed(_) => {
                     "AI summary generation failed"
+                }
+                crate::application::ai_providers::cli::codex::RunError::TimedOut => {
+                    "AI request timed out"
                 }
                 crate::application::ai_providers::cli::codex::RunError::ResultRead => {
                     "AI provider did not return a summary"

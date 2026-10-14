@@ -3,6 +3,8 @@ import { APP_EVENT, emitAppEvent } from "@/app/app-events";
 import { StatusToast } from "@/components/shared/StatusToast";
 import { Button } from "@/components/ui/button";
 import { AiOverrideEditor } from "@/features/settings/AiOverrideEditor";
+import { AiExecutionSettingsFields } from "@/features/settings/AiExecutionSettingsFields";
+import { Separator } from "@/components/ui/separator";
 import { AiRetriesField } from "@/features/settings/AiRetriesField";
 import { saveAiSettings } from "@/features/settings/api";
 import { useI18n } from "@/i18n/context";
@@ -16,6 +18,9 @@ export function ModelTestingAiSettings({ data, disabled, onPendingChange }: { da
   const { t } = useI18n();
   const [draft, setDraft] = useState(() => modelTestingDraft(data.settings));
   const { profile, retries } = draft;
+  const [advancedRetries, setAdvancedRetries] = useState(retries ?? data.settings.retries.default);
+  const [advancedEditing, setAdvancedEditing] = useState(false);
+  const [executionValid, setExecutionValid] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [fieldErrors, setFieldErrors] = useState<Partial<Record<"provider" | "model", string>>>({});
@@ -39,7 +44,7 @@ export function ModelTestingAiSettings({ data, disabled, onPendingChange }: { da
 
   const selected = data.providers.find((provider) => provider.id === profile?.provider
     && (provider.id !== "openai-compatible" || (provider.instanceId ?? "legacy") === (profile?.providerInstanceId ?? "legacy")));
-  const ready = !profile || (selected?.available === true && selected.status === "connected" && selected.models.includes(profile.model));
+  const ready = !profile || (executionValid && selected?.available === true && selected.status === "connected" && selected.models.includes(profile.model));
   const draftKey = JSON.stringify(draft);
   const loading = data.providers.some((provider) => provider.status === "loading");
 
@@ -49,7 +54,7 @@ export function ModelTestingAiSettings({ data, disabled, onPendingChange }: { da
   }, [draftKey, onPendingChange, savedKey, saving]);
 
   useEffect(() => {
-    if (disabled || loading || saving || !ready || draftKey === savedKey || failedDraft === draftKey) return;
+    if (advancedEditing || disabled || loading || saving || !ready || draftKey === savedKey || failedDraft === draftKey) return;
     const timer = window.setTimeout(() => {
       setSaving(true);
       setSaved(false);
@@ -81,7 +86,7 @@ export function ModelTestingAiSettings({ data, disabled, onPendingChange }: { da
       }).finally(() => { if (mounted.current) setSaving(false); });
     }, 250);
     return () => window.clearTimeout(timer);
-  }, [data.settings, disabled, draftKey, failedDraft, loading, profile, ready, retries, savedKey, saving, t]);
+  }, [advancedEditing, data.settings, disabled, draftKey, failedDraft, loading, profile, ready, retries, savedKey, saving, t]);
 
   function changeProfile(next: AiSettingsProfile | null) {
     setDraft({ profile: next, retries: next ? retries ?? data.settings.retries.default : null });
@@ -109,15 +114,23 @@ export function ModelTestingAiSettings({ data, disabled, onPendingChange }: { da
         fieldWarnings={profile && !loading && !ready ? selected?.available && selected.status === "connected"
           ? { model: t("settings.ai.noModelSelected") }
           : { provider: t("settings.ai.notConnected") } : undefined}
+        advancedExtras={{
+          changeKey: String(advancedEditing ? advancedRetries : retries ?? data.settings.retries.default),
+          onBeginEdit: () => { setAdvancedEditing(true); setAdvancedRetries(retries ?? data.settings.retries.default); },
+          onCancelEdit: () => setAdvancedEditing(false),
+          onApply: () => { setAdvancedEditing(false); setDraft((current) => ({ ...current, retries: current.profile ? advancedRetries : null })); },
+          render: (editingProfile) => editingProfile ? <><Separator /><AiRetriesField rows id="model-testing-ai-retries" value={advancedRetries}
+            disabled={disabled || loading || saving} onChange={setAdvancedRetries} /></> : null,
+        }}
       />
-      {profile ? <AiRetriesField id="model-testing-ai-retries" value={retries ?? data.settings.retries.default} disabled={disabled || loading || saving} onChange={(value) => {
-        setDraft((current) => ({ ...current, retries: value }));
-        setError(null);
-        setFieldErrors({});
-        setSaved(false);
-        setFailedDraft(null);
-      }} /> : null}
     </div>
+    {profile ? <div className="flex flex-wrap items-end gap-y-4">
+      <AiExecutionSettingsFields idPrefix="model-testing-ai-inline" profile={profile} disabled={disabled || loading || saving}
+        onChange={changeProfile} onValidityChange={setExecutionValid} />
+      <AiRetriesField id="model-testing-ai-retries-inline" value={retries ?? data.settings.retries.default}
+        disabled={disabled || loading || saving}
+        onChange={(next) => { setDraft((current) => ({ ...current, retries: next })); setFailedDraft(null); setError(null); }} />
+    </div> : null}
     {error ? <div className="flex flex-wrap items-center gap-3">
       <p className="text-sm text-destructive" aria-live="polite">
         {error}

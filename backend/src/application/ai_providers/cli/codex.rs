@@ -22,6 +22,7 @@ pub(crate) enum RunError {
     Spawn,
     Failed(std::process::Output),
     ResultRead,
+    TimedOut,
 }
 
 pub(crate) fn run_structured_with_usage(
@@ -70,19 +71,27 @@ pub(crate) fn run_structured_with_usage(
             output_path.to_string_lossy().as_ref(),
             "-",
         ])
-        .current_dir(workdir)
-        .stdin(Stdio::from(std::fs::File::open(prompt_path).map_err(|_| {
-            crate::application::logging::error("ai.cli", "prompt_file_open_failure", serde_json::json!({"provider": "codex", "operation": "structured_generation", "model": settings.model}));
-            RunError::PromptOpen
-        })?));
-    let output = match run_cli_output(
-        &mut command,
+        .current_dir(workdir);
+    let prompt = std::fs::read_to_string(prompt_path).map_err(|_| RunError::PromptOpen)?;
+    let captured = super::capture_cli_output_with_status(
+        command,
+        Some(prompt),
+        settings.execution.timeout(),
         "codex",
         "structured_generation",
         Some(&settings.model),
-    ) {
-        Ok(output) => output,
-        Err(_) => return Err(RunError::Spawn),
+    )
+    .map_err(|error| {
+        if error.contains("timed out") {
+            RunError::TimedOut
+        } else {
+            RunError::Spawn
+        }
+    })?;
+    let output = std::process::Output {
+        status: captured.status,
+        stdout: captured.output,
+        stderr: captured.stderr,
     };
     if !output.status.success() {
         return Err(RunError::Failed(output));

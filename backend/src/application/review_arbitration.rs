@@ -602,6 +602,7 @@ mod tests {
                 model: "example-arbiter-model".into(),
                 reasoning: ai::AiReasoning::Medium,
                 fast_mode: false,
+                execution: Default::default(),
             }),
             pull_request_review: Some(ai::AiSettingsProfile {
                 provider: ai::AiProviderId::OpenAiCompatible,
@@ -609,6 +610,7 @@ mod tests {
                 model: "example-review-model".into(),
                 reasoning: ai::AiReasoning::Medium,
                 fast_mode: false,
+                execution: Default::default(),
             }),
             review_arbitration: ai::ReviewArbitrationSettings {
                 enabled: true,

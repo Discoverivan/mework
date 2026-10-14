@@ -112,6 +112,7 @@ export interface PullRequestReviewResult {
 }
 
 export interface PullRequestReviewExecution {
+  waitTimeoutSeconds?: number | null;
   arbitration?: { reviewCount: number; arbiter: PullRequestReviewExecution } | null;
   instructionsHash?: string | null;
   provider: AiProviderId;

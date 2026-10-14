@@ -113,8 +113,8 @@ export function CommentDiscussionDialog({ comment, pullRequestUrl, onOpenLocatio
         </div>
         <div className="flex flex-col gap-2">
           <Label htmlFor="comment-discussion-message">{t("pr.discuss.message")}</Label>
-          <div className="flex items-end gap-2 rounded-md border border-input bg-background p-1 focus-within:ring-2 focus-within:ring-ring">
-            <Textarea id="comment-discussion-message" rows={1} className="block h-8 min-h-8 min-w-0 flex-1 resize-y rounded-md border-0 bg-transparent px-2 py-1 text-sm" maxLength={8000} value={message} onChange={event => setMessage(event.target.value)} placeholder={t("pr.discuss.placeholder")} />
+          <div className="flex items-end gap-2">
+            <Textarea id="comment-discussion-message" rows={1} className="block min-h-9 min-w-0 flex-1 resize-y text-sm" maxLength={8000} value={message} onChange={event => setMessage(event.target.value)} placeholder={t("pr.discuss.placeholder")} />
             <Button size="sm" className="shrink-0" actionTone="neutral" disabled={pending || !message.trim() || (discussion?.turns.length ?? 0) >= 30} onClick={() => void send()}>{pending ? <Loader2 className="size-4 animate-spin" aria-hidden="true" /> : <Send className="size-4" aria-hidden="true" />}{t(pending ? "pr.discuss.thinking" : "pr.discuss.send")}</Button>
           </div>
         </div>
@@ -143,7 +143,7 @@ export function CommentDiscussionDialog({ comment, pullRequestUrl, onOpenLocatio
       <DialogBody layout="sections">
         <div className="space-y-2">
           <Label htmlFor="comment-discussion-reason">{t("pr.discuss.reason")}</Label>
-          <Textarea id="comment-discussion-reason" className="min-h-32" maxLength={8000} value={reason} disabled={pending} onChange={event => setReason(event.target.value)} placeholder={t("pr.discuss.reasonPlaceholder")} />
+          <Textarea id="comment-discussion-reason" className="min-h-32 px-3!" maxLength={8000} value={reason} disabled={pending} onChange={event => setReason(event.target.value)} placeholder={t("pr.discuss.reasonPlaceholder")} />
         </div>
         {dismissalAttempted && error !== undefined ? <p role="alert" className="rounded-md border px-4 py-3 text-sm text-destructive">{error || t("pr.discuss.error")}</p> : null}
       </DialogBody>

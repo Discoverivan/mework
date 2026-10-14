@@ -9,6 +9,7 @@ import { Sparkles, Trash2 } from "lucide-react";
 import { Button } from "./button";
 import { Input } from "./input";
 import { Label } from "./label";
+import { Select, SelectTrigger, SelectValue } from "./select";
 import { Card, CardHeader } from "./card";
 import { CreateButton } from "@/components/shared/CreateButton";
 import { EmptyState } from "@/components/shared/EmptyState";
@@ -32,6 +33,10 @@ it("uses compact actions and fields in subforms while keeping main form actions 
       <section data-action-size="normal"><Card><div className="flex gap-2"><Button>Primary settings action</Button><Button size="icon" aria-label="Primary settings icon"><Trash2 /></Button></div></Card></section>
       <Card><div data-control-size="normal"><Button role="combobox" aria-label="Described setting picker" variant="outline"><Sparkles />Example choice</Button><Input aria-label="Described setting field" /></div></Card>
       <Card><div data-icon-size="normal" className="flex gap-2"><Button size="icon" aria-label="Object row action"><Trash2 /></Button><Button size="icon" aria-label="Other object row action"><Sparkles /></Button></div></Card>
+      <section data-action-size="page"><Card><div data-slot="control-group" className="flex gap-4" data-testid="compact-fields">
+        <div data-slot="control-field"><Label htmlFor="compact-count">Count</Label><Input id="compact-count" inputMode="numeric" /></div>
+        <Select defaultValue="days"><SelectTrigger aria-label="Count unit"><SelectValue /></SelectTrigger></Select>
+      </div></Card></section>
       <DialogBody><Input type="search" aria-label="Search examples" /><div data-slot="popover-content"><Input aria-label="Picker search" /></div></DialogBody>
     </>);
     for (const appearance of ["filled", "filled_borderless", "quiet"]) {
@@ -48,7 +53,7 @@ it("uses compact actions and fields in subforms while keeping main form actions 
         }
       }
       const icon = screen.getByRole("button", { name: "Panel icon" });
-      expect(getComputedStyle(icon.parentElement!).columnGap).toBe("6px");
+      expect(getComputedStyle(icon.parentElement!).columnGap).toBe("8px");
       expect(getComputedStyle(screen.getByRole("button", { name: "Main form action" }).parentElement!).columnGap).not.toBe("6px");
       expect(getComputedStyle(icon).maxWidth).toBe("32px");
       expect(getComputedStyle(icon.querySelector("svg")!).width).toBe("14px");
@@ -57,7 +62,7 @@ it("uses compact actions and fields in subforms while keeping main form actions 
       expect(getComputedStyle(primaryIcon).maxWidth).not.toBe("32px");
       expect(primaryIcon).toHaveClass("h-9", "w-9");
       expect(getComputedStyle(primaryIcon.querySelector("svg")!).width).not.toBe("14px");
-      expect(getComputedStyle(primaryIcon.parentElement!).columnGap).not.toBe("6px");
+      expect(getComputedStyle(primaryIcon.parentElement!).columnGap).not.toBe("8px");
       if (appearance === "quiet") {
         expect(getComputedStyle(screen.getByRole("button", { name: "Primary settings action" })).paddingLeft).toBe("0px");
         expect(getComputedStyle(screen.getByRole("button", { name: "Main form action" })).paddingLeft).not.toBe("0px");
@@ -69,7 +74,8 @@ it("uses compact actions and fields in subforms while keeping main form actions 
       const objectAction = screen.getByRole("button", { name: "Object row action" });
       expect(getComputedStyle(objectAction).maxWidth).toBe("32px");
       expect(getComputedStyle(objectAction.querySelector("svg")!).width).not.toBe("14px");
-      expect(getComputedStyle(objectAction.parentElement!).columnGap).toBe("6px");
+      expect(getComputedStyle(objectAction.parentElement!).columnGap).toBe("8px");
+      expect(getComputedStyle(screen.getByTestId("compact-fields")).columnGap).toBe("8px");
       for (const field of [screen.getByRole("combobox", { name: "Described setting picker" }), screen.getByRole("textbox", { name: "Described setting field" })]) {
         expect(getComputedStyle(field).maxHeight).not.toBe("32px");
       }

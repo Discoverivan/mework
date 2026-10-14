@@ -8,8 +8,8 @@ use std::{
     time::Duration,
 };
 
-// OpenCode keeps ownership of its credentials. Temporary files contain only run
-// restrictions; user provider settings are forwarded in memory to the CLI.
+// OpenCode keeps ownership of its credentials. Temporary files contain only non-secret run
+// overrides; user provider settings are forwarded in memory to the CLI.
 struct Workspace {
     directory: tempfile::TempDir,
     config: String,
@@ -128,6 +128,47 @@ impl Workspace {
         }
         self.config = config.to_string();
         true
+    }
+
+    fn apply_output_limit(&mut self, model: &str, limit: Option<u32>) -> Result<(), String> {
+        let Some(limit) = limit else {
+            return Ok(());
+        };
+        let (provider, model) = model
+            .split_once('/')
+            .ok_or("Selected OpenCode model is invalid")?;
+        let mut config: Value =
+            serde_json::from_str(&self.config).map_err(|_| "Invalid OpenCode configuration")?;
+        // Keep native and legacy provider definitions in their original format.
+        let key = if config["provider"].get(provider).is_some()
+            && config["providers"].get(provider).is_none()
+        {
+            "provider"
+        } else {
+            "providers"
+        };
+        if key == "provider"
+            && config[key][provider]["models"][model]["limit"]
+                .get("context")
+                .is_none()
+        {
+            // Legacy limits require a context value. Keep the output-only native
+            // overlay in a separate document so OpenCode can fold it together
+            // with the legacy definition without inventing a context limit.
+            // This file has only restrictions and non-secret run overrides.
+            let path = self.directory.path().join("opencode.json");
+            let mut restrictions: Value = serde_json::from_slice(
+                &std::fs::read(&path).map_err(|_| "Unable to read OpenCode run configuration")?,
+            )
+            .map_err(|_| "Invalid OpenCode run configuration")?;
+            restrictions["providers"][provider]["models"][model]["limit"]["output"] = json!(limit);
+            std::fs::write(path, restrictions.to_string())
+                .map_err(|_| "Unable to prepare OpenCode run configuration")?;
+            return Ok(());
+        }
+        config[key][provider]["models"][model]["limit"]["output"] = json!(limit);
+        self.config = config.to_string();
+        Ok(())
     }
 }
 
@@ -430,21 +471,33 @@ pub fn run_structured_with_usage(
     schema: &str,
     prompt: &str,
     _workdir: &Path,
+    execution: &crate::application::ai::AiExecutionSettings,
 ) -> Result<(Vec<u8>, Option<AiTokenUsageCounts>), String> {
     let binary =
         resolve_binary().ok_or_else(|| "OpenCode CLI executable was not found".to_owned())?;
-    run_at(&binary, model, schema, prompt)
+    run_at_with_settings(&binary, model, schema, prompt, execution)
 }
+#[cfg(test)]
 fn run_at(
     binary: &Path,
     model: &str,
     schema: &str,
     prompt: &str,
 ) -> Result<(Vec<u8>, Option<AiTokenUsageCounts>), String> {
+    run_at_with_settings(binary, model, schema, prompt, &Default::default())
+}
+
+fn run_at_with_settings(
+    binary: &Path,
+    model: &str,
+    schema: &str,
+    prompt: &str,
+    execution: &crate::application::ai::AiExecutionSettings,
+) -> Result<(Vec<u8>, Option<AiTokenUsageCounts>), String> {
     if !valid_identifier(model) {
         return Err("Selected OpenCode model is invalid".to_owned());
     }
-    run_in_workspace(binary, model, schema, prompt, Workspace::new()?)
+    run_in_workspace(binary, model, schema, prompt, Workspace::new()?, execution)
 }
 
 fn run_in_workspace(
@@ -453,8 +506,10 @@ fn run_in_workspace(
     schema: &str,
     prompt: &str,
     mut workspace: Workspace,
+    execution: &crate::application::ai::AiExecutionSettings,
 ) -> Result<(Vec<u8>, Option<AiTokenUsageCounts>), String> {
     capabilities(binary, &workspace)?;
+    workspace.apply_output_limit(model, execution.opencode_max_output_tokens())?;
     let original_config = workspace.config.clone();
     let json_mode = workspace.enable_json_mode(model);
     let input=format!("Return only a JSON object matching this schema. Do not use tools or modify files.\nSchema:\n{schema}\n\nInput:\n{prompt}");
@@ -475,7 +530,7 @@ fn run_in_workspace(
         let captured = capture_cli_output_with_status(
             command,
             Some(input.clone()),
-            Duration::from_secs(15 * 60),
+            execution.timeout(),
             "OpenCode CLI",
             "run_structured",
             Some(model),
@@ -602,7 +657,8 @@ mod tests {
         Mock::given(method("POST")).and(path("/v1/chat/completions"))
             .and(|request: &wiremock::Request| {
                 let body: Value = serde_json::from_slice(&request.body).unwrap();
-                body.get("response_format").is_none()
+                (body["max_tokens"] == 1234 || body["max_completion_tokens"] == 1234)
+                    && body.get("response_format").is_none()
                     && body.get("tools").is_none_or(|v|v.as_array().is_some_and(Vec::is_empty))
                     && body.get("reasoning_effort") != Some(&json!("none"))
             })
@@ -617,7 +673,9 @@ mod tests {
         let config = root.path().join("opencode.json");
         std::fs::write(&config,json!({"provider":{"example":{"npm":"@ai-sdk/openai-compatible","options":{"baseURL":format!("{}/v1",server.uri()),"apiKey":""},"models":{"sample-model":{"name":"Example model"}}}}}).to_string()).unwrap();
         let workspace = Workspace::with_provider_sources(&[config], None).unwrap();
-        let (output, _) = tokio::task::spawn_blocking(move || run_in_workspace(&binary,"example/sample-model",r#"{"type":"object","properties":{"summary":{"type":"string"}},"required":["summary"]}"#,"Summarize Example task",workspace)).await.unwrap().unwrap();
+        let result = tokio::task::spawn_blocking(move || run_in_workspace(&binary,"example/sample-model",r#"{"type":"object","properties":{"summary":{"type":"string"}},"required":["summary"]}"#,"Summarize Example task",workspace,&crate::application::ai::AiExecutionSettings { timeout_seconds: 1800, max_output_tokens: Some(1234), output_tokens_mode: crate::application::ai::AiOutputTokensMode::Limited })).await.unwrap();
+
+        let (output, _) = result.unwrap();
         assert_eq!(
             serde_json::from_slice::<Value>(&output).unwrap()["summary"],
             "Example task"
