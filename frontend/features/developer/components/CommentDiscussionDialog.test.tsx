@@ -47,7 +47,7 @@ it("discusses a finding, applies its revision, restores history, and publishes o
   expect(sendMessage).toBeDisabled();
   expect(sendMessage.parentElement).toContainElement(within(dialog).getByLabelText("Question or additional context"));
   const messageField = within(dialog).getByLabelText("Question or additional context");
-  expect(messageField).toHaveClass("app-control-border", "border-input");
+  expect(messageField).toHaveClass("app-control-border", "border-input", "bg-control", "resize-none", "[field-sizing:content]");
   expect(messageField.parentElement).not.toHaveClass("border", "focus-within:ring-2");
   fireEvent.pointerEnter(within(dialog).getByText("Question or additional context"));
   expect(messageField).not.toHaveAttribute("data-pointer-hover");
