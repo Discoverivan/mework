@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { I18nProvider } from "@/i18n/I18nProvider";
 import type { TokenBurnerSnapshot } from "@/shared/contracts/token-burner";
@@ -309,11 +309,14 @@ describe("TokenBurnerPage", () => {
     expect(screen.getByRole("combobox", { name: "Reasoning" })).toHaveTextContent("medium");
     fireEvent.click(screen.getByRole("combobox", { name: "Mode" }));
     fireEvent.click(screen.getByRole("option", { name: "Fast" }));
-    fireEvent.change(screen.getByLabelText("Retries"), { target: { value: "2" } });
+    fireEvent.click(screen.getByRole("button", { name: "Advanced settings" }));
+    fireEvent.change(within(screen.getByRole("dialog", { name: "Advanced settings" })).getByRole("textbox", { name: "Retries" }), { target: { value: "2" } });
+    fireEvent.click(screen.getByRole("button", { name: "Apply" }));
     await waitFor(() => expect(saveAiSettingsMock).toHaveBeenCalledOnce());
     expect(screen.getByRole("status")).toHaveTextContent("Saving");
     expect(saveAiSettingsMock).toHaveBeenCalledWith(expect.objectContaining({
-      tokenBurner: { provider: "codex-cli", model: "example-codex-model", reasoning: "medium", fastMode: true },
+      tokenBurner: { provider: "codex-cli", model: "example-codex-model", reasoning: "medium", fastMode: true,
+        execution: { timeoutSeconds: 900, maxOutputTokens: null, outputTokensMode: "unlimited" } },
       retries: { default: 0, actions: { taskCreation: null, pullRequestReview: null, tokenBurner: 2, sprintSummary: null } },
     }));
     await act(async () => completeAiSave());

@@ -10,8 +10,10 @@ import {
 } from "@/components/ui/alert";
 import { StatusToast } from "@/components/shared/StatusToast";
 import { PageHeader } from "@/components/shared/PageHeader";
-import { ActionSettingsSection } from "./prompts/ActionSettingsSection";
+import { ActionSettingsSection, type AdvancedActionControls } from "./prompts/ActionSettingsSection";
 import { AiRetriesField } from "./AiRetriesField";
+import { AiAdvancedSettingsDialog, type AiAdvancedSettingsExtras } from "./AiAdvancedSettingsDialog";
+import { AiExecutionSettingsFields } from "./AiExecutionSettingsFields";
 import { AiModeSelect, AiOverrideEditor } from "./AiOverrideEditor";
 import { aiSectionChanged, copyAiSection, rebaseAiDraft } from "./action-settings-drafts";
 import { ReviewArbitrationSettings, ReviewModeControl } from "./ReviewArbitrationSettings";
@@ -282,8 +284,10 @@ export function SettingsPage({ section = "integrations", focusActivity, mockMode
   const [aiData, setAiData] = useState<AiSettingsPageData>(() => getCachedAiSettings() ?? INITIAL_AI_DATA);
   const [aiDraft, setAiDraft] = useState<AiSettings>(() => getCachedAiSettings()?.settings ?? DEFAULT_AI_SETTINGS);
   const [reviewCountValid, setReviewCountValid] = useState(true);
+  const [executionValidity, setExecutionValidity] = useState<Partial<Record<AiSettingsScope, boolean>>>({});
   const [reviewCountReset, setReviewCountReset] = useState(0);
   const [aiSaving, setAiSaving] = useState(false);
+  const aiAdvancedRetrySnapshots = useRef<Partial<Record<AiSettingsScope, number | null>>>({});
   const [aiSavingScopes, setAiSavingScopes] = useState<AiSettingsScope[]>([]);
   const [aiError, setAiError] = useState<string | null>(null);
   const [aiFieldError, setAiFieldError] = useState<AiSettingsSaveError | null>(null);
@@ -537,6 +541,8 @@ export function SettingsPage({ section = "integrations", focusActivity, mockMode
   const hasJiraIntegration = integrations.some((integration) => integration.kind === "jira");
 
   function sectionReady(scope: AiActionSettingsScope) {
+    if ((scope === "default" ? aiDraft.provider : aiDraft[scope]) && executionValidity[scope] === false) return false;
+    if (scope === "pullRequestReview" && aiDraft.reviewArbitration?.enabled && aiDraft.reviewArbiter && executionValidity.reviewArbiter === false) return false;
     if (scope === "pullRequestReview" && aiDraft.reviewArbitration?.enabled && !reviewCountValid) return false;
     if (scope === "default") {
       const selectionChanged = aiDraft.provider !== aiData.settings.provider
@@ -600,13 +606,13 @@ export function SettingsPage({ section = "integrations", focusActivity, mockMode
     setAiSaveNotice(null);
   }
 
-  function renderRetries(action: AiSettingsScope) {
+  function renderRetries(action: AiSettingsScope, rows = false, inline = false) {
     const inheritedRetries = aiDraft.retries.default;
     const value = action === "default"
       ? inheritedRetries
       : aiDraft.retries.actions[action] ?? inheritedRetries;
-    const id = `ai-retries-${action}`;
-    return <AiRetriesField id={id} value={value} disabled={aiLoading || aiSavingScopes.includes(action)}
+    const id = `ai-retries-${action}${inline ? "-inline" : ""}`;
+    return <AiRetriesField rows={rows} id={id} value={value} disabled={aiLoading || aiSavingScopes.includes(action)}
         onChange={(retries) => {
           setAiDraft((current) => ({
             ...current,
@@ -620,9 +626,52 @@ export function SettingsPage({ section = "integrations", focusActivity, mockMode
         }} />;
   }
 
+  function advancedAiExtras(scope: AiSettingsScope, controls?: AdvancedActionControls): AiAdvancedSettingsExtras {
+    return {
+      inline: renderInlineAiSettings(scope, controls),
+      changeKey: JSON.stringify({ retries: scope === "default" ? aiDraft.retries.default : aiDraft.retries.actions[scope] ?? aiDraft.retries.default, prompt: controls?.changeKey }),
+      afterModelSettings: controls?.afterModelSettings,
+      onBeginEdit: () => {
+        aiAdvancedRetrySnapshots.current[scope] = scope === "default" ? aiDraft.retries.default : aiDraft.retries.actions[scope] ?? null;
+        controls?.begin();
+      },
+      onCancelEdit: () => {
+        const retries = aiAdvancedRetrySnapshots.current[scope];
+        setAiDraft((current) => ({ ...current, retries: scope === "default"
+          ? { ...current.retries, default: retries ?? current.retries.default }
+          : { ...current.retries, actions: { ...current.retries.actions, [scope]: retries ?? null } } }));
+        controls?.cancel();
+      },
+      render: (profile) => <>
+        {scope === "default" || profile ? <><Separator />{renderRetries(scope, true)}</> : null}
+        {controls?.fields ? <><Separator />{controls.fields}</> : null}
+      </>,
+    };
+  }
+
+  function renderInlineAiSettings(scope: AiSettingsScope, controls?: AdvancedActionControls) {
+    const profile = scope === "default" ? aiDraft.provider ? {
+      provider: aiDraft.provider, providerInstanceId: aiDraft.providerInstanceId, model: aiDraft.model,
+      reasoning: aiDraft.reasoning, fastMode: aiDraft.fastMode, execution: aiDraft.execution,
+    } : null : aiDraft[scope];
+    return <div data-slot="control-group" className="flex basis-full flex-wrap items-end gap-y-4">
+      {controls?.inlineAfterModel}
+      {profile ? <AiExecutionSettingsFields idPrefix={`ai-${scope}-inline`} profile={profile} inheritsDefaults={scope !== "default"}
+        disabled={aiLoading || aiSavingScopes.includes(scope)}
+        onValidityChange={(valid) => setExecutionValidity((current) => current[scope] === valid ? current : { ...current, [scope]: valid })}
+        onChange={(next) => {
+          if (scope === "default") setAiDraft((current) => ({ ...current, execution: next.execution }));
+          else updateAiProfile(scope, next);
+        }} /> : null}
+      {scope === "default" || profile ? renderRetries(scope, false, true) : null}
+      {controls?.inlineFields}
+    </div>;
+  }
+
   function renderActionModelSettings(action: AiActivity) {
     return <div className="flex flex-wrap items-start gap-4">
       <AiOverrideEditor
+        showAdvanced={false}
         idPrefix={AI_ACTION_PREFIXES[action]}
         profile={aiDraft[action]}
         providers={aiData.providers}
@@ -637,7 +686,6 @@ export function SettingsPage({ section = "integrations", focusActivity, mockMode
         fieldErrors={{ provider: aiFieldMessage(action, "provider"), model: aiFieldMessage(action, "model") }}
         fieldWarnings={aiFieldWarnings(action)}
       />
-      {aiDraft[action] ? renderRetries(action) : null}
       {renderAiStatus(action)}
     </div>;
   }
@@ -1163,8 +1211,8 @@ export function SettingsPage({ section = "integrations", focusActivity, mockMode
             onSavingChange={handleInstructionsSaving}
             onLoadingChange={setInstructionsLoading}
             defaults={<div className="flex flex-col gap-4">
-              <div className="flex flex-wrap items-end gap-4">
-                <div className="grid min-w-0 max-w-full gap-2.5">
+              <div data-slot="control-group" className="flex flex-wrap items-end gap-y-4">
+                <div data-slot="control-field" className="grid min-w-0 max-w-full gap-2.5">
                   <Label id="ai-provider-label">{t("settings.ai.provider")}</Label>
                   <Select value={selectedAiProvider?.instanceId ?? aiDraft.provider ?? "__none__"} onValueChange={updateAiProvider} disabled={aiData === null || aiLoading || aiSavingScopes.includes("default")}>
                     <FieldValidationHint error={aiFieldMessage("default", "provider")} warning={aiFieldWarnings("default").provider}>
@@ -1175,7 +1223,7 @@ export function SettingsPage({ section = "integrations", focusActivity, mockMode
                     <AiProviderSelectContent providers={aiData.providers} fallbackValue="__none__" fallbackLabel={t("settings.ai.notSelected")} />
                   </Select>
                 </div>
-                <div className="grid min-w-0 max-w-full gap-2.5">
+                <div data-slot="control-field" className="grid min-w-0 max-w-full gap-2.5">
                   <Label id="ai-model-label">{t("settings.ai.model")}</Label>
                   <Select value={aiDraft.model} onValueChange={(value) => updateAiSetting("model", value)} disabled={!aiDraft.provider || !selectedAiProvider || aiSavingScopes.includes("default") || (selectedAiProvider.models.length === 0)}>
                     <FieldValidationHint error={aiFieldMessage("default", "model")} warning={aiFieldWarnings("default").model}>
@@ -1188,7 +1236,7 @@ export function SettingsPage({ section = "integrations", focusActivity, mockMode
                     </SelectContent>
                   </Select>
                 </div>
-                {aiDraft.provider === "codex-cli" ? <div className="grid min-w-0 max-w-full gap-2.5">
+                {aiDraft.provider === "codex-cli" ? <div data-slot="control-field" className="grid min-w-0 max-w-full gap-2.5">
                   <Label id="ai-reasoning-label">{t("settings.ai.reasoning")}</Label>
                   <Select value={aiDraft.reasoning} onValueChange={updateAiReasoning} disabled={!aiDraft.provider || aiSavingScopes.includes("default")}>
                     <SelectTrigger id="ai-reasoning" aria-labelledby="ai-reasoning-label" className="h-9"><SelectValue /></SelectTrigger>
@@ -1198,7 +1246,6 @@ export function SettingsPage({ section = "integrations", focusActivity, mockMode
                   </Select>
                 </div> : null}
                 {aiDraft.provider === "codex-cli" ? <AiModeSelect id="ai-mode" fastMode={aiDraft.fastMode} onChange={(fastMode) => updateAiSetting("fastMode", fastMode)} disabled={!aiDraft.provider || aiSavingScopes.includes("default")} /> : null}
-                {renderRetries("default")}
               </div>
               {renderAiStatus("default")}
             </div>}
@@ -1206,8 +1253,29 @@ export function SettingsPage({ section = "integrations", focusActivity, mockMode
               settings={aiDraft.reviewArbitration ?? DEFAULT_REVIEW_ARBITRATION}
               disabled={aiLoading || aiDeleting || aiSavingScopes.includes("pullRequestReview") || aiSavingScopes.includes("reviewArbiter")}
               onChange={(settings) => updateAiSetting("reviewArbitration", settings)} /> : null}
+            renderHeaderActions={(scope, controls) => {
+              const profile = scope === "default"
+                ? aiDraft.provider ? { provider: aiDraft.provider, providerInstanceId: aiDraft.providerInstanceId, model: aiDraft.model, reasoning: aiDraft.reasoning, fastMode: aiDraft.fastMode, execution: aiDraft.execution } : null
+                : aiDraft[scope];
+              return <AiAdvancedSettingsDialog idPrefix={`ai-${scope}-advanced`} profile={profile} extras={advancedAiExtras(scope, controls)}
+                inheritsDefaults={scope !== "default"} disabled={aiLoading || aiDeleting || aiSavingScopes.includes(scope)}
+                onChange={(next) => {
+                  if (scope !== "default") { updateAiProfile(scope, next); return; }
+                  setAiDraft((current) => ({ ...current, ...(next ?? { provider: null, providerInstanceId: null, model: "" }) }));
+                  setAiStatusScope("default"); setAiError(null); setAiFieldError(null);
+                }}
+                renderBasicSettings={(draft, onChange, help) => <AiOverrideEditor idPrefix={`ai-${scope}-advanced-basic`} providerHelp={help}
+                  profile={draft} providers={aiData.providers}
+                  inheritedLabel={t(scope === "default" ? "settings.ai.notSelected" : "settings.ai.inheritDefault")}
+                  providerLabel={t("settings.ai.provider")} modelLabel={t("settings.ai.model")}
+                  reasoningLabel={t("settings.ai.reasoning")} noModelsLabel={t("settings.ai.noModels")}
+                  unavailableLabel={t("settings.ai.unavailableSuffix")} onChange={onChange}
+                  disabled={aiLoading || aiDeleting || aiSavingScopes.includes(scope)} showAdvanced={false} rows />}
+              />;
+            }}
             renderModelSettings={renderActionModelSettings}
-            renderActionLayout={(action, fields, arbiterInstructions) => action === "pullRequestReview" ?
+            renderInlineSettings={renderInlineAiSettings}
+            renderActionLayout={(action, fields, arbiterControls) => action === "pullRequestReview" ?
               <ReviewArbitrationSettings settings={aiDraft.reviewArbitration ?? DEFAULT_REVIEW_ARBITRATION}
                 profile={aiDraft.reviewArbiter} providers={aiData.providers}
                 disabled={aiLoading || aiDeleting || aiSavingScopes.includes("reviewArbiter")}
@@ -1216,7 +1284,7 @@ export function SettingsPage({ section = "integrations", focusActivity, mockMode
                 onChange={(settings) => updateAiSetting("reviewArbitration", settings)}
                 onProfileChange={(profile) => updateAiProfile("reviewArbiter", profile)}
                 onReviewCountValidityChange={setReviewCountValid} reviewCountReset={reviewCountReset}
-                arbiterStatus={renderAiStatus("reviewArbiter")} arbiterInstructions={arbiterInstructions} arbiterRetries={renderRetries("reviewArbiter")}>
+                arbiterStatus={renderAiStatus("reviewArbiter")} arbiterAdvanced={advancedAiExtras("reviewArbiter", arbiterControls)}>
                 {fields}
               </ReviewArbitrationSettings> : fields}
             extraAction={renderActionModelSettings("tokenBurner")}

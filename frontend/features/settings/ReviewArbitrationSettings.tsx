@@ -1,3 +1,4 @@
+import type { AiAdvancedSettingsExtras } from "./AiAdvancedSettingsDialog";
 import type { ReactNode } from "react";
 import { Separator } from "@/components/ui/separator";
 import { ManualNumberField } from "@/components/shared/ManualNumberField";
@@ -32,11 +33,10 @@ export function ReviewModeControl({ settings, disabled, onChange }: {
   </Select>;
 }
 
-export function ReviewArbitrationSettings({ settings, profile, providers, disabled, fieldErrors, fieldWarnings, onChange, onProfileChange, onReviewCountValidityChange, reviewCountReset, children, arbiterStatus, arbiterInstructions, arbiterRetries }: {
+export function ReviewArbitrationSettings({ settings, profile, providers, disabled, fieldErrors, fieldWarnings, onChange, onProfileChange, onReviewCountValidityChange, reviewCountReset, children, arbiterStatus, arbiterAdvanced }: {
   children: ReactNode;
   arbiterStatus?: ReactNode;
-  arbiterInstructions?: ReactNode;
-  arbiterRetries?: ReactNode;
+  arbiterAdvanced?: AiAdvancedSettingsExtras;
   settings: Settings;
   profile: AiSettingsProfile | null | undefined;
   providers: AiProvider[];
@@ -61,10 +61,9 @@ export function ReviewArbitrationSettings({ settings, profile, providers, disabl
               inheritedLabel={t("settings.ai.inheritDefault")}
               providerLabel={t("settings.ai.provider")} modelLabel={t("settings.ai.arbiterModel")}
               reasoningLabel={t("settings.ai.reasoning")} noModelsLabel={t("settings.ai.noModels")}
-              unavailableLabel={t("settings.ai.unavailableSuffix")} disabled={disabled} fieldErrors={fieldErrors} fieldWarnings={fieldWarnings} onChange={onProfileChange} />
-            {profile ? arbiterRetries : null}
-            {arbiterInstructions}
+              unavailableLabel={t("settings.ai.unavailableSuffix")} disabled={disabled} fieldErrors={fieldErrors} fieldWarnings={fieldWarnings} onChange={onProfileChange} advancedExtras={arbiterAdvanced} />
           </div>
+          {arbiterAdvanced?.inline}
           {arbiterStatus}
         </div>
       </section>

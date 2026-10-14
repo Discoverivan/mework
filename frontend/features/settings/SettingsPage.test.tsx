@@ -1,3 +1,6 @@
+/// <reference types="node" />
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -146,9 +149,42 @@ describe("SettingsPage integrations smoke tests", () => {
       fireEvent.click(screen.getByRole("option", { name: label }));
     }
     const review = within(screen.getByRole("region", { name: "Pull request review" }));
+    function expectCompactGaps(section: HTMLElement, modelLabel = "Model") {
+      const css = readFileSync(resolve(import.meta.dirname, "../../index.css"), "utf8");
+      const style = document.createElement("style");
+      style.textContent = css.slice(css.indexOf(".app-icon-button,"));
+      document.head.append(style);
+      const previousStyle = document.documentElement.dataset.buttonStyle;
+      try {
+        document.documentElement.dataset.buttonStyle = "filled";
+        for (const field of ["AI provider", modelLabel, "Output tokens", "Request timeout", "Retries"]) {
+          const control = within(section).getByRole(field === "Request timeout" || field === "Retries" ? "textbox" : "combobox", { name: field });
+          let group = control.closest('[data-slot="control-field"]')!.parentElement!;
+          // display:contents wrappers do not own the actual flex layout gap.
+          while (group.classList.contains("contents")) group = group.parentElement!;
+          expect(getComputedStyle(group).columnGap, field).toBe("8px");
+        }
+      } finally {
+        style.remove();
+        if (previousStyle === undefined) delete document.documentElement.dataset.buttonStyle;
+        else document.documentElement.dataset.buttonStyle = previousStyle;
+      }
+    }
+    expectCompactGaps(screen.getByRole("region", { name: "Defaults" }));
     const reviewHeader = screen.getByRole("heading", { name: "Pull request review" }).closest("header");
+    expect(within(reviewHeader!).getAllByRole("button").map((button) => button.getAttribute("aria-label") ?? button.textContent))
+      .toEqual(["Advanced settings", "Cancel", "Save"]);
     expect(within(reviewHeader!).getByRole("combobox", { name: "Review mode" })).toBeInTheDocument();
-    await screen.findByRole("combobox", { name: "Suggest fixes" });
+    function openAdvanced(region: string) {
+      const section = screen.getByRole("region", { name: region });
+      fireEvent.click(within(section.querySelector(":scope > header") ?? section).getByRole("button", { name: "Advanced settings" }));
+      return within(screen.getByRole("dialog", { name: "Advanced settings" }));
+    }
+    const defaultsAdvanced = openAdvanced("Defaults");
+    fireEvent.click(defaultsAdvanced.getByRole("combobox", { name: "Output tokens" }));
+    expect(screen.getAllByRole("option").map((option) => option.textContent)).toEqual(["Limit not set", "Limited"]);
+    fireEvent.click(screen.getByRole("option", { name: "Limit not set" }));
+    fireEvent.click(defaultsAdvanced.getByRole("button", { name: "Cancel" }));
     chooseMode("Review with arbiter");
     expect(mode).toHaveTextContent("Review with arbiter");
     chooseMode("Single review");
@@ -162,24 +198,40 @@ describe("SettingsPage integrations smoke tests", () => {
     expect(review.getByRole("button", { name: "Save" })).toBeDisabled();
     fireEvent.change(count, { target: { value: "9" } });
     expect(review.getByRole("button", { name: "Save" })).toBeEnabled();
+    const inheritedArbiter = openAdvanced("Arbiter");
+    fireEvent.click(inheritedArbiter.getByRole("button", { name: "About AI provider settings" }));
+    expect(screen.getByText("This action uses the default AI settings. Select a provider to configure it separately.")).toBeVisible();
+    fireEvent.click(inheritedArbiter.getByRole("button", { name: "About AI provider settings" }));
+    fireEvent.click(inheritedArbiter.getByRole("button", { name: "Cancel" }));
     fireEvent.click(within(screen.getByRole("region", { name: "Arbiter" })).getByRole("combobox", { name: "AI provider" }));
     expect(screen.getAllByRole("option")[0]).toHaveTextContent("Use defaults");
     fireEvent.click(screen.getByRole("option", { name: /Claude Code CLI/ }));
-    fireEvent.change(within(screen.getByRole("region", { name: "Arbiter" })).getByRole("textbox", { name: "Retries" }), { target: { value: "3" } });
-    fireEvent.click(screen.getByRole("combobox", { name: "Suggest fixes" }));
-    fireEvent.click(screen.getByRole("option", { name: "Enabled" }));
-    fireEvent.click(within(screen.getByRole("region", { name: "Independent reviewers" })).getByRole("combobox", { name: "Instructions" }));
+    expectCompactGaps(screen.getByRole("region", { name: "Arbiter" }), "Arbiter model");
+    const arbiterInline = within(screen.getByRole("region", { name: "Arbiter" }));
+    fireEvent.change(arbiterInline.getByRole("textbox", { name: "Request timeout" }), { target: { value: "30" } });
+    const arbiterAdvanced = openAdvanced("Arbiter");
+    expect(arbiterAdvanced.getByRole("textbox", { name: "Request timeout" })).toHaveValue("30");
+    fireEvent.change(arbiterAdvanced.getByRole("textbox", { name: "Retries" }), { target: { value: "3" } });
+    fireEvent.click(arbiterAdvanced.getByRole("combobox", { name: "Instructions" }));
     fireEvent.click(screen.getByRole("option", { name: "Custom" }));
-    const dialog = within(screen.getByRole("dialog"));
-    fireEvent.change(dialog.getByLabelText("Your instructions"), { target: { value: "Check concrete example defects." } });
-    fireEvent.click(dialog.getByRole("button", { name: "Apply" }));
-    const arbiter = within(screen.getByRole("region", { name: "Arbiter" }));
-    fireEvent.click(arbiter.getByRole("combobox", { name: "Instructions" }));
-    fireEvent.click(screen.getByRole("option", { name: "Custom" }));
-    const arbiterDialog = within(screen.getByRole("dialog"));
-    expect(arbiterDialog.getByRole("heading", { name: "Arbiter" })).toBeInTheDocument();
+    const arbiterDialog = within(screen.getByRole("dialog", { name: "Arbiter" }));
     fireEvent.change(arbiterDialog.getByLabelText("Your instructions"), { target: { value: "Verify example defects independently." } });
     fireEvent.click(arbiterDialog.getByRole("button", { name: "Apply" }));
+    fireEvent.click(arbiterAdvanced.getByRole("button", { name: "Apply" }));
+    expect(arbiterInline.getByRole("textbox", { name: "Retries" })).toHaveValue("3");
+    const reviewAdvanced = openAdvanced("Pull request review");
+    fireEvent.click(reviewAdvanced.getByRole("combobox", { name: "Suggest fixes" }));
+    fireEvent.click(screen.getByRole("option", { name: "Enabled" }));
+    fireEvent.click(reviewAdvanced.getByRole("combobox", { name: "Instructions" }));
+    fireEvent.click(screen.getByRole("option", { name: "Custom" }));
+    const dialog = within(screen.getByRole("dialog", { name: "Pull request review" }));
+    expect(dialog.queryByRole("textbox", { name: "Built-in prompt" })).not.toBeInTheDocument();
+    fireEvent.click(dialog.getByRole("button", { name: "About Application rules" }));
+    expect(screen.getByText(/^These rules take precedence over custom instructions/)).toBeVisible();
+    fireEvent.click(dialog.getByRole("button", { name: "About Application rules" }));
+    fireEvent.change(dialog.getByLabelText("Your instructions"), { target: { value: "Check concrete example defects." } });
+    fireEvent.click(dialog.getByRole("button", { name: "Apply" }));
+    fireEvent.click(reviewAdvanced.getByRole("button", { name: "Apply" }));
     fireEvent.click(defaultAiSettings().getByRole("combobox", { name: "Reasoning" }));
     fireEvent.click(screen.getByRole("option", { name: "high" }));
     const task = within(screen.getByRole("region", { name: "Task creation" }));
@@ -207,10 +259,21 @@ describe("SettingsPage integrations smoke tests", () => {
     expect(await screen.findByRole("combobox", { name: "Review mode" })).toHaveTextContent("Review with arbiter");
     expect(screen.getByRole("textbox", { name: "Independent reviews" })).toHaveValue("9");
     expect(screen.getByRole("combobox", { name: "Arbiter model" })).toHaveTextContent("example-arbiter-model");
-    expect(await screen.findByRole("combobox", { name: "Suggest fixes" })).toHaveTextContent("Enabled");
-    expect(within(screen.getByRole("region", { name: "Arbiter" })).getByRole("combobox", { name: "Instructions" })).toHaveTextContent("Custom");
-    expect(within(screen.getByRole("region", { name: "Arbiter" })).getByRole("textbox", { name: "Retries" })).toHaveValue("3");
-  });
+    const restoredReview = openAdvanced("Pull request review");
+    expect(restoredReview.getByRole("button", { name: "Apply" })).toBeDisabled();
+    expect(restoredReview.getByRole("combobox", { name: "Suggest fixes" })).toHaveTextContent("Enabled");
+    fireEvent.click(restoredReview.getByRole("combobox", { name: "Suggest fixes" }));
+    fireEvent.click(screen.getByRole("option", { name: "Disabled" }));
+    expect(restoredReview.getByRole("button", { name: "Apply" })).toBeEnabled();
+    fireEvent.click(restoredReview.getByRole("button", { name: "Cancel" }));
+    const unchangedReview = openAdvanced("Pull request review");
+    expect(unchangedReview.getByRole("combobox", { name: "Suggest fixes" })).toHaveTextContent("Enabled");
+    fireEvent.click(unchangedReview.getByRole("button", { name: "Cancel" }));
+    const restoredArbiter = openAdvanced("Arbiter");
+    expect(restoredArbiter.getByRole("combobox", { name: "Instructions" })).toHaveTextContent("Custom");
+    expect(restoredArbiter.getByRole("textbox", { name: "Retries" })).toHaveValue("3");
+
+  }, 15_000);
 
   it("does not block data integrations while AI settings are pending", async () => {
     getAiSettingsMock.mockImplementation(() => new Promise(() => {}));

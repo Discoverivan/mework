@@ -1,12 +1,11 @@
 use std::{
-    io::Write,
     path::{Path, PathBuf},
     process::Stdio,
 };
 
 use serde_json::Value;
 
-use super::{local_cli_command, run_cli_output, spawn_cli};
+use super::{local_cli_command, run_cli_output};
 use crate::application::ai::{AiProviderDto, AiProviderId, AiProviderStatus};
 use crate::application::ai_usage_statistics::{parse_response_usage, AiTokenUsageCounts};
 
@@ -151,7 +150,8 @@ pub fn run_structured(
     prompt: &str,
     workdir: &Path,
 ) -> Result<Vec<u8>, String> {
-    run_structured_with_usage(model, schema, prompt, workdir).map(|(output, _)| output)
+    run_structured_with_usage(model, schema, prompt, workdir, &Default::default())
+        .map(|(output, _)| output)
 }
 
 pub fn run_structured_with_usage(
@@ -159,6 +159,7 @@ pub fn run_structured_with_usage(
     schema: &str,
     prompt: &str,
     workdir: &Path,
+    execution: &crate::application::ai::AiExecutionSettings,
 ) -> Result<(Vec<u8>, Option<AiTokenUsageCounts>), String> {
     if !MODELS.contains(&model) {
         return Err("Selected Claude Code model is invalid".to_owned());
@@ -188,45 +189,20 @@ pub fn run_structured_with_usage(
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
-    let (mut child, invocation) = spawn_cli(
-        &mut command,
-        "claude_code",
+    let output = super::capture_cli_output(
+        command,
+        Some(prompt.to_owned()),
+        execution.timeout(),
+        "Claude Code CLI",
         "structured_generation",
         Some(model),
-    )
-    .map_err(|_| "Unable to start Claude Code CLI".to_owned())?;
-    let Some(mut stdin) = child.stdin.take() else {
-        invocation.failed(None, &[], &[]);
-        let _ = child.kill();
-        let _ = child.wait();
-        return Err("Unable to send input to Claude Code CLI".to_owned());
-    };
-    if stdin.write_all(prompt.as_bytes()).is_err() {
-        invocation.failed(None, &[], &[]);
-        crate::application::logging::error(
-            "ai.cli",
-            "stdin_write_failure",
-            serde_json::json!({"provider": "claude_code", "operation": "structured_generation", "model": model}),
-        );
-        let _ = child.kill();
-        let _ = child.wait();
-        return Err("Unable to send input to Claude Code CLI".to_owned());
-    }
-    drop(stdin);
-    let output = child.wait_with_output().map_err(|_| {
-        invocation.failed(None, &[], &[]);
-        "Claude Code CLI did not return a result".to_owned()
-    })?;
-    if !output.status.success() {
-        invocation.failed(output.status.code(), &output.stdout, &output.stderr);
-        return Err("Claude Code CLI run failed".to_owned());
-    }
-    let response: Value = serde_json::from_slice(&output.stdout).map_err(|_| {
+    )?;
+    let response: Value = serde_json::from_slice(&output).map_err(|_| {
         crate::application::logging::log_parse_failure(
             "ai.cli",
             "claude_code_structured_generation",
             "json",
-            &output.stdout,
+            &output,
         );
         "Claude Code CLI returned invalid JSON".to_owned()
     })?;
@@ -236,7 +212,7 @@ pub fn run_structured_with_usage(
             "ai.cli",
             "claude_code_structured_generation",
             "missing_structured_output",
-            &output.stdout,
+            &output,
         );
         "Claude Code CLI returned no structured result".to_owned()
     })?;
@@ -245,11 +221,10 @@ pub fn run_structured_with_usage(
             "ai.cli",
             "claude_code_structured_generation",
             "structured_serialization",
-            &output.stdout,
+            &output,
         );
         "Claude Code CLI returned invalid structured output".to_owned()
     })?;
-    invocation.completed(output_bytes.len());
     Ok((output_bytes, usage))
 }
 

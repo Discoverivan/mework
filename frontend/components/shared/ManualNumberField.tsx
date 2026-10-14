@@ -58,7 +58,7 @@ export function ManualNumberField({ id, label, labelledBy, description, value, m
     return nextError;
   }
 
-  return <div role="group" className="grid w-fit gap-2.5" data-disabled={disabled}>
+  return <div role="group" data-slot="control-field" className="grid w-fit gap-2.5" data-disabled={disabled}>
     {!labelledBy ? <Hint content={description}><Label id={`${id}-label`} htmlFor={id} className="whitespace-nowrap">{label}</Label></Hint> : null}
     <Popover open={!disabled && showError && Boolean(error)} onOpenChange={setShowError}>
       <PopoverAnchor asChild><Input

@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Label } from "@/components/ui/label";
+import { Field, FieldLabel } from "@/components/ui/field";
 import { Popover, PopoverAnchor, PopoverContent } from "@/components/ui/popover";
 import { InfoPopover } from "@/components/shared/InfoPopover";
 import { PullRequestTargetPicker } from "./PullRequestTargetPicker";
@@ -210,9 +210,11 @@ export function ReviewInstructionsDialog({ open, onOpenChange, initialTarget }: 
     <Dialog open={open && editing !== null} onOpenChange={(value) => { if (!value) setEditing(null); }}>
       <DialogContent className="max-w-2xl">
         <DialogHeader><DialogTitle>{t("pr.instructions.edit")}</DialogTitle><DialogDescription>{editing?.label}</DialogDescription></DialogHeader>
-        <DialogBody>
-          <Label htmlFor="review-rule-instructions">{t("pr.instructions.text")}</Label>
-          <Textarea id="review-rule-instructions" className="mt-2 min-h-64" aria-label={t("pr.instructions.textFor", { target: editing?.label ?? "" })} value={editing?.instructions ?? ""} maxLength={20000} onChange={(event) => setEditing((current) => current ? { ...current, instructions: event.target.value } : current)} />
+        <DialogBody layout="sections">
+          <Card className="p-4"><Field>
+            <FieldLabel htmlFor="review-rule-instructions">{t("pr.instructions.text")}</FieldLabel>
+            <Textarea id="review-rule-instructions" className="min-h-64" aria-label={t("pr.instructions.textFor", { target: editing?.label ?? "" })} value={editing?.instructions ?? ""} maxLength={20000} onChange={(event) => setEditing((current) => current ? { ...current, instructions: event.target.value } : current)} />
+          </Field></Card>
         </DialogBody>
         <DialogFooter>
           <Button data-dialog-cancel type="button" variant="outline" onClick={() => setEditing(null)}>{t("settings.common.cancel")}</Button>

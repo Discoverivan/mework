@@ -3,8 +3,40 @@ import { resolve } from "node:path";
 import { fireEvent, render, screen } from "@testing-library/react";
 import { expect, it } from "vitest";
 import { Input } from "./input";
+import { Textarea } from "./textarea";
 import { Button } from "./button";
 import { ManualNumberField } from "@/components/shared/ManualNumberField";
+
+it("highlights multiline boundaries while keeping long text readable", () => {
+  const css = readFileSync(resolve(import.meta.dirname, "../../index.css"), "utf8");
+  const style = document.createElement("style");
+  style.textContent = ".app-control-border { border: 1px solid rgb(100, 100, 100); color: rgb(30, 30, 30); padding: 8px 12px; }" + css.slice(css.indexOf("/* Preserve button geometry"), css.indexOf("/* All cards, including empty states"))
+    .replace(/var\(--primary\)/g, "rgb(70, 90, 180)");
+  document.head.append(style);
+  const previousStyle = document.documentElement.dataset.buttonStyle;
+  try {
+    render(<Textarea aria-label="Example prompt" value="Example multiline instructions." readOnly />);
+    const field = screen.getByRole("textbox", { name: "Example prompt" });
+    for (const appearance of ["filled", "filled_borderless", "quiet"]) {
+      document.documentElement.dataset.buttonStyle = appearance;
+      fireEvent.pointerEnter(field);
+      style.textContent += "\n";
+      expect(getComputedStyle(field).color).toBe("rgb(30, 30, 30)");
+      expect(getComputedStyle(field).borderColor).toBe("rgb(70, 90, 180)");
+      field.focus();
+      fireEvent.pointerLeave(field);
+      style.textContent += "\n";
+      expect(getComputedStyle(field).color).toBe("rgb(30, 30, 30)");
+      expect(getComputedStyle(field).borderColor).toBe("rgb(70, 90, 180)");
+      expect(getComputedStyle(field).paddingLeft).toBe("12px");
+      field.blur();
+    }
+  } finally {
+    style.remove();
+    if (previousStyle === undefined) delete document.documentElement.dataset.buttonStyle;
+    else document.documentElement.dataset.buttonStyle = previousStyle;
+  }
+});
 
 it("shares numeric value feedback across Filled styles while preserving their border appearance", () => {
   const css = readFileSync(resolve(import.meta.dirname, "../../index.css"), "utf8");

@@ -1146,6 +1146,7 @@ fn execute_draft_in_workspace_with_usage(
             prompt,
             output_language,
             instructions,
+            settings.execution,
         );
     }
     if settings.provider == Some(ai::AiProviderId::ClaudeCodeCli) {
@@ -1155,6 +1156,7 @@ fn execute_draft_in_workspace_with_usage(
                 task_draft_schema(),
                 &ai_prompts::task_prompt(prompt, instructions, output_language),
                 workdir,
+                &settings.execution,
             )?;
         let draft = parse_cli_task_draft(&output, "claude_code")?;
         return Ok((draft, usage));
@@ -1166,6 +1168,7 @@ fn execute_draft_in_workspace_with_usage(
                 task_draft_schema(),
                 &ai_prompts::task_prompt(prompt, instructions, output_language),
                 workdir,
+                &settings.execution,
             )?;
         let draft = parse_cli_task_draft(&output, "hermes")?;
         return Ok((draft, usage));
@@ -1177,6 +1180,7 @@ fn execute_draft_in_workspace_with_usage(
                 task_draft_schema(),
                 &ai_prompts::task_prompt(prompt, instructions, output_language),
                 workdir,
+                &settings.execution,
             )?;
         let mut draft: TaskDraftDto = serde_json::from_slice(&output)
             .map_err(|_| "OpenCode CLI returned invalid task JSON".to_owned())?;
@@ -1195,6 +1199,7 @@ fn execute_draft_in_workspace_with_usage(
             task_draft_schema(),
             &ai_prompts::task_prompt(prompt, instructions, output_language),
             workdir,
+            &settings.execution,
         )?;
         let mut draft: TaskDraftDto = serde_json::from_slice(&output)
             .map_err(|_| "Pi CLI returned invalid task JSON".to_owned())?;
@@ -1226,6 +1231,9 @@ fn execute_draft_in_workspace_with_usage(
             }
             crate::application::ai_providers::cli::codex::RunError::Failed(_) => {
                 "AI task generation failed"
+            }
+            crate::application::ai_providers::cli::codex::RunError::TimedOut => {
+                "AI request timed out"
             }
             crate::application::ai_providers::cli::codex::RunError::ResultRead => {
                 "AI task result was not returned"
@@ -1284,6 +1292,7 @@ fn execute_openai_task_draft(
         prompt,
         output_language,
         ai_prompts::TASK_DEFAULT,
+        Default::default(),
     )
     .map(|(draft, _)| draft)
 }
@@ -1294,6 +1303,7 @@ fn execute_openai_task_draft_with_usage(
     prompt: &str,
     output_language: general::AppLanguage,
     instructions: &str,
+    execution: ai::AiExecutionSettings,
 ) -> Result<
     (
         TaskDraftDto,
@@ -1303,24 +1313,26 @@ fn execute_openai_task_draft_with_usage(
 > {
     let prompt = ai_prompts::task_prompt(prompt, instructions, output_language);
     let content = tauri::async_runtime::block_on(async {
-        let client =
-            ai::openai_http_client(Duration::from_secs(15 * 60), runtime.allow_insecure_tls)?;
+        let client = ai::openai_http_client(execution.timeout(), runtime.allow_insecure_tls)?;
         let system_prompt = ai_prompts::rules(PromptAction::TaskCreation, output_language);
         let payload = json!({
             "model": model,
-            "max_tokens": ai::OPENAI_MAX_OUTPUT_TOKENS,
+            "max_tokens": execution.openai_max_output_tokens(),
             "stream": false,
             "messages": [
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": prompt}
             ]
         });
-        let (status, body) =
-            ai::request_openai_structured_response(&client, runtime, "task_generation", payload)
-                .await
-                .map_err(|_| {
-                    "OpenAI-compatible API task request could not be completed".to_owned()
-                })?;
+        let (status, body) = ai::request_openai_structured_response(
+            &client,
+            runtime,
+            "task_generation",
+            payload,
+            execution,
+        )
+        .await
+        .map_err(|_| "OpenAI-compatible API task request could not be completed".to_owned())?;
         if status == reqwest::StatusCode::UNAUTHORIZED || status == reqwest::StatusCode::FORBIDDEN {
             return Err(
                 "OpenAI-compatible API authorization failed during task generation".to_owned(),
@@ -1471,6 +1483,7 @@ mod tests {
             model: "sonnet".to_owned(),
             reasoning: AiReasoning::Medium,
             fast_mode: false,
+            execution: Default::default(),
             task_creation: None,
             pull_request_review: None,
             review_arbiter: None,
@@ -1510,25 +1523,44 @@ mod tests {
         );
     }
 
-    #[cfg(unix)]
     #[test]
     fn creates_task_draft_with_codex_cli_and_reports_usage() {
         use crate::application::ai::{AiProviderId, AiReasoning, AiSettings};
-        use std::{fs, os::unix::fs::PermissionsExt};
+        use std::fs;
+        #[cfg(unix)]
+        use std::os::unix::fs::PermissionsExt;
 
         let _lock = crate::application::ai::test_process_env_lock()
             .lock()
             .unwrap();
         let directory = tempfile::tempdir().unwrap();
-        let binary = directory.path().join("codex");
+        let binary = directory
+            .path()
+            .join(if cfg!(windows) { "codex.cmd" } else { "codex" });
+        #[cfg(unix)]
         fs::write(
             &binary,
             "#!/bin/sh\noutput=''\nwhile [ \"$#\" -gt 0 ]; do\n  if [ \"$1\" = \"--output-last-message\" ]; then output=\"$2\"; shift 2; else shift; fi\ndone\ncat >/dev/null\nprintf '%s' '{\"summary\":\"Add audit filter\",\"description\":\"*Goal*\\n\\nAdd audit filtering\"}' > \"$output\"\nprintf '%s\\n' '{\"type\":\"turn.completed\",\"usage\":{\"input_tokens\":40,\"cached_input_tokens\":15,\"output_tokens\":8}}'\n",
         )
         .unwrap();
-        let mut permissions = fs::metadata(&binary).unwrap().permissions();
-        permissions.set_mode(0o755);
-        fs::set_permissions(&binary, permissions).unwrap();
+        #[cfg(windows)]
+        fs::write(&binary, r#"@echo off
+:args
+if "%~1"=="" goto run
+if "%~1"=="--output-last-message" set "output=%~2"
+shift
+goto args
+:run
+more > nul
+>"%output%" echo {"summary":"Add audit filter","description":"*Goal*\n\nAdd audit filtering"}
+echo {"type":"turn.completed","usage":{"input_tokens":40,"cached_input_tokens":15,"output_tokens":8}}
+"#).unwrap();
+        #[cfg(unix)]
+        {
+            let mut permissions = fs::metadata(&binary).unwrap().permissions();
+            permissions.set_mode(0o755);
+            fs::set_permissions(&binary, permissions).unwrap();
+        }
         std::env::set_var("MEWORK_CODEX_CLI_BIN", &binary);
 
         let settings = AiSettings {
@@ -1537,6 +1569,7 @@ mod tests {
             model: "gpt-5.5".to_owned(),
             reasoning: AiReasoning::Medium,
             fast_mode: false,
+            execution: Default::default(),
             task_creation: None,
             pull_request_review: None,
             review_arbiter: None,
@@ -1817,6 +1850,7 @@ mod tests {
                 "Create an audit filter",
                 AppLanguage::English,
                 ai_prompts::TASK_DEFAULT,
+                Default::default(),
             )
         })
         .await
