@@ -84,7 +84,7 @@ export function AiOverrideEditor({
   const fieldClassName = rows ? "flex min-w-0 flex-wrap items-center justify-between gap-3" : "grid min-w-0 max-w-full gap-2.5";
 
   return (
-    <div className={rows ? "space-y-4" : "flex min-w-0 flex-1 flex-wrap items-end gap-y-4"}>
+    <div data-slot={rows ? undefined : "control-group"} className={rows ? "space-y-4" : "flex min-w-0 flex-1 flex-wrap items-end gap-y-4"}>
       <div data-slot={rows ? undefined : "control-field"} className={fieldClassName}>
         {providerHelp ? <div className="flex items-center gap-1">
           <Label id={`${idPrefix}-provider-label`} alignment={rows ? "inline" : undefined}>{providerLabel}</Label>

@@ -124,7 +124,7 @@ export function ModelTestingAiSettings({ data, disabled, onPendingChange }: { da
         }}
       />
     </div>
-    {profile ? <div className="flex flex-wrap items-end gap-y-4">
+    {profile ? <div data-slot="control-group" className="flex flex-wrap items-end gap-y-4">
       <AiExecutionSettingsFields idPrefix="model-testing-ai-inline" profile={profile} disabled={disabled || loading || saving}
         onChange={changeProfile} onValidityChange={setExecutionValid} />
       <AiRetriesField id="model-testing-ai-retries-inline" value={retries ?? data.settings.retries.default}

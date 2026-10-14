@@ -654,7 +654,7 @@ export function SettingsPage({ section = "integrations", focusActivity, mockMode
       provider: aiDraft.provider, providerInstanceId: aiDraft.providerInstanceId, model: aiDraft.model,
       reasoning: aiDraft.reasoning, fastMode: aiDraft.fastMode, execution: aiDraft.execution,
     } : null : aiDraft[scope];
-    return <div className="flex basis-full flex-wrap items-end gap-y-4">
+    return <div data-slot="control-group" className="flex basis-full flex-wrap items-end gap-y-4">
       {controls?.inlineAfterModel}
       {profile ? <AiExecutionSettingsFields idPrefix={`ai-${scope}-inline`} profile={profile} inheritsDefaults={scope !== "default"}
         disabled={aiLoading || aiSavingScopes.includes(scope)}
@@ -1211,7 +1211,7 @@ export function SettingsPage({ section = "integrations", focusActivity, mockMode
             onSavingChange={handleInstructionsSaving}
             onLoadingChange={setInstructionsLoading}
             defaults={<div className="flex flex-col gap-4">
-              <div className="flex flex-wrap items-end gap-y-4">
+              <div data-slot="control-group" className="flex flex-wrap items-end gap-y-4">
                 <div data-slot="control-field" className="grid min-w-0 max-w-full gap-2.5">
                   <Label id="ai-provider-label">{t("settings.ai.provider")}</Label>
                   <Select value={selectedAiProvider?.instanceId ?? aiDraft.provider ?? "__none__"} onValueChange={updateAiProvider} disabled={aiData === null || aiLoading || aiSavingScopes.includes("default")}>

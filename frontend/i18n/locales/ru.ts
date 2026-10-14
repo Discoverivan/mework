@@ -124,6 +124,7 @@ export const ru: Record<TranslationKey, string> = {
   "settings.prompts.edit": "Изменить инструкции: {action}",
   "settings.prompts.editorDescription": "Измените инструкции и примените их к черновику раздела. Сохраните раздел, чтобы использовать их в новых запусках; готовые результаты и активные запуски сохранят прежние инструкции.",
   "settings.prompts.instructions": "Ваши инструкции",
+  "settings.prompts.fieldHelp": "О поле «{field}»",
   "settings.prompts.instructionsHelp": "Можно писать на любом языке. Не добавляйте пароли, токены и другие учётные данные. До 20 000 символов.",
   "settings.prompts.validation": "Введите от 1 до 20 000 символов.",
   "settings.prompts.builtIn": "Встроенный промпт",

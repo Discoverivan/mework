@@ -120,6 +120,7 @@ export const en = {
   "settings.prompts.edit": "Edit instructions: {action}",
   "settings.prompts.editorDescription": "Edit the instructions and apply them to this section's draft. Save the section to use them for new runs; completed results and active runs keep their previous instructions.",
   "settings.prompts.instructions": "Your instructions",
+  "settings.prompts.fieldHelp": "About {field}",
   "settings.prompts.instructionsHelp": "Use any language. Do not include passwords, tokens, or other credentials. Up to 20,000 characters.",
   "settings.prompts.validation": "Enter between 1 and 20,000 characters.",
   "settings.prompts.builtIn": "Built-in prompt",

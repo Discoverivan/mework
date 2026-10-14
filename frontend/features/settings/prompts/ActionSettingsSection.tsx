@@ -280,20 +280,27 @@ export function ActionSettingsSection({ defaults, renderActionHeader, renderHead
             <FieldGroup className="gap-4">
               <div className={viewing ? "" : "grid items-start gap-4 lg:grid-cols-2"}>
                 {!viewing ? <Card className="p-4"><Field data-invalid={invalid} data-disabled={saving || disabled}>
-                  <FieldLabel htmlFor="ai-prompt-instructions">{t("settings.prompts.instructions")}</FieldLabel>
-                  <Textarea id="ai-prompt-instructions" className={instructionTextareaClassName} rows={1} value={draft} onChange={(event) => setDraft(event.target.value)} disabled={saving || disabled} aria-invalid={invalid} aria-describedby="ai-prompt-help" />
-                  <p className="text-sm text-muted-foreground" id="ai-prompt-help">{t(invalid ? "settings.prompts.validation" : "settings.prompts.instructionsHelp")}</p>
+                  <div className="flex items-center gap-1">
+                    <FieldLabel htmlFor="ai-prompt-instructions">{t("settings.prompts.instructions")}</FieldLabel>
+                    <InfoPopover label={t("settings.prompts.fieldHelp", { field: t("settings.prompts.instructions") })} title={t("settings.prompts.instructions")}><p>{t("settings.prompts.instructionsHelp")}</p></InfoPopover>
+                  </div>
+                  <Textarea id="ai-prompt-instructions" className={instructionTextareaClassName} rows={1} value={draft} onChange={(event) => setDraft(event.target.value)} disabled={saving || disabled} aria-invalid={invalid} aria-describedby={invalid ? "ai-prompt-help" : undefined} aria-description={t("settings.prompts.instructionsHelp")} />
+                  {invalid ? <p className="text-sm text-destructive" id="ai-prompt-help">{t("settings.prompts.validation")}</p> : null}
                 </Field></Card> : null}
                 <Card className="p-4"><Field>
-                  <FieldLabel htmlFor="ai-prompt-default">{t("settings.prompts.builtIn")}</FieldLabel>
+                  <div className="flex items-center gap-1">
+                    <FieldLabel htmlFor="ai-prompt-default">{t("settings.prompts.builtIn")}</FieldLabel>
+                    <InfoPopover label={t("settings.prompts.fieldHelp", { field: t("settings.prompts.builtIn") })} title={t("settings.prompts.builtIn")}><p>{t("settings.prompts.builtInHelp")}</p></InfoPopover>
+                  </div>
                   <Textarea id="ai-prompt-default" className={instructionTextareaClassName} rows={1} value={editing?.defaultInstructions ?? ""} readOnly />
-                  <p className="text-sm text-muted-foreground">{t("settings.prompts.builtInHelp")}</p>
                 </Field></Card>
               </div>
               <Card className="p-4"><Field>
-                <FieldLabel htmlFor="ai-prompt-rules">{t("settings.prompts.protectedRules")}</FieldLabel>
+                <div className="flex items-center gap-1">
+                  <FieldLabel htmlFor="ai-prompt-rules">{t("settings.prompts.protectedRules")}</FieldLabel>
+                  <InfoPopover label={t("settings.prompts.fieldHelp", { field: t("settings.prompts.protectedRules") })} title={t("settings.prompts.protectedRules")}><p>{t("settings.prompts.protectedRulesHelp")}</p></InfoPopover>
+                </div>
                 <Textarea id="ai-prompt-rules" className={instructionTextareaClassName} rows={1} value={editing?.protectedRules ?? ""} readOnly />
-                <p className="text-sm text-muted-foreground">{t("settings.prompts.protectedRulesHelp")}</p>
               </Field></Card>
             </FieldGroup>
           </form>

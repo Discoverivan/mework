@@ -43,7 +43,7 @@ export function AiExecutionSettingsFields({ idPrefix, profile, disabled, onChang
           <p>{t("settings.ai.advanced.tokensDescription")}</p>
         </InfoPopover>
       </div>
-      <div data-menu-align={rows ? "end" : undefined} className="flex min-w-0 max-w-full flex-wrap items-center gap-y-1.5">
+      <div data-slot="control-group" data-menu-align={rows ? "end" : undefined} className="flex min-w-0 max-w-full flex-wrap items-center gap-y-1.5">
         <Select value={tokensMode} disabled={disabled} onValueChange={(mode: "unlimited" | "limited") => {
           setTokensValid(true);
           onChange({ ...profile, execution: { ...execution, outputTokensMode: mode, maxOutputTokens: mode === "limited" ? execution.maxOutputTokens ?? 30000 : null } });
@@ -71,7 +71,7 @@ export function AiExecutionSettingsFields({ idPrefix, profile, disabled, onChang
           <p>{t("settings.ai.advanced.timeoutDescription")}</p>
         </InfoPopover>
       </div>
-      <div data-menu-align={rows ? "end" : undefined} className="flex min-w-0 max-w-full flex-wrap items-center gap-y-1.5">
+      <div data-slot="control-group" data-menu-align={rows ? "end" : undefined} className="flex min-w-0 max-w-full flex-wrap items-center gap-y-1.5">
         <ManualNumberField key={timeoutUnit} id={`${idPrefix}-timeout`} label={t("settings.ai.advanced.timeout")}
         labelledBy={`${idPrefix}-timeout-label`}
         value={Number((execution.timeoutSeconds / secondsPerUnit).toFixed(6))}

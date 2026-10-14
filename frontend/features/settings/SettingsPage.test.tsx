@@ -1,3 +1,6 @@
+/// <reference types="node" />
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -146,6 +149,28 @@ describe("SettingsPage integrations smoke tests", () => {
       fireEvent.click(screen.getByRole("option", { name: label }));
     }
     const review = within(screen.getByRole("region", { name: "Pull request review" }));
+    function expectCompactGaps(section: HTMLElement, modelLabel = "Model") {
+      const css = readFileSync(resolve(import.meta.dirname, "../../index.css"), "utf8");
+      const style = document.createElement("style");
+      style.textContent = css.slice(css.indexOf(".app-icon-button,"));
+      document.head.append(style);
+      const previousStyle = document.documentElement.dataset.buttonStyle;
+      try {
+        document.documentElement.dataset.buttonStyle = "filled";
+        for (const field of ["AI provider", modelLabel, "Output tokens", "Request timeout", "Retries"]) {
+          const control = within(section).getByRole(field === "Request timeout" || field === "Retries" ? "textbox" : "combobox", { name: field });
+          let group = control.closest('[data-slot="control-field"]')!.parentElement!;
+          // display:contents wrappers do not own the actual flex layout gap.
+          while (group.classList.contains("contents")) group = group.parentElement!;
+          expect(getComputedStyle(group).columnGap, field).toBe("8px");
+        }
+      } finally {
+        style.remove();
+        if (previousStyle === undefined) delete document.documentElement.dataset.buttonStyle;
+        else document.documentElement.dataset.buttonStyle = previousStyle;
+      }
+    }
+    expectCompactGaps(screen.getByRole("region", { name: "Defaults" }));
     const reviewHeader = screen.getByRole("heading", { name: "Pull request review" }).closest("header");
     expect(within(reviewHeader!).getAllByRole("button").map((button) => button.getAttribute("aria-label") ?? button.textContent))
       .toEqual(["Advanced settings", "Cancel", "Save"]);
@@ -181,6 +206,7 @@ describe("SettingsPage integrations smoke tests", () => {
     fireEvent.click(within(screen.getByRole("region", { name: "Arbiter" })).getByRole("combobox", { name: "AI provider" }));
     expect(screen.getAllByRole("option")[0]).toHaveTextContent("Use defaults");
     fireEvent.click(screen.getByRole("option", { name: /Claude Code CLI/ }));
+    expectCompactGaps(screen.getByRole("region", { name: "Arbiter" }), "Arbiter model");
     const arbiterInline = within(screen.getByRole("region", { name: "Arbiter" }));
     fireEvent.change(arbiterInline.getByRole("textbox", { name: "Request timeout" }), { target: { value: "30" } });
     const arbiterAdvanced = openAdvanced("Arbiter");
@@ -199,6 +225,10 @@ describe("SettingsPage integrations smoke tests", () => {
     fireEvent.click(reviewAdvanced.getByRole("combobox", { name: "Instructions" }));
     fireEvent.click(screen.getByRole("option", { name: "Custom" }));
     const dialog = within(screen.getByRole("dialog", { name: "Pull request review" }));
+    expect(screen.queryByText("Default instructions to use as a reference when customizing.")).not.toBeInTheDocument();
+    fireEvent.click(dialog.getByRole("button", { name: "About Built-in prompt" }));
+    expect(screen.getByText("Default instructions to use as a reference when customizing.")).toBeVisible();
+    fireEvent.click(dialog.getByRole("button", { name: "About Built-in prompt" }));
     fireEvent.change(dialog.getByLabelText("Your instructions"), { target: { value: "Check concrete example defects." } });
     fireEvent.click(dialog.getByRole("button", { name: "Apply" }));
     fireEvent.click(reviewAdvanced.getByRole("button", { name: "Apply" }));
@@ -243,7 +273,7 @@ describe("SettingsPage integrations smoke tests", () => {
     expect(restoredArbiter.getByRole("combobox", { name: "Instructions" })).toHaveTextContent("Custom");
     expect(restoredArbiter.getByRole("textbox", { name: "Retries" })).toHaveValue("3");
 
-  });
+  }, 15_000);
 
   it("does not block data integrations while AI settings are pending", async () => {
     getAiSettingsMock.mockImplementation(() => new Promise(() => {}));
