@@ -189,7 +189,7 @@ pub fn run_structured_with_usage(
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
-    let output = super::capture_cli_output(
+    let captured = super::capture_cli_output_with_status(
         command,
         Some(prompt.to_owned()),
         execution.timeout(),
@@ -197,12 +197,28 @@ pub fn run_structured_with_usage(
         "structured_generation",
         Some(model),
     )?;
-    let response: Value = serde_json::from_slice(&output).map_err(|_| {
+    parse_result(&captured.output, captured.success)
+}
+
+fn parse_result(
+    output: &[u8],
+    success: bool,
+) -> Result<(Vec<u8>, Option<AiTokenUsageCounts>), String> {
+    let response = serde_json::from_slice::<Value>(output).ok();
+    if response.as_ref().is_some_and(|response| {
+        response.get("stop_reason").and_then(Value::as_str) == Some("max_tokens")
+    }) {
+        return Err(crate::application::ai::OUTPUT_TOKEN_LIMIT_ERROR.to_owned());
+    }
+    if !success {
+        return Err("Claude Code CLI run failed".to_owned());
+    }
+    let response = response.ok_or_else(|| {
         crate::application::logging::log_parse_failure(
             "ai.cli",
             "claude_code_structured_generation",
             "json",
-            &output,
+            output,
         );
         "Claude Code CLI returned invalid JSON".to_owned()
     })?;
@@ -212,7 +228,7 @@ pub fn run_structured_with_usage(
             "ai.cli",
             "claude_code_structured_generation",
             "missing_structured_output",
-            &output,
+            output,
         );
         "Claude Code CLI returned no structured result".to_owned()
     })?;
@@ -221,7 +237,7 @@ pub fn run_structured_with_usage(
             "ai.cli",
             "claude_code_structured_generation",
             "structured_serialization",
-            &output,
+            output,
         );
         "Claude Code CLI returned invalid structured output".to_owned()
     })?;
@@ -257,6 +273,15 @@ mod tests {
 
     use super::{inspect, run_structured};
     use crate::application::ai::AiProviderStatus;
+
+    #[test]
+    fn identifies_output_token_limit() {
+        let result = br#"{"type":"result","subtype":"error_during_execution","is_error":true,"stop_reason":"max_tokens"}"#;
+        assert_eq!(
+            super::parse_result(result, false).unwrap_err(),
+            crate::application::ai::OUTPUT_TOKEN_LIMIT_ERROR
+        );
+    }
 
     #[test]
     fn detects_authenticated_cli_and_reads_structured_output() {

@@ -1,4 +1,5 @@
 import { Hint } from "@/components/ui/tooltip";
+import { formatAiError } from "@/lib/ai-error";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Check, CheckCircle2, ChevronDown, Circle, CircleAlert, Info, Loader2, Pause, Play, Settings2, Square, RotateCcw } from "lucide-react";
 import "./model-testing.css";
@@ -189,7 +190,7 @@ export function TokenBurnerPage() {
   }
 
   function showErrorNotice(message: string) {
-    setErrorNotice((current) => ({ message, revision: (current?.revision ?? 0) + 1 }));
+    setErrorNotice((current) => ({ message: formatAiError(message, t), revision: (current?.revision ?? 0) + 1 }));
   }
 
   useEffect(() => {

@@ -1,6 +1,7 @@
 import type { TranslationKey } from "./en";
 
 export const ru: Record<TranslationKey, string> = {
+  "ai.error.outputTokenLimit": "Модель достигла лимита выходных токенов и не завершила ответ. Бюджет может включать рассуждения. Увеличьте доступный лимит Output tokens или уменьшите объём запроса. Ограничения модели или сервера действуют и при выборе «Лимит не задан».",
   "settings.ai.advanced.providerHelp": "О настройках AI-провайдера",
   "settings.ai.advanced.retriesHelp": "О повторных попытках",
   "settings.ai.advanced.help": "О расширенных настройках",

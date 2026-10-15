@@ -21,6 +21,7 @@ import {
 import type { MyPullRequest, PullRequestCommentMatch, PullRequestPublishableComment, PullRequestCommentMatchesRequest, PullRequestReviewComment, PullRequestReviewState } from "@/shared/contracts/developer";
 import { useI18n } from "@/i18n/context";
 import { cn } from "@/lib/utils";
+import { formatAiError } from "@/lib/ai-error";
 
 import {
   CreatorAvatar,
@@ -276,7 +277,7 @@ export function PullRequestReviewDialog({
                 {t("pr.aiReviewError")}
                 {review ? <PullRequestReviewDetails review={review} /> : null}
               </AlertTitle>
-              <AlertDescription className="break-words">{review.error || t("pr.dialog.unknownReviewError")}</AlertDescription>
+              <AlertDescription className="break-words">{review.error ? formatAiError(review.error, t) : t("pr.dialog.unknownReviewError")}</AlertDescription>
             </Alert>
           ) : null}
           {result && !reviewFailed ? (

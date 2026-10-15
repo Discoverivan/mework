@@ -1,4 +1,5 @@
 export const en = {
+  "ai.error.outputTokenLimit": "The model reached its output-token limit before completing the response. Reasoning may consume this budget. Increase the available Output tokens limit or reduce the request size. Model or server limits can still apply when Limit not set is selected.",
   "settings.ai.advanced.providerHelp": "About AI provider settings",
   "settings.ai.advanced.retriesHelp": "About retries",
   "settings.ai.advanced.help": "About advanced settings",

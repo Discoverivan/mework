@@ -9,6 +9,7 @@ import { PageHeader } from "@/components/shared/PageHeader";
 import { StatusToast } from "@/components/shared/StatusToast";
 import { useInfoPopoverAnchor } from "@/components/shared/use-info-popover-anchor";
 import { formatDisplayDate } from "@/lib/display-date";
+import { formatAiError } from "@/lib/ai-error";
 import { useI18n } from "@/i18n/context";
 import { AppLanguage } from "@/i18n/types";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -1075,7 +1076,7 @@ export function DailyPage() {
                 )}
               </>
             ) : null}
-            {aiError ? <Alert variant="destructive" role="alert"><AlertTitle>{t("daily.aiError")}</AlertTitle><AlertDescription>{aiError}</AlertDescription></Alert> : null}
+            {aiError ? <Alert variant="destructive" role="alert"><AlertTitle>{t("daily.aiError")}</AlertTitle><AlertDescription>{formatAiError(aiError, t)}</AlertDescription></Alert> : null}
             {aiResult ? (
               <div className="flex flex-col gap-3">
                 <Textarea aria-label={t("daily.aiResult")} rows={8} value={aiResult} onChange={(event) => setAiResult(event.target.value)} className="max-h-72 resize-y bg-muted/40 leading-relaxed" />

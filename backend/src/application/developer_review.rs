@@ -1434,7 +1434,9 @@ pub(crate) async fn request_token_burner_review(
         )
         .await?;
         let parsed = content
-            .ok_or_else(|| "OpenAI-compatible API returned no review content".to_owned())
+            .and_then(|content| {
+                content.ok_or_else(|| "OpenAI-compatible API returned no review content".to_owned())
+            })
             .and_then(|content| parse_review_result(content.as_bytes()));
         return Ok((parsed, usage));
     }
@@ -1504,7 +1506,7 @@ pub(crate) async fn request_comment_comparison(
                         execution,
                     )
                     .await?;
-                    let bytes = content
+                    let bytes = content?
                         .ok_or_else(|| "AI returned no comparison content".to_owned())?
                         .into_bytes();
                     Ok((bytes, usage))
@@ -1586,7 +1588,7 @@ pub(super) fn execute_arbitration_prompt(
             settings.execution,
         ))?;
         return Ok((
-            content
+            content?
                 .ok_or_else(|| "Arbiter returned no grouping content".to_owned())?
                 .into_bytes(),
             usage,
@@ -1699,7 +1701,7 @@ async fn request_openai_review_with_max_tokens(
     )
     .await?;
     let content =
-        content.ok_or_else(|| "OpenAI-compatible API returned no review content".to_owned())?;
+        content?.ok_or_else(|| "OpenAI-compatible API returned no review content".to_owned())?;
     parse_review_result_in_diff(content.as_bytes(), diff).map(|result| (result, usage))
 }
 
@@ -1712,7 +1714,7 @@ async fn request_openai_review_content_with_max_tokens(
     execution: crate::application::ai::AiExecutionSettings,
 ) -> Result<
     (
-        Option<String>,
+        Result<Option<String>, String>,
         Option<ai_usage_statistics::AiTokenUsageCounts>,
     ),
     String,
@@ -1738,7 +1740,7 @@ async fn request_openai_json_content(
     execution: crate::application::ai::AiExecutionSettings,
 ) -> Result<
     (
-        Option<String>,
+        Result<Option<String>, String>,
         Option<ai_usage_statistics::AiTokenUsageCounts>,
     ),
     String,
@@ -1801,6 +1803,9 @@ async fn request_openai_json_content(
         .as_ref()
         .and_then(ai_usage_statistics::parse_response_usage)
         .or_else(|| ai_usage_statistics::parse_sse_usage(&body));
+    if let Err(error) = crate::application::ai::ensure_openai_response_complete(&body) {
+        return Ok((Err(error), usage));
+    }
     let content = content
         .map(|text| {
             super::ai_structured_output::json_object(&text)
@@ -1815,7 +1820,7 @@ async fn request_openai_json_content(
                     "OpenAI-compatible API returned invalid structured output".to_owned()
                 })
         })
-        .transpose()?;
+        .transpose();
     Ok((content, usage))
 }
 
@@ -2519,7 +2524,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn preserves_usage_when_the_provider_returns_no_final_review_content() {
+    async fn preserves_usage_when_the_provider_reaches_output_token_limit() {
         use wiremock::{
             matchers::{method, path},
             Mock, MockServer, ResponseTemplate,
@@ -2555,7 +2560,7 @@ mod tests {
         .unwrap();
         assert_eq!(
             review.unwrap_err(),
-            "OpenAI-compatible API returned no review content"
+            crate::application::ai::OUTPUT_TOKEN_LIMIT_ERROR
         );
         assert_eq!(usage.unwrap().total_tokens, 4100);
         let metadata = super::openai_review_response_metadata(&payload, None);

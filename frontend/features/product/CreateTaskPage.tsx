@@ -1,4 +1,5 @@
 import { PageToolbar } from "@/components/shared/PageToolbar";
+import { formatAiError } from "@/lib/ai-error";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { APP_EVENT, emitAppEvent, subscribeAppEvent } from "@/app/app-events";
 import { readUpdatedTeamMembers } from "../planning/team-members-state";
@@ -241,10 +242,10 @@ function taskErrorMessage(
     jira_task_sprint_unconfirmed: "task.error.sprintUnconfirmed",
   };
   if (message && Object.prototype.hasOwnProperty.call(messages, message)) return translate(messages[message]);
-  if (typeof error === "string" && error.trim()) return error;
+  if (typeof error === "string" && error.trim()) return formatAiError(error, translate);
   if (isRecord(error)) {
     const message = stringValue(error.message);
-    if (message?.trim()) return message;
+    if (message?.trim()) return formatAiError(message, translate);
     const code = stringValue(error.code);
     if (code?.trim()) return translate("task.error.createCode", { code });
   }
