@@ -27,6 +27,7 @@ pub struct DailySubtaskDto {
     pub key: String,
     pub summary: String,
     pub status: String,
+    pub status_category: Option<String>,
     pub story_points: Option<i64>,
     pub status_transition_at: Option<String>,
     pub assignee_account_id: Option<String>,
@@ -61,6 +62,7 @@ pub struct DailySprintScopeIssueDto {
     pub key: String,
     pub summary: String,
     pub status: Option<String>,
+    pub status_category: Option<String>,
     pub story_points: Option<i64>,
     pub added_after_start: bool,
 }
@@ -88,6 +90,36 @@ pub struct DailySprintStatsDto {
 
 #[derive(Debug, Clone, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
+pub struct DailyMyTasksDto {
+    pub managed_project_id: String,
+    pub project_name: String,
+    pub project_key: String,
+    pub selected_sprint_id: String,
+    pub selected_sprint_name: String,
+    pub current_user_account_id: Option<String>,
+    pub current_user_member: Option<TeamMemberDto>,
+    pub sprints: Vec<DailySprintDto>,
+    pub subtasks: Vec<DailySubtaskDto>,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct DailyTeamWorkspaceDto {
+    pub managed_project_id: String,
+    pub project_name: String,
+    pub project_key: String,
+    pub selected_sprint_id: String,
+    pub selected_sprint_name: String,
+    pub sprint_board_url: String,
+    pub sprint_board_urls_by_assignee: HashMap<String, String>,
+    pub sprints: Vec<DailySprintDto>,
+    pub members: Vec<TeamMemberDto>,
+    pub subtasks: Vec<DailySubtaskDto>,
+}
+
+/// Mock-only compatibility shape retained for the development overlay.
+#[derive(Debug, Clone, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
 pub struct DailyWorkspaceDto {
     pub managed_project_id: String,
     pub project_name: String,
@@ -97,6 +129,7 @@ pub struct DailyWorkspaceDto {
     pub sprint_board_url: String,
     pub sprint_board_urls_by_assignee: HashMap<String, String>,
     pub current_user_account_id: Option<String>,
+    pub current_user_member: Option<TeamMemberDto>,
     pub sprint_stats: DailySprintStatsDto,
     pub sprints: Vec<DailySprintDto>,
     pub members: Vec<TeamMemberDto>,
@@ -281,11 +314,22 @@ fn summary_instructions(
     })
 }
 
-pub async fn load_daily_workspace(
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DailySprintStatsProgressDto {
+    pub request_id: String,
+    pub managed_project_id: String,
+    pub sprint_id: String,
+    pub phase: String,
+    pub completed: usize,
+    pub total: usize,
+}
+
+pub async fn load_daily_team_workspace(
     pool: &SqlitePool,
     managed_project_id: &str,
     sprint_id: Option<&str>,
-) -> Result<DailyWorkspaceDto, PlanningCommandError> {
+) -> Result<DailyTeamWorkspaceDto, PlanningCommandError> {
     let project = planning_repositories::get_managed_project(pool, managed_project_id)
         .await
         .map_err(|_| daily_error("not_found", "managed project was not found", false))?;
@@ -390,28 +434,6 @@ pub async fn load_daily_workspace(
                 true,
             )
         })?;
-    let status_categories = client
-        .list_workflow_statuses()
-        .await
-        .unwrap_or_default()
-        .into_iter()
-        .filter_map(|status| {
-            status
-                .status_category
-                .map(|category| (status.id, category.key))
-        })
-        .collect::<HashMap<_, _>>();
-    let sprint_stats =
-        current_sprint_stats(&issues.values, &status_categories, story_points_field_id);
-    let sprint_stats = reconstruct_sprint_scope_history(
-        sprint_stats,
-        &client,
-        selected_sprint,
-        &issues.values,
-        story_points_field_id,
-        &status_categories,
-    )
-    .await;
     // The Sprint Tasks view intentionally contains only assigned Jira subtasks.
     let subtasks = issues
         .values
@@ -467,7 +489,7 @@ pub async fn load_daily_workspace(
         })
         .collect();
 
-    Ok(DailyWorkspaceDto {
+    Ok(DailyTeamWorkspaceDto {
         managed_project_id: project.id,
         project_name: project.jira_project_name,
         project_key: project.jira_project_key.clone(),
@@ -475,12 +497,222 @@ pub async fn load_daily_workspace(
         selected_sprint_name: selected_sprint.name.clone(),
         sprint_board_url,
         sprint_board_urls_by_assignee,
-        current_user_account_id: client.current_user_account_id().await.ok().flatten(),
-        sprint_stats,
         sprints,
         members,
         subtasks,
     })
+}
+
+pub async fn load_daily_my_tasks(
+    pool: &SqlitePool,
+    managed_project_id: &str,
+    sprint_id: Option<&str>,
+) -> Result<DailyMyTasksDto, PlanningCommandError> {
+    let project = daily_project(pool, managed_project_id).await?;
+    let board_id = project
+        .board_id
+        .as_deref()
+        .filter(|value| !value.trim().is_empty())
+        .ok_or_else(|| daily_error("missing_metadata", "Jira board metadata is required", false))?;
+    let client = daily_jira_client(pool, &project).await?;
+    let mut sprints = client
+        .list_sprints(board_id, 100)
+        .await
+        .map_err(|error| jira_daily_error("Unable to load Jira sprints", error))?;
+    let active = client
+        .list_active_sprints(board_id, 100)
+        .await
+        .map_err(|error| jira_daily_error("Unable to load the active Jira sprint", error))?;
+    let active_id = active.values.first().map(|sprint| sprint.id.clone());
+    for sprint in active.values {
+        if !sprints
+            .values
+            .iter()
+            .any(|candidate| candidate.id == sprint.id)
+        {
+            sprints.values.push(sprint);
+        }
+    }
+    let selected = if let Some(requested) = sprint_id.filter(|value| !value.trim().is_empty()) {
+        sprints.values.iter().find(|sprint| sprint.id == requested)
+    } else {
+        active_id
+            .as_deref()
+            .and_then(|id| sprints.values.iter().find(|sprint| sprint.id == id))
+    }
+    .ok_or_else(|| daily_error("not_found", "The selected Jira sprint was not found", false))?;
+    let current_user_account_id = client
+        .current_user_account_id()
+        .await
+        .map_err(|error| jira_daily_error("Unable to load the authenticated Jira user", error))?;
+    let current_user_member = match current_user_account_id.as_deref() {
+        Some(account_id) => planning::list_configured_team_members(pool, managed_project_id)
+            .await
+            .ok()
+            .and_then(|members| active_team_member_for_account(&members, account_id)),
+        None => None,
+    };
+    let issues = if current_user_account_id.is_some() {
+        let jql = format!(
+            "assignee = currentUser() AND sprint = {} AND issuetype in subTaskIssueTypes()",
+            selected.id
+        );
+        client
+            .search_planning_issues_with_jql(
+                &jql,
+                &[
+                    "summary",
+                    "status",
+                    "issuetype",
+                    "assignee",
+                    "parent",
+                    project
+                        .story_points_field_id
+                        .as_deref()
+                        .unwrap_or(DEFAULT_STORY_POINTS_FIELD_ID),
+                ],
+                100,
+            )
+            .await
+            .map_err(|error| jira_daily_error("Unable to load your Jira sprint tasks", error))?
+    } else {
+        Vec::new()
+    };
+    let integration =
+        crate::infrastructure::db::repositories::get_integration(pool, &project.integration_id)
+            .await
+            .map_err(|_| daily_error("not_found", "Jira integration was not found", false))?;
+    let subtasks = issues
+        .into_iter()
+        .filter(|issue| is_assigned_subtask(&issue.fields))
+        .map(|issue| {
+            daily_task(
+                issue.id,
+                issue.key,
+                issue.fields,
+                project
+                    .story_points_field_id
+                    .as_deref()
+                    .or(Some(DEFAULT_STORY_POINTS_FIELD_ID)),
+                &integration.base_url,
+            )
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    let mut sprint_dtos = sprints
+        .values
+        .iter()
+        .map(|sprint| DailySprintDto {
+            id: sprint.id.clone(),
+            name: sprint.name.clone(),
+            state: sprint.state.to_ascii_lowercase(),
+            start_date: sprint.start_date.clone(),
+            end_date: sprint.end_date.clone(),
+        })
+        .collect::<Vec<_>>();
+    sprint_dtos.sort_by_key(|sprint| match sprint.state.as_str() {
+        "active" => 0,
+        "future" => 1,
+        _ => 2,
+    });
+    Ok(DailyMyTasksDto {
+        managed_project_id: project.id,
+        project_name: project.jira_project_name,
+        project_key: project.jira_project_key,
+        selected_sprint_id: selected.id.clone(),
+        selected_sprint_name: selected.name.clone(),
+        current_user_account_id,
+        current_user_member,
+        sprints: sprint_dtos,
+        subtasks,
+    })
+}
+
+pub async fn load_daily_sprint_stats(
+    pool: &SqlitePool,
+    managed_project_id: &str,
+    sprint_id: &str,
+    request_id: &str,
+    app: &tauri::AppHandle,
+) -> Result<DailySprintStatsDto, PlanningCommandError> {
+    use tauri::Emitter;
+    if sprint_id.trim().is_empty() || request_id.trim().is_empty() {
+        return Err(daily_error(
+            "invalid_input",
+            "A sprint and request are required",
+            false,
+        ));
+    }
+    let project = daily_project(pool, managed_project_id).await?;
+    let board_id = project
+        .board_id
+        .as_deref()
+        .filter(|value| !value.trim().is_empty())
+        .ok_or_else(|| daily_error("missing_metadata", "Jira board metadata is required", false))?;
+    let client = daily_jira_client(pool, &project).await?;
+    let sprints = client
+        .list_sprints(board_id, 100)
+        .await
+        .map_err(|error| jira_daily_error("Unable to load Jira sprints", error))?;
+    let sprint = sprints
+        .values
+        .iter()
+        .find(|sprint| sprint.id == sprint_id)
+        .ok_or_else(|| daily_error("not_found", "The selected sprint was not found", false))?;
+    let story_points_field_id = project
+        .story_points_field_id
+        .as_deref()
+        .or(Some(DEFAULT_STORY_POINTS_FIELD_ID));
+    let snapshot = client
+        .list_sprint_issues_with_fields(sprint_id, 100, story_points_field_id)
+        .await
+        .map_err(|error| jira_daily_error("Unable to load selected sprint issues", error))?;
+    let status_categories = client
+        .list_workflow_statuses()
+        .await
+        .unwrap_or_default()
+        .into_iter()
+        .filter_map(|status| {
+            status
+                .status_category
+                .map(|category| (status.id, category.key))
+        })
+        .collect::<HashMap<_, _>>();
+    let current = current_sprint_stats(&snapshot.values, &status_categories, story_points_field_id);
+    let total_histories = current_parent_scope_issues(&snapshot.values).count();
+    let payload = |phase: &str, completed: usize, total: usize| DailySprintStatsProgressDto {
+        request_id: request_id.to_owned(),
+        managed_project_id: managed_project_id.to_owned(),
+        sprint_id: sprint_id.to_owned(),
+        phase: phase.to_owned(),
+        completed,
+        total,
+    };
+    let _ = app.emit(
+        "daily_sprint_stats_progress",
+        payload("loading_history", 0, total_histories),
+    );
+    let progress_app = app.clone();
+    let mut report_progress = |completed, total| {
+        let _ = progress_app.emit(
+            "daily_sprint_stats_progress",
+            payload("loading_history", completed, total),
+        );
+    };
+    let stats = reconstruct_sprint_scope_history(
+        current,
+        &client,
+        sprint,
+        &snapshot.values,
+        story_points_field_id,
+        &status_categories,
+        &mut report_progress,
+    )
+    .await;
+    let _ = app.emit(
+        "daily_sprint_stats_progress",
+        payload("complete", total_histories, total_histories),
+    );
+    Ok(stats)
 }
 
 pub async fn refresh_daily_workspace(
@@ -491,7 +723,7 @@ pub async fn refresh_daily_workspace(
     if sprint_id.trim().is_empty() {
         return Err(daily_error("invalid_input", "A sprint is required", false));
     }
-    load_daily_workspace(pool, managed_project_id, Some(sprint_id))
+    load_daily_team_workspace(pool, managed_project_id, Some(sprint_id))
         .await
         .map(|workspace| workspace.subtasks)
 }
@@ -822,6 +1054,16 @@ fn current_sprint_stats(
     }
 }
 
+fn changelog_is_complete(changelog: &Value) -> bool {
+    let Some(total) = changelog.get("total").and_then(Value::as_u64) else {
+        return false;
+    };
+    let Some(histories) = changelog.get("histories").and_then(Value::as_array) else {
+        return false;
+    };
+    total as usize <= histories.len()
+}
+
 fn is_classifiable_status_category(category: &str) -> bool {
     matches!(category, "new" | "indeterminate" | "done")
 }
@@ -833,6 +1075,7 @@ async fn reconstruct_sprint_scope_history(
     current_issues: &[PlanningIssue],
     story_points_field_id: Option<&str>,
     status_categories: &HashMap<String, String>,
+    on_progress: &mut impl FnMut(usize, usize),
 ) -> DailySprintStatsDto {
     let Some(activated_date) = sprint.activated_date.as_deref() else {
         return stats;
@@ -853,6 +1096,41 @@ async fn reconstruct_sprint_scope_history(
     let sprint_field_id = sprint_field.id.as_str();
     let points_field = story_points_field_id.unwrap_or(DEFAULT_STORY_POINTS_FIELD_ID);
     let scope_candidates = current_parent_scope_issues(current_issues).collect::<Vec<_>>();
+    let total_histories = scope_candidates.len();
+    let mut completed_histories = 0;
+    let candidate_keys = scope_candidates
+        .iter()
+        .map(|issue| issue.key.clone())
+        .collect::<Vec<_>>();
+    let batch_histories = client
+        .search_issues_with_changelog_for_keys(
+            &candidate_keys,
+            &[
+                "summary",
+                "status",
+                "issuetype",
+                "assignee",
+                "parent",
+                sprint_field_id,
+                points_field,
+            ],
+            50,
+        )
+        .await
+        .unwrap_or_default()
+        .into_iter()
+        .filter_map(|issue| {
+            let key = issue.get("key").and_then(Value::as_str)?.to_owned();
+            let histories = issue
+                .pointer("/changelog/histories")
+                .and_then(Value::as_array)?;
+            let complete = changelog_is_complete(&issue["changelog"]);
+            Some((
+                key,
+                json!({"historyComplete": complete, "changelog": {"histories": histories}}),
+            ))
+        })
+        .collect::<HashMap<_, _>>();
 
     let mut issues_with_incomplete_history = Vec::new();
     let mut historical_scope = Vec::new();
@@ -867,8 +1145,15 @@ async fn reconstruct_sprint_scope_history(
         let points_field = points_field.to_owned();
         let issue_fields = candidate.fields.clone();
         let status_categories = status_categories.clone();
+        let batch_history = batch_histories.get(&issue_key).cloned();
         requests.spawn(async move {
-            let result = match client.get_issue_changelog_diagnostic(&issue_key).await {
+            let changelog = match batch_history.filter(|history| {
+                history.get("historyComplete").and_then(Value::as_bool) == Some(true)
+            }) {
+                Some(history) => Ok(history),
+                None => client.get_issue_changelog_diagnostic(&issue_key).await,
+            };
+            let result = match changelog {
                 Ok(changelog) => match reconstruct_historical_scope_issue(
                     &issue_key,
                     &issue_fields,
@@ -895,6 +1180,7 @@ async fn reconstruct_sprint_scope_history(
                 &mut historical_scope,
                 &mut unidentified_history_failure,
             );
+            record_sprint_history_progress(&mut completed_histories, total_histories, on_progress);
         }
     }
     while !requests.is_empty() {
@@ -904,6 +1190,7 @@ async fn reconstruct_sprint_scope_history(
             &mut historical_scope,
             &mut unidentified_history_failure,
         );
+        record_sprint_history_progress(&mut completed_histories, total_histories, on_progress);
     }
 
     historical_scope.sort_by(|left, right| {
@@ -918,6 +1205,7 @@ async fn reconstruct_sprint_scope_history(
             key: issue.key.clone(),
             summary: issue.summary.clone(),
             status: issue.status.clone(),
+            status_category: issue.status_category.clone(),
             story_points: issue.story_points,
             added_after_start: !issue.original_scope,
         })
@@ -1002,6 +1290,7 @@ struct HistoricalScopeIssue {
     key: String,
     summary: String,
     status: Option<String>,
+    status_category: Option<String>,
     original_scope: bool,
     story_points: Option<i64>,
     completed: Option<bool>,
@@ -1060,10 +1349,20 @@ fn reconstruct_historical_scope_issue(
             .pointer("/status/name")
             .and_then(Value::as_str)
             .map(str::to_owned),
+        status_category: status_category.cloned(),
         original_scope,
         story_points,
         completed,
     }))
+}
+
+fn record_sprint_history_progress(
+    completed: &mut usize,
+    total: usize,
+    on_progress: &mut impl FnMut(usize, usize),
+) {
+    *completed += 1;
+    on_progress(*completed, total);
 }
 
 fn collect_sprint_history_result(
@@ -1312,6 +1611,10 @@ fn daily_task(
         .and_then(Value::as_str)
         .unwrap_or("Unknown status")
         .to_owned();
+    let status_category = fields
+        .pointer("/status/statusCategory/key")
+        .and_then(Value::as_str)
+        .map(str::to_owned);
     let status_transition_at = fields
         .get("statuscategorychangedate")
         .or_else(|| fields.get("updated"))
@@ -1334,6 +1637,7 @@ fn daily_task(
         key,
         summary,
         status,
+        status_category,
         story_points: story_points_field_id.and_then(|field_id| field_i64(&fields, field_id)),
         status_transition_at,
         assignee_account_id,
@@ -1514,6 +1818,16 @@ fn first_string(value: &Value, keys: &[&str]) -> Option<String> {
         .map(str::to_owned)
 }
 
+fn active_team_member_for_account(
+    members: &[TeamMemberDto],
+    account_id: &str,
+) -> Option<TeamMemberDto> {
+    members
+        .iter()
+        .find(|member| member.active && member.account_id.eq_ignore_ascii_case(account_id))
+        .cloned()
+}
+
 fn daily_error(code: &str, message: &str, retryable: bool) -> PlanningCommandError {
     PlanningCommandError {
         code: code.into(),
@@ -1526,13 +1840,60 @@ fn daily_error(code: &str, message: &str, retryable: bool) -> PlanningCommandErr
 #[cfg(test)]
 mod tests {
     use super::{
-        collect_sprint_history_result, count_completed_scope_issues, current_parent_scope_issues,
-        current_sprint_stats, daily_task, field_i64, is_assigned_subtask, jira_sprint_board_url,
-        quick_filter_assignee, reconstruct_historical_scope_issue, sprint_scope_membership,
-        status_transitions, sum_completed_scope_points, HistoricalScopeIssue,
-        ScopeCandidateHistoryResult,
+        active_team_member_for_account, changelog_is_complete, collect_sprint_history_result,
+        count_completed_scope_issues, current_parent_scope_issues, current_sprint_stats,
+        daily_task, field_i64, is_assigned_subtask, jira_sprint_board_url, quick_filter_assignee,
+        reconstruct_historical_scope_issue, record_sprint_history_progress,
+        sprint_scope_membership, status_transitions, sum_completed_scope_points,
+        DailySprintStatsProgressDto, HistoricalScopeIssue, ScopeCandidateHistoryResult,
     };
+    use crate::application::planning::TeamMemberDto;
     use serde_json::json;
+
+    #[test]
+    fn active_team_member_for_account_matches_current_user() {
+        let members = vec![TeamMemberDto {
+            account_id: "user-a".to_owned(),
+            display_name: "Test Member".to_owned(),
+            alias: Some("Test Alias".to_owned()),
+            avatar_url: None,
+            active: true,
+            tags: Vec::new(),
+            display_order: 0,
+        }];
+
+        let current_user = active_team_member_for_account(&members, "USER-A").unwrap();
+        assert_eq!(current_user.alias.as_deref(), Some("Test Alias"));
+    }
+
+    #[test]
+    fn expanded_changelog_completeness_and_progress_payload_are_explicit() {
+        assert!(changelog_is_complete(
+            &json!({"total": 1, "histories": [{}]})
+        ));
+        assert!(!changelog_is_complete(
+            &json!({"total": 2, "histories": [{}]})
+        ));
+        let payload = serde_json::to_value(DailySprintStatsProgressDto {
+            request_id: "request-1".to_owned(),
+            managed_project_id: "project-1".to_owned(),
+            sprint_id: "42".to_owned(),
+            phase: "loading_history".to_owned(),
+            completed: 1,
+            total: 2,
+        })
+        .unwrap();
+        assert_eq!(payload["requestId"], "request-1");
+        assert_eq!(payload["managedProjectId"], "project-1");
+        assert_eq!(payload["completed"], 1);
+        assert_eq!(payload["total"], 2);
+        let mut completed = 0;
+        let mut updates = Vec::new();
+        let mut report = |completed, total| updates.push((completed, total));
+        record_sprint_history_progress(&mut completed, 2, &mut report);
+        record_sprint_history_progress(&mut completed, 2, &mut report);
+        assert_eq!(updates, [(1, 2), (2, 2)]);
+    }
 
     #[test]
     fn daily_stats_use_task_story_points_and_count_parent_issues_only() {
@@ -1637,6 +1998,7 @@ mod tests {
         assert!(!scope.original_scope);
         assert_eq!(scope.summary, "Example added issue");
         assert_eq!(scope.status.as_deref(), Some("In Progress"));
+        assert_eq!(scope.status_category.as_deref(), Some("indeterminate"));
         assert_eq!(scope.story_points, Some(5));
         assert_eq!(scope.completed, Some(false));
     }
@@ -1856,6 +2218,7 @@ mod tests {
             key: "DEMO-1".to_owned(),
             summary: "Example task".to_owned(),
             status: None,
+            status_category: None,
             original_scope: true,
             story_points: Some(5),
             completed: None,
@@ -1925,7 +2288,7 @@ mod tests {
             "DEMO-2".into(),
             json!({
                 "summary": "Implement API",
-                "status": {"name": "In Progress"},
+                "status": {"name": "In Progress", "statusCategory": {"key": "indeterminate"}},
                 "statuscategorychangedate": "2026-09-14T16:32:10.000+0300",
                 "issuetype": {"name": "Sub-task", "subtask": true},
                 "assignee": {"accountId": "test-user-a", "displayName": "Test Member A"},
@@ -1939,6 +2302,7 @@ mod tests {
 
         assert_eq!(task.key, "DEMO-2");
         assert_eq!(task.status, "In Progress");
+        assert_eq!(task.status_category.as_deref(), Some("indeterminate"));
         assert_eq!(task.assignee_account_id.as_deref(), Some("test-user-a"));
         assert_eq!(task.assignee_display_name.as_deref(), Some("Test Member A"));
         assert_eq!(task.issue_type, "Sub-task");

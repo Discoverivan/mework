@@ -1,610 +1,287 @@
-import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-
-import type { DailyPresenterState, DailyWorkspace } from "@/shared/contracts/developer";
+import type { DailyMyTasksDto, DailySprintStatsDto, DailyTeamWorkspaceDto } from "@/shared/contracts/developer";
 import type { ManagedProject } from "@/shared/contracts/planning";
 import { listManagedProjects } from "../planning/api";
-import { generateSprintSummary, loadDailyIssueTransitions, loadDailyWorkspace, openPresenterView, publishPresenterState, refreshDailyWorkspace, subscribePresenterState, transitionDailyIssue } from "./api";
-import { clearDailyWorkspaceCacheForTests, prefetchDailyWorkspaces, readDailyWorkspaceCache, refreshDailyWorkspaceCache } from "./cache";
+import { loadDailyMyTasks, loadDailySprintStats, loadDailyTeamWorkspace } from "./api";
+import { clearDailyWorkspaceCacheForTests, prefetchDailyWorkspaces } from "./cache";
 import { DailyPage } from "./DailyPage";
-import { APP_EVENT, emitAppEvent } from "@/app/app-events";
-import { clearTeamMembersStateForTests } from "../planning/team-members-state";
 
-const { openUrlMock, writeTextMock } = vi.hoisted(() => ({
-  openUrlMock: vi.fn(),
-  writeTextMock: vi.fn(),
-}));
-
-vi.mock("@tauri-apps/plugin-opener", () => ({ openUrl: openUrlMock }));
+vi.mock("@tauri-apps/plugin-opener", () => ({ openUrl: vi.fn() }));
 vi.mock("../planning/api", () => ({ listManagedProjects: vi.fn() }));
 vi.mock("./api", () => ({
-  generateSprintSummary: vi.fn(),
-  loadDailyWorkspace: vi.fn(),
-  refreshDailyWorkspace: vi.fn(),
-  loadDailyIssueTransitions: vi.fn(),
-  transitionDailyIssue: vi.fn(),
-  publishPresenterState: vi.fn(),
-  openPresenterView: vi.fn(),
-  closePresenterView: vi.fn(),
-  subscribePresenterState: vi.fn(),
+  generateSprintSummary: vi.fn(), loadDailyWorkspace: vi.fn(), refreshDailyWorkspace: vi.fn(),
+  loadDailyMyTasks: vi.fn(), loadDailyTeamWorkspace: vi.fn(), loadDailySprintStats: vi.fn(),
+  loadDailyIssueTransitions: vi.fn(), transitionDailyIssue: vi.fn(), publishPresenterState: vi.fn(),
+  openPresenterView: vi.fn(), closePresenterView: vi.fn(), subscribePresenterState: vi.fn(() => () => undefined),
 }));
 
-const listManagedProjectsMock = vi.mocked(listManagedProjects);
-const generateSprintSummaryMock = vi.mocked(generateSprintSummary);
-const loadDailyWorkspaceMock = vi.mocked(loadDailyWorkspace);
-const refreshDailyWorkspaceMock = vi.mocked(refreshDailyWorkspace);
-const loadDailyIssueTransitionsMock = vi.mocked(loadDailyIssueTransitions);
-const transitionDailyIssueMock = vi.mocked(transitionDailyIssue);
-const openPresenterViewMock = vi.mocked(openPresenterView);
-const publishPresenterStateMock = vi.mocked(publishPresenterState);
-const subscribePresenterStateMock = vi.mocked(subscribePresenterState);
-let presenterStateListener: ((state: DailyPresenterState) => void) | undefined;
-
-const project: ManagedProject = {
-  id: "managed-1",
-  integrationId: "jira-1",
-  jiraProjectId: "10001",
-  name: "Example Project",
-  boardId: "42",
-  boardName: "Example Project Board",
+const project: ManagedProject = { id: "managed-1", integrationId: "jira-1", jiraProjectId: "10001", name: "Example Project", boardId: "42", boardName: "Example Board" };
+const myTasks: DailyMyTasksDto = {
+  managedProjectId: project.id, projectName: project.name, projectKey: "DEMO", selectedSprintId: "sprint-1", selectedSprintName: "Sprint 42", currentUserAccountId: "test-user-a",
+  currentUserMember: { accountId: "test-user-a", displayName: "Test Member", active: true, tags: [] },
+  sprints: [{ id: "sprint-1", name: "Sprint 42", state: "active", startDate: "2026-10-02T12:00:00", endDate: "2026-10-15T12:00:00" }],
+  subtasks: [{ id: "task-1", key: "DEMO-1", summary: "Example task", status: "In Progress", issueType: "Task", assigneeAccountId: "test-user-a", url: "https://jira.example.invalid/browse/DEMO-1" }],
 };
-
-const secondProject: ManagedProject = {
-  ...project,
-  id: "managed-2",
-  jiraProjectId: "10002",
-  name: "Second Project",
-  boardId: "43",
-  boardName: "Second Project Board",
+const team: DailyTeamWorkspaceDto = { ...myTasks, sprintBoardUrl: "https://jira.example.invalid/board", sprintBoardUrlsByAssignee: {}, members: [{ accountId: "test-user-a", displayName: "Test Member", active: true, tags: [] }] };
+const stats: DailySprintStatsDto = {
+  availability: "available", originalTaskCount: 1, completedOriginalTaskCount: 0, originalStoryPoints: 3, completedOriginalStoryPoints: 0,
+  addedTaskCount: 0, completedAddedTaskCount: 0, addedStoryPoints: 0, completedAddedStoryPoints: 0, scopeAvailability: "available",
+  issuesWithIncompleteScopeHistory: [], issuesWithUnavailableStatus: [], issuesWithoutScopeStoryPoints: [], scopeIssues: [],
+  statusBreakdown: [
+    { category: "todo", taskCount: 1, storyPoints: 3 },
+    { category: "inProgress", taskCount: 0, storyPoints: 0 },
+    { category: "done", taskCount: 0, storyPoints: 0 },
+    { category: "unknown", taskCount: 0, storyPoints: 0 },
+  ],
+  issuesWithoutStoryPoints: [],
 };
+const listProjectsMock = vi.mocked(listManagedProjects);
+const myTasksMock = vi.mocked(loadDailyMyTasks);
+const teamMock = vi.mocked(loadDailyTeamWorkspace);
+const statsMock = vi.mocked(loadDailySprintStats);
 
-const workspace: DailyWorkspace = {
-  managedProjectId: project.id,
-  projectName: project.name,
-  projectKey: "DEMO",
-  selectedSprintId: "sprint-1",
-  selectedSprintName: "Sprint 42",
-  currentUserAccountId: "test-user-a",
-  sprintStats: {
-    availability: "available",
-    originalTaskCount: 2,
-    completedOriginalTaskCount: 1,
-    originalStoryPoints: 4,
-    completedOriginalStoryPoints: 3,
-    addedTaskCount: 1,
-    completedAddedTaskCount: 1,
-    addedStoryPoints: 2,
-    completedAddedStoryPoints: 2,
-    scopeAvailability: "available",
-    issuesWithIncompleteScopeHistory: [],
-    issuesWithUnavailableStatus: [],
-    issuesWithoutScopeStoryPoints: [],
-    scopeIssues: [
-      { key: "DEMO-1", summary: "Example planned API work", status: "In Progress", storyPoints: 1, addedAfterStart: false },
-      { key: "DEMO-4", summary: "Example completed planned work", status: "Done", storyPoints: 3, addedAfterStart: false },
-      { key: "DEMO-5", summary: "Example task added during sprint", status: "Done", storyPoints: 2, addedAfterStart: true },
-    ],
-    statusBreakdown: [
-      { category: "todo", taskCount: 0, storyPoints: 0 },
-      { category: "inProgress", taskCount: 1, storyPoints: 1 },
-      { category: "done", taskCount: 2, storyPoints: 5 },
-    ],
-    issuesWithoutStoryPoints: [],
-  },
-  sprintBoardUrl: "https://jira.example.invalid/secure/RapidBoard.jspa?rapidView=42&projectKey=DEMO&sprint=sprint-1",
-  sprintBoardUrlsByAssignee: {
-    "test-user-a": "https://jira.example.invalid/secure/RapidBoard.jspa?rapidView=42&projectKey=DEMO&sprint=sprint-1&quickFilter=7",
-  },
-  sprints: [
-    { id: "sprint-1", name: "Sprint 42", state: "active", startDate: "2026-09-21T00:00:00.000Z", endDate: "2026-10-05T00:00:00.000Z" },
-    { id: "sprint-0", name: "Sprint 41", state: "closed", startDate: "2026-09-07T00:00:00.000Z", endDate: "2026-09-20T00:00:00.000Z" },
-    { id: "sprint-future", name: "Sprint 43", state: "future", startDate: "2026-10-06T00:00:00.000Z", endDate: "2026-10-20T00:00:00.000Z" },
-  ],
-  members: [
-    { accountId: "test-user-a", displayName: "Test Member A", alias: "Test Author A", active: true, tags: ["backend"], displayOrder: 1 },
-    { accountId: "test-user-b", displayName: "Test Member B", alias: "Test Author B", active: true, tags: ["backend"], displayOrder: 2 },
-  ],
-  subtasks: [
-    {
-      id: "subtask-1",
-      key: "DEMO-2",
-      summary: "Implement API",
-      status: "In Progress",
-      issueType: "Sub-task",
-      storyPoints: 3,
-      assigneeAccountId: "test-user-a",
-      parentIssueKey: "DEMO-1",
-      url: "https://jira.example.invalid/browse/DEMO-2",
-      parentUrl: "https://jira.example.invalid/browse/DEMO-1",
-    },
-    {
-      id: "task-2",
-      key: "DEMO-3",
-      summary: "Coordinate release",
-      status: "To Do",
-      issueType: "Story",
-      assigneeAccountId: "outside-user",
-      assigneeDisplayName: "External Member",
-      url: "https://jira.example.invalid/browse/DEMO-3",
-    },
-    {
-      id: "task-3",
-      key: "DEMO-4",
-      summary: "Investigate failure",
-      status: "Open",
-      issueType: "Bug",
-      url: "https://jira.example.invalid/browse/DEMO-4",
-    },
-  ],
-};
+beforeEach(() => {
+  vi.clearAllMocks(); clearDailyWorkspaceCacheForTests();
+  listProjectsMock.mockResolvedValue([project]);
+  myTasksMock.mockResolvedValue(myTasks);
+  teamMock.mockResolvedValue(team);
+  statsMock.mockResolvedValue(stats);
+});
 
-describe("DailyPage smoke test", () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-    clearDailyWorkspaceCacheForTests();
-    clearTeamMembersStateForTests();
-    Object.defineProperty(navigator, "clipboard", {
-      configurable: true,
-      value: { writeText: writeTextMock },
-    });
-    window.location.hash = "";
-    listManagedProjectsMock.mockResolvedValue([project]);
-    generateSprintSummaryMock.mockResolvedValue({ text: "Sprint progress report" });
-    loadDailyWorkspaceMock.mockResolvedValue(workspace);
-    refreshDailyWorkspaceMock.mockResolvedValue(workspace.subtasks);
-    loadDailyIssueTransitionsMock.mockResolvedValue([
-      { id: "transition-review", name: "Send to review", toStatus: "Code Review", requiresFields: false },
-      { id: "transition-close", name: "Close issue", toStatus: "Closed", requiresFields: true },
-    ]);
-    transitionDailyIssueMock.mockResolvedValue(undefined);
-    openPresenterViewMock.mockResolvedValue(undefined);
-    publishPresenterStateMock.mockResolvedValue(undefined);
-    openUrlMock.mockResolvedValue(undefined);
-    writeTextMock.mockResolvedValue(undefined);
-    presenterStateListener = undefined;
-    subscribePresenterStateMock.mockImplementation((listener) => {
-      presenterStateListener = listener;
-      return () => undefined;
-    });
+describe("DailyPage data loading and actions", () => {
+  it("prefetches only minimal My Tasks for the healthy Jira projects", async () => {
+    await prefetchDailyWorkspaces([project.integrationId]);
+    expect(myTasksMock).toHaveBeenCalledWith(project.id, undefined);
+    expect(teamMock).not.toHaveBeenCalled();
+    expect(statsMock).not.toHaveBeenCalled();
   });
 
-  it("switches workspace tabs and limits My Tasks to the current configured member", async () => {
+  it("loads minimal My Tasks on entry and lazily loads each other tab only when opened", async () => {
     render(<DailyPage />);
-    await screen.findByRole("region", { name: "Selected member tasks" });
-    const teamTasksTab = screen.getByRole("tab", { name: "Team Tasks" });
-    expect(teamTasksTab).toHaveAttribute("aria-controls", "sprint-panel-teamTasks");
-    expect(teamTasksTab).toHaveAttribute("tabindex", "0");
-    fireEvent.keyDown(teamTasksTab, { key: "ArrowLeft" });
-    const myTasksTab = screen.getByRole("tab", { name: "My Tasks" });
-    expect(myTasksTab).toHaveFocus();
-    expect(myTasksTab).toHaveAttribute("tabindex", "0");
-    const myTasks = screen.getByRole("tabpanel", { name: "My Tasks" });
-    expect(within(myTasks).getByText("DEMO-2")).toBeInTheDocument();
-    expect(within(myTasks).getByText("In Progress")).toBeInTheDocument();
-    expect(within(myTasks).queryByText("DEMO-3")).not.toBeInTheDocument();
-    expect(within(myTasks).getByRole("img", { name: "My story-point progress: 0% complete, 0 of 3 SP" })).toHaveTextContent("0%");
-    expect(myTasks).not.toHaveTextContent("3 SP · 3 in progress · 0 done · 0 backlog");
-    expect(myTasks).toHaveTextContent("3 SP · 100%");
-    fireEvent.click(screen.getByRole("tab", { name: "Sprint Stats" }));
-    const sprintStatsPanel = screen.getByRole("tabpanel", { name: "Sprint Stats" });
-    expect(within(sprintStatsPanel).getByRole("group", { name: "Planned" })).toHaveTextContent("4 SP / 2 tasks");
-    expect(within(sprintStatsPanel).getByRole("group", { name: "Added during sprint" })).toHaveTextContent("2 SP / 1 task");
-    expect(within(sprintStatsPanel).getByRole("group", { name: "Done" })).toHaveTextContent("5 SP / 2 tasks");
-    expect(within(sprintStatsPanel).getByRole("group", { name: "Closure" })).toHaveTextContent("125%");
-    expect(within(sprintStatsPanel).getByRole("img", { name: "Closure 125%; 5 SP completed, including additions, against 4 planned SP." })).toBeInTheDocument();
-    expect(within(sprintStatsPanel).getByRole("table")).toHaveTextContent("DEMO-1");
-    expect(within(sprintStatsPanel).getByRole("table")).toHaveTextContent("Example task added during sprint");
-    expect(screen.getByText("DEMO-5").closest("tr")).toHaveAttribute("data-added-after-start", "true");
+    expect(await screen.findByText("DEMO-1")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Test Member" })).toBeInTheDocument();
+    for (const tabName of ["My Tasks", "Team Tasks", "Sprint Stats"]) {
+      expect(screen.getByRole("tab", { name: tabName }).querySelector("svg")).toBeInTheDocument();
+    }
+    expect(screen.queryByRole("heading", { name: project.name })).not.toBeInTheDocument();
+    expect(myTasksMock).toHaveBeenCalledWith(project.id, undefined);
+    expect(teamMock).not.toHaveBeenCalled();
+    expect(statsMock).not.toHaveBeenCalled();
+    const actions = screen.getByRole("tablist").parentElement?.querySelector(".daily-workspace-actions");
+    expect(actions).not.toBeNull();
+    expect(within(actions as HTMLElement).getAllByRole("button").map((button) => button.getAttribute("aria-label"))).toEqual(["Refresh"]);
+    fireEvent.click(screen.getByRole("button", { name: "Refresh" }));
+    await waitFor(() => expect(myTasksMock).toHaveBeenCalledTimes(2));
+    expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
+
+    teamMock.mockResolvedValueOnce({
+      ...team,
+      members: team.members.map((member) => ({ ...member, accountId: member.accountId.toUpperCase() })),
+    });
     fireEvent.click(screen.getByRole("tab", { name: "Team Tasks" }));
+    await waitFor(() => expect(teamMock).toHaveBeenCalledTimes(1));
+    const teamActions = screen.getByRole("tablist").parentElement?.querySelector(".daily-workspace-actions");
+    expect(within(teamActions as HTMLElement).getAllByRole("button").map((button) => button.getAttribute("aria-label"))).toEqual(["AI Summary", "Presenter view", "Refresh"]);
+    expect(await screen.findByRole("region", { name: "Selected member tasks" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("tab", { name: "My Tasks" }));
+    expect(screen.getByRole("heading", { name: "Test Member" })).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: project.name })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("tab", { name: "Sprint Stats" }));
+    await waitFor(() => expect(statsMock).toHaveBeenCalledTimes(1));
+    const statsActions = screen.getByRole("tablist").parentElement?.querySelector(".daily-workspace-actions");
+    expect(within(statsActions as HTMLElement).getAllByRole("button").map((button) => button.getAttribute("aria-label"))).toEqual(["Refresh"]);
+    const plannedMetric = screen.getByRole("group", { name: "Planned" });
+    const summaryCard = plannedMetric.closest('[data-slot="card"]');
+    expect(summaryCard).not.toBeNull();
+    expect(screen.getByRole("heading", { name: "Sprint Overview" })).toBeInTheDocument();
+    expect(screen.getByText("02.10.2026 – 15.10.2026")).toBeInTheDocument();
+    expect(screen.getByText("Active")).toBeInTheDocument();
+    const chart = screen.getByRole("img", { name: "Current sprint scope by status: 0 SP done, 0 SP in progress, 3 SP to do. Planned scope is 3 of 3 SP." });
+    expect(chart.closest('[data-slot="card"]')).toBe(summaryCard);
+    expect(screen.queryByRole("heading", { name: "Planned scope completion" })).not.toBeInTheDocument();
+    expect(screen.queryByText("237 SP in current scope")).not.toBeInTheDocument();
+    expect(chart.querySelectorAll(".daily-scope-meter-segment")).toHaveLength(3);
+    expect(within(summaryCard as HTMLElement).getByText("Done · 0 SP")).toBeInTheDocument();
+    expect(within(summaryCard as HTMLElement).getByText("To do · 3 SP")).toBeInTheDocument();
+    expect(chart.querySelector(".daily-scope-meter-target")).toBeNull();
+    expect(chart.querySelector(".daily-scope-meter-axis")).toBeNull();
+  });
+
+  it("renders the overview period and a four-column parent issues table with status tones", async () => {
+    statsMock.mockResolvedValueOnce({
+      ...stats,
+      addedTaskCount: 2,
+      addedStoryPoints: 2,
+      scopeIssues: [
+        { key: "DEMO-10", summary: "Example closed parent issue", status: "Closed", statusCategory: "done", storyPoints: 2, addedAfterStart: false },
+        { key: "DEMO-11", summary: "Example release parent issue", status: "In Release", statusCategory: "indeterminate", storyPoints: 1, addedAfterStart: true },
+        { key: "DEMO-12", summary: "Example pending parent issue", status: "To Do", statusCategory: "new", storyPoints: 2, addedAfterStart: true },
+      ],
+      statusBreakdown: [
+        { category: "todo", taskCount: 1, storyPoints: 2 },
+        { category: "inProgress", taskCount: 1, storyPoints: 1 },
+        { category: "done", taskCount: 1, storyPoints: 2 },
+        { category: "unknown", taskCount: 0, storyPoints: 0 },
+      ],
+    });
+    render(<DailyPage />);
+    await screen.findByText("DEMO-1");
+    fireEvent.click(screen.getByRole("tab", { name: "Sprint Stats" }));
+
+    const table = await screen.findByRole("table", { name: "Parent issues" });
+    expect(screen.getByText("02.10.2026 – 15.10.2026")).toBeInTheDocument();
+    expect(within(table).getAllByRole("columnheader").map((header) => header.textContent)).toEqual(["Key", "Summary", "Status", "SP"]);
+    expect(within(table).getAllByRole("row")).toHaveLength(4);
+    expect(within(table).getByText("Closed")).toHaveClass("bg-success/20");
+    expect(within(table).getByText("In Release")).toHaveClass("bg-success/10");
+    expect(within(table).getByText("Example release parent issue")).toHaveClass("whitespace-normal");
+  });
+
+  it("keeps a pending stats request alive and reuses it when returning to the tab", async () => {
+    let resolveStats!: (value: DailySprintStatsDto) => void;
+    statsMock.mockReturnValueOnce(new Promise((resolve) => { resolveStats = resolve; }));
+    render(<DailyPage />);
+    await screen.findByText("DEMO-1");
+    fireEvent.click(screen.getByRole("tab", { name: "Sprint Stats" }));
+    await waitFor(() => expect(statsMock).toHaveBeenCalledTimes(1));
+    expect(screen.getByRole("status", { name: "Loading sprint stats…" })).toBeInTheDocument();
+    expect(screen.queryByRole("progressbar")).not.toBeInTheDocument();
+    expect(screen.queryByRole("group", { name: "Planned" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("tab", { name: "My Tasks" }));
+    fireEvent.click(screen.getByRole("tab", { name: "Sprint Stats" }));
+    expect(screen.getByRole("status", { name: "Loading sprint stats…" })).toBeInTheDocument();
+    expect(statsMock).toHaveBeenCalledTimes(1);
+    resolveStats({
+      ...stats,
+      completedOriginalTaskCount: 1,
+      completedOriginalStoryPoints: 2,
+      addedTaskCount: 1,
+      completedAddedTaskCount: 1,
+      addedStoryPoints: 4,
+      completedAddedStoryPoints: 4,
+      statusBreakdown: [
+        { category: "todo", taskCount: 0, storyPoints: 0 },
+        { category: "inProgress", taskCount: 1, storyPoints: 1 },
+        { category: "done", taskCount: 2, storyPoints: 6 },
+        { category: "unknown", taskCount: 0, storyPoints: 0 },
+      ],
+    });
+    await waitFor(() => expect(screen.queryByRole("status", { name: "Loading sprint stats…" })).not.toBeInTheDocument());
+    expect(await screen.findByRole("group", { name: "Planned" })).toBeInTheDocument();
+    expect(screen.getByRole("group", { name: "Closure" })).toHaveTextContent("200%");
+    const chart = screen.getByRole("img", { name: "Current sprint scope by status: 6 SP done, 1 SP in progress, 0 SP to do. Planned scope is 3 of 7 SP." });
+    expect(chart.querySelector(".daily-scope-meter-segment:first-child")).toHaveStyle({ width: `${(6 / 7) * 100}%`, backgroundColor: "var(--success)" });
+    expect(chart.querySelector(".daily-scope-meter-segment:nth-child(2)")).toHaveStyle({ width: `${(1 / 7) * 100}%`, backgroundColor: "var(--chart-1)" });
+    expect(chart.querySelector(".daily-scope-meter-target")).toHaveStyle({ left: `${(3 / 7) * 100}%` });
+    expect(screen.getByText("Done · 6 SP")).toBeInTheDocument();
+    expect(chart.querySelector(".daily-scope-meter-axis")).toBeNull();
+  });
+
+  it("places the Plan marker at zero when planned SP is zero and additions exist", async () => {
+    statsMock.mockResolvedValueOnce({
+      ...stats,
+      originalStoryPoints: 0,
+      completedOriginalStoryPoints: 0,
+      addedStoryPoints: 4,
+      completedAddedStoryPoints: 2,
+      statusBreakdown: [
+        { category: "todo", taskCount: 0, storyPoints: 0 },
+        { category: "inProgress", taskCount: 1, storyPoints: 2 },
+        { category: "done", taskCount: 1, storyPoints: 2 },
+        { category: "unknown", taskCount: 0, storyPoints: 0 },
+      ],
+    });
+    render(<DailyPage />);
+    await screen.findByText("DEMO-1");
+    fireEvent.click(screen.getByRole("tab", { name: "Sprint Stats" }));
+    const chart = await screen.findByRole("img", {
+      name: "Current sprint scope by status: 2 SP done, 2 SP in progress, 0 SP to do. Planned scope is 0 of 4 SP.",
+    });
+    expect(chart.querySelector(".daily-scope-meter-target")).toHaveStyle({ left: "0%" });
+    expect(screen.queryByText("4 SP in current scope")).not.toBeInTheDocument();
+  });
+
+  it("keeps My Tasks empty until the first response arrives", async () => {
+    let resolveTasks!: (value: DailyMyTasksDto) => void;
+    myTasksMock.mockReturnValueOnce(new Promise((resolve) => { resolveTasks = resolve; }));
+    render(<DailyPage />);
+    await waitFor(() => expect(myTasksMock).toHaveBeenCalledTimes(1));
+    expect(screen.getByRole("status", { name: "Loading sprint tasks…" })).toBeInTheDocument();
+    expect(screen.queryByText("DEMO-1")).not.toBeInTheDocument();
+    expect(screen.queryByRole("tablist")).not.toBeInTheDocument();
+    resolveTasks(myTasks);
+    expect(await screen.findByText("DEMO-1")).toBeInTheDocument();
+  });
+
+  it("shows a centered loader on Team Tasks until its first response", async () => {
+    let resolveTeam!: (value: DailyTeamWorkspaceDto) => void;
+    teamMock.mockReturnValueOnce(new Promise((resolve) => { resolveTeam = resolve; }));
+    render(<DailyPage />);
+    await screen.findByText("DEMO-1");
+    fireEvent.click(screen.getByRole("tab", { name: "Team Tasks" }));
+    await waitFor(() => expect(teamMock).toHaveBeenCalledTimes(1));
+    expect(screen.getByRole("status", { name: "Loading sprint tasks…" })).toBeInTheDocument();
+    expect(screen.queryByRole("region", { name: "Selected member tasks" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Presenter view" })).toBeDisabled();
+    resolveTeam(team);
+    await waitFor(() => expect(screen.getByRole("button", { name: "Presenter view" })).toBeEnabled());
     expect(screen.getByRole("region", { name: "Selected member tasks" })).toBeInTheDocument();
   });
 
-  it("refreshes sprint statistics together with the workspace", async () => {
+  it("replaces incomplete Sprint Stats with a detailed retry state", async () => {
+    statsMock.mockResolvedValueOnce({
+      ...stats,
+      availability: "partial",
+      scopeAvailability: "partial",
+      issuesWithIncompleteScopeHistory: ["DEMO-1"],
+    });
     render(<DailyPage />);
-    await screen.findByRole("region", { name: "Selected member tasks" });
+    await screen.findByText("DEMO-1");
     fireEvent.click(screen.getByRole("tab", { name: "Sprint Stats" }));
-    expect(screen.getByRole("group", { name: "Closure" })).toHaveTextContent("125%");
+    expect(await screen.findByText("Unable to load complete sprint statistics.")).toBeInTheDocument();
+    expect(screen.getByText(/sprint membership history could not be read for: DEMO-1/i)).toBeInTheDocument();
+    expect(screen.queryByRole("group", { name: "Planned" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+    await waitFor(() => expect(statsMock).toHaveBeenCalledTimes(2));
+    expect(await screen.findByRole("group", { name: "Planned" })).toBeInTheDocument();
+  });
 
-    const refreshedWorkspace: DailyWorkspace = {
-      ...workspace,
-      sprintStats: {
-        ...workspace.sprintStats,
-        originalStoryPoints: 5,
-        completedOriginalStoryPoints: 3,
-        addedStoryPoints: 0,
-        completedAddedStoryPoints: 0,
-      },
-    };
-    loadDailyWorkspaceMock.mockResolvedValueOnce(refreshedWorkspace);
+  it("confirms Team Tasks refresh and only refreshes the active section", async () => {
+    render(<DailyPage />);
+    await screen.findByText("DEMO-1");
+    fireEvent.click(screen.getByRole("tab", { name: "Team Tasks" }));
+    await waitFor(() => expect(teamMock).toHaveBeenCalledTimes(1));
     fireEvent.click(screen.getByRole("button", { name: "Refresh" }));
-
-    expect(await screen.findByRole("group", { name: "Closure" })).toHaveTextContent("60%");
-    expect(loadDailyWorkspaceMock).toHaveBeenCalledWith(project.id, workspace.selectedSprintId);
-    expect(refreshDailyWorkspaceMock).not.toHaveBeenCalled();
-  });
-
-  it("does not report zero completion when current status categories are unknown", async () => {
-    const unknownStatusWorkspace: DailyWorkspace = {
-      ...workspace,
-      sprintStats: {
-        ...workspace.sprintStats,
-        issuesWithUnavailableStatus: ["DEMO-14"],
-        completedOriginalStoryPoints: null,
-        completedAddedStoryPoints: null,
-        statusBreakdown: [
-          { category: "todo", taskCount: 0, storyPoints: 0 },
-          { category: "inProgress", taskCount: 0, storyPoints: 0 },
-          { category: "done", taskCount: 0, storyPoints: 0 },
-          { category: "unknown", taskCount: 1, storyPoints: 6 },
-        ],
-      },
-    };
-    loadDailyWorkspaceMock.mockResolvedValue(unknownStatusWorkspace);
-    render(<DailyPage />);
-    await screen.findByRole("region", { name: "Selected member tasks" });
+    expect(screen.getByRole("alertdialog")).toBeInTheDocument();
+    fireEvent.click(within(screen.getByRole("alertdialog")).getByRole("button", { name: "Refresh" }));
+    await waitFor(() => expect(teamMock).toHaveBeenCalledTimes(2));
+    expect(myTasksMock).toHaveBeenCalledTimes(1);
+    expect(statsMock).not.toHaveBeenCalled();
+    const teamActions = screen.getByRole("tablist").parentElement?.querySelector(".daily-workspace-actions");
+    expect(within(teamActions as HTMLElement).getAllByRole("button").map((button) => button.getAttribute("aria-label"))).toEqual(["AI Summary", "Presenter view", "Refresh"]);
+    expect(screen.getByRole("button", { name: "Presenter view" })).toBeEnabled();
     fireEvent.click(screen.getByRole("tab", { name: "Sprint Stats" }));
-
-    const panel = screen.getByRole("tabpanel", { name: "Sprint Stats" });
-    expect(within(panel).getByRole("group", { name: "Closure" })).toHaveTextContent("—");
-    expect(panel).toHaveTextContent("Current Jira status could not be classified for: DEMO-14. Completed totals are unavailable.");
-    expect(panel).toHaveTextContent("DEMO-14");
-    expect(panel).not.toHaveTextContent("0%");
-  });
-
-  it("identifies tasks that prevent complete story-point statistics", async () => {
-    const incompleteWorkspace: DailyWorkspace = {
-      ...workspace,
-      subtasks: workspace.subtasks.map((task) => task.id === "subtask-1" ? { ...task, storyPoints: undefined } : task),
-      sprintStats: {
-        ...workspace.sprintStats,
-        availability: "partial",
-        scopeAvailability: "unavailable",
-        scopeIssues: [],
-        originalTaskCount: null,
-        completedOriginalTaskCount: null,
-        originalStoryPoints: null,
-        completedOriginalStoryPoints: null,
-        addedTaskCount: null,
-        completedAddedTaskCount: null,
-        addedStoryPoints: null,
-        completedAddedStoryPoints: null,
-        statusBreakdown: [
-          { category: "todo", taskCount: 1, storyPoints: 1 },
-          { category: "inProgress", taskCount: 1, storyPoints: null },
-          { category: "done", taskCount: 1, storyPoints: 2 },
-        ],
-        issuesWithoutStoryPoints: ["DEMO-10"],
-        issuesWithIncompleteScopeHistory: ["DEMO-11"],
-        issuesWithUnavailableStatus: ["DEMO-13"],
-        issuesWithoutScopeStoryPoints: ["DEMO-12"],
-      },
-    };
-    loadDailyWorkspaceMock.mockResolvedValue(incompleteWorkspace);
-    render(<DailyPage />);
-    await screen.findByRole("region", { name: "Selected member tasks" });
-
-    fireEvent.click(screen.getByRole("tab", { name: "My Tasks" }));
-    const myTasksPanel = screen.getByRole("tabpanel", { name: "My Tasks" });
-    expect(within(myTasksPanel).getByRole("status")).toHaveTextContent("DEMO-2");
-
-    fireEvent.click(screen.getByRole("tab", { name: "Sprint Stats" }));
-    const sprintStatsPanel = screen.getByRole("tabpanel", { name: "Sprint Stats" });
-    expect(sprintStatsPanel).toHaveTextContent("DEMO-10");
-    expect(sprintStatsPanel).toHaveTextContent("DEMO-11");
-    expect(sprintStatsPanel).toHaveTextContent("DEMO-12");
-    expect(sprintStatsPanel).toHaveTextContent("DEMO-13");
-    expect(sprintStatsPanel).toHaveTextContent("Jira did not provide the actual activation time or enough history to reconstruct sprint scope.");
-    expect(sprintStatsPanel).not.toHaveTextContent("No parent issues are available for this scope.");
-  });
-
-  it("keeps the assignee list on the left and removes page settings and sprint dates", async () => {
-    render(<DailyPage />);
-    const tasks = await screen.findByRole("region", { name: "Selected member tasks" });
-    expect(tasks.parentElement).toHaveClass("daily-workspace-layout");
-    expect(screen.getByRole("heading", { name: "Assignees" })).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Settings" })).not.toBeInTheDocument();
-    expect(screen.queryByLabelText("Dates from Jira · read-only")).not.toBeInTheDocument();
-    expect(screen.queryByRole("combobox", { name: "Assignees" })).not.toBeInTheDocument();
-  });
-
-  it("updates mounted sprint tasks and their cache after team member edits", async () => {
-    render(<DailyPage />);
-    expect(await screen.findByRole("heading", { name: "Test Author A" })).toBeInTheDocument();
-    const calls = loadDailyWorkspaceMock.mock.calls.length;
-    const members = [{ ...workspace.members[0], alias: "Example Updated Member" }];
-    act(() => emitAppEvent(APP_EVENT.teamMembersChanged, { managedProjectId: project.id, members }));
-    expect(await screen.findByRole("heading", { name: "Example Updated Member" })).toBeInTheDocument();
-    expect(readDailyWorkspaceCache(project.id)?.members).toEqual(members);
-    expect(loadDailyWorkspaceMock).toHaveBeenCalledTimes(calls);
-    act(() => presenterStateListener?.({ workspace, selectedMemberId: workspace.members[0].accountId }));
-    expect(screen.getByRole("heading", { name: "Example Updated Member" })).toBeInTheDocument();
-    // Reconcile a workspace fetched before the edit using the saved member state.
-    await refreshDailyWorkspaceCache(project.id);
-    expect(readDailyWorkspaceCache(project.id)?.members).toEqual(members);
-  });
-
-  it("shows a styled loader on the first sprint task visit", async () => {
-    let resolveWorkspace: (value: DailyWorkspace) => void = () => undefined;
-    loadDailyWorkspaceMock.mockReturnValueOnce(new Promise<DailyWorkspace>((resolve) => {
-      resolveWorkspace = resolve;
-    }));
-
-    render(<DailyPage />);
-
-    const loader = await screen.findByRole("status", { name: "Loading sprint tasks…" });
-    expect(loader).toHaveClass("overflow-hidden");
-    expect(loader.querySelector("svg.lucide-refresh-cw")).toBeInTheDocument();
-
-    await act(async () => resolveWorkspace(workspace));
-    expect(await screen.findByText("DEMO-2")).toBeInTheDocument();
-  });
-
-  it("renders background-preloaded sprint tasks and shares their pending refresh", async () => {
-    let resolveWorkspace!: (value: DailyWorkspace) => void;
-    loadDailyWorkspaceMock
-      .mockResolvedValueOnce(workspace)
-      .mockReturnValueOnce(new Promise<DailyWorkspace>((resolve) => { resolveWorkspace = resolve; }));
-
-    await prefetchDailyWorkspaces([project.integrationId]);
-    const refreshing = refreshDailyWorkspaceCache(project.id);
-
-    render(<DailyPage />);
-
-    expect(await screen.findByText("DEMO-2")).toBeInTheDocument();
-    await waitFor(() => expect(loadDailyWorkspaceMock).toHaveBeenCalledTimes(2));
-    expect(screen.queryByRole("status", { name: "Loading sprint tasks…" })).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Refreshing…" })).toBeDisabled();
-    await act(async () => {
-      resolveWorkspace(workspace);
-      await refreshing;
-    });
-
-    // A background active-sprint response must preserve a newer explicit selection.
-    const selectedWorkspace = { ...workspace, selectedSprintId: "sprint-2" };
-    loadDailyWorkspaceMock
-      .mockReturnValueOnce(new Promise<DailyWorkspace>((resolve) => { resolveWorkspace = resolve; }))
-      .mockResolvedValueOnce(selectedWorkspace);
-    const prefetching = prefetchDailyWorkspaces([project.integrationId]);
-    await waitFor(() => expect(loadDailyWorkspaceMock).toHaveBeenCalledTimes(3));
-    await refreshDailyWorkspaceCache(project.id, selectedWorkspace.selectedSprintId);
-    resolveWorkspace(workspace);
-    await prefetching;
-    expect(readDailyWorkspaceCache(project.id)).toEqual(selectedWorkspace);
-    expect(readDailyWorkspaceCache(project.id, workspace.selectedSprintId)).toEqual(workspace);
-  });
-
-  it("loads the active sprint by default and can select another sprint", async () => {
-    render(<DailyPage />);
-
-    expect(await screen.findByRole("region", { name: "Selected member tasks" })).toBeInTheDocument();
-    expect(screen.getByRole("combobox", { name: "Team" })).toBeInTheDocument();
-    expect(screen.getByRole("combobox", { name: "Sprint" })).toHaveTextContent("Sprint 42");
-    expect(screen.queryByText("Unavailable")).not.toBeInTheDocument();
-    expect(screen.queryByText("Active sprint: Sprint 42")).not.toBeInTheDocument();
-    const aiSummaryButton = screen.getByRole("button", { name: "AI Summary" });
-    expect(aiSummaryButton).not.toHaveTextContent("AI Summary");
-    const refreshButton = screen.getByRole("button", { name: "Refresh" });
-    const sprintBoardButton = screen.getByRole("button", { name: "Open sprint board in Jira" });
-    const assigneeBoardButton = screen.getByRole("button", { name: "Open sprint board for this assignee in Jira" });
-    const presenterButton = screen.getByRole("button", { name: "Presenter view" });
-    const createTaskButton = screen.getByRole("button", { name: "Create task for this sprint" });
-    expect(createTaskButton).toHaveClass("app-icon-button");
-    expect(createTaskButton).not.toHaveTextContent("Create");
-    expect(createTaskButton.querySelector("svg.lucide-plus")).toBeInTheDocument();
-    fireEvent.click(sprintBoardButton);
-    await waitFor(() => expect(openUrlMock).toHaveBeenCalledWith(workspace.sprintBoardUrl));
-    fireEvent.click(assigneeBoardButton);
-    await waitFor(() => expect(openUrlMock).toHaveBeenCalledWith(workspace.sprintBoardUrlsByAssignee["test-user-a"]));
-    expect(screen.queryByLabelText("Dates from Jira · read-only")).not.toBeInTheDocument();
-    expect(screen.queryByText("21.09.2026 – 05.10.2026")).not.toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "Test Author A" }).nextElementSibling).toBe(assigneeBoardButton.parentElement);
-    expect(assigneeBoardButton.parentElement).toHaveAttribute("data-tooltip", "Open sprint board for this assignee in Jira");
-    fireEvent.click(createTaskButton);
-    expect(window.location.hash).toBe("#product/create-task?team=managed-1&sprint=sprint-1&new=1");
-    expect(refreshButton).not.toHaveTextContent("Refresh");
-    expect(presenterButton).not.toHaveTextContent("Presenter view");
-    expect(presenterButton.querySelector("svg.lucide-presentation")).toBeInTheDocument();
-    expect(createTaskButton.parentElement).toBe(refreshButton.parentElement);
-    expect(refreshButton.parentElement).toBe(presenterButton.parentElement);
-    const actionGroup = refreshButton.parentElement;
-    if (!actionGroup) {
-      throw new Error("Sprint task actions were not rendered in a shared container");
-    }
-    const actionSeparator = actionGroup.querySelector('[data-orientation="vertical"]');
-    if (!actionSeparator) {
-      throw new Error("Sprint task actions separator was not rendered");
-    }
-    const actionItems = Array.from(actionGroup.children);
-    expect(actionItems).toEqual([
-      aiSummaryButton,
-      presenterButton,
-      actionSeparator,
-      refreshButton,
-      createTaskButton,
-    ]);
-    expect(screen.getByRole("button", { name: /Test Author A/, pressed: true })).toHaveAttribute("aria-pressed", "true");
-    expect(screen.getByText("1 tasks · 1 in progress · 0 done · 0 backlog")).toBeInTheDocument();
-    expect(screen.getByText("DEMO-2")).toBeInTheDocument();
-    expect(screen.getByText("SP 3")).toBeInTheDocument();
-    const statusButton = screen.getByRole("button", { name: "Change status for DEMO-2 (current: In Progress)" });
-    expect(statusButton).not.toHaveAttribute("title");
-    fireEvent.focus(statusButton);
-    expect(screen.queryByRole("tooltip")).not.toBeInTheDocument();
-    fireEvent.blur(statusButton);
-    fireEvent.pointerDown(statusButton, { button: 0, ctrlKey: false });
-    expect(await screen.findByRole("menuitem", { name: /Code Review/ })).toBeInTheDocument();
-    expect(screen.getByRole("menuitem", { name: "In Progress" })).toHaveAttribute("aria-current", "true");
-    expect(screen.getByRole("menuitem", { name: /Complete required fields in Jira/ })).toHaveAttribute("aria-disabled", "true");
-    let completeTransition!: () => void;
-    transitionDailyIssueMock.mockReturnValueOnce(new Promise((resolve) => { completeTransition = resolve; }));
-    let completeRefresh!: (tasks: DailyWorkspace["subtasks"]) => void;
-    refreshDailyWorkspaceMock.mockReturnValueOnce(new Promise((resolve) => { completeRefresh = resolve; }));
-    fireEvent.click(screen.getByRole("menuitem", { name: /Code Review/ }));
-    await waitFor(() => expect(transitionDailyIssueMock).toHaveBeenCalledWith(
-      project.id,
-      workspace.selectedSprintId,
-      "DEMO-2",
-      "transition-review",
-      expect.any(String),
-    ));
-    expect(statusButton).toBeDisabled();
-    expect(statusButton).toHaveAttribute("aria-busy", "true");
-    expect(statusButton.querySelector(".animate-spin")).toBeInTheDocument();
-    await act(async () => { completeTransition(); });
-    const savedStatus = await screen.findByRole("button", { name: "Change status for DEMO-2 (current: Code Review)" });
-    await waitFor(() => expect(savedStatus).toBeEnabled());
-    expect(savedStatus).toHaveAttribute("aria-busy", "false");
-    expect(screen.getByRole("status")).toHaveTextContent("DEMO-2 moved to Code Review.");
-    expect(screen.getByText("1 tasks · 0 in progress · 0 done · 0 backlog")).toBeInTheDocument();
-    expect(publishPresenterStateMock).toHaveBeenCalledWith(expect.objectContaining({
-      workspace: expect.objectContaining({
-        subtasks: expect.arrayContaining([expect.objectContaining({ key: "DEMO-2", status: "Code Review" })]),
-      }),
-    }));
-    await act(async () => { completeRefresh(workspace.subtasks.map((task) =>
-      task.key === "DEMO-2" ? { ...task, status: "Code Review" } : task,
-    )); });
-    expect(screen.getByText("Sub-task · Parent DEMO-1")).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "DEMO-2" }));
-    await waitFor(() => expect(openUrlMock).toHaveBeenCalledWith("https://jira.example.invalid/browse/DEMO-2"));
-
-    fireEvent.pointerDown(screen.getByRole("button", { name: "Actions for DEMO-2" }), {
-      button: 0,
-      ctrlKey: false,
-    });
-    const openParentItem = await screen.findByRole("menuitem", { name: "Open parent DEMO-1" });
-    expect(openParentItem).toHaveTextContent("Open parentDEMO-1");
-    expect(openParentItem.querySelector(".flex-col")).toBeInTheDocument();
-    const menuSeparators = openParentItem.parentElement?.querySelectorAll('[role="separator"]');
-    expect(menuSeparators).toHaveLength(1);
-    expect(menuSeparators?.[0]).toHaveClass("mx-2", "bg-border");
-    fireEvent.click(screen.getByRole("menuitem", { name: "Copy key" }));
-    await waitFor(() => expect(writeTextMock).toHaveBeenCalledWith("DEMO-2"));
-    expect(screen.getByRole("status")).toHaveTextContent("Copied DEMO-2 to the clipboard.");
-    expect(screen.getByRole("status")).toHaveClass("fixed");
-    expect(screen.getByRole("button", { name: /Other assignees/ })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /Unassigned/ })).toBeInTheDocument();
-
-    loadDailyWorkspaceMock.mockResolvedValueOnce({
-      ...workspace,
-      selectedSprintId: "sprint-0",
-      selectedSprintName: "Sprint 41",
-      sprintBoardUrl: "https://jira.example.invalid/secure/RapidBoard.jspa?rapidView=42&projectKey=DEMO&sprint=sprint-0",
-      sprintBoardUrlsByAssignee: {},
-    });
-    fireEvent.click(screen.getByRole("combobox", { name: "Sprint" }));
-    expect(screen.getByRole("option", { name: "Sprint 42 (Active)" })).toHaveAttribute("aria-selected", "true");
-    expect(screen.getByRole("option", { name: "Sprint 43 (Future)" })).toBeInTheDocument();
-    fireEvent.change(screen.getByRole("searchbox", { name: "Search sprints…" }), { target: { value: "41" } });
-    expect(screen.getByRole("option", { name: "Sprint 41 (Closed)" })).toBeInTheDocument();
-    expect(screen.queryByRole("option", { name: "Sprint 42 (Active)" })).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole("option", { name: "Sprint 41 (Closed)" }));
-    await waitFor(() => expect(loadDailyWorkspaceMock).toHaveBeenLastCalledWith("managed-1", "sprint-0"));
-    fireEvent.click(screen.getByRole("combobox", { name: "Sprint" }));
-    expect(screen.getByRole("option", { name: "Sprint 41 (Closed)" })).toHaveAttribute("aria-selected", "true");
-    fireEvent.keyDown(screen.getByRole("searchbox", { name: "Search sprints…" }), { key: "Escape" });
-    await waitFor(() => expect(screen.getByRole("button", { name: "Open sprint board for this assignee in Jira" })).toBeDisabled());
-    expect(screen.getByRole("button", { name: "Open sprint board for this assignee in Jira" }).parentElement).toHaveAttribute("data-tooltip", "No Jira assignee quick filter is available for this person.");
-    fireEvent.click(sprintBoardButton);
-    await waitFor(() => expect(openUrlMock).toHaveBeenLastCalledWith("https://jira.example.invalid/secure/RapidBoard.jspa?rapidView=42&projectKey=DEMO&sprint=sprint-0"));
-
-    let finishOpening!: () => void;
-    openPresenterViewMock.mockImplementationOnce(() => new Promise<void>((resolve) => { finishOpening = resolve; }));
-    fireEvent.click(presenterButton);
-    await waitFor(() => expect(openPresenterViewMock).toHaveBeenCalledTimes(1));
-    expect(presenterButton).toBeDisabled();
-    expect(presenterButton).toHaveAttribute("aria-busy", "true");
-    expect(publishPresenterStateMock).toHaveBeenCalled();
-    await act(async () => finishOpening());
-    expect(await screen.findByRole("button", { name: "Stop presenter view" })).toBeEnabled();
-  });
-
-  it("generates and displays a weekly AI summary for the selected sprint", async () => {
-    render(<DailyPage />);
-    await screen.findByRole("region", { name: "Selected member tasks" });
-    fireEvent.click(screen.getByRole("button", { name: "AI Summary" }));
-    expect(screen.getByRole("heading", { name: "AI Summary" })).toBeInTheDocument();
-    expect(screen.getByRole("combobox", { name: "Sprint" })).toHaveTextContent("Sprint 42");
-    fireEvent.click(screen.getByRole("button", { name: "Date range" }));
-    const rangeStart = screen.getByRole("button", { name: /28 September/ });
-    expect(rangeStart).not.toHaveClass("app-icon-button");
-    expect(rangeStart.parentElement).toHaveClass("size-[var(--cell-size)]");
-    fireEvent.click(rangeStart);
-    fireEvent.click(screen.getByRole("button", { name: /30 September/ }));
-    expect(screen.getByRole("button", { name: "Date range" })).toHaveTextContent("28.09.2026 – 30.09.2026");
-    fireEvent.click(screen.getByRole("button", { name: "Generate" }));
-    const result = await screen.findByRole("textbox", { name: "AI summary result" });
-    expect(result).toHaveValue("Sprint progress report");
-    expect(result).not.toHaveAttribute("readonly");
-    expect(screen.queryByRole("combobox", { name: "Preset" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Date range" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Generate" })).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Copy" })).toBeInTheDocument();
-    expect(generateSprintSummaryMock).toHaveBeenCalledWith({
-      managedProjectId: project.id,
-      sprintId: workspace.selectedSprintId,
-      preset: "weekly",
-      period: {
-        startAt: new Date(2026, 8, 28).toISOString(),
-        endExclusive: new Date(2026, 9, 1).toISOString(),
-        timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-      },
-      customPrompt: "",
-      previousResult: undefined,
-      action: "generate",
-    });
-    expect(screen.getByRole("button", { name: "Make shorter" })).toBeInTheDocument();
-  });
-
-  it("updates the main Daily selection when Presenter changes the member", async () => {
-    render(<DailyPage />);
-    await screen.findByRole("region", { name: "Selected member tasks" });
-
-    act(() => {
-      presenterStateListener?.({ workspace, selectedMemberId: "test-user-b" });
-    });
-
-    await waitFor(() => expect(screen.getByRole("button", { name: /Test Author B/, pressed: true })).toHaveAttribute("aria-pressed", "true"));
-  });
-
-  it("ignores a late workspace response for the previously selected project", async () => {
-    let resolveFirstWorkspace: (value: DailyWorkspace) => void = () => undefined;
-    let resolveSecondWorkspace: (value: DailyWorkspace) => void = () => undefined;
-    const firstWorkspaceRequest = new Promise<DailyWorkspace>((resolve) => {
-      resolveFirstWorkspace = resolve;
-    });
-    const secondWorkspaceRequest = new Promise<DailyWorkspace>((resolve) => {
-      resolveSecondWorkspace = resolve;
-    });
-    const secondWorkspace: DailyWorkspace = {
-      ...workspace,
-      managedProjectId: secondProject.id,
-      projectName: secondProject.name,
-      projectKey: "SECOND",
-      subtasks: [{
-        ...workspace.subtasks[0]!,
-        id: "second-task",
-        key: "SECOND-1",
-        summary: "Second project task",
-        url: "https://jira.example.invalid/browse/SECOND-1",
-      }],
-    };
-    listManagedProjectsMock.mockResolvedValue([project, secondProject]);
-    loadDailyWorkspaceMock
-      .mockReturnValueOnce(firstWorkspaceRequest)
-      .mockReturnValueOnce(secondWorkspaceRequest);
-
-    render(<DailyPage />);
-    await waitFor(() => expect(loadDailyWorkspaceMock).toHaveBeenCalledWith(project.id, undefined));
-    fireEvent.click(screen.getByRole("combobox", { name: "Team" }));
-    fireEvent.click(screen.getByRole("option", { name: secondProject.name }));
-    await waitFor(() => expect(loadDailyWorkspaceMock).toHaveBeenCalledWith(secondProject.id, undefined));
-
-    await act(async () => resolveSecondWorkspace(secondWorkspace));
-    expect(await screen.findByText("SECOND-1")).toBeInTheDocument();
-
-    await act(async () => resolveFirstWorkspace(workspace));
-    expect(screen.getByText("SECOND-1")).toBeInTheDocument();
-    expect(screen.queryByText("DEMO-2")).not.toBeInTheDocument();
+    await waitFor(() => expect(statsMock).toHaveBeenCalledTimes(1));
+    const statsActions = screen.getByRole("tablist").parentElement?.querySelector(".daily-workspace-actions");
+    expect(within(statsActions as HTMLElement).getAllByRole("button").map((button) => button.getAttribute("aria-label"))).toEqual(["Refresh"]);
+    let resolveStatsRefresh!: (value: DailySprintStatsDto) => void;
+    statsMock.mockReturnValueOnce(new Promise((resolve) => { resolveStatsRefresh = resolve; }));
+    fireEvent.click(screen.getByRole("button", { name: "Refresh" }));
+    expect(screen.getByRole("alertdialog")).toBeInTheDocument();
+    expect(screen.getByText("Refreshing Jira data may take a while. Progress will be shown on the page.")).toBeInTheDocument();
+    fireEvent.click(within(screen.getByRole("alertdialog")).getByRole("button", { name: "Refresh" }));
+    await waitFor(() => expect(statsMock).toHaveBeenCalledTimes(2));
+    expect(screen.getByRole("status", { name: "Loading sprint stats…" })).toBeInTheDocument();
+    const closureMetric = screen.getByRole("group", { name: "Closure" });
+    expect(closureMetric).toHaveTextContent("0%");
+    expect(closureMetric).toHaveTextContent("0 / 3 SP");
+    expect(within(closureMetric).queryByRole("progressbar")).not.toBeInTheDocument();
+    expect(closureMetric.querySelector('svg[role="img"]')).toBeNull();
+    expect(screen.getByRole("group", { name: "Planned" })).toBeInTheDocument();
+    resolveStatsRefresh(stats);
+    await waitFor(() => expect(screen.queryByRole("status", { name: "Loading sprint stats…" })).not.toBeInTheDocument());
+    expect(teamMock).toHaveBeenCalledTimes(2);
+    expect(myTasksMock).toHaveBeenCalledTimes(1);
   });
 });

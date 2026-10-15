@@ -123,7 +123,7 @@ function TaskCard({ task, taskCount }: { task: DailySubtaskWithPoints; taskCount
       <div className="daily-presenter-task-meta">
         <span className="daily-presenter-ticket-id">{task.key}</span>
         <div className="daily-presenter-status-stack">
-          <span className={`daily-presenter-status daily-presenter-status-${dailyStatusTone(task.status)}`} aria-label={t("daily.status", { status: task.status })}>
+          <span className={`daily-presenter-status daily-presenter-status-${dailyStatusTone(task.status, task.statusCategory)}`} aria-label={t("daily.status", { status: task.status })}>
             {task.status}
           </span>
           {statusTransitionDate ? (

@@ -1,11 +1,10 @@
-import { PageToolbar } from "@/components/shared/PageToolbar";
 import { Hint } from "@/components/ui/tooltip";
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { APP_EVENT, subscribeAppEvent } from "@/app/app-events";
 import { readUpdatedTeamMembers } from "../planning/team-members-state";
 import { listen } from "@tauri-apps/api/event";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import { ArrowLeft, ArrowRight, CalendarDays, ChevronDown, Copy, ExternalLink, MoreHorizontal, Presentation, RefreshCw, Sparkles, Square } from "lucide-react";
+import { ArrowLeft, ArrowRight, CalendarDays, ChartColumnIncreasing, ChevronDown, CircleCheck, CircleGauge, CirclePlus, Copy, ExternalLink, List, ListTodo, MoreHorizontal, Presentation, RefreshCw, Sparkles, Square, UsersRound } from "lucide-react";
 import { PageHeader } from "@/components/shared/PageHeader";
 import { StatusToast } from "@/components/shared/StatusToast";
 import { useInfoPopoverAnchor } from "@/components/shared/use-info-popover-anchor";
@@ -13,8 +12,8 @@ import { formatDisplayDate } from "@/lib/display-date";
 import { useI18n } from "@/i18n/context";
 import { AppLanguage } from "@/i18n/types";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { badgeVariants } from "@/components/ui/badge";
-import { CreateButton } from "@/components/shared/CreateButton";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -33,8 +32,6 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Separator } from "@/components/ui/separator";
-import { issueStatusBadgeClass } from "@/lib/issue-status-badge";
 import { cn } from "@/lib/utils";
 import { directPointerMoveHover } from "@/lib/direct-pointer-hover";
 import {
@@ -45,15 +42,24 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Table, TableBody, TableCaption, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import type { DailyIssueTransition, DailySubtask, DailyWorkspace } from "@/shared/contracts/developer";
+import type { DailyIssueTransition, DailySprintStats, DailySubtask, DailyWorkspace } from "@/shared/contracts/developer";
 import type { ManagedProject, TeamMember } from "@/shared/contracts/planning";
 import { closePresenterView, generateSprintSummary, loadDailyIssueTransitions, loadJiraAvatarData, openPresenterView, publishPresenterState, refreshDailyWorkspace, subscribePresenterState, transitionDailyIssue } from "./api";
-import { readDailyWorkspaceCache, readManagedProjectsCache, refreshDailyWorkspaceCache, refreshManagedProjectsCache, writeDailyWorkspaceCache } from "./cache";
-import { dailyStatusTone } from "./status";
+import { loadMyTasks, loadSprintStats, loadTeamWorkspace, readManagedProjectsCache, readMyTasksCache, readSprintStatsCache, readTeamWorkspaceCache, refreshManagedProjectsCache, writeDailyWorkspaceCache } from "./cache";
+import { dailyStatusBadgeClass, dailyStatusTone } from "./status";
 import { dailyProgressCategory } from "./presenterMetrics";
 import { ChartContainer, type ChartConfig } from "@/components/ui/chart";
 import { Cell, Pie, PieChart } from "recharts";
 import "./daily.css";
+
+function DailyLoadingState({ label }: { label: string }) {
+  return (
+    <div className="daily-centered-loading" role="status" aria-label={label}>
+      <RefreshCw className="size-7 animate-spin text-primary" aria-hidden="true" />
+      <span className="font-medium">{label}</span>
+    </div>
+  );
+}
 
 function commandError(error: unknown): string {
   if (error instanceof Error) return error.message;
@@ -76,6 +82,29 @@ function statusActionError(error: unknown, t: ReturnType<typeof useI18n>["t"]): 
   return t("daily.transitionFailed");
 }
 
+function dailyStatsDiagnosticReasons(stats: DailySprintStats, t: ReturnType<typeof useI18n>["t"]): string[] {
+  const reasons = [
+    stats.issuesWithIncompleteScopeHistory.length > 0
+      ? t("daily.scopeHistoryIncompleteForIssues", { issues: stats.issuesWithIncompleteScopeHistory.join(", ") })
+      : undefined,
+    stats.issuesWithUnavailableStatus.length > 0
+      ? t("daily.statusHistoryUnavailableForIssues", { issues: stats.issuesWithUnavailableStatus.join(", ") })
+      : undefined,
+    stats.issuesWithoutScopeStoryPoints.length > 0
+      ? t("daily.scopeStoryPointsUnavailableForIssues", { issues: stats.issuesWithoutScopeStoryPoints.join(", ") })
+      : undefined,
+    stats.issuesWithoutStoryPoints.length > 0
+      ? t("daily.storyPointsUnavailableForIssues", { issues: stats.issuesWithoutStoryPoints.join(", ") })
+      : undefined,
+  ].filter((reason): reason is string => Boolean(reason));
+
+  if (stats.scopeAvailability === "unavailable" && stats.issuesWithIncompleteScopeHistory.length === 0) {
+    reasons.push(t("daily.historyScopeUnavailable"));
+  }
+  if (reasons.length === 0) reasons.push(t("daily.statsIncompleteReason"));
+  return reasons;
+}
+
 function initials(displayName: string): string {
   const parts = displayName.split(/\s+/).filter(Boolean);
   if (parts.length === 0) return "?";
@@ -86,9 +115,20 @@ function memberDisplayName(member: TeamMember): string {
   return member.alias?.trim() || member.displayName;
 }
 
+function activeTeamMemberForAccount(members: TeamMember[], accountId: string | null | undefined): TeamMember | undefined {
+  if (!accountId) return undefined;
+  const normalizedAccountId = accountId.toLowerCase();
+  return members.find((member) => member.active && member.accountId.toLowerCase() === normalizedAccountId);
+}
+
 function sprintDateInputValue(value?: string | null): string | undefined {
   const date = value?.slice(0, 10);
   return date && /^\d{4}-\d{2}-\d{2}$/.test(date) ? date : undefined;
+}
+
+function sprintPeriodLabel(startDate?: string | null, endDate?: string | null): string | undefined {
+  if (!startDate || !endDate || !Number.isFinite(Date.parse(startDate)) || !Number.isFinite(Date.parse(endDate))) return undefined;
+  return `${formatDisplayDate(startDate)} – ${formatDisplayDate(endDate)}`;
 }
 
 function dateFromInputValue(value?: string): Date | undefined {
@@ -170,7 +210,7 @@ function ownerTasks(workspace: DailyWorkspace, ownerId: string | undefined): Dai
 
 function memberStats(subtasks: DailyWorkspace["subtasks"]): { total: number; progress: number; done: number; backlog: number } {
   return subtasks.reduce((stats, subtask) => {
-    const tone = dailyStatusTone(subtask.status);
+    const tone = dailyStatusTone(subtask.status, subtask.statusCategory);
     stats.total += 1;
     if (tone === "progress") stats.progress += 1;
     if (tone === "done") stats.done += 1;
@@ -243,7 +283,7 @@ function TaskStatusMenu({
           type="button"
           className={cn(
             badgeVariants({ variant: "outline" }),
-            issueStatusBadgeClass(task.status),
+            dailyStatusBadgeClass(task.status, task.statusCategory),
             "daily-status-trigger h-8 gap-1.5 px-3 text-[13px] leading-4 focus:ring-0 focus:ring-offset-0 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-wait",
           )}
           disabled={performingId !== undefined}
@@ -293,6 +333,8 @@ function TaskStatusMenu({
 
 type SprintWorkspaceTab = "myTasks" | "teamTasks" | "stats";
 const SPRINT_WORKSPACE_TABS: SprintWorkspaceTab[] = ["myTasks", "teamTasks", "stats"];
+const SPRINT_WORKSPACE_TAB_ICONS = { myTasks: ListTodo, teamTasks: UsersRound, stats: ChartColumnIncreasing };
+const EMPTY_STATS: DailySprintStats = { availability: "unavailable", originalTaskCount: null, completedOriginalTaskCount: null, originalStoryPoints: null, completedOriginalStoryPoints: null, addedTaskCount: null, completedAddedTaskCount: null, addedStoryPoints: null, completedAddedStoryPoints: null, scopeAvailability: "unavailable", issuesWithIncompleteScopeHistory: [], issuesWithUnavailableStatus: [], issuesWithoutScopeStoryPoints: [], scopeIssues: [], statusBreakdown: [], issuesWithoutStoryPoints: [] };
 
 type StatusDonutSlice = { key: string; label: string; value: number; color: string };
 
@@ -329,19 +371,28 @@ function StatusDonut({
 
 export function DailyPage() {
   const { t, language } = useI18n();
-  const [activeTab, setActiveTab] = useState<SprintWorkspaceTab>("teamTasks");
+  const [activeTab, setActiveTab] = useState<SprintWorkspaceTab>("myTasks");
   const workspaceTabRefs = useRef<Partial<Record<SprintWorkspaceTab, HTMLButtonElement | null>>>({});
   const [projects, setProjects] = useState<ManagedProject[]>(() => readManagedProjectsCache() ?? []);
   const [selectedProjectId, setSelectedProjectId] = useState<string | undefined>(() => readManagedProjectsCache()?.[0]?.id);
   const [workspace, setWorkspace] = useState<DailyWorkspace | undefined>(() => {
     const projectId = readManagedProjectsCache()?.[0]?.id;
-    return projectId ? readDailyWorkspaceCache(projectId) : undefined;
+    const myTasks = projectId ? readMyTasksCache(projectId) : undefined;
+    if (!myTasks) return undefined;
+    const team = readTeamWorkspaceCache(projectId!);
+    const currentUserMember = activeTeamMemberForAccount(team?.members ?? [], myTasks.currentUserAccountId)
+      ?? myTasks.currentUserMember;
+    return { ...myTasks, currentUserMember, sprintBoardUrl: team?.sprintBoardUrl ?? "", sprintBoardUrlsByAssignee: team?.sprintBoardUrlsByAssignee ?? {}, members: team?.members ?? [], sprintStats: EMPTY_STATS };
   });
   const [selectedMemberId, setSelectedMemberId] = useState<string>();
   const [sprintPickerOpen, setSprintPickerOpen] = useState(false);
   const [sprintQuery, setSprintQuery] = useState("");
   const [loadingProjects, setLoadingProjects] = useState(() => readManagedProjectsCache() == null);
   const [loadingWorkspace, setLoadingWorkspace] = useState(false);
+  const [loadingTeam, setLoadingTeam] = useState(false);
+  const [loadingStats, setLoadingStats] = useState(false);
+  const [statsLoadError, setStatsLoadError] = useState<string>();
+  const [refreshConfirmOpen, setRefreshConfirmOpen] = useState(false);
   const [refreshingStatuses, setRefreshingStatuses] = useState(false);
   const [error, setError] = useState<string>();
   const [presenterOpen, setPresenterOpen] = useState(false);
@@ -363,7 +414,11 @@ export function DailyPage() {
   const statusRefreshRevision = useRef(0);
 
   useEffect(() => subscribeAppEvent(APP_EVENT.teamMembersChanged, ({ managedProjectId, members }) => {
-    setWorkspace((current) => current?.managedProjectId === managedProjectId ? { ...current, members } : current);
+    setWorkspace((current) => current?.managedProjectId === managedProjectId ? {
+      ...current,
+      members,
+      currentUserMember: activeTeamMemberForAccount(members, current.currentUserAccountId) ?? null,
+    } : current);
   }), []);
 
   useEffect(() => {
@@ -388,33 +443,57 @@ export function DailyPage() {
     };
   }, []);
 
-  const refreshWorkspace = useCallback(async (projectId: string, sprintId?: string) => {
+  const refreshWorkspace = useCallback(async (projectId: string, sprintId?: string, force = false, tab: SprintWorkspaceTab = "myTasks") => {
     const revision = workspaceRequestRevision.current + 1;
     workspaceRequestRevision.current = revision;
-    const statusRevision = ++statusRefreshRevision.current;
-    const cachedWorkspace = readDailyWorkspaceCache(projectId, sprintId);
-    setWorkspace(cachedWorkspace);
-    setLoadingWorkspace(cachedWorkspace == null);
-    setRefreshingStatuses(cachedWorkspace != null);
     setError(undefined);
+    if (tab === "myTasks") {
+      setLoadingWorkspace(true);
+      setStatsLoadError(undefined);
+    }
+    if (tab === "teamTasks") setLoadingTeam(true);
+    if (tab === "stats") {
+      setLoadingStats(true);
+      setRefreshingStatuses(true);
+      setStatsLoadError(undefined);
+    }
     try {
-      const loaded = await refreshDailyWorkspaceCache(projectId, sprintId);
-      if (workspaceRequestRevision.current !== revision) return;
-      setWorkspace((current) => {
-        if (statusRefreshRevision.current !== statusRevision) {
-          // The request started before a confirmed status change; preserve that newer state and cache.
-          if (current) writeDailyWorkspaceCache(current);
-          return current;
+      if (tab === "myTasks") {
+        const my = await loadMyTasks(projectId, sprintId, force);
+        if (workspaceRequestRevision.current !== revision) return;
+        const team = readTeamWorkspaceCache(projectId, my.selectedSprintId);
+        const stats = readSprintStatsCache(projectId, my.selectedSprintId);
+        const currentUserMember = activeTeamMemberForAccount(team?.members ?? [], my.currentUserAccountId)
+          ?? my.currentUserMember;
+        setWorkspace({ ...my, currentUserMember, sprintBoardUrl: team?.sprintBoardUrl ?? "", sprintBoardUrlsByAssignee: team?.sprintBoardUrlsByAssignee ?? {}, members: team?.members ?? [], sprintStats: stats ?? EMPTY_STATS });
+      } else {
+        const selectedSprintId = sprintId ?? readMyTasksCache(projectId)?.selectedSprintId;
+        if (!selectedSprintId) return;
+        if (tab === "teamTasks") {
+          const loaded = await loadTeamWorkspace(projectId, selectedSprintId, force);
+          if (workspaceRequestRevision.current !== revision) return;
+          setWorkspace((my) => my ? {
+            ...my,
+            ...loaded,
+            currentUserAccountId: my.currentUserAccountId,
+            currentUserMember: activeTeamMemberForAccount(loaded.members, my.currentUserAccountId) ?? null,
+            sprintStats: my.sprintStats,
+          } : { ...loaded, currentUserAccountId: null, currentUserMember: null, sprintStats: EMPTY_STATS });
+        } else {
+          const stats = await loadSprintStats(projectId, selectedSprintId, force);
+          if (workspaceRequestRevision.current !== revision) return;
+          setWorkspace((currentWorkspace) => currentWorkspace ? { ...currentWorkspace, sprintStats: stats } : currentWorkspace);
         }
-        return loaded;
-      });
-    } catch (reason) {
-      if (workspaceRequestRevision.current === revision) setError(commandError(reason));
-    } finally {
-      if (workspaceRequestRevision.current === revision) {
-        setLoadingWorkspace(false);
-        setRefreshingStatuses(false);
       }
+    } catch (reason) {
+      if (workspaceRequestRevision.current === revision) {
+        if (tab === "stats") setStatsLoadError(commandError(reason));
+        else setError(commandError(reason));
+      }
+    } finally {
+      if (tab === "myTasks") setLoadingWorkspace(false);
+      if (tab === "teamTasks") setLoadingTeam(false);
+      if (tab === "stats") { setLoadingStats(false); setRefreshingStatuses(false); }
     }
   }, []);
 
@@ -429,9 +508,38 @@ export function DailyPage() {
       return undefined;
     }
     setSelectedMemberId(undefined);
+    setStatsLoadError(undefined);
+    const cachedMyTasks = readMyTasksCache(selectedProjectId);
+    if (cachedMyTasks) {
+      const cachedTeam = readTeamWorkspaceCache(selectedProjectId, cachedMyTasks.selectedSprintId);
+      const cachedStats = readSprintStatsCache(selectedProjectId, cachedMyTasks.selectedSprintId);
+      setWorkspace((current) => current?.managedProjectId === selectedProjectId ? current : {
+        ...cachedMyTasks,
+        sprintBoardUrl: cachedTeam?.sprintBoardUrl ?? "",
+        sprintBoardUrlsByAssignee: cachedTeam?.sprintBoardUrlsByAssignee ?? {},
+        members: cachedTeam?.members ?? [],
+        sprintStats: cachedStats ?? EMPTY_STATS,
+      });
+    } else {
+      setWorkspace(undefined);
+    }
     void refreshWorkspace(selectedProjectId);
     return undefined;
   }, [refreshWorkspace, selectedProjectId]);
+
+  useEffect(() => {
+    if (!selectedProjectId || !workspace) return;
+    if (activeTab === "teamTasks") {
+      const cachedTeam = readTeamWorkspaceCache(selectedProjectId, workspace.selectedSprintId);
+      if (cachedTeam) setWorkspace((current) => current ? { ...current, ...cachedTeam } : current);
+      else void refreshWorkspace(selectedProjectId, workspace.selectedSprintId, false, "teamTasks");
+    } else if (activeTab === "stats") {
+      const cachedStats = readSprintStatsCache(selectedProjectId, workspace.selectedSprintId);
+      if (cachedStats) setWorkspace((current) => current ? { ...current, sprintStats: cachedStats } : current);
+      else void refreshWorkspace(selectedProjectId, workspace.selectedSprintId, false, "stats");
+    }
+  }, [activeTab, selectedProjectId, workspace?.selectedSprintId, refreshWorkspace]);
+
 
   const owners = useMemo(
     () => workspace ? taskOwners(workspace, t("daily.otherAssignees"), t("daily.unassigned")) : [],
@@ -642,7 +750,7 @@ export function DailyPage() {
     workspaceTabRefs.current[nextTab]?.focus();
   }
   const currentUserMember = workspace?.currentUserAccountId
-    ? workspace.members.find((member) => member.accountId === workspace.currentUserAccountId && member.active)
+    ? activeTeamMemberForAccount(workspace.members, workspace.currentUserAccountId) ?? workspace.currentUserMember
     : undefined;
   const myTasks = workspace?.currentUserAccountId
     ? workspace.subtasks.filter((task) => task.assigneeAccountId === workspace.currentUserAccountId)
@@ -671,11 +779,23 @@ export function DailyPage() {
       ? t("daily.myTasksNoPoints")
       : myTasksPointsUnavailableMessage;
   const sprintStats = workspace?.sprintStats;
+  const currentSprintId = workspace && workspace.managedProjectId === selectedProjectId ? workspace.selectedSprintId : undefined;
+  const hasCachedMyTasks = Boolean(selectedProjectId && (currentSprintId ? readMyTasksCache(selectedProjectId, currentSprintId) : readMyTasksCache(selectedProjectId)));
+  const hasCachedTeamData = Boolean(selectedProjectId && currentSprintId && readTeamWorkspaceCache(selectedProjectId, currentSprintId));
+  const hasCachedStats = Boolean(selectedProjectId && currentSprintId && readSprintStatsCache(selectedProjectId, currentSprintId));
+  const statsHasDiagnostics = Boolean(sprintStats && (
+    sprintStats.issuesWithIncompleteScopeHistory.length > 0
+    || sprintStats.issuesWithUnavailableStatus.length > 0
+    || sprintStats.issuesWithoutScopeStoryPoints.length > 0
+    || sprintStats.issuesWithoutStoryPoints.length > 0
+  ));
+  const hasCompleteStats = sprintStats?.availability === "available" && sprintStats.scopeAvailability === "available" && !statsHasDiagnostics;
+  const statsUnavailable = sprintStats !== undefined && (!hasCompleteStats);
+  const statsFailureReasons = statsLoadError ? [statsLoadError] : sprintStats ? dailyStatsDiagnosticReasons(sprintStats, t) : [t("daily.statsIncompleteReason")];
+  const showStatsFailure = !loadingStats && (statsLoadError !== undefined || statsUnavailable);
+  const showInitialStatsLoader = loadingStats && (!hasCachedStats || !hasCompleteStats);
+  const showStatsContent = hasCompleteStats && !statsLoadError && !showInitialStatsLoader;
   const sprintScopeIssues = sprintStats?.scopeIssues ?? [];
-  const sprintIssuesWithoutStoryPoints = sprintStats?.issuesWithoutStoryPoints ?? [];
-  const sprintIssuesWithIncompleteHistory = sprintStats?.issuesWithIncompleteScopeHistory ?? [];
-  const sprintIssuesWithUnavailableStatus = sprintStats?.issuesWithUnavailableStatus ?? [];
-  const sprintIssuesWithoutScopePoints = sprintStats?.issuesWithoutScopeStoryPoints ?? [];
   const plannedScopePoints = sprintStats?.originalStoryPoints ?? null;
   const plannedScopeTasks = sprintStats?.originalTaskCount ?? null;
   const addedScopePoints = sprintStats?.addedStoryPoints ?? null;
@@ -694,24 +814,32 @@ export function DailyPage() {
     ? Math.round(completedScopePoints / plannedScopePoints * 100)
     : null;
   const scopeChartReady = sprintStats?.scopeAvailability === "available"
-    && plannedScopePoints !== null && plannedScopePoints > 0 && addedScopePoints !== null
+    && plannedScopePoints !== null && addedScopePoints !== null
     && completedPlannedPoints !== null && completedAddedPoints !== null
     && plannedScopePoints + addedScopePoints > 0;
   const scopeChartTotalPoints = scopeChartReady
     ? (plannedScopePoints ?? 0) + (addedScopePoints ?? 0)
     : null;
-  const scopePlanTargetPercent = plannedScopePoints !== null && scopeChartTotalPoints !== null && scopeChartTotalPoints > 0
-    ? plannedScopePoints / scopeChartTotalPoints * 100
-    : 0;
-  const scopeChartSegments = scopeChartReady ? [
-    { key: "plannedDone", label: t("daily.chartPlannedDone"), value: Math.min(completedPlannedPoints ?? 0, plannedScopePoints ?? 0), color: "var(--chart-2)" },
-    { key: "plannedRemaining", label: t("daily.chartPlannedRemaining"), value: Math.max(0, (plannedScopePoints ?? 0) - (completedPlannedPoints ?? 0)), color: "var(--muted)" },
-    { key: "addedDone", label: t("daily.chartAddedDone"), value: Math.min(completedAddedPoints ?? 0, addedScopePoints ?? 0), color: "var(--chart-3)" },
-    { key: "addedRemaining", label: t("daily.chartAddedRemaining"), value: Math.max(0, (addedScopePoints ?? 0) - (completedAddedPoints ?? 0)), color: "var(--chart-1)" },
-  ] : [];
-  const scopeChartAriaLabel = scopeClosurePercent === null || plannedScopePoints === null || completedScopePoints === null
-    ? t("daily.scopeChartUnavailable")
-    : t("daily.scopeChartAria", { percent: scopeClosurePercent, done: completedScopePoints, planned: plannedScopePoints });
+  const scopePlanTargetPercent = scopeChartReady && plannedScopePoints !== null && addedScopePoints !== null && addedScopePoints > 0
+    ? plannedScopePoints / (plannedScopePoints + addedScopePoints) * 100
+    : null;
+  const scopeProgressPoints = (category: string) => sprintStats?.statusBreakdown
+    .find((status) => status.category === category)?.storyPoints ?? 0;
+  const scopeProgressSegments = [
+    { key: "done", label: t("daily.statusCategory.done"), value: scopeProgressPoints("done"), color: "var(--success)" },
+    { key: "inProgress", label: t("daily.statusCategory.inProgress"), value: scopeProgressPoints("inProgress"), color: "var(--chart-1)" },
+    { key: "todo", label: t("daily.statusCategory.todo"), value: scopeProgressPoints("todo"), color: "var(--muted-foreground)" },
+  ];
+  const scopeProgressAriaLabel = scopeChartReady && scopeChartTotalPoints !== null
+    && plannedScopePoints !== null && addedScopePoints !== null
+    ? t("daily.sprintProgressAria", {
+      done: scopeProgressPoints("done"),
+      inProgress: scopeProgressPoints("inProgress"),
+      todo: scopeProgressPoints("todo"),
+      planned: plannedScopePoints,
+      total: scopeChartTotalPoints,
+    })
+    : t("daily.scopeChartUnavailable");
   const scopeTaskCountText = (count: number | null) => {
     if (count === null) return "—";
     if (language !== AppLanguage.Russian) {
@@ -726,36 +854,50 @@ export function DailyPage() {
         : "daily.scopeTaskCount.many";
     return t(plural, { count });
   };
-  const formatScopeMetric = (points: number | null, tasks: number | null) => t("daily.kpiSpTasks", {
-    points: points ?? "—",
-    tasks: scopeTaskCountText(tasks),
-  });
   const scopeKpis = [
     {
       key: "planned",
+      icon: CalendarDays,
       label: t("daily.kpiPlanned"),
-      value: formatScopeMetric(plannedScopePoints, plannedScopeTasks),
+      value: plannedScopePoints === null ? "—" : t("daily.pointsValue", { points: plannedScopePoints }),
+      detail: scopeTaskCountText(plannedScopeTasks),
       tone: "planned",
     },
     {
       key: "added",
+      icon: CirclePlus,
       label: t("daily.kpiAdded"),
-      value: formatScopeMetric(addedScopePoints, addedScopeTasks),
+      value: addedScopePoints === null ? "—" : t("daily.pointsValue", { points: addedScopePoints }),
+      detail: scopeTaskCountText(addedScopeTasks),
       tone: "added",
     },
     {
       key: "done",
+      icon: CircleCheck,
       label: t("daily.kpiDone"),
-      value: formatScopeMetric(completedScopePoints, completedScopeTasks),
+      value: completedScopePoints === null ? "—" : t("daily.pointsValue", { points: completedScopePoints }),
+      detail: scopeTaskCountText(completedScopeTasks),
       tone: "done",
     },
     {
       key: "closure",
+      icon: CircleGauge,
       label: t("daily.kpiClosure"),
       value: scopeClosurePercent === null ? "—" : `${scopeClosurePercent}%`,
+      detail: completedScopePoints === null || plannedScopePoints === null
+        ? "—"
+        : t("daily.kpiClosureDetail", { done: completedScopePoints, planned: plannedScopePoints }),
       tone: "closure",
     },
   ];
+  const selectedSprintPeriod = sprintPeriodLabel(selectedSprint?.startDate, selectedSprint?.endDate);
+  const selectedSprintStateLabel = selectedSprint?.state === "active"
+    ? t("daily.sprintState.active")
+    : selectedSprint?.state === "closed"
+      ? t("daily.sprintState.closed")
+      : selectedSprint?.state === "future"
+        ? t("daily.sprintState.future")
+        : undefined;
   const aiSelectedSprint = workspace?.sprints.find((sprint) => sprint.id === aiSprintId);
   const aiSprintStartDate = sprintDateInputValue(aiSelectedSprint?.startDate);
   const aiSprintEndDate = sprintDateInputValue(aiSelectedSprint?.endDate);
@@ -767,9 +909,7 @@ export function DailyPage() {
         title={t("page.sprintTasks")}
         titleId="daily-title"
         description={t("daily.description")}
-      />
-
-      <PageToolbar>
+        actions={<>
         {!loadingProjects && projects.length > 0 ? (
           <Select value={selectedProjectId} onValueChange={setSelectedProjectId}>
             <SelectTrigger id="daily-team-select" aria-label={t("daily.team")}>
@@ -845,86 +985,17 @@ export function DailyPage() {
             </PopoverContent>
           </Popover>
         ) : null}
-        {activeTab === "teamTasks" ? (
-          <Button
-            type="button"
-            variant="outline"
-            size="icon"
-
-            aria-label={t("daily.openSprintBoard")}
-            title={t("daily.openSprintBoard")}
-            disabled={!workspace || loadingWorkspace}
-            onClick={() => {
-              if (workspace) void openJiraIssue(workspace.sprintBoardUrl);
-            }}
-          >
+        {workspace ? (
+          <Button type="button" variant="outline" size="icon" aria-label={t("daily.openSprintBoard")} title={t("daily.openSprintBoard")} disabled={!workspace.sprintBoardUrl || loadingTeam} onClick={() => { if (workspace.sprintBoardUrl) void openJiraIssue(workspace.sprintBoardUrl); }}>
             <ExternalLink aria-hidden="true" />
           </Button>
         ) : null}
-        <div className="ml-auto flex items-center gap-2">
-          <Button
-            type="button"
-            variant="outline"
-            size="icon"
+        </>}
+      />
 
-            aria-label={t("daily.aiSummary")}
-            title={t("daily.aiSummary")}
-            disabled={!workspace || loadingWorkspace}
-            onClick={() => {
-              setAiSprintId(workspace?.selectedSprintId ?? "");
-              setAiDateRange(undefined);
-              setAiCalendarOpen(false);
-              setAiResult("");
-              setAiError(undefined);
-              setAiSummaryOpen(true);
-            }}
-          >
-            <Sparkles data-icon="inline-start" aria-hidden="true" />
-          </Button>
-          <Button
-            type="button"
-            variant={presenterOpen ? "secondary" : "default"}
-            size="icon"
-
-            disabled={presenterBusy || !workspace || loadingWorkspace || (!presenterOpen && !selectedMember)}
-            aria-busy={presenterBusy}
-            aria-pressed={presenterOpen}
-            aria-label={presenterOpen ? t("daily.presenter.stop") : t("daily.presenter.start")}
-            title={presenterOpen ? t("daily.presenter.stop") : t("daily.presenter.start")}
-            onClick={() => void togglePresenter()}
-          >
-            {presenterOpen ? <Square aria-hidden="true" /> : <Presentation aria-hidden="true" />}
-          </Button>
-          <Separator orientation="vertical" className="h-6" />
-          <Button
-            type="button"
-            variant="outline"
-            size="icon"
-
-            aria-label={refreshingStatuses ? t("daily.refreshing") : t("daily.refresh")}
-            title={refreshingStatuses ? t("daily.refreshing") : t("daily.refresh")}
-            disabled={!selectedProjectId || loadingWorkspace || refreshingStatuses}
-            onClick={() => {
-              if (workspace) void refreshWorkspace(workspace.managedProjectId, workspace.selectedSprintId);
-              else if (selectedProjectId) void refreshWorkspace(selectedProjectId);
-            }}
-          >
-            <RefreshCw aria-hidden="true" className={loadingWorkspace || refreshingStatuses ? "animate-spin" : undefined} />
-          </Button>
-          <CreateButton
-            iconOnly
-            type="button"
-
-            aria-label={t("daily.createTask")}
-            title={t("daily.createTask")}
-            disabled={!selectedProjectId || !workspace}
-            onClick={() => {
-              if (!selectedProjectId || !workspace) return;
-              window.location.hash = `#product/create-task?team=${encodeURIComponent(selectedProjectId)}&sprint=${encodeURIComponent(workspace.selectedSprintId)}&new=1`;
-            }}
-          />
-        </div>
-      </PageToolbar>
+      <AlertDialog open={refreshConfirmOpen} onOpenChange={setRefreshConfirmOpen}>
+        <AlertDialogContent><AlertDialogHeader><AlertDialogTitle>{t("daily.confirmRefreshTitle")}</AlertDialogTitle><AlertDialogDescription>{t("daily.confirmRefreshDescription")}</AlertDialogDescription></AlertDialogHeader><AlertDialogFooter><AlertDialogCancel>{t("settings.common.cancel")}</AlertDialogCancel><AlertDialogAction onClick={() => { setRefreshConfirmOpen(false); if (selectedProjectId && workspace) void refreshWorkspace(selectedProjectId, workspace.selectedSprintId, true, activeTab); }}>{t("daily.refresh")}</AlertDialogAction></AlertDialogFooter></AlertDialogContent>
+      </AlertDialog>
 
       <Dialog open={aiSummaryOpen} onOpenChange={(open) => { if (!aiBusy) setAiSummaryOpen(open); }}>
         <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
@@ -1045,7 +1116,7 @@ export function DailyPage() {
       ) : null}
       <StatusToast message={taskActionNotice} onDismiss={() => setTaskActionNotice(undefined)} />
 
-      {loadingProjects ? <div role="status" aria-label={t("daily.loadingTeams")}>{t("daily.loadingTeams")}</div> : null}
+      {loadingProjects && !workspace ? <DailyLoadingState label={t("daily.loadingTasks")} /> : null}
       {error ? (
         <Alert variant="destructive" role="alert">
           <AlertTitle>{t("daily.unavailable")}</AlertTitle>
@@ -1058,63 +1129,109 @@ export function DailyPage() {
         </Card>
       ) : null}
 
-      {loadingWorkspace ? (
-        <Card role="status" aria-label={t("daily.loadingTasks")} className="overflow-hidden">
-          <CardContent className="flex items-center gap-4 py-8">
-            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-primary/10 text-primary">
-              <RefreshCw className="size-6 animate-spin" aria-hidden="true" />
-            </div>
-            <div className="min-w-0 flex-1">
-              <p className="font-medium">{t("daily.loadingTasks")}</p>
-              <p className="mt-1 text-sm text-muted-foreground">{t("daily.loadingTasksDescription")}</p>
-              <div className="mt-4 grid gap-2" aria-hidden="true">
-                <span className="h-2 w-3/4 animate-pulse rounded bg-muted" />
-                <span className="h-2 w-1/2 animate-pulse rounded bg-muted" />
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-      ) : null}
-      {workspace && !loadingWorkspace ? (
+      {loadingWorkspace && !hasCachedMyTasks ? <DailyLoadingState label={t("daily.loadingTasks")} /> : null}
+      {workspace && (!loadingWorkspace || hasCachedMyTasks) ? (
         <>
+        <div className="daily-workspace-tabs-row flex flex-wrap items-center gap-2">
         <div role="tablist" aria-label={t("daily.workspaceTabs")} className="daily-workspace-tabs">
-          {SPRINT_WORKSPACE_TABS.map((tab) => (
-            <Button
-              key={tab}
-              ref={(element) => { workspaceTabRefs.current[tab] = element; }}
-              id={`sprint-tab-${tab}`}
-              type="button"
-              role="tab"
-              aria-selected={activeTab === tab}
-              aria-controls={`sprint-panel-${tab}`}
-              tabIndex={activeTab === tab ? 0 : -1}
-              variant="ghost"
-              className="daily-workspace-tab rounded-t-md rounded-b-none"
-              onClick={() => setActiveTab(tab)}
-              onKeyDown={(event) => handleWorkspaceTabKeyDown(event, tab)}
-            >
-              {t(`daily.tab.${tab}`)}
-            </Button>
-          ))}
+          {SPRINT_WORKSPACE_TABS.map((tab) => {
+            const TabIcon = SPRINT_WORKSPACE_TAB_ICONS[tab];
+            return (
+              <Button
+                key={tab}
+                ref={(element) => { workspaceTabRefs.current[tab] = element; }}
+                id={`sprint-tab-${tab}`}
+                type="button"
+                role="tab"
+                aria-selected={activeTab === tab}
+                aria-controls={`sprint-panel-${tab}`}
+                tabIndex={activeTab === tab ? 0 : -1}
+                variant="ghost"
+                className="daily-workspace-tab"
+                onClick={() => setActiveTab(tab)}
+                onKeyDown={(event) => handleWorkspaceTabKeyDown(event, tab)}
+              >
+                <TabIcon data-icon="inline-start" aria-hidden="true" />
+                {t(`daily.tab.${tab}`)}
+              </Button>
+            );
+          })}
+        </div>
+        <div className="daily-workspace-actions ml-auto flex items-center gap-2">
+          {activeTab === "teamTasks" ? <>
+            <Button type="button" variant="outline" size="icon" aria-label={t("daily.aiSummary")} title={t("daily.aiSummary")} className="mb-1" disabled={!workspace} onClick={() => { setAiSprintId(workspace?.selectedSprintId ?? ""); setAiDateRange(undefined); setAiCalendarOpen(false); setAiResult(""); setAiError(undefined); setAiSummaryOpen(true); }}><Sparkles aria-hidden="true" /></Button>
+            <Button type="button" variant={presenterOpen ? "secondary" : "default"} size="icon" className="mb-1" disabled={presenterBusy || !workspace || !hasCachedTeamData || loadingTeam || (!presenterOpen && !selectedMember)} aria-busy={presenterBusy} aria-pressed={presenterOpen} aria-label={presenterOpen ? t("daily.presenter.stop") : t("daily.presenter.start")} title={presenterOpen ? t("daily.presenter.stop") : t("daily.presenter.start")} onClick={() => void togglePresenter()}>{presenterOpen ? <Square aria-hidden="true" /> : <Presentation aria-hidden="true" />}</Button>
+          </> : null}
+          <Button type="button" variant="outline" size="icon" aria-label={t("daily.refresh")} title={t("daily.refresh")} className="daily-workspace-refresh mb-1" disabled={!selectedProjectId || loadingWorkspace || loadingTeam || loadingStats || refreshingStatuses} onClick={() => activeTab === "myTasks" ? selectedProjectId && void refreshWorkspace(selectedProjectId, workspace?.selectedSprintId, true, "myTasks") : setRefreshConfirmOpen(true)}><RefreshCw aria-hidden="true" className={loadingWorkspace || loadingTeam || loadingStats ? "animate-spin" : undefined} /></Button>
+        </div>
         </div>
         {activeTab !== "stats" ? <section id="sprint-panel-stats" role="tabpanel" aria-labelledby="sprint-tab-stats" hidden /> : null}
         {activeTab !== "myTasks" ? <section id="sprint-panel-myTasks" role="tabpanel" aria-labelledby="sprint-tab-myTasks" hidden /> : null}
         {activeTab !== "teamTasks" ? <section id="sprint-panel-teamTasks" role="tabpanel" aria-labelledby="sprint-tab-teamTasks" hidden /> : null}
         {activeTab === "stats" ? (
           <section id="sprint-panel-stats" role="tabpanel" aria-labelledby="sprint-tab-stats" className="daily-stats-layout">
-            <Card>
-              <CardHeader variant="section">
-                <CardTitle>{t("daily.scopeSummary")}</CardTitle>
-                <CardDescription>{t("daily.scopeSummaryDescription")}</CardDescription>
+            {showInitialStatsLoader ? (
+              <DailyLoadingState label={t("daily.statsLoading")} />
+            ) : showStatsFailure ? (
+              <div className="daily-stats-error-state">
+                <Alert variant="destructive" role="alert">
+                  <AlertTitle>{t("daily.statsLoadFailed")}</AlertTitle>
+                  <AlertDescription>
+                    <ul className="grid gap-2">
+                      {statsFailureReasons.map((reason) => <li key={reason} className="break-words">{reason}</li>)}
+                    </ul>
+                  </AlertDescription>
+                </Alert>
+                <Button type="button" variant="outline" disabled={loadingStats} onClick={() => {
+                  if (selectedProjectId && workspace) void refreshWorkspace(selectedProjectId, workspace.selectedSprintId, true, "stats");
+                }}>
+                  {loadingStats ? <RefreshCw data-icon="inline-start" className="animate-spin" aria-hidden="true" /> : <RefreshCw data-icon="inline-start" aria-hidden="true" />}
+                  {t("daily.statsRetry")}
+                </Button>
+              </div>
+            ) : (
+              <>
+              {loadingStats && hasCachedStats ? (
+                <div className="daily-stats-refresh-progress" role="status" aria-label={t("daily.statsLoading")}>
+                  <RefreshCw className="size-4 animate-spin text-primary" aria-hidden="true" />
+                  <span className="font-medium">{t("daily.statsLoading")}</span>
+                </div>
+              ) : null}
+              {showStatsContent ? <>
+            <Card className="daily-scope-summary">
+              <CardHeader variant="section" className="daily-sprint-overview-header flex-row">
+                <div className="daily-sprint-overview-title">
+                  <CalendarDays aria-hidden="true" className="size-5 shrink-0 text-primary" />
+                  <CardTitle>{t("daily.sprintOverview")}</CardTitle>
+                </div>
+                <div className="daily-sprint-overview-meta">
+                  {selectedSprintPeriod ? <span className="daily-sprint-period">{selectedSprintPeriod}</span> : null}
+                  {selectedSprintStateLabel && selectedSprint ? (
+                    <span className="daily-sprint-state" data-state={selectedSprint.state}>{selectedSprintStateLabel}</span>
+                  ) : null}
+                </div>
               </CardHeader>
-              <CardContent className="daily-scope-summary-content">
+              <CardContent className="daily-scope-summary-content p-4">
                 <div className="daily-scope-kpis">
-                  {scopeKpis.map((metric) => (
-                    <article key={metric.key} role="group" aria-label={metric.label} className="daily-scope-kpi" data-tone={metric.tone}>
-                      <span className="text-sm text-muted-foreground">{metric.label}</span>
-                      <strong className="break-words text-lg font-semibold tabular-nums">{metric.value}</strong>
-                    </article>
-                  ))}
+                  {scopeKpis.map((metric) => {
+                    const MetricIcon = metric.icon;
+                    return (
+                      <article key={metric.key} role="group" aria-label={metric.label} className="daily-scope-kpi" data-tone={metric.tone}>
+                        <div className="daily-scope-kpi-heading">
+                          <MetricIcon aria-hidden="true" className="daily-scope-kpi-icon" />
+                          <span>{metric.label}</span>
+                        </div>
+                        <div className="daily-scope-kpi-main">
+                          <div className="daily-scope-kpi-copy">
+                            <strong className="daily-scope-kpi-value">{metric.value}</strong>
+                            {metric.key !== "closure" && metric.detail ? <span className="daily-scope-kpi-detail">{metric.detail}</span> : null}
+                          </div>
+
+                        </div>
+                        {metric.key === "closure" ? <span className="daily-scope-kpi-detail">{metric.detail}</span> : null}
+                      </article>
+                    );
+                  })}
                 </div>
                 {scopeClosurePercent === null ? (
                   <Alert><AlertDescription>{plannedScopePoints === 0
@@ -1123,40 +1240,40 @@ export function DailyPage() {
                 ) : null}
                 {scopeChartReady && scopeChartTotalPoints !== null ? (
                   <div className="daily-scope-meter-section">
-                    <div className="flex flex-wrap items-center justify-between gap-2">
-                      <p className="text-sm font-medium">{t("daily.scopeChartTitle")}</p>
-                      <p className="text-sm tabular-nums text-muted-foreground">{t("daily.scopeTotalPoints", { points: scopeChartTotalPoints })}</p>
-                    </div>
-                    <div role="img" aria-label={scopeChartAriaLabel} className="daily-scope-meter">
+                    <h3 className="daily-scope-meter-heading">{t("daily.sprintProgress")}</h3>
+                    <div role="img" aria-label={scopeProgressAriaLabel} className="daily-scope-meter">
                       <div className="daily-scope-meter-track" aria-hidden="true">
-                        {scopeChartSegments.map((segment) => (
-                          <span
-                            key={segment.key}
-                            className="daily-scope-meter-segment"
-                            style={{
-                              width: `${scopeChartTotalPoints > 0 ? segment.value / scopeChartTotalPoints * 100 : 0}%`,
-                              backgroundColor: segment.color,
-                            }}
-                          />
-                        ))}
-                        <span
-                          className="daily-scope-meter-target"
-                          style={{ left: `${scopePlanTargetPercent}%` }}
-                        />
+                        <div className="daily-scope-meter-segments">
+                          {scopeProgressSegments.map((segment) => (
+                            <span
+                              key={segment.key}
+                              className="daily-scope-meter-segment"
+                              style={{
+                                width: `${segment.value / scopeChartTotalPoints * 100}%`,
+                                backgroundColor: segment.color,
+                              }}
+                            />
+                          ))}
+                        </div>
+                        {scopePlanTargetPercent !== null ? (
+                          <span className="daily-scope-meter-target" style={{ left: `${scopePlanTargetPercent}%` }}>
+                            <span className="daily-scope-meter-target-label">{t("daily.scopePlanTarget")}</span>
+                          </span>
+                        ) : null}
                       </div>
-                      <div className="daily-scope-meter-axis" aria-hidden="true">
-                        <span>0</span>
-                        <span className="daily-scope-meter-target-label" style={{ left: `${scopePlanTargetPercent}%` }}>{t("daily.scopePlanTarget")}</span>
-                        <span>{scopeChartTotalPoints}</span>
-                      </div>
+                    </div>
+                    <div className="daily-scope-meter-summary">
+                      <span>{scopeClosurePercent === null
+                        ? t("daily.scopeProgressDoneNoPlan", { points: completedScopePoints ?? 0 })
+                        : t("daily.scopeProgressDoneLabel", { points: completedScopePoints ?? 0, percent: scopeClosurePercent })}</span>
+                      <span>{t("daily.scopeProgressPlannedLabel", { points: plannedScopePoints ?? 0 })}</span>
                     </div>
                     <div className="daily-scope-meter-legend">
-                      {scopeChartSegments.map((segment) => (
-                        <div key={segment.key} className="daily-stats-legend-row">
-                          <span className="daily-stats-legend-dot" style={{ backgroundColor: segment.color }} aria-hidden="true" />
-                          <span className="min-w-0 flex-1">{segment.label}</span>
-                          <span className="tabular-nums text-muted-foreground">{t("daily.pointsValue", { points: segment.value })}</span>
-                        </div>
+                      {scopeProgressSegments.map((segment) => (
+                        <span key={segment.key}>
+                          <i aria-hidden="true" style={{ backgroundColor: segment.color }} />
+                          {segment.label} · {t("daily.pointsValue", { points: segment.value })}
+                        </span>
                       ))}
                     </div>
                   </div>
@@ -1164,22 +1281,9 @@ export function DailyPage() {
               </CardContent>
             </Card>
 
-            {sprintIssuesWithIncompleteHistory.length > 0 ? (
-              <Alert><AlertDescription className="break-words">{t("daily.scopeHistoryIncompleteForIssues", { issues: sprintIssuesWithIncompleteHistory.join(", ") })}</AlertDescription></Alert>
-            ) : null}
-            {sprintIssuesWithoutStoryPoints.length > 0 ? (
-              <Alert><AlertDescription className="break-words">{t("daily.storyPointsUnavailableForIssues", { issues: sprintIssuesWithoutStoryPoints.join(", ") })}</AlertDescription></Alert>
-            ) : null}
-            {sprintIssuesWithoutScopePoints.length > 0 ? (
-              <Alert><AlertDescription className="break-words">{t("daily.scopeStoryPointsUnavailableForIssues", { issues: sprintIssuesWithoutScopePoints.join(", ") })}</AlertDescription></Alert>
-            ) : null}
-            {sprintIssuesWithUnavailableStatus.length > 0 ? (
-              <Alert><AlertDescription className="break-words">{t("daily.statusHistoryUnavailableForIssues", { issues: sprintIssuesWithUnavailableStatus.join(", ") })}</AlertDescription></Alert>
-            ) : null}
-
             <Card>
               <CardHeader variant="section">
-                <CardTitle>{t("daily.scopeIssuesTitle")}</CardTitle>
+                <CardTitle className="flex items-center gap-2"><List aria-hidden="true" className="size-4 shrink-0 text-primary" />{t("daily.scopeIssuesTitle")}</CardTitle>
                 <CardDescription>
                   <span className="daily-scope-issue-added-marker" aria-hidden="true">*</span> {t("daily.scopeIssuesAddedLegend")}
                 </CardDescription>
@@ -1187,27 +1291,22 @@ export function DailyPage() {
               <CardContent className="p-0">
                 {sprintScopeIssues.length > 0 ? (
                   <div className="daily-scope-issues-scroll">
-                    <Table className="min-w-[680px]">
+                    <Table className="min-w-[680px] table-fixed">
                       <TableCaption className="sr-only">{t("daily.scopeIssuesTitle")}</TableCaption>
                       <TableHeader>
                         <TableRow className="hover:bg-transparent">
-                          <TableHead scope="col" className="py-2 pl-3">{t("daily.scopeIssuesKey")}</TableHead>
+                          <TableHead scope="col" className="w-[120px] py-2 pl-3">{t("daily.scopeIssuesKey")}</TableHead>
                           <TableHead scope="col" className="py-2">{t("daily.scopeIssuesSummary")}</TableHead>
-                          <TableHead scope="col" className="py-2">{t("daily.scopeIssuesStatus")}</TableHead>
-                          <TableHead scope="col" className="py-2 pr-3 text-right">{t("daily.scopeIssuesPoints")}</TableHead>
+                          <TableHead scope="col" className="w-[150px] py-2">{t("daily.scopeIssuesStatus")}</TableHead>
+                          <TableHead scope="col" className="w-[80px] py-2 pr-3 text-right">{t("daily.scopeIssuesPoints")}</TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
                         {sprintScopeIssues.map((issue) => (
                           <TableRow key={issue.key} data-added-after-start={issue.addedAfterStart ? "true" : undefined}>
-                            <TableCell className="whitespace-nowrap py-2 pl-3 font-medium">
-                              {issue.addedAfterStart ? <><span className="daily-scope-issue-added-marker" aria-hidden="true">*</span><span className="sr-only">{t("daily.scopeIssueAddedLabel")}</span></> : null}
-                              {issue.key}
-                            </TableCell>
-                            <TableCell className="max-w-[520px] py-2 break-words">{issue.summary || "—"}</TableCell>
-                            <TableCell className="py-2">
-                              {issue.status ? <span className={cn(badgeVariants({ variant: "outline" }), issueStatusBadgeClass(issue.status))}>{issue.status}</span> : "—"}
-                            </TableCell>
+                            <TableCell className="whitespace-nowrap py-2 pl-3 font-medium">{issue.addedAfterStart ? <><span className="daily-scope-issue-added-marker" aria-hidden="true">*</span><span className="sr-only">{t("daily.scopeIssueAddedLabel")}</span></> : null}{issue.key}</TableCell>
+                            <TableCell className="whitespace-normal py-2 break-words">{issue.summary || "—"}</TableCell>
+                            <TableCell className="py-2">{issue.status ? <span className={cn(badgeVariants({ variant: "outline" }), dailyStatusBadgeClass(issue.status, issue.statusCategory))}>{issue.status}</span> : "—"}</TableCell>
                             <TableCell className="whitespace-nowrap py-2 pr-3 text-right tabular-nums">{issue.storyPoints === null ? "—" : t("daily.pointsValue", { points: issue.storyPoints })}</TableCell>
                           </TableRow>
                         ))}
@@ -1221,17 +1320,19 @@ export function DailyPage() {
                 )}
               </CardContent>
             </Card>
-            <p role="status" className="text-sm text-muted-foreground">{t(sprintStats?.availability === "available" ? "daily.statsAvailable" : sprintStats?.availability === "partial" ? "daily.statsPartial" : "daily.statsUnavailable")}</p>
+            </> : null}
+            </>
+            )}
           </section>
         ) : activeTab === "myTasks" ? (
           <section id="sprint-panel-myTasks" role="tabpanel" aria-labelledby="sprint-tab-myTasks">
-            {!workspace.currentUserAccountId || !currentUserMember ? (
+            {!workspace.currentUserAccountId ? (
               <Alert><AlertTitle>{t("daily.myTasksUnavailable")}</AlertTitle><AlertDescription>{t("daily.myTasksConfigureMember")}</AlertDescription></Alert>
             ) : (
               <Card>
                 <CardHeader variant="section" className="daily-my-tasks-header">
                   <div className="min-w-0">
-                    <CardTitle className="flex items-center gap-3"><MemberAvatar member={currentUserMember} className="h-9 w-9" managedProjectId={workspace.managedProjectId} />{memberDisplayName(currentUserMember)}</CardTitle>
+                    <CardTitle className="flex items-center gap-3">{currentUserMember ? <MemberAvatar member={currentUserMember} className="h-9 w-9" managedProjectId={workspace.managedProjectId} /> : null}{currentUserMember ? memberDisplayName(currentUserMember) : workspace.projectName}</CardTitle>
                   </div>
                   <div className="daily-my-tasks-progress">
                     <StatusDonut
@@ -1267,14 +1368,15 @@ export function DailyPage() {
                   {myTasks.length > 0 && myTasksPointsTotal === null ? (
                     <Alert role="status" className="mb-4 p-3"><AlertDescription className="break-words">{myTasksPointsUnavailableMessage}</AlertDescription></Alert>
                   ) : null}
-                  {myTasks.length === 0 ? <p className="text-sm text-muted-foreground">{t("daily.noAssigneeTasks")}</p> : <div className="daily-task-list">{myTasks.map((task) => <article key={task.id} className="daily-task-row"><span className="daily-task-key">{task.key}</span><span className="daily-task-summary"><strong>{task.summary}</strong><small>{task.issueType}</small></span><span className={cn(badgeVariants({ variant: "outline" }), issueStatusBadgeClass(task.status))}>{task.status}</span><span className="daily-task-points">SP {task.storyPoints ?? "—"}</span></article>)}</div>}
+                  {myTasks.length === 0 ? <p className="text-sm text-muted-foreground">{t("daily.noAssigneeTasks")}</p> : <div className="daily-task-list">{myTasks.map((task) => <article key={task.id} className="daily-task-row"><span className="daily-task-key">{task.key}</span><span className="daily-task-summary"><strong>{task.summary}</strong><small>{task.issueType}</small></span><span className={cn(badgeVariants({ variant: "outline" }), dailyStatusBadgeClass(task.status, task.statusCategory))}>{task.status}</span><span className="daily-task-points">SP {task.storyPoints ?? "—"}</span></article>)}</div>}
                 </CardContent>
               </Card>
             )}
           </section>
         ) : (
         <section id="sprint-panel-teamTasks" role="tabpanel" aria-labelledby="sprint-tab-teamTasks">
-        <div className="daily-workspace-layout">
+        {loadingTeam && !hasCachedTeamData ? <DailyLoadingState label={t("daily.loadingTasks")} /> : null}
+        {hasCachedTeamData ? <div className="daily-workspace-layout">
             <Card className="daily-members-card">
               <CardHeader variant="section" className="daily-panel-header">
                 <CardTitle className="text-[15px]">{t("daily.assignees")}</CardTitle>
@@ -1443,7 +1545,7 @@ export function DailyPage() {
               <Card><CardContent className="px-4 py-3 text-sm text-muted-foreground"><p>{t("daily.selectMember")}</p></CardContent></Card>
             )}
           </section>
-        </div>
+        </div> : null}
         </section>
         )}
         </>

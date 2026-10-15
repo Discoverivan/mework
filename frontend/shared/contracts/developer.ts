@@ -13,6 +13,7 @@ export interface DailySubtask {
   key: string;
   summary: string;
   status: string;
+  statusCategory?: string;
   storyPoints?: number;
   statusTransitionAt?: string;
   assigneeAccountId?: string;
@@ -35,6 +36,7 @@ export interface DailySprintScopeIssue {
   key: string;
   summary: string;
   status: string | null;
+  statusCategory?: string | null;
   storyPoints: number | null;
   addedAfterStart: boolean;
 }
@@ -62,6 +64,42 @@ export interface DailySprintStats {
   issuesWithoutStoryPoints: string[];
 }
 
+export interface DailyMyTasksDto {
+  managedProjectId: string;
+  projectName: string;
+  projectKey: string;
+  selectedSprintId: string;
+  selectedSprintName: string;
+  currentUserAccountId: string | null;
+  currentUserMember: TeamMember | null;
+  sprints: DailySprint[];
+  subtasks: DailySubtask[];
+}
+
+export interface DailyTeamWorkspaceDto {
+  managedProjectId: string;
+  projectName: string;
+  projectKey: string;
+  selectedSprintId: string;
+  selectedSprintName: string;
+  sprintBoardUrl: string;
+  sprintBoardUrlsByAssignee: Record<string, string>;
+  sprints: DailySprint[];
+  members: TeamMember[];
+  subtasks: DailySubtask[];
+}
+
+export interface DailySprintStatsDto extends DailySprintStats {}
+
+export interface DailySprintStatsProgressEvent {
+  requestId: string;
+  managedProjectId: string;
+  sprintId: string;
+  phase: string;
+  completed: number;
+  total: number;
+}
+
 export interface DailyWorkspace {
   managedProjectId: string;
   projectName: string;
@@ -74,6 +112,7 @@ export interface DailyWorkspace {
   members: TeamMember[];
   subtasks: DailySubtask[];
   currentUserAccountId?: string | null;
+  currentUserMember?: TeamMember | null;
   sprintStats: DailySprintStats;
 }
 

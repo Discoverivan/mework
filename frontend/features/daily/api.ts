@@ -1,4 +1,4 @@
-import type { DailyIssueTransition, DailyPresenterState, DailyWorkspace } from "@/shared/contracts/developer";
+import type { DailyIssueTransition, DailyMyTasksDto, DailyPresenterState, DailySprintStatsDto, DailyTeamWorkspaceDto } from "@/shared/contracts/developer";
 import { invoke } from "@tauri-apps/api/core";
 
 const PRESENTER_STATE_KEY = "mework.daily.presenter.state";
@@ -13,8 +13,14 @@ function parsePresenterState(raw: string | null): DailyPresenterState | undefine
     return undefined;
   }
 }
-export const loadDailyWorkspace = (managedProjectId: string, sprintId?: string) =>
-  invoke<DailyWorkspace>("daily_workspace", { managedProjectId, sprintId });
+export const loadDailyMyTasks = (managedProjectId: string, sprintId?: string) =>
+  invoke<DailyMyTasksDto>("daily_my_tasks", { managedProjectId, sprintId });
+
+export const loadDailyTeamWorkspace = (managedProjectId: string, sprintId?: string) =>
+  invoke<DailyTeamWorkspaceDto>("daily_team_workspace", { managedProjectId, sprintId });
+
+export const loadDailySprintStats = (managedProjectId: string, sprintId: string, requestId: string) =>
+  invoke<DailySprintStatsDto>("daily_sprint_stats", { managedProjectId, sprintId, requestId });
 
 export interface AiSummaryRequest {
   managedProjectId: string;
@@ -36,9 +42,8 @@ export const generateSprintSummary = (request: AiSummaryRequest) =>
 export const loadJiraAvatarData = (managedProjectId: string, avatarUrl: string) =>
   invoke<string | null>("jira_avatar_data", { managedProjectId, avatarUrl });
 
-
-export const refreshDailyWorkspace = (managedProjectId: string, sprintId: string) =>
-  invoke<DailyWorkspace["subtasks"]>("daily_workspace_refresh", { managedProjectId, sprintId });
+export const refreshDailyWorkspace = async (managedProjectId: string, sprintId: string) =>
+  (await loadDailyTeamWorkspace(managedProjectId, sprintId)).subtasks;
 
 export const loadDailyIssueTransitions = (managedProjectId: string, sprintId: string, issueKey: string) =>
   invoke<DailyIssueTransition[]>("daily_issue_transitions", { managedProjectId, sprintId, issueKey });

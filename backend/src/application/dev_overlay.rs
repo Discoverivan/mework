@@ -272,6 +272,10 @@ impl MockIntegrationState {
             .find(|sprint| sprint.id == selected_sprint_id)
             .unwrap();
         let members = self.mock_team_members()?;
+        let current_user_member = members
+            .iter()
+            .find(|member| member.account_id == "mock-user-a" && member.active)
+            .cloned();
         let now = now_iso();
         Ok(DailyWorkspaceDto {
             managed_project_id: managed_project_id.to_owned(),
@@ -284,6 +288,7 @@ impl MockIntegrationState {
                     .to_owned(),
             sprint_board_urls_by_assignee: Default::default(),
             current_user_account_id: Some("mock-user-a".to_owned()),
+            current_user_member,
             sprint_stats: DailySprintStatsDto {
                 availability: "unavailable".to_owned(),
                 original_task_count: None,
@@ -310,6 +315,7 @@ impl MockIntegrationState {
                     key: "MOCK-201".to_owned(),
                     summary: "MOCK DATA · Prepare example handoff".to_owned(),
                     status: "In Progress".to_owned(),
+                    status_category: Some("indeterminate".to_owned()),
                     story_points: Some(3),
                     status_transition_at: Some(now.clone()),
                     assignee_account_id: Some("mock-user-a".to_owned()),
@@ -324,6 +330,7 @@ impl MockIntegrationState {
                     key: "MOCK-202".to_owned(),
                     summary: "MOCK DATA · Verify local scenario".to_owned(),
                     status: "To Do".to_owned(),
+                    status_category: Some("new".to_owned()),
                     story_points: Some(2),
                     status_transition_at: Some(now.clone()),
                     assignee_account_id: Some("mock-user-b".to_owned()),
@@ -338,6 +345,7 @@ impl MockIntegrationState {
                     key: "MOCK-203".to_owned(),
                     summary: "MOCK DATA · Review sample workflow".to_owned(),
                     status: "Done".to_owned(),
+                    status_category: Some("done".to_owned()),
                     story_points: Some(5),
                     status_transition_at: Some(now),
                     assignee_account_id: Some("mock-user-a".to_owned()),

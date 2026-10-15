@@ -526,6 +526,71 @@ impl JiraPlanningClient {
             .await
     }
 
+    pub async fn search_issues_with_changelog_for_keys(
+        &self,
+        keys: &[String],
+        fields: &[&str],
+        page_size: u64,
+    ) -> Result<Vec<Value>, JiraError> {
+        self.ensure_data_center()?;
+        if keys.is_empty() || page_size == 0 || fields.is_empty() {
+            return Ok(Vec::new());
+        }
+        for key in keys {
+            validate_path_component(key)?;
+            if !key
+                .chars()
+                .all(|character| character.is_ascii_alphanumeric() || character == '-')
+            {
+                return Err(JiraError::InvalidResponse);
+            }
+        }
+        let jql = format!("key in ({})", keys.join(","));
+        let endpoint = self.endpoint("rest/api/2/search")?;
+        let mut start_at = 0_u64;
+        let mut issues = Vec::new();
+        loop {
+            let mut request_endpoint = endpoint.clone();
+            request_endpoint
+                .query_pairs_mut()
+                .append_pair("jql", &jql)
+                .append_pair("startAt", &start_at.to_string())
+                .append_pair("maxResults", &page_size.to_string())
+                .append_pair("fields", &fields.join(","))
+                .append_pair("expand", "changelog");
+            let response = self.send(Method::GET, request_endpoint, None).await?;
+            let page: Value = crate::application::logging::parse_json_response(
+                response,
+                "data_integrations.jira_planning",
+                "search_issues_with_changelog_for_keys",
+            )
+            .await
+            .map_err(|_| JiraError::InvalidResponse)?;
+            let page_start = page
+                .get("startAt")
+                .and_then(Value::as_u64)
+                .ok_or(JiraError::InvalidResponse)?;
+            let total = page
+                .get("total")
+                .and_then(Value::as_u64)
+                .ok_or(JiraError::InvalidResponse)?;
+            let page_issues = page
+                .get("issues")
+                .and_then(Value::as_array)
+                .ok_or(JiraError::InvalidResponse)?;
+            let returned = page_issues.len() as u64;
+            if returned == 0 && page_start < total {
+                return Err(JiraError::InvalidResponse);
+            }
+            issues.extend(page_issues.iter().cloned());
+            start_at = page_start.saturating_add(returned);
+            if returned == 0 || start_at >= total {
+                break;
+            }
+        }
+        Ok(issues)
+    }
+
     pub async fn search_planning_issues_with_jql(
         &self,
         jql: &str,
@@ -1311,6 +1376,42 @@ mod tests {
             sprint.activated_date.as_deref(),
             Some("2026-01-05T11:52:00.000+0300")
         );
+    }
+
+    #[tokio::test]
+    async fn batches_only_requested_issue_keys_with_changelog_expansion() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/rest/api/2/search"))
+            .and(query_param("jql", "key in (DEMO-1,DEMO-2)"))
+            .and(query_param("expand", "changelog"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "startAt": 0,
+                "total": 1,
+                "issues": [{"key": "DEMO-1", "fields": {"summary": "Synthetic task"}, "changelog": {"total": 1, "histories": [{"created": "2026-10-15T10:00:00.000+0000", "items": []}]}}]
+            })))
+            .expect(1)
+            .mount(&server)
+            .await;
+        let client = JiraPlanningClient::new_with_dependencies(
+            server.uri(),
+            JiraDeployment::DataCenter,
+            Arc::new(ReqwestPlanningTransport::new(reqwest::Client::new())),
+            None,
+            None,
+        )
+        .expect("valid Jira base URL");
+        let issues = client
+            .search_issues_with_changelog_for_keys(
+                &["DEMO-1".to_owned(), "DEMO-2".to_owned()],
+                &["summary"],
+                50,
+            )
+            .await
+            .expect("batch query should load the requested keys");
+        assert_eq!(issues.len(), 1);
+        assert_eq!(issues[0]["key"], "DEMO-1");
+        assert_eq!(issues[0]["changelog"]["total"], 1);
     }
 
     #[tokio::test]
