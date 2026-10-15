@@ -566,7 +566,12 @@ fn session_reached_token_limit(binary: &Path, workspace: &Workspace, output: &[u
         .split(|byte| *byte == b'\n')
         .filter_map(|line| serde_json::from_slice(line).ok())
         .collect();
-    if events.iter().any(|event| event["type"] == "step_finish") {
+    if events.iter().any(|event| {
+        matches!(
+            event["type"].as_str(),
+            Some("step_finish" | "error" | "tool_use")
+        )
+    }) {
         return false;
     }
     let mut ids = events
