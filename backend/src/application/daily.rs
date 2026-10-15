@@ -1155,16 +1155,18 @@ async fn reconstruct_sprint_scope_history(
             };
             let result = match changelog {
                 Ok(changelog) => match reconstruct_historical_scope_issue(
-                    &issue_key,
                     &issue_fields,
                     changelog,
-                    &sprint_field_id,
-                    &sprint_id,
-                    &sprint_name,
-                    &points_field,
-                    start_at,
-                    true,
-                    &status_categories,
+                    ScopeReconstructionContext {
+                        candidate_key: &issue_key,
+                        sprint_field_id: &sprint_field_id,
+                        sprint_id: &sprint_id,
+                        sprint_name: &sprint_name,
+                        points_field: &points_field,
+                        start_at,
+                        currently_in_sprint: true,
+                        status_categories: &status_categories,
+                    },
                 ) {
                     Ok(scope) => ScopeCandidateHistoryResult::Known(scope),
                     Err(()) => ScopeCandidateHistoryResult::Incomplete(issue_key.clone()),
@@ -1296,17 +1298,21 @@ struct HistoricalScopeIssue {
     completed: Option<bool>,
 }
 
-fn reconstruct_historical_scope_issue(
-    candidate_key: &str,
-    issue_fields: &Value,
-    changelog: Value,
-    sprint_field_id: &str,
-    sprint_id: &str,
-    sprint_name: &str,
-    points_field: &str,
+struct ScopeReconstructionContext<'a> {
+    candidate_key: &'a str,
+    sprint_field_id: &'a str,
+    sprint_id: &'a str,
+    sprint_name: &'a str,
+    points_field: &'a str,
     start_at: OffsetDateTime,
     currently_in_sprint: bool,
-    status_categories: &HashMap<String, String>,
+    status_categories: &'a HashMap<String, String>,
+}
+
+fn reconstruct_historical_scope_issue(
+    issue_fields: &Value,
+    changelog: Value,
+    context: ScopeReconstructionContext<'_>,
 ) -> Result<Option<HistoricalScopeIssue>, ()> {
     if changelog.get("historyComplete").and_then(Value::as_bool) != Some(true) {
         return Err(());
@@ -1318,28 +1324,28 @@ fn reconstruct_historical_scope_issue(
         .ok_or(())?;
     let (original_scope, added_at) = sprint_scope_membership(
         histories,
-        sprint_field_id,
-        sprint_id,
-        sprint_name,
-        start_at,
-        currently_in_sprint,
+        context.sprint_field_id,
+        context.sprint_id,
+        context.sprint_name,
+        context.start_at,
+        context.currently_in_sprint,
     )
     .ok_or(())?;
     if !original_scope && added_at.is_none() {
         return Ok(None);
     }
-    let story_points = field_i64(issue_fields, points_field);
+    let story_points = field_i64(issue_fields, context.points_field);
     let status_category = issue_fields
         .pointer("/status/id")
         .and_then(Value::as_str)
-        .and_then(|status_id| status_categories.get(status_id));
+        .and_then(|status_id| context.status_categories.get(status_id));
     let completed = status_category.and_then(|category| match category.as_str() {
         "done" => Some(true),
         "new" | "indeterminate" => Some(false),
         _ => None,
     });
     Ok(Some(HistoricalScopeIssue {
-        key: candidate_key.to_owned(),
+        key: context.candidate_key.to_owned(),
         summary: issue_fields
             .get("summary")
             .and_then(Value::as_str)
@@ -1507,7 +1513,7 @@ fn sprint_presence(value: &Value, sprint_id: &str, sprint_name: &str) -> Option<
                 .map(str::trim)
                 .map(|name| name.trim_matches(['[', ']']))
                 .collect::<Vec<_>>();
-            if names.iter().any(|name| *name == sprint_name) {
+            if names.contains(&sprint_name) {
                 return Some(true);
             }
             if names.iter().any(|name| !name.is_empty()) {
@@ -1548,7 +1554,7 @@ fn serialized_sprint_id_membership(value: &str, sprint_id: &str) -> Option<bool>
             .split(|character: char| !character.is_ascii_digit())
             .filter(|part| !part.is_empty())
             .collect::<Vec<_>>();
-        return Some(ids.iter().any(|id| *id == sprint_id));
+        return Some(ids.contains(&sprint_id));
     }
     None
 }
@@ -1846,6 +1852,7 @@ mod tests {
         reconstruct_historical_scope_issue, record_sprint_history_progress,
         sprint_scope_membership, status_transitions, sum_completed_scope_points,
         DailySprintStatsProgressDto, HistoricalScopeIssue, ScopeCandidateHistoryResult,
+        ScopeReconstructionContext,
     };
     use crate::application::planning::TeamMemberDto;
     use serde_json::json;
@@ -1981,16 +1988,18 @@ mod tests {
             .collect();
 
         let scope = reconstruct_historical_scope_issue(
-            "DEMO-1",
             &issue_fields,
             changelog,
-            "customfield_sprint",
-            "42",
-            "Sprint 42",
-            "customfield_points",
-            start,
-            true,
-            &status_categories,
+            ScopeReconstructionContext {
+                candidate_key: "DEMO-1",
+                sprint_field_id: "customfield_sprint",
+                sprint_id: "42",
+                sprint_name: "Sprint 42",
+                points_field: "customfield_points",
+                start_at: start,
+                currently_in_sprint: true,
+                status_categories: &status_categories,
+            },
         )
         .unwrap()
         .unwrap();
@@ -2027,16 +2036,18 @@ mod tests {
         let status_categories = [("6".to_owned(), "done".to_owned())].into_iter().collect();
 
         let scope = reconstruct_historical_scope_issue(
-            "DEMO-2",
             &issue_fields,
             changelog,
-            "customfield_sprint",
-            "42",
-            "Sprint 42",
-            "customfield_points",
-            activated_at,
-            true,
-            &status_categories,
+            ScopeReconstructionContext {
+                candidate_key: "DEMO-2",
+                sprint_field_id: "customfield_sprint",
+                sprint_id: "42",
+                sprint_name: "Sprint 42",
+                points_field: "customfield_points",
+                start_at: activated_at,
+                currently_in_sprint: true,
+                status_categories: &status_categories,
+            },
         )
         .unwrap()
         .unwrap();
