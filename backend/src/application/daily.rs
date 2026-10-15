@@ -13,7 +13,7 @@ use crate::application::planning::{self, PlanningCommandError, TeamMemberDto};
 use crate::application::sprint_report::{report_membership, SummaryPeriod};
 use crate::domain::planning::models::ManagedProject;
 use crate::infrastructure::data_integrations::jira::planning::{
-    JiraIssueTransition, JiraPlanningClient,
+    JiraIssueTransition, JiraPlanningClient, PlanningIssue, PlanningSprint,
 };
 use crate::infrastructure::data_integrations::jira::planning_write::ReqwestPlanningTransport;
 use crate::infrastructure::db::planning_repositories;
@@ -49,6 +49,45 @@ pub struct DailySprintDto {
 
 #[derive(Debug, Clone, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
+pub struct DailySprintStatusBreakdownDto {
+    pub category: String,
+    pub task_count: i64,
+    pub story_points: Option<i64>,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct DailySprintScopeIssueDto {
+    pub key: String,
+    pub summary: String,
+    pub status: Option<String>,
+    pub story_points: Option<i64>,
+    pub added_after_start: bool,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct DailySprintStatsDto {
+    pub availability: String,
+    pub original_task_count: Option<i64>,
+    pub completed_original_task_count: Option<i64>,
+    pub original_story_points: Option<i64>,
+    pub completed_original_story_points: Option<i64>,
+    pub added_task_count: Option<i64>,
+    pub completed_added_task_count: Option<i64>,
+    pub added_story_points: Option<i64>,
+    pub completed_added_story_points: Option<i64>,
+    pub scope_availability: String,
+    pub issues_with_incomplete_scope_history: Vec<String>,
+    pub issues_with_unavailable_status: Vec<String>,
+    pub issues_without_scope_story_points: Vec<String>,
+    pub scope_issues: Vec<DailySprintScopeIssueDto>,
+    pub status_breakdown: Vec<DailySprintStatusBreakdownDto>,
+    pub issues_without_story_points: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
 pub struct DailyWorkspaceDto {
     pub managed_project_id: String,
     pub project_name: String,
@@ -57,6 +96,8 @@ pub struct DailyWorkspaceDto {
     pub selected_sprint_name: String,
     pub sprint_board_url: String,
     pub sprint_board_urls_by_assignee: HashMap<String, String>,
+    pub current_user_account_id: Option<String>,
+    pub sprint_stats: DailySprintStatsDto,
     pub sprints: Vec<DailySprintDto>,
     pub members: Vec<TeamMemberDto>,
     pub subtasks: Vec<DailySubtaskDto>,
@@ -335,15 +376,12 @@ pub async fn load_daily_workspace(
                     )
                 })?
         };
+    let story_points_field_id = project
+        .story_points_field_id
+        .as_deref()
+        .or(Some(DEFAULT_STORY_POINTS_FIELD_ID));
     let issues = client
-        .list_sprint_issues_with_fields(
-            &selected_sprint.id,
-            100,
-            project
-                .story_points_field_id
-                .as_deref()
-                .or(Some(DEFAULT_STORY_POINTS_FIELD_ID)),
-        )
+        .list_sprint_issues_with_fields(&selected_sprint.id, 100, story_points_field_id)
         .await
         .map_err(|_| {
             daily_error(
@@ -352,6 +390,28 @@ pub async fn load_daily_workspace(
                 true,
             )
         })?;
+    let status_categories = client
+        .list_workflow_statuses()
+        .await
+        .unwrap_or_default()
+        .into_iter()
+        .filter_map(|status| {
+            status
+                .status_category
+                .map(|category| (status.id, category.key))
+        })
+        .collect::<HashMap<_, _>>();
+    let sprint_stats =
+        current_sprint_stats(&issues.values, &status_categories, story_points_field_id);
+    let sprint_stats = reconstruct_sprint_scope_history(
+        sprint_stats,
+        &client,
+        selected_sprint,
+        &issues.values,
+        story_points_field_id,
+        &status_categories,
+    )
+    .await;
     // The Sprint Tasks view intentionally contains only assigned Jira subtasks.
     let subtasks = issues
         .values
@@ -362,10 +422,7 @@ pub async fn load_daily_workspace(
                 issue.id,
                 issue.key,
                 issue.fields,
-                project
-                    .story_points_field_id
-                    .as_deref()
-                    .or(Some(DEFAULT_STORY_POINTS_FIELD_ID)),
+                story_points_field_id,
                 &integration.base_url,
             )
         })
@@ -418,6 +475,8 @@ pub async fn load_daily_workspace(
         selected_sprint_name: selected_sprint.name.clone(),
         sprint_board_url,
         sprint_board_urls_by_assignee,
+        current_user_account_id: client.current_user_account_id().await.ok().flatten(),
+        sprint_stats,
         sprints,
         members,
         subtasks,
@@ -660,6 +719,552 @@ async fn ensure_daily_dependencies(
     Ok(())
 }
 
+fn current_sprint_stats(
+    issues: &[crate::infrastructure::data_integrations::jira::planning::PlanningIssue],
+    status_categories: &HashMap<String, String>,
+    story_points_field_id: Option<&str>,
+) -> DailySprintStatsDto {
+    let categories = ["todo", "inProgress", "done", "unknown"];
+    let mut groups = categories
+        .iter()
+        .map(|category| {
+            (
+                (*category).to_owned(),
+                Vec::<&crate::infrastructure::data_integrations::jira::planning::PlanningIssue>::new(),
+            )
+        })
+        .collect::<HashMap<_, _>>();
+    // Sprint progress is measured on parent issues only; child subtasks must not inflate totals.
+    for issue in issues.iter().filter(|issue| is_parent_issue(&issue.fields)) {
+        let category = issue
+            .fields
+            .pointer("/status/id")
+            .and_then(Value::as_str)
+            .and_then(|status_id| status_categories.get(status_id))
+            .map(|category| match category.as_str() {
+                "new" => "todo",
+                "indeterminate" => "inProgress",
+                "done" => "done",
+                _ => "unknown",
+            })
+            .unwrap_or("unknown");
+        groups
+            .get_mut(category)
+            .expect("known category")
+            .push(issue);
+    }
+    let status_breakdown = categories
+        .iter()
+        .map(|category| {
+            let tasks = &groups[*category];
+            let points = story_points_field_id.and_then(|field_id| {
+                tasks
+                    .iter()
+                    .map(|issue| field_i64(&issue.fields, field_id))
+                    .collect::<Option<Vec<_>>>()
+                    .map(|values| values.into_iter().sum())
+            });
+            DailySprintStatusBreakdownDto {
+                category: (*category).to_owned(),
+                task_count: tasks.len() as i64,
+                story_points: points,
+            }
+        })
+        .collect();
+
+    let mut issues_without_story_points = issues
+        .iter()
+        .filter(|issue| is_parent_issue(&issue.fields))
+        .filter(|issue| {
+            story_points_field_id
+                .and_then(|field_id| field_i64(&issue.fields, field_id))
+                .is_none()
+        })
+        .map(|issue| issue.key.clone())
+        .collect::<Vec<_>>();
+    issues_without_story_points.sort();
+    let mut issues_with_unavailable_status = issues
+        .iter()
+        .filter(|issue| is_parent_issue(&issue.fields))
+        .filter(|issue| {
+            !issue
+                .fields
+                .pointer("/status/id")
+                .and_then(Value::as_str)
+                .and_then(|status_id| status_categories.get(status_id))
+                .is_some_and(|category| is_classifiable_status_category(category))
+        })
+        .map(|issue| issue.key.clone())
+        .collect::<Vec<_>>();
+    issues_with_unavailable_status.sort();
+    issues_with_unavailable_status.dedup();
+
+    // The DC sprint-issues endpoint only lists current members. It cannot prove
+    // the complete initial sprint scope or expose issues already removed, so
+    // historical original/addition totals must remain unavailable.
+    DailySprintStatsDto {
+        availability: "partial".to_owned(),
+        original_task_count: None,
+        completed_original_task_count: None,
+        original_story_points: None,
+        completed_original_story_points: None,
+        added_task_count: None,
+        completed_added_task_count: None,
+        added_story_points: None,
+        completed_added_story_points: None,
+        scope_availability: "unavailable".to_owned(),
+        issues_with_incomplete_scope_history: Vec::new(),
+        issues_with_unavailable_status,
+        issues_without_scope_story_points: Vec::new(),
+        scope_issues: Vec::new(),
+        status_breakdown,
+        issues_without_story_points,
+    }
+}
+
+fn is_classifiable_status_category(category: &str) -> bool {
+    matches!(category, "new" | "indeterminate" | "done")
+}
+
+async fn reconstruct_sprint_scope_history(
+    mut stats: DailySprintStatsDto,
+    client: &JiraPlanningClient,
+    sprint: &PlanningSprint,
+    current_issues: &[PlanningIssue],
+    story_points_field_id: Option<&str>,
+    status_categories: &HashMap<String, String>,
+) -> DailySprintStatsDto {
+    let Some(activated_date) = sprint.activated_date.as_deref() else {
+        return stats;
+    };
+    let Some(start_at) = parse_jira_timestamp(activated_date) else {
+        return stats;
+    };
+    let Ok(fields) = client.list_fields().await else {
+        return stats;
+    };
+    let sprint_fields = fields
+        .iter()
+        .filter(|field| field.name.eq_ignore_ascii_case("sprint"))
+        .collect::<Vec<_>>();
+    let [sprint_field] = sprint_fields.as_slice() else {
+        return stats;
+    };
+    let sprint_field_id = sprint_field.id.as_str();
+    let points_field = story_points_field_id.unwrap_or(DEFAULT_STORY_POINTS_FIELD_ID);
+    let scope_candidates = current_parent_scope_issues(current_issues).collect::<Vec<_>>();
+
+    let mut issues_with_incomplete_history = Vec::new();
+    let mut historical_scope = Vec::new();
+    let mut unidentified_history_failure = false;
+    let mut requests = tokio::task::JoinSet::new();
+    for candidate in scope_candidates {
+        let client = client.clone();
+        let issue_key = candidate.key.clone();
+        let sprint_field_id = sprint_field_id.to_owned();
+        let sprint_id = sprint.id.clone();
+        let sprint_name = sprint.name.clone();
+        let points_field = points_field.to_owned();
+        let issue_fields = candidate.fields.clone();
+        let status_categories = status_categories.clone();
+        requests.spawn(async move {
+            let result = match client.get_issue_changelog_diagnostic(&issue_key).await {
+                Ok(changelog) => match reconstruct_historical_scope_issue(
+                    &issue_key,
+                    &issue_fields,
+                    changelog,
+                    &sprint_field_id,
+                    &sprint_id,
+                    &sprint_name,
+                    &points_field,
+                    start_at,
+                    true,
+                    &status_categories,
+                ) {
+                    Ok(scope) => ScopeCandidateHistoryResult::Known(scope),
+                    Err(()) => ScopeCandidateHistoryResult::Incomplete(issue_key.clone()),
+                },
+                Err(_) => ScopeCandidateHistoryResult::Incomplete(issue_key.clone()),
+            };
+            (issue_key, result)
+        });
+        if requests.len() >= 8 {
+            collect_sprint_history_result(
+                requests.join_next().await,
+                &mut issues_with_incomplete_history,
+                &mut historical_scope,
+                &mut unidentified_history_failure,
+            );
+        }
+    }
+    while !requests.is_empty() {
+        collect_sprint_history_result(
+            requests.join_next().await,
+            &mut issues_with_incomplete_history,
+            &mut historical_scope,
+            &mut unidentified_history_failure,
+        );
+    }
+
+    historical_scope.sort_by(|left, right| {
+        right
+            .original_scope
+            .cmp(&left.original_scope)
+            .then_with(|| left.key.cmp(&right.key))
+    });
+    stats.scope_issues = historical_scope
+        .iter()
+        .map(|issue| DailySprintScopeIssueDto {
+            key: issue.key.clone(),
+            summary: issue.summary.clone(),
+            status: issue.status.clone(),
+            story_points: issue.story_points,
+            added_after_start: !issue.original_scope,
+        })
+        .collect();
+    issues_with_incomplete_history.sort();
+    issues_with_incomplete_history.dedup();
+    stats.issues_with_incomplete_scope_history = issues_with_incomplete_history.clone();
+    stats.issues_with_unavailable_status.extend(
+        historical_scope
+            .iter()
+            .filter(|issue| issue.completed.is_none())
+            .map(|issue| issue.key.clone()),
+    );
+    stats.issues_with_unavailable_status.sort();
+    stats.issues_with_unavailable_status.dedup();
+    if unidentified_history_failure || !issues_with_incomplete_history.is_empty() {
+        stats.scope_availability = "partial".to_owned();
+        stats.original_task_count = None;
+        stats.completed_original_task_count = None;
+        stats.original_story_points = None;
+        stats.completed_original_story_points = None;
+        stats.added_task_count = None;
+        stats.completed_added_task_count = None;
+        stats.added_story_points = None;
+        stats.completed_added_story_points = None;
+        return stats;
+    }
+
+    let original = historical_scope
+        .iter()
+        .filter(|issue| issue.original_scope)
+        .collect::<Vec<_>>();
+    let added = historical_scope
+        .iter()
+        .filter(|issue| !issue.original_scope)
+        .collect::<Vec<_>>();
+    stats.original_task_count = Some(original.len() as i64);
+    stats.completed_original_task_count = count_completed_scope_issues(&original);
+    stats.added_task_count = Some(added.len() as i64);
+    stats.completed_added_task_count = count_completed_scope_issues(&added);
+
+    let mut missing_points = historical_scope
+        .iter()
+        .filter(|issue| issue.story_points.is_none())
+        .map(|issue| issue.key.clone())
+        .collect::<Vec<_>>();
+    missing_points.sort();
+    missing_points.dedup();
+    stats.issues_without_scope_story_points = missing_points;
+    stats.original_story_points = sum_scope_points(&original);
+    stats.completed_original_story_points = sum_completed_scope_points(&original);
+    stats.added_story_points = sum_scope_points(&added);
+    stats.completed_added_story_points = sum_completed_scope_points(&added);
+    stats.scope_availability = if stats.issues_without_scope_story_points.is_empty()
+        && stats.issues_with_unavailable_status.is_empty()
+    {
+        "available".to_owned()
+    } else {
+        "partial".to_owned()
+    };
+    stats.availability = if stats.scope_availability == "available"
+        && stats.issues_without_story_points.is_empty()
+        && stats.issues_with_unavailable_status.is_empty()
+        && stats
+            .status_breakdown
+            .iter()
+            .all(|status| status.story_points.is_some())
+    {
+        "available".to_owned()
+    } else {
+        "partial".to_owned()
+    };
+    stats
+}
+
+enum ScopeCandidateHistoryResult {
+    Known(Option<HistoricalScopeIssue>),
+    Incomplete(String),
+}
+
+struct HistoricalScopeIssue {
+    key: String,
+    summary: String,
+    status: Option<String>,
+    original_scope: bool,
+    story_points: Option<i64>,
+    completed: Option<bool>,
+}
+
+fn reconstruct_historical_scope_issue(
+    candidate_key: &str,
+    issue_fields: &Value,
+    changelog: Value,
+    sprint_field_id: &str,
+    sprint_id: &str,
+    sprint_name: &str,
+    points_field: &str,
+    start_at: OffsetDateTime,
+    currently_in_sprint: bool,
+    status_categories: &HashMap<String, String>,
+) -> Result<Option<HistoricalScopeIssue>, ()> {
+    if changelog.get("historyComplete").and_then(Value::as_bool) != Some(true) {
+        return Err(());
+    }
+    let histories = changelog
+        .pointer("/changelog/histories")
+        .and_then(Value::as_array)
+        .map(Vec::as_slice)
+        .ok_or(())?;
+    let (original_scope, added_at) = sprint_scope_membership(
+        histories,
+        sprint_field_id,
+        sprint_id,
+        sprint_name,
+        start_at,
+        currently_in_sprint,
+    )
+    .ok_or(())?;
+    if !original_scope && added_at.is_none() {
+        return Ok(None);
+    }
+    let story_points = field_i64(issue_fields, points_field);
+    let status_category = issue_fields
+        .pointer("/status/id")
+        .and_then(Value::as_str)
+        .and_then(|status_id| status_categories.get(status_id));
+    let completed = status_category.and_then(|category| match category.as_str() {
+        "done" => Some(true),
+        "new" | "indeterminate" => Some(false),
+        _ => None,
+    });
+    Ok(Some(HistoricalScopeIssue {
+        key: candidate_key.to_owned(),
+        summary: issue_fields
+            .get("summary")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_owned(),
+        status: issue_fields
+            .pointer("/status/name")
+            .and_then(Value::as_str)
+            .map(str::to_owned),
+        original_scope,
+        story_points,
+        completed,
+    }))
+}
+
+fn collect_sprint_history_result(
+    result: Option<Result<(String, ScopeCandidateHistoryResult), tokio::task::JoinError>>,
+    issues_with_incomplete_history: &mut Vec<String>,
+    historical_scope: &mut Vec<HistoricalScopeIssue>,
+    unidentified_history_failure: &mut bool,
+) {
+    match result {
+        Some(Ok((_, ScopeCandidateHistoryResult::Known(Some(issue))))) => {
+            historical_scope.push(issue)
+        }
+        Some(Ok((_, ScopeCandidateHistoryResult::Known(None)))) => {}
+        Some(Ok((_, ScopeCandidateHistoryResult::Incomplete(key)))) => {
+            issues_with_incomplete_history.push(key)
+        }
+        Some(Err(_)) | None => *unidentified_history_failure = true,
+    }
+}
+
+fn count_completed_scope_issues(issues: &[&HistoricalScopeIssue]) -> Option<i64> {
+    let statuses = issues
+        .iter()
+        .map(|issue| issue.completed)
+        .collect::<Option<Vec<_>>>()?;
+    Some(statuses.into_iter().filter(|completed| *completed).count() as i64)
+}
+
+fn sum_completed_scope_points(issues: &[&HistoricalScopeIssue]) -> Option<i64> {
+    let mut points = Vec::new();
+    for issue in issues {
+        if issue.completed? {
+            points.push(issue.story_points?);
+        }
+    }
+    Some(points.into_iter().sum())
+}
+
+fn sum_scope_points(issues: &[&HistoricalScopeIssue]) -> Option<i64> {
+    issues
+        .iter()
+        .map(|issue| issue.story_points)
+        .collect::<Option<Vec<_>>>()
+        .map(|points| points.into_iter().sum())
+}
+
+fn sprint_scope_membership(
+    histories: &[Value],
+    sprint_field_id: &str,
+    sprint_id: &str,
+    sprint_name: &str,
+    start_at: OffsetDateTime,
+    currently_in_sprint: bool,
+) -> Option<(bool, Option<OffsetDateTime>)> {
+    // Jira's sprint-issues endpoint is authoritative for current membership; the Sprint
+    // custom field can retain closed or removed sprint values.
+    let mut events = Vec::new();
+    for history in histories {
+        let created = history.get("created").and_then(Value::as_str).unwrap_or("");
+        for item in history
+            .get("items")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .filter(|item| is_sprint_history_item(item, sprint_field_id))
+        {
+            let at = parse_jira_timestamp(created)?;
+            let from = sprint_presence(item.get("from")?, sprint_id, sprint_name)?;
+            let to = sprint_presence(item.get("to")?, sprint_id, sprint_name)?;
+            events.push((at, from, to));
+        }
+    }
+    events.sort_by_key(|(at, _, _)| *at);
+    if events.windows(2).any(|pair| pair[0].2 != pair[1].1)
+        || events
+            .last()
+            .is_some_and(|(_, _, to)| *to != currently_in_sprint)
+    {
+        return None;
+    }
+    let post_activation_events = events
+        .iter()
+        .filter(|(at, _, _)| *at > start_at)
+        .collect::<Vec<_>>();
+    let original_membership = if let Some((_, from, _)) = post_activation_events.first() {
+        Some(*from)
+    } else if let Some((_, _, to)) = events.last() {
+        Some(*to)
+    } else if !currently_in_sprint {
+        // No Sprint history plus no current membership cannot indicate an in-sprint issue.
+        Some(false)
+    } else {
+        // A current issue with no Sprint history could have been assigned at creation.
+        // Do not infer its baseline from the issue's creation timestamp.
+        None
+    };
+    let original_membership = original_membership?;
+    let first_addition = post_activation_events
+        .iter()
+        .find(|(_, from, to)| !*from && *to)
+        .map(|(at, _, _)| *at);
+    Some((original_membership, first_addition))
+}
+
+fn is_sprint_history_item(item: &Value, sprint_field_id: &str) -> bool {
+    item.get("fieldId")
+        .and_then(Value::as_str)
+        .is_some_and(|field_id| field_id == sprint_field_id)
+        || item
+            .get("field")
+            .and_then(Value::as_str)
+            .is_some_and(|field| field.eq_ignore_ascii_case("sprint"))
+}
+
+fn sprint_presence(value: &Value, sprint_id: &str, sprint_name: &str) -> Option<bool> {
+    match value {
+        Value::Null => Some(false),
+        Value::Number(number) => Some(number.to_string() == sprint_id),
+        Value::Array(values) => values.iter().try_fold(false, |found, value| {
+            sprint_presence(value, sprint_id, sprint_name).map(|present| found || present)
+        }),
+        Value::Object(object) => {
+            if let Some(id) = object.get("id") {
+                return sprint_presence(id, sprint_id, sprint_name);
+            }
+            let serialized = serde_json::to_string(value).ok()?;
+            sprint_presence(&Value::String(serialized), sprint_id, sprint_name)
+        }
+        Value::String(raw) => {
+            let value = raw.trim();
+            if value.is_empty() {
+                return Some(false);
+            }
+            if value.chars().all(|character| character.is_ascii_digit()) {
+                return Some(value == sprint_id);
+            }
+            if let Some(membership) = serialized_sprint_id_membership(value, sprint_id) {
+                return Some(membership);
+            }
+            let names = value
+                .split([',', ';'])
+                .map(str::trim)
+                .map(|name| name.trim_matches(['[', ']']))
+                .collect::<Vec<_>>();
+            if names.iter().any(|name| *name == sprint_name) {
+                return Some(true);
+            }
+            if names.iter().any(|name| !name.is_empty()) {
+                return Some(false);
+            }
+            None
+        }
+        _ => None,
+    }
+}
+
+fn serialized_sprint_id_membership(value: &str, sprint_id: &str) -> Option<bool> {
+    let lowercase = value.to_ascii_lowercase();
+    let mut found_id_field = false;
+    let mut matching_id = false;
+    for (index, _) in lowercase.match_indices("id") {
+        if index > 0 && lowercase.as_bytes()[index - 1].is_ascii_alphanumeric() {
+            continue;
+        }
+        let mut rest = lowercase[index + 2..].trim_start();
+        if let Some(after_separator) = rest.strip_prefix('=').or_else(|| rest.strip_prefix(':')) {
+            found_id_field = true;
+            rest = after_separator.trim_start();
+            let digits = rest
+                .chars()
+                .take_while(char::is_ascii_digit)
+                .collect::<String>();
+            matching_id |= !digits.is_empty() && digits == sprint_id;
+        }
+    }
+    if found_id_field {
+        return Some(matching_id);
+    }
+    if value.chars().all(|character| {
+        character.is_ascii_digit() || matches!(character, ',' | ';' | '[' | ']' | ' ')
+    }) {
+        let ids = value
+            .split(|character: char| !character.is_ascii_digit())
+            .filter(|part| !part.is_empty())
+            .collect::<Vec<_>>();
+        return Some(ids.iter().any(|id| *id == sprint_id));
+    }
+    None
+}
+
+fn current_parent_scope_issues(issues: &[PlanningIssue]) -> impl Iterator<Item = &PlanningIssue> {
+    issues.iter().filter(|issue| is_parent_issue(&issue.fields))
+}
+
+fn is_parent_issue(fields: &Value) -> bool {
+    fields
+        .pointer("/issuetype/subtask")
+        .and_then(Value::as_bool)
+        == Some(false)
+}
+
 fn is_assigned_subtask(fields: &Value) -> bool {
     let is_subtask = fields
         .get("issuetype")
@@ -884,18 +1489,22 @@ pub(super) fn parse_jira_timestamp(value: &str) -> Option<OffsetDateTime> {
 }
 
 fn field_i64(fields: &Value, field_id: &str) -> Option<i64> {
-    fields.get(field_id).and_then(|value| {
-        value
-            .as_i64()
-            .or_else(|| value.as_f64().map(|points| points.round() as i64))
-            .or_else(|| {
-                value
-                    .as_str()?
-                    .parse::<f64>()
-                    .ok()
-                    .map(|points| points.round() as i64)
-            })
-    })
+    let value = fields.get(field_id)?;
+    if let Some(points) = value.as_i64() {
+        return Some(points);
+    }
+    let points = value
+        .as_f64()
+        .or_else(|| value.as_str()?.trim().parse::<f64>().ok())?;
+    let upper_exclusive = -(i64::MIN as f64);
+    if !points.is_finite()
+        || points.fract() != 0.0
+        || points < i64::MIN as f64
+        || points >= upper_exclusive
+    {
+        return None;
+    }
+    Some(points as i64)
 }
 
 fn first_string(value: &Value, keys: &[&str]) -> Option<String> {
@@ -917,10 +1526,345 @@ fn daily_error(code: &str, message: &str, retryable: bool) -> PlanningCommandErr
 #[cfg(test)]
 mod tests {
     use super::{
-        daily_task, is_assigned_subtask, jira_sprint_board_url, quick_filter_assignee,
-        status_transitions,
+        collect_sprint_history_result, count_completed_scope_issues, current_parent_scope_issues,
+        current_sprint_stats, daily_task, field_i64, is_assigned_subtask, jira_sprint_board_url,
+        quick_filter_assignee, reconstruct_historical_scope_issue, sprint_scope_membership,
+        status_transitions, sum_completed_scope_points, HistoricalScopeIssue,
+        ScopeCandidateHistoryResult,
     };
     use serde_json::json;
+
+    #[test]
+    fn daily_stats_use_task_story_points_and_count_parent_issues_only() {
+        let issues = vec![
+            crate::infrastructure::data_integrations::jira::planning::PlanningIssue {
+                id: "1".to_owned(),
+                key: "DEMO-1".to_owned(),
+                fields: json!({"status":{"id":"1"},"issuetype":{"subtask":false},"customfield_10016":3}),
+            },
+            crate::infrastructure::data_integrations::jira::planning::PlanningIssue {
+                id: "2".to_owned(),
+                key: "DEMO-2".to_owned(),
+                fields: json!({"status":{"id":"2"},"issuetype":{"subtask":false},"customfield_10016":1.5}),
+            },
+            crate::infrastructure::data_integrations::jira::planning::PlanningIssue {
+                id: "3".to_owned(),
+                key: "DEMO-3".to_owned(),
+                fields: json!({"status":{"id":"3"},"issuetype":{"subtask":true}}),
+            },
+            crate::infrastructure::data_integrations::jira::planning::PlanningIssue {
+                id: "4".to_owned(),
+                key: "DEMO-4".to_owned(),
+                fields: json!({"status":{"id":"4"},"issuetype":{"subtask":false}}),
+            },
+        ];
+        let stats = current_sprint_stats(
+            &issues,
+            &[
+                ("1".to_owned(), "done".to_owned()),
+                ("2".to_owned(), "new".to_owned()),
+                ("3".to_owned(), "indeterminate".to_owned()),
+            ]
+            .into_iter()
+            .collect(),
+            Some("customfield_10016"),
+        );
+        let wire = serde_json::to_value(stats).unwrap();
+        assert_eq!(wire["availability"], "partial");
+        assert_eq!(wire["originalTaskCount"], serde_json::Value::Null);
+        assert_eq!(wire["addedTaskCount"], serde_json::Value::Null);
+        assert_eq!(wire["statusBreakdown"][0]["category"], "todo");
+        assert_eq!(wire["statusBreakdown"][0]["taskCount"], 1);
+        assert_eq!(
+            wire["statusBreakdown"][0]["storyPoints"],
+            serde_json::Value::Null
+        );
+        assert_eq!(wire["statusBreakdown"][1]["taskCount"], 0);
+        assert_eq!(wire["statusBreakdown"][2]["storyPoints"], 3);
+        assert_eq!(
+            wire["issuesWithoutStoryPoints"],
+            json!(["DEMO-2", "DEMO-4"])
+        );
+        assert_eq!(wire["issuesWithUnavailableStatus"], json!(["DEMO-4"]));
+        assert!(!wire["issuesWithoutStoryPoints"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|issue_key| issue_key == "DEMO-3"));
+        assert_eq!(field_i64(&json!({"points": 1.5}), "points"), None);
+        assert_eq!(field_i64(&json!({"points": 2.0}), "points"), Some(2));
+    }
+
+    #[test]
+    fn added_scope_uses_current_story_points_not_historical_reestimates() {
+        let start = super::parse_jira_timestamp("2026-01-05T11:52:00+03:00").unwrap();
+        let issue_fields = json!({
+            "summary": "Example added issue",
+            "issuetype": {"subtask": false},
+            "status": {"id": "3", "name": "In Progress"},
+            "customfield_points": 5,
+        });
+        let changelog = json!({
+            "historyComplete": true,
+            "changelog": {"histories": [
+                {"created": "2026-01-09T12:32:00+03:00", "items": [
+                    {"field": "Sprint", "fieldId": "customfield_sprint", "from": "110403", "to": "42"}
+                ]},
+                {"created": "2026-01-14T15:34:00+03:00", "items": [
+                    {"field": "Story Points", "fieldId": "customfield_points", "from": null, "fromString": null, "to": null, "toString": "5"}
+                ]}
+            ]}
+        });
+        let status_categories = [("3".to_owned(), "indeterminate".to_owned())]
+            .into_iter()
+            .collect();
+
+        let scope = reconstruct_historical_scope_issue(
+            "DEMO-1",
+            &issue_fields,
+            changelog,
+            "customfield_sprint",
+            "42",
+            "Sprint 42",
+            "customfield_points",
+            start,
+            true,
+            &status_categories,
+        )
+        .unwrap()
+        .unwrap();
+
+        assert!(!scope.original_scope);
+        assert_eq!(scope.summary, "Example added issue");
+        assert_eq!(scope.status.as_deref(), Some("In Progress"));
+        assert_eq!(scope.story_points, Some(5));
+        assert_eq!(scope.completed, Some(false));
+    }
+
+    #[test]
+    fn original_scope_uses_current_points_after_reestimates() {
+        let activated_at = super::parse_jira_timestamp("2026-01-05T11:52:00+03:00").unwrap();
+        let issue_fields = json!({
+            "issuetype": {"subtask": false},
+            "status": {"id": "6"},
+            "customfield_points": 5,
+        });
+        let changelog = json!({
+            "historyComplete": true,
+            "changelog": {"histories": [
+                {
+                    "created": "2026-01-04T15:00:00+03:00",
+                    "items": [{"field": "Sprint", "fieldId": "customfield_sprint", "from": "110403", "to": "42"}]
+                },
+                {
+                    "created": "2026-01-14T15:34:00+03:00",
+                    "items": [{"field": "Story Points", "fieldId": "customfield_points", "from": null, "fromString": "8", "to": null, "toString": "5"}]
+                }
+            ]}
+        });
+        let status_categories = [("6".to_owned(), "done".to_owned())].into_iter().collect();
+
+        let scope = reconstruct_historical_scope_issue(
+            "DEMO-2",
+            &issue_fields,
+            changelog,
+            "customfield_sprint",
+            "42",
+            "Sprint 42",
+            "customfield_points",
+            activated_at,
+            true,
+            &status_categories,
+        )
+        .unwrap()
+        .unwrap();
+
+        assert!(scope.original_scope);
+        assert_eq!(scope.story_points, Some(5));
+        assert_eq!(scope.completed, Some(true));
+    }
+
+    #[test]
+    fn sprint_readded_before_actual_activation_is_in_original_scope() {
+        let activated_at = super::parse_jira_timestamp("2026-01-05T11:52:00+03:00").unwrap();
+        let history = vec![
+            json!({
+                "created": "2026-01-02T15:32:00+03:00",
+                "items": [{"field": "Sprint", "fieldId": "customfield_sprint", "from": "161005", "to": "42"}],
+            }),
+            json!({
+                "created": "2026-01-02T15:33:00+03:00",
+                "items": [{"field": "Sprint", "fieldId": "customfield_sprint", "from": "42", "to": "140840"}],
+            }),
+            json!({
+                "created": "2026-01-05T11:09:00+03:00",
+                "items": [{"field": "Sprint", "fieldId": "customfield_sprint", "from": "140840", "to": "42"}],
+            }),
+        ];
+
+        let (original_scope, addition_at) = sprint_scope_membership(
+            &history,
+            "customfield_sprint",
+            "42",
+            "Sprint 42",
+            activated_at,
+            true,
+        )
+        .unwrap();
+
+        assert!(original_scope);
+        assert_eq!(addition_at, None);
+    }
+
+    #[test]
+    fn current_membership_without_sprint_history_is_not_inferred_as_planned() {
+        let activated_at = super::parse_jira_timestamp("2026-01-05T11:52:00+03:00").unwrap();
+
+        assert_eq!(
+            sprint_scope_membership(
+                &[],
+                "customfield_sprint",
+                "42",
+                "Sprint 42",
+                activated_at,
+                true
+            ),
+            None
+        );
+        assert_eq!(
+            sprint_scope_membership(
+                &[],
+                "customfield_sprint",
+                "42",
+                "Sprint 42",
+                activated_at,
+                false
+            ),
+            Some((false, None))
+        );
+    }
+
+    #[test]
+    fn reconstructs_history_only_for_parent_issues_in_the_current_sprint_snapshot() {
+        let issues = vec![
+            crate::infrastructure::data_integrations::jira::planning::PlanningIssue {
+                id: "1".to_owned(),
+                key: "DEMO-1".to_owned(),
+                fields: json!({"issuetype":{"subtask":false}}),
+            },
+            crate::infrastructure::data_integrations::jira::planning::PlanningIssue {
+                id: "2".to_owned(),
+                key: "DEMO-2".to_owned(),
+                fields: json!({"issuetype":{"subtask":true}}),
+            },
+        ];
+
+        let keys = current_parent_scope_issues(&issues)
+            .map(|issue| issue.key.as_str())
+            .collect::<Vec<_>>();
+        assert_eq!(keys, vec!["DEMO-1"]);
+    }
+
+    #[test]
+    fn unreadable_current_sprint_issue_history_is_reported_as_incomplete() {
+        let mut incomplete = Vec::new();
+        let mut scope = Vec::new();
+        let mut unidentified_failure = false;
+        collect_sprint_history_result(
+            Some(Ok((
+                "DEMO-9".to_owned(),
+                ScopeCandidateHistoryResult::Incomplete("DEMO-9".to_owned()),
+            ))),
+            &mut incomplete,
+            &mut scope,
+            &mut unidentified_failure,
+        );
+
+        assert_eq!(incomplete, vec!["DEMO-9"]);
+        assert!(scope.is_empty());
+        assert!(!unidentified_failure);
+    }
+
+    #[test]
+    fn reconstructs_original_membership_for_an_issue_removed_after_sprint_start() {
+        let start = super::parse_jira_timestamp("2026-01-10T10:00:00Z").unwrap();
+        let histories = vec![json!({
+            "created": "2026-01-14T09:00:00Z",
+            "items": [{"field": "Sprint", "fieldId": "customfield_sprint", "from": "42", "to": null}],
+        })];
+
+        let (original_scope, first_addition) = sprint_scope_membership(
+            &histories,
+            "customfield_sprint",
+            "42",
+            "Sprint 42",
+            start,
+            false,
+        )
+        .unwrap();
+
+        assert!(original_scope);
+        assert_eq!(first_addition, None);
+    }
+
+    #[test]
+    fn keeps_baseline_membership_for_an_issue_in_the_current_sprint_snapshot() {
+        let activated_at = super::parse_jira_timestamp("2026-01-05T11:52:00+03:00").unwrap();
+        let histories = vec![json!({
+            "created": "2026-01-04T15:00:00+03:00",
+            "items": [{"field": "Sprint", "fieldId": "customfield_sprint", "from": "110403", "to": "42"}],
+        })];
+
+        let (original_scope, first_addition) = sprint_scope_membership(
+            &histories,
+            "customfield_sprint",
+            "42",
+            "Sprint 42",
+            activated_at,
+            true,
+        )
+        .unwrap();
+
+        assert!(original_scope);
+        assert_eq!(first_addition, None);
+    }
+
+    #[test]
+    fn current_snapshot_issue_with_conflicting_final_sprint_history_is_unresolved() {
+        let activated_at = super::parse_jira_timestamp("2026-01-05T11:52:00+03:00").unwrap();
+        let histories = vec![json!({
+            "created": "2026-01-14T09:00:00Z",
+            "items": [{"field": "Sprint", "fieldId": "customfield_sprint", "from": "42", "to": null}],
+        })];
+
+        assert_eq!(
+            sprint_scope_membership(
+                &histories,
+                "customfield_sprint",
+                "42",
+                "Sprint 42",
+                activated_at,
+                true,
+            ),
+            None
+        );
+    }
+
+    #[test]
+    fn missing_status_category_does_not_turn_unknown_work_into_not_completed() {
+        let issue = HistoricalScopeIssue {
+            key: "DEMO-1".to_owned(),
+            summary: "Example task".to_owned(),
+            status: None,
+            original_scope: true,
+            story_points: Some(5),
+            completed: None,
+        };
+        let scope = [&issue];
+
+        assert_eq!(count_completed_scope_issues(&scope), None);
+        assert_eq!(sum_completed_scope_points(&scope), None);
+    }
 
     #[test]
     fn shortening_a_custom_report_preserves_its_instructions() {

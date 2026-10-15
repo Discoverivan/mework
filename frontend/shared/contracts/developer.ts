@@ -31,6 +31,37 @@ export interface DailySprint {
   endDate?: string | null;
 }
 
+export interface DailySprintScopeIssue {
+  key: string;
+  summary: string;
+  status: string | null;
+  storyPoints: number | null;
+  addedAfterStart: boolean;
+}
+
+export interface DailySprintStats {
+  availability: "available" | "partial" | "unavailable";
+  originalTaskCount: number | null;
+  completedOriginalTaskCount: number | null;
+  originalStoryPoints: number | null;
+  completedOriginalStoryPoints: number | null;
+  addedTaskCount: number | null;
+  completedAddedTaskCount: number | null;
+  addedStoryPoints: number | null;
+  completedAddedStoryPoints: number | null;
+  scopeAvailability: "available" | "partial" | "unavailable";
+  issuesWithIncompleteScopeHistory: string[];
+  issuesWithUnavailableStatus: string[];
+  issuesWithoutScopeStoryPoints: string[];
+  scopeIssues: DailySprintScopeIssue[];
+  statusBreakdown: {
+    category: "todo" | "inProgress" | "done" | "unknown";
+    taskCount: number;
+    storyPoints: number | null;
+  }[];
+  issuesWithoutStoryPoints: string[];
+}
+
 export interface DailyWorkspace {
   managedProjectId: string;
   projectName: string;
@@ -42,6 +73,8 @@ export interface DailyWorkspace {
   sprints: DailySprint[];
   members: TeamMember[];
   subtasks: DailySubtask[];
+  currentUserAccountId?: string | null;
+  sprintStats: DailySprintStats;
 }
 
 export interface DailyPresenterState {

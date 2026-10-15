@@ -55,6 +55,8 @@ pub struct PlanningSprint {
     pub state: String,
     pub start_date: Option<String>,
     pub end_date: Option<String>,
+    #[serde(skip_serializing)]
+    pub activated_date: Option<String>,
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PlanningIssue {
@@ -110,6 +112,15 @@ struct JqlSearchPage {
     start_at: u64,
     total: u64,
     issues: Vec<JqlIssueWire>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct JqlPlanningIssueSearchPage {
+    #[serde(rename = "startAt")]
+    start_at: u64,
+    total: u64,
+    #[serde(default)]
+    issues: Vec<PlanningIssue>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -210,6 +221,7 @@ pub struct PlanningCapabilities {
     pub reason: Option<String>,
 }
 
+#[derive(Clone)]
 pub struct JiraPlanningClient {
     transport: Arc<dyn JiraPlanningTransport>,
     base_url: Url,
@@ -514,6 +526,49 @@ impl JiraPlanningClient {
             .await
     }
 
+    pub async fn search_planning_issues_with_jql(
+        &self,
+        jql: &str,
+        fields: &[&str],
+        page_size: u64,
+    ) -> Result<Vec<PlanningIssue>, JiraError> {
+        self.ensure_data_center()?;
+        if jql.trim().is_empty() || page_size == 0 || fields.is_empty() {
+            return Err(JiraError::InvalidResponse);
+        }
+        let endpoint = self.endpoint("rest/api/2/search")?;
+        let mut start_at = 0_u64;
+        let mut issues = Vec::new();
+        loop {
+            let mut request_endpoint = endpoint.clone();
+            request_endpoint
+                .query_pairs_mut()
+                .append_pair("jql", jql)
+                .append_pair("startAt", &start_at.to_string())
+                .append_pair("maxResults", &page_size.to_string())
+                .append_pair("fields", &fields.join(","));
+            let response = self.send(Method::GET, request_endpoint, None).await?;
+            let page: JqlPlanningIssueSearchPage =
+                crate::application::logging::parse_json_response(
+                    response,
+                    "data_integrations.jira_planning",
+                    "search_planning_issues_with_jql",
+                )
+                .await
+                .map_err(|_| JiraError::InvalidResponse)?;
+            let returned = page.issues.len() as u64;
+            if returned == 0 && page.start_at < page.total {
+                return Err(JiraError::InvalidResponse);
+            }
+            issues.extend(page.issues);
+            start_at = page.start_at.saturating_add(returned);
+            if returned == 0 || start_at >= page.total {
+                break;
+            }
+        }
+        Ok(issues)
+    }
+
     pub async fn list_sprint_issues_with_fields(
         &self,
         sprint_id: &str,
@@ -650,6 +705,27 @@ impl JiraPlanningClient {
         })
     }
 
+    pub async fn current_user_account_id(&self) -> Result<Option<String>, JiraError> {
+        self.ensure_data_center()?;
+        let response = self
+            .send(Method::GET, self.endpoint("rest/api/2/myself")?, None)
+            .await?;
+        let user: Value = crate::application::logging::parse_json_response(
+            response,
+            "data_integrations.jira_planning",
+            "current_user_account_id",
+        )
+        .await
+        .map_err(|_| JiraError::InvalidResponse)?;
+        Ok(user
+            .get("accountId")
+            .or_else(|| user.get("name"))
+            .or_else(|| user.get("key"))
+            .and_then(Value::as_str)
+            .filter(|account_id| !account_id.trim().is_empty())
+            .map(str::to_owned))
+    }
+
     pub async fn list_fields(&self) -> Result<Vec<JiraField>, JiraError> {
         let response = self
             .send(Method::GET, self.endpoint("rest/api/2/field")?, None)
@@ -705,6 +781,20 @@ impl JiraPlanningClient {
         issue_id_or_key: &str,
         story_points_field_id: Option<&str>,
     ) -> Result<Value, JiraIssueLoadError> {
+        self.get_issue_with_changelog_and_fields_diagnostic(
+            issue_id_or_key,
+            story_points_field_id,
+            &[],
+        )
+        .await
+    }
+
+    pub async fn get_issue_with_changelog_and_fields_diagnostic(
+        &self,
+        issue_id_or_key: &str,
+        story_points_field_id: Option<&str>,
+        additional_fields: &[&str],
+    ) -> Result<Value, JiraIssueLoadError> {
         validate_path_component(issue_id_or_key).map_err(|source| JiraIssueLoadError {
             stage: "issue",
             source,
@@ -721,11 +811,21 @@ impl JiraPlanningClient {
                 stage: "issue",
                 source,
             })?;
-        let fields = ["summary", "description", "status", "assignee", "parent"]
-            .into_iter()
-            .chain(story_points_field_id)
-            .collect::<Vec<_>>()
-            .join(",");
+        let mut requested_fields = [
+            "summary",
+            "description",
+            "status",
+            "assignee",
+            "parent",
+            "issuetype",
+        ]
+        .into_iter()
+        .chain(story_points_field_id)
+        .chain(additional_fields.iter().copied())
+        .collect::<Vec<_>>();
+        requested_fields.sort_unstable();
+        requested_fields.dedup();
+        let fields = requested_fields.join(",");
         let mut endpoint = endpoint;
         endpoint.query_pairs_mut().append_pair("fields", &fields);
         let issue_response = self
@@ -745,6 +845,40 @@ impl JiraPlanningClient {
             stage: "issue",
             source: JiraError::InvalidResponse,
         })?;
+        let changelog = self.get_issue_changelog_diagnostic(issue_id_or_key).await?;
+        if let Some(object) = issue.as_object_mut() {
+            object.insert(
+                "changelog".to_owned(),
+                changelog
+                    .get("changelog")
+                    .cloned()
+                    .unwrap_or_else(|| serde_json::json!({"histories": []})),
+            );
+            object.insert(
+                "historyComplete".to_owned(),
+                changelog
+                    .get("historyComplete")
+                    .cloned()
+                    .unwrap_or(Value::Bool(false)),
+            );
+        }
+        Ok(issue)
+    }
+
+    pub async fn get_issue_changelog_diagnostic(
+        &self,
+        issue_id_or_key: &str,
+    ) -> Result<Value, JiraIssueLoadError> {
+        validate_path_component(issue_id_or_key).map_err(|source| JiraIssueLoadError {
+            stage: "changelog",
+            source,
+        })?;
+        self.ensure_data_center()
+            .map_err(|source| JiraIssueLoadError {
+                stage: "changelog",
+                source,
+            })?;
+        let api_version = "2";
         let changelog_endpoint = self
             .endpoint(&format!(
                 "rest/api/{api_version}/issue/{issue_id_or_key}/changelog"
@@ -755,6 +889,7 @@ impl JiraPlanningClient {
             })?;
         let mut start_at = 0_u64;
         let mut histories = Vec::new();
+        let mut history_complete = true;
         loop {
             let mut page_endpoint = changelog_endpoint.clone();
             page_endpoint
@@ -772,17 +907,16 @@ impl JiraPlanningClient {
                         })?;
                     expanded_endpoint
                         .query_pairs_mut()
-                        .append_pair("fields", &fields)
                         .append_pair("expand", "changelog");
-                    let expanded_response = self
+                    let response = self
                         .send(Method::GET, expanded_endpoint, None)
                         .await
                         .map_err(|source| JiraIssueLoadError {
-                        stage: "changelog",
-                        source,
-                    })?;
-                    issue = crate::application::logging::parse_json_response(
-                        expanded_response,
+                            stage: "changelog",
+                            source,
+                        })?;
+                    let issue: Value = crate::application::logging::parse_json_response(
+                        response,
                         "data_integrations.jira_planning",
                         "get_issue_with_expanded_changelog",
                     )
@@ -798,6 +932,10 @@ impl JiraPlanningClient {
                             stage: "changelog",
                             source: JiraError::InvalidResponse,
                         })?;
+                    history_complete = issue
+                        .pointer("/changelog/total")
+                        .and_then(Value::as_u64)
+                        .is_some_and(|total| total as usize <= expanded_histories.len());
                     histories.extend(expanded_histories.iter().cloned());
                     break;
                 }
@@ -851,13 +989,10 @@ impl JiraPlanningClient {
                 break;
             }
         }
-        if let Some(object) = issue.as_object_mut() {
-            object.insert(
-                "changelog".to_owned(),
-                serde_json::json!({"histories": histories}),
-            );
-        }
-        Ok(issue)
+        Ok(serde_json::json!({
+            "changelog": {"histories": histories},
+            "historyComplete": history_complete,
+        }))
     }
 
     pub async fn search_issue_summaries(
@@ -1155,7 +1290,56 @@ mod tests {
     use wiremock::{Mock, MockServer, ResponseTemplate};
 
     use super::super::planning_write::ReqwestPlanningTransport;
-    use super::{JiraDeployment, JiraError, JiraPlanningClient};
+    use super::{JiraDeployment, JiraError, JiraPlanningClient, PlanningSprint};
+
+    #[test]
+    fn keeps_actual_sprint_activation_separate_from_planned_start() {
+        let sprint: PlanningSprint = serde_json::from_value(serde_json::json!({
+            "id": 42,
+            "name": "Sprint 42",
+            "state": "ACTIVE",
+            "startDate": "2026-01-05T10:00:00.000+0300",
+            "activatedDate": "2026-01-05T11:52:00.000+0300"
+        }))
+        .expect("Jira sprint dates should deserialize");
+
+        assert_eq!(
+            sprint.start_date.as_deref(),
+            Some("2026-01-05T10:00:00.000+0300")
+        );
+        assert_eq!(
+            sprint.activated_date.as_deref(),
+            Some("2026-01-05T11:52:00.000+0300")
+        );
+    }
+
+    #[tokio::test]
+    async fn loads_current_account_identity_from_authenticated_dc_endpoint() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/rest/api/2/myself"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "name": "synthetic-user-name",
+                "key": "synthetic-user-key",
+                "displayName": "Example User"
+            })))
+            .expect(1)
+            .mount(&server)
+            .await;
+        let client = JiraPlanningClient::new_with_dependencies(
+            server.uri(),
+            JiraDeployment::DataCenter,
+            Arc::new(ReqwestPlanningTransport::new(reqwest::Client::new())),
+            Some("synthetic-user".to_owned()),
+            Some("synthetic-secret".to_owned()),
+        )
+        .expect("valid Jira base URL");
+
+        assert_eq!(
+            client.current_user_account_id().await.unwrap().as_deref(),
+            Some("synthetic-user-name")
+        );
+    }
 
     #[tokio::test]
     async fn rejects_cloud_changelog_requests() {
@@ -1230,6 +1414,7 @@ mod tests {
             issue.pointer("/changelog/histories/0/items/0/toString"),
             Some(&serde_json::json!("In Progress"))
         );
+        assert_eq!(issue.get("historyComplete"), Some(&serde_json::json!(true)));
     }
 
     #[tokio::test]
@@ -1322,6 +1507,118 @@ mod tests {
 
         assert_eq!(histories.len(), 101);
         assert_eq!(histories[100]["items"][0]["toString"], "In Progress");
+        assert_eq!(issue.get("historyComplete"), Some(&serde_json::json!(true)));
+    }
+
+    #[tokio::test]
+    async fn loads_changelog_without_reloading_current_issue_fields() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/rest/api/2/issue/DEMO-1/changelog"))
+            .and(query_param("startAt", "0"))
+            .and(query_param("maxResults", "100"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "startAt": 0,
+                "maxResults": 100,
+                "total": 1,
+                "values": [{"created": "2026-01-01T00:00:00.000+0000", "items": []}]
+            })))
+            .expect(1)
+            .mount(&server)
+            .await;
+        let client = JiraPlanningClient::new_with_dependencies(
+            server.uri(),
+            JiraDeployment::DataCenter,
+            Arc::new(ReqwestPlanningTransport::new(reqwest::Client::new())),
+            None,
+            None,
+        )
+        .expect("valid Jira base URL");
+
+        let changelog = client
+            .get_issue_changelog_diagnostic("DEMO-1")
+            .await
+            .expect("the changelog should be read without a separate issue request");
+
+        assert_eq!(changelog["historyComplete"], true);
+        assert_eq!(
+            changelog
+                .pointer("/changelog/histories")
+                .unwrap()
+                .as_array()
+                .unwrap()
+                .len(),
+            1
+        );
+    }
+
+    #[tokio::test]
+    async fn searches_project_issue_candidates_and_follows_server_page_cap() {
+        let server = MockServer::start().await;
+        let fields = "summary,status,issuetype,customfield_sprint,customfield_points";
+        let jql = "project = DEMO AND updated >= \"2026-01-08 10:00\"";
+        Mock::given(method("GET"))
+            .and(path("/rest/api/2/search"))
+            .and(query_param("jql", jql))
+            .and(query_param("startAt", "0"))
+            .and(query_param("maxResults", "2"))
+            .and(query_param("fields", fields))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "startAt": 0,
+                "maxResults": 1,
+                "total": 2,
+                "issues": [{"id": "10001", "key": "DEMO-1", "fields": {"summary": "Example task", "issuetype": {"subtask": false}}}]
+            })))
+            .expect(1)
+            .mount(&server)
+            .await;
+        Mock::given(method("GET"))
+            .and(path("/rest/api/2/search"))
+            .and(query_param("jql", jql))
+            .and(query_param("startAt", "1"))
+            .and(query_param("maxResults", "2"))
+            .and(query_param("fields", fields))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "startAt": 1,
+                "maxResults": 1,
+                "total": 2,
+                "issues": [{"id": "10002", "key": "DEMO-2", "fields": {"summary": "Another example task", "issuetype": {"subtask": false}}}]
+            })))
+            .expect(1)
+            .mount(&server)
+            .await;
+        let client = JiraPlanningClient::new_with_dependencies(
+            server.uri(),
+            JiraDeployment::DataCenter,
+            Arc::new(ReqwestPlanningTransport::new(reqwest::Client::new())),
+            None,
+            None,
+        )
+        .expect("valid Jira base URL");
+
+        let issues = client
+            .search_planning_issues_with_jql(
+                jql,
+                &[
+                    "summary",
+                    "status",
+                    "issuetype",
+                    "customfield_sprint",
+                    "customfield_points",
+                ],
+                2,
+            )
+            .await
+            .expect("project JQL search should load every page");
+
+        assert_eq!(issues.len(), 2);
+        assert_eq!(
+            issues
+                .iter()
+                .map(|issue| issue.key.as_str())
+                .collect::<Vec<_>>(),
+            ["DEMO-1", "DEMO-2"]
+        );
     }
 
     #[tokio::test]

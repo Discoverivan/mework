@@ -1,16 +1,17 @@
 import { PageToolbar } from "@/components/shared/PageToolbar";
 import { Hint } from "@/components/ui/tooltip";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { APP_EVENT, subscribeAppEvent } from "@/app/app-events";
 import { readUpdatedTeamMembers } from "../planning/team-members-state";
 import { listen } from "@tauri-apps/api/event";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import { ArrowLeft, ArrowRight, CalendarDays, ChevronDown, Copy, ExternalLink, MoreHorizontal, Presentation, RefreshCw, Settings2, Sparkles, Square } from "lucide-react";
+import { ArrowLeft, ArrowRight, CalendarDays, ChevronDown, Copy, ExternalLink, MoreHorizontal, Presentation, RefreshCw, Sparkles, Square } from "lucide-react";
 import { PageHeader } from "@/components/shared/PageHeader";
 import { StatusToast } from "@/components/shared/StatusToast";
 import { useInfoPopoverAnchor } from "@/components/shared/use-info-popover-anchor";
 import { formatDisplayDate } from "@/lib/display-date";
 import { useI18n } from "@/i18n/context";
+import { AppLanguage } from "@/i18n/types";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { badgeVariants } from "@/components/ui/badge";
 import { CreateButton } from "@/components/shared/CreateButton";
@@ -20,8 +21,7 @@ import { Input } from "@/components/ui/input";
 import { Calendar } from "@/components/ui/calendar";
 import { Textarea } from "@/components/ui/textarea";
 import { Field, FieldGroup, FieldLabel } from "@/components/ui/field";
-import { Label } from "@/components/ui/label";
-import { Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import type { DateRange } from "react-day-picker";
 import { enGB, ru } from "react-day-picker/locale";
@@ -44,12 +44,15 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Table, TableBody, TableCaption, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import type { DailyIssueTransition, DailySubtask, DailyWorkspace } from "@/shared/contracts/developer";
 import type { ManagedProject, TeamMember } from "@/shared/contracts/planning";
 import { closePresenterView, generateSprintSummary, loadDailyIssueTransitions, loadJiraAvatarData, openPresenterView, publishPresenterState, refreshDailyWorkspace, subscribePresenterState, transitionDailyIssue } from "./api";
 import { readDailyWorkspaceCache, readManagedProjectsCache, refreshDailyWorkspaceCache, refreshManagedProjectsCache, writeDailyWorkspaceCache } from "./cache";
 import { dailyStatusTone } from "./status";
-import { readAssigneesLayout, writeAssigneesLayout, type AssigneesLayout } from "./display-options";
+import { dailyProgressCategory } from "./presenterMetrics";
+import { ChartContainer, type ChartConfig } from "@/components/ui/chart";
+import { Cell, Pie, PieChart } from "recharts";
 import "./daily.css";
 
 function commandError(error: unknown): string {
@@ -136,21 +139,6 @@ interface TaskOwner {
   id: string;
   label: string;
   member?: TeamMember;
-}
-
-function TaskOwnerLabel({ owner, managedProjectId }: { owner: TaskOwner; managedProjectId: string }) {
-  return (
-    <span className="flex min-w-0 items-center gap-2">
-      {owner.member ? (
-        <MemberAvatar member={owner.member} className="h-5 w-5 shrink-0 text-[10px]" managedProjectId={managedProjectId} />
-      ) : (
-        <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-muted text-xs" aria-hidden="true">
-          {owner.id === UNASSIGNED_ID ? "—" : "+"}
-        </span>
-      )}
-      <span className="truncate">{owner.label}</span>
-    </span>
-  );
 }
 
 function taskOwners(workspace: DailyWorkspace, otherAssigneesLabel: string, unassignedLabel: string): TaskOwner[] {
@@ -303,11 +291,46 @@ function TaskStatusMenu({
   );
 }
 
+type SprintWorkspaceTab = "myTasks" | "teamTasks" | "stats";
+const SPRINT_WORKSPACE_TABS: SprintWorkspaceTab[] = ["myTasks", "teamTasks", "stats"];
+
+type StatusDonutSlice = { key: string; label: string; value: number; color: string };
+
+function StatusDonut({
+  data,
+  percent,
+  label,
+  size = 96,
+}: {
+  data: StatusDonutSlice[];
+  percent: number | null;
+  label: string;
+  size?: number;
+}) {
+  const hasValues = data.some((slice) => slice.value > 0);
+  const chartData = hasValues ? data : [{ key: "empty", label: "", value: 1, color: "var(--muted)" }];
+  const config: ChartConfig = Object.fromEntries(chartData.map(({ key, label: sliceLabel, color }) => [key, { label: sliceLabel, color }]));
+
+  return (
+    <div role="img" aria-label={label} className="relative shrink-0" style={{ width: size, height: size }}>
+      <ChartContainer config={config} className="size-full min-h-full aspect-auto" style={{ width: "100%", height: "100%", minHeight: "100%" }}>
+        <PieChart accessibilityLayer>
+          <Pie data={chartData} dataKey="value" nameKey="label" innerRadius={size * 0.34} outerRadius={size * 0.47} stroke="var(--card)" strokeWidth={2}>
+            {chartData.map((slice) => <Cell key={slice.key} fill={`var(--color-${slice.key})`} />)}
+          </Pie>
+        </PieChart>
+      </ChartContainer>
+      <span aria-hidden="true" className="pointer-events-none absolute inset-0 flex items-center justify-center text-sm font-semibold tabular-nums text-foreground">
+        {percent === null ? "—" : `${percent}%`}
+      </span>
+    </div>
+  );
+}
+
 export function DailyPage() {
   const { t, language } = useI18n();
-  const [assigneesLayout, setAssigneesLayout] = useState(readAssigneesLayout);
-  const [draftAssigneesLayout, setDraftAssigneesLayout] = useState(assigneesLayout);
-  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [activeTab, setActiveTab] = useState<SprintWorkspaceTab>("teamTasks");
+  const workspaceTabRefs = useRef<Partial<Record<SprintWorkspaceTab, HTMLButtonElement | null>>>({});
   const [projects, setProjects] = useState<ManagedProject[]>(() => readManagedProjectsCache() ?? []);
   const [selectedProjectId, setSelectedProjectId] = useState<string | undefined>(() => readManagedProjectsCache()?.[0]?.id);
   const [workspace, setWorkspace] = useState<DailyWorkspace | undefined>(() => {
@@ -394,30 +417,6 @@ export function DailyPage() {
       }
     }
   }, []);
-
-  const refreshStatuses = useCallback(async () => {
-    if (!workspace) return;
-    const managedProjectId = workspace.managedProjectId;
-    const sprintId = workspace.selectedSprintId;
-    const revision = statusRefreshRevision.current + 1;
-    statusRefreshRevision.current = revision;
-    setRefreshingStatuses(true);
-    setError(undefined);
-    try {
-      const subtasks = await refreshDailyWorkspace(managedProjectId, sprintId);
-      if (statusRefreshRevision.current !== revision) return;
-      setWorkspace((current) => {
-        if (current?.managedProjectId !== managedProjectId || current.selectedSprintId !== sprintId) return current;
-        const nextWorkspace = { ...current, subtasks };
-        writeDailyWorkspaceCache(nextWorkspace);
-        return nextWorkspace;
-      });
-    } catch (reason) {
-      if (statusRefreshRevision.current === revision) setError(commandError(reason));
-    } finally {
-      if (statusRefreshRevision.current === revision) setRefreshingStatuses(false);
-    }
-  }, [workspace]);
 
   useEffect(() => {
     if (!selectedProjectId) {
@@ -628,6 +627,135 @@ export function DailyPage() {
     sprint.name.toLocaleLowerCase().includes(sprintQuery.trim().toLocaleLowerCase()),
   ) ?? [];
   const selectedSprint = workspace?.sprints.find((sprint) => sprint.id === workspace.selectedSprintId);
+  function handleWorkspaceTabKeyDown(event: KeyboardEvent<HTMLButtonElement>, tab: SprintWorkspaceTab) {
+    const currentIndex = SPRINT_WORKSPACE_TABS.indexOf(tab);
+    let nextIndex: number | undefined;
+    if (event.key === "ArrowRight") nextIndex = (currentIndex + 1) % SPRINT_WORKSPACE_TABS.length;
+    else if (event.key === "ArrowLeft") nextIndex = (currentIndex - 1 + SPRINT_WORKSPACE_TABS.length) % SPRINT_WORKSPACE_TABS.length;
+    else if (event.key === "Home") nextIndex = 0;
+    else if (event.key === "End") nextIndex = SPRINT_WORKSPACE_TABS.length - 1;
+    if (nextIndex === undefined) return;
+    event.preventDefault();
+    const nextTab = SPRINT_WORKSPACE_TABS[nextIndex];
+    if (!nextTab) return;
+    setActiveTab(nextTab);
+    workspaceTabRefs.current[nextTab]?.focus();
+  }
+  const currentUserMember = workspace?.currentUserAccountId
+    ? workspace.members.find((member) => member.accountId === workspace.currentUserAccountId && member.active)
+    : undefined;
+  const myTasks = workspace?.currentUserAccountId
+    ? workspace.subtasks.filter((task) => task.assigneeAccountId === workspace.currentUserAccountId)
+    : [];
+  const hasCompleteMyTaskPoints = myTasks.length > 0
+    && myTasks.every((task) => task.storyPoints !== null && task.storyPoints !== undefined);
+  const myTasksWithoutStoryPoints = myTasks
+    .filter((task) => task.storyPoints === null || task.storyPoints === undefined)
+    .map((task) => task.key);
+  const myTasksPointsUnavailableMessage = myTasksWithoutStoryPoints.length > 0
+    ? t("daily.storyPointsUnavailableForIssues", { issues: myTasksWithoutStoryPoints.join(", ") })
+    : t("daily.storyPointsUnavailable");
+  const myTaskPointsByStatus = myTasks.reduce((points, task) => {
+    points[dailyProgressCategory(task.status)] += task.storyPoints ?? 0;
+    return points;
+  }, { backlog: 0, progress: 0, done: 0 });
+  const myTasksPointsTotal = hasCompleteMyTaskPoints
+    ? myTaskPointsByStatus.backlog + myTaskPointsByStatus.progress + myTaskPointsByStatus.done
+    : null;
+  const myTasksCompletionPercent = myTasksPointsTotal !== null && myTasksPointsTotal > 0
+    ? Math.round((myTaskPointsByStatus.done / myTasksPointsTotal) * 100)
+    : null;
+  const myTasksProgressUnavailable = myTasks.length === 0
+    ? t("daily.noAssigneeTasks")
+    : myTasksPointsTotal === 0
+      ? t("daily.myTasksNoPoints")
+      : myTasksPointsUnavailableMessage;
+  const sprintStats = workspace?.sprintStats;
+  const sprintScopeIssues = sprintStats?.scopeIssues ?? [];
+  const sprintIssuesWithoutStoryPoints = sprintStats?.issuesWithoutStoryPoints ?? [];
+  const sprintIssuesWithIncompleteHistory = sprintStats?.issuesWithIncompleteScopeHistory ?? [];
+  const sprintIssuesWithUnavailableStatus = sprintStats?.issuesWithUnavailableStatus ?? [];
+  const sprintIssuesWithoutScopePoints = sprintStats?.issuesWithoutScopeStoryPoints ?? [];
+  const plannedScopePoints = sprintStats?.originalStoryPoints ?? null;
+  const plannedScopeTasks = sprintStats?.originalTaskCount ?? null;
+  const addedScopePoints = sprintStats?.addedStoryPoints ?? null;
+  const addedScopeTasks = sprintStats?.addedTaskCount ?? null;
+  const completedPlannedPoints = sprintStats?.completedOriginalStoryPoints ?? null;
+  const completedPlannedTasks = sprintStats?.completedOriginalTaskCount ?? null;
+  const completedAddedPoints = sprintStats?.completedAddedStoryPoints ?? null;
+  const completedAddedTasks = sprintStats?.completedAddedTaskCount ?? null;
+  const completedScopePoints = completedPlannedPoints !== null && completedAddedPoints !== null
+    ? completedPlannedPoints + completedAddedPoints
+    : null;
+  const completedScopeTasks = completedPlannedTasks !== null && completedAddedTasks !== null
+    ? completedPlannedTasks + completedAddedTasks
+    : null;
+  const scopeClosurePercent = plannedScopePoints !== null && plannedScopePoints > 0 && completedScopePoints !== null
+    ? Math.round(completedScopePoints / plannedScopePoints * 100)
+    : null;
+  const scopeChartReady = sprintStats?.scopeAvailability === "available"
+    && plannedScopePoints !== null && plannedScopePoints > 0 && addedScopePoints !== null
+    && completedPlannedPoints !== null && completedAddedPoints !== null
+    && plannedScopePoints + addedScopePoints > 0;
+  const scopeChartTotalPoints = scopeChartReady
+    ? (plannedScopePoints ?? 0) + (addedScopePoints ?? 0)
+    : null;
+  const scopePlanTargetPercent = plannedScopePoints !== null && scopeChartTotalPoints !== null && scopeChartTotalPoints > 0
+    ? plannedScopePoints / scopeChartTotalPoints * 100
+    : 0;
+  const scopeChartSegments = scopeChartReady ? [
+    { key: "plannedDone", label: t("daily.chartPlannedDone"), value: Math.min(completedPlannedPoints ?? 0, plannedScopePoints ?? 0), color: "var(--chart-2)" },
+    { key: "plannedRemaining", label: t("daily.chartPlannedRemaining"), value: Math.max(0, (plannedScopePoints ?? 0) - (completedPlannedPoints ?? 0)), color: "var(--muted)" },
+    { key: "addedDone", label: t("daily.chartAddedDone"), value: Math.min(completedAddedPoints ?? 0, addedScopePoints ?? 0), color: "var(--chart-3)" },
+    { key: "addedRemaining", label: t("daily.chartAddedRemaining"), value: Math.max(0, (addedScopePoints ?? 0) - (completedAddedPoints ?? 0)), color: "var(--chart-1)" },
+  ] : [];
+  const scopeChartAriaLabel = scopeClosurePercent === null || plannedScopePoints === null || completedScopePoints === null
+    ? t("daily.scopeChartUnavailable")
+    : t("daily.scopeChartAria", { percent: scopeClosurePercent, done: completedScopePoints, planned: plannedScopePoints });
+  const scopeTaskCountText = (count: number | null) => {
+    if (count === null) return "—";
+    if (language !== AppLanguage.Russian) {
+      return t(count === 1 ? "daily.scopeTaskCount.one" : "daily.scopeTaskCount.other", { count });
+    }
+    const modulo10 = count % 10;
+    const modulo100 = count % 100;
+    const plural = modulo10 === 1 && modulo100 !== 11
+      ? "daily.scopeTaskCount.one"
+      : [2, 3, 4].includes(modulo10) && ![12, 13, 14].includes(modulo100)
+        ? "daily.scopeTaskCount.few"
+        : "daily.scopeTaskCount.many";
+    return t(plural, { count });
+  };
+  const formatScopeMetric = (points: number | null, tasks: number | null) => t("daily.kpiSpTasks", {
+    points: points ?? "—",
+    tasks: scopeTaskCountText(tasks),
+  });
+  const scopeKpis = [
+    {
+      key: "planned",
+      label: t("daily.kpiPlanned"),
+      value: formatScopeMetric(plannedScopePoints, plannedScopeTasks),
+      tone: "planned",
+    },
+    {
+      key: "added",
+      label: t("daily.kpiAdded"),
+      value: formatScopeMetric(addedScopePoints, addedScopeTasks),
+      tone: "added",
+    },
+    {
+      key: "done",
+      label: t("daily.kpiDone"),
+      value: formatScopeMetric(completedScopePoints, completedScopeTasks),
+      tone: "done",
+    },
+    {
+      key: "closure",
+      label: t("daily.kpiClosure"),
+      value: scopeClosurePercent === null ? "—" : `${scopeClosurePercent}%`,
+      tone: "closure",
+    },
+  ];
   const aiSelectedSprint = workspace?.sprints.find((sprint) => sprint.id === aiSprintId);
   const aiSprintStartDate = sprintDateInputValue(aiSelectedSprint?.startDate);
   const aiSprintEndDate = sprintDateInputValue(aiSelectedSprint?.endDate);
@@ -639,48 +767,7 @@ export function DailyPage() {
         title={t("page.sprintTasks")}
         titleId="daily-title"
         description={t("daily.description")}
-        actions={(
-          <Button type="button" variant="outline" onClick={() => {
-            setDraftAssigneesLayout(assigneesLayout);
-            setSettingsOpen(true);
-          }}>
-            <Settings2 data-icon="inline-start" />{t("daily.settings")}
-          </Button>
-        )}
       />
-
-      <Dialog open={settingsOpen} onOpenChange={setSettingsOpen}>
-        <DialogContent aria-describedby={undefined}>
-          <DialogHeader><DialogTitle>{t("daily.settings")}</DialogTitle></DialogHeader>
-          <DialogBody>
-            <Card className="shadow-none">
-              <CardContent className="p-4">
-                <div className="flex flex-wrap items-center justify-between gap-4">
-                  <div className="min-w-0 flex-1">
-                    <Label id="daily-assignees-layout-label" htmlFor="daily-assignees-layout" alignment="inline" className="font-medium">{t("daily.assigneesLayout")}</Label>
-                    <CardDescription className="mt-1 text-xs leading-snug">{t("daily.assigneesLayoutDescription")}</CardDescription>
-                  </div>
-                  <Select value={draftAssigneesLayout} onValueChange={(value) => setDraftAssigneesLayout(value as AssigneesLayout)}>
-                    <SelectTrigger data-menu-align="end" id="daily-assignees-layout" aria-labelledby="daily-assignees-layout-label" className="h-9"><SelectValue /></SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="top">{t("daily.assigneesLayout.top")}</SelectItem>
-                      <SelectItem value="left">{t("daily.assigneesLayout.left")}</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-              </CardContent>
-            </Card>
-          </DialogBody>
-          <DialogFooter className="px-1">
-            <Button data-dialog-cancel type="button" variant="outline" onClick={() => setSettingsOpen(false)}>{t("settings.common.cancel")}</Button>
-            <Button type="button" actionTone="edit" disabled={draftAssigneesLayout === assigneesLayout} onClick={() => {
-              writeAssigneesLayout(draftAssigneesLayout);
-              setAssigneesLayout(draftAssigneesLayout);
-              setSettingsOpen(false);
-            }}>{t("settings.common.save")}</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
 
       <PageToolbar>
         {!loadingProjects && projects.length > 0 ? (
@@ -758,23 +845,7 @@ export function DailyPage() {
             </PopoverContent>
           </Popover>
         ) : null}
-        {workspace && assigneesLayout === "top" ? (
-          <Select value={selectedMemberId} onValueChange={setSelectedMemberId} disabled={loadingWorkspace || owners.length === 0}>
-            <SelectTrigger id="sprint-tasks-assignee-select" aria-label={t("daily.assignees")}>
-              <SelectValue placeholder={t("daily.selectMember")}>
-                {selectedOwner ? <TaskOwnerLabel owner={selectedOwner} managedProjectId={workspace.managedProjectId} /> : null}
-              </SelectValue>
-            </SelectTrigger>
-            <SelectContent>
-              {owners.map((owner) => (
-                <SelectItem key={owner.id} value={owner.id} textValue={owner.label}>
-                  <TaskOwnerLabel owner={owner} managedProjectId={workspace.managedProjectId} />
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        ) : null}
-        {assigneesLayout === "left" ? (
+        {activeTab === "teamTasks" ? (
           <Button
             type="button"
             variant="outline"
@@ -834,7 +905,7 @@ export function DailyPage() {
             title={refreshingStatuses ? t("daily.refreshing") : t("daily.refresh")}
             disabled={!selectedProjectId || loadingWorkspace || refreshingStatuses}
             onClick={() => {
-              if (workspace) void refreshStatuses();
+              if (workspace) void refreshWorkspace(workspace.managedProjectId, workspace.selectedSprintId);
               else if (selectedProjectId) void refreshWorkspace(selectedProjectId);
             }}
           >
@@ -1005,8 +1076,205 @@ export function DailyPage() {
         </Card>
       ) : null}
       {workspace && !loadingWorkspace ? (
-        <div className={cn("daily-workspace-layout", assigneesLayout === "top" && "daily-workspace-layout-top")}>
-          {assigneesLayout === "left" ? (
+        <>
+        <div role="tablist" aria-label={t("daily.workspaceTabs")} className="daily-workspace-tabs">
+          {SPRINT_WORKSPACE_TABS.map((tab) => (
+            <Button
+              key={tab}
+              ref={(element) => { workspaceTabRefs.current[tab] = element; }}
+              id={`sprint-tab-${tab}`}
+              type="button"
+              role="tab"
+              aria-selected={activeTab === tab}
+              aria-controls={`sprint-panel-${tab}`}
+              tabIndex={activeTab === tab ? 0 : -1}
+              variant="ghost"
+              className="daily-workspace-tab rounded-t-md rounded-b-none"
+              onClick={() => setActiveTab(tab)}
+              onKeyDown={(event) => handleWorkspaceTabKeyDown(event, tab)}
+            >
+              {t(`daily.tab.${tab}`)}
+            </Button>
+          ))}
+        </div>
+        {activeTab !== "stats" ? <section id="sprint-panel-stats" role="tabpanel" aria-labelledby="sprint-tab-stats" hidden /> : null}
+        {activeTab !== "myTasks" ? <section id="sprint-panel-myTasks" role="tabpanel" aria-labelledby="sprint-tab-myTasks" hidden /> : null}
+        {activeTab !== "teamTasks" ? <section id="sprint-panel-teamTasks" role="tabpanel" aria-labelledby="sprint-tab-teamTasks" hidden /> : null}
+        {activeTab === "stats" ? (
+          <section id="sprint-panel-stats" role="tabpanel" aria-labelledby="sprint-tab-stats" className="daily-stats-layout">
+            <Card>
+              <CardHeader variant="section">
+                <CardTitle>{t("daily.scopeSummary")}</CardTitle>
+                <CardDescription>{t("daily.scopeSummaryDescription")}</CardDescription>
+              </CardHeader>
+              <CardContent className="daily-scope-summary-content">
+                <div className="daily-scope-kpis">
+                  {scopeKpis.map((metric) => (
+                    <article key={metric.key} role="group" aria-label={metric.label} className="daily-scope-kpi" data-tone={metric.tone}>
+                      <span className="text-sm text-muted-foreground">{metric.label}</span>
+                      <strong className="break-words text-lg font-semibold tabular-nums">{metric.value}</strong>
+                    </article>
+                  ))}
+                </div>
+                {scopeClosurePercent === null ? (
+                  <Alert><AlertDescription>{plannedScopePoints === 0
+                    ? t("daily.scopeClosureNoPlan")
+                    : t("daily.scopeChartUnavailable")}</AlertDescription></Alert>
+                ) : null}
+                {scopeChartReady && scopeChartTotalPoints !== null ? (
+                  <div className="daily-scope-meter-section">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <p className="text-sm font-medium">{t("daily.scopeChartTitle")}</p>
+                      <p className="text-sm tabular-nums text-muted-foreground">{t("daily.scopeTotalPoints", { points: scopeChartTotalPoints })}</p>
+                    </div>
+                    <div role="img" aria-label={scopeChartAriaLabel} className="daily-scope-meter">
+                      <div className="daily-scope-meter-track" aria-hidden="true">
+                        {scopeChartSegments.map((segment) => (
+                          <span
+                            key={segment.key}
+                            className="daily-scope-meter-segment"
+                            style={{
+                              width: `${scopeChartTotalPoints > 0 ? segment.value / scopeChartTotalPoints * 100 : 0}%`,
+                              backgroundColor: segment.color,
+                            }}
+                          />
+                        ))}
+                        <span
+                          className="daily-scope-meter-target"
+                          style={{ left: `${scopePlanTargetPercent}%` }}
+                        />
+                      </div>
+                      <div className="daily-scope-meter-axis" aria-hidden="true">
+                        <span>0</span>
+                        <span className="daily-scope-meter-target-label" style={{ left: `${scopePlanTargetPercent}%` }}>{t("daily.scopePlanTarget")}</span>
+                        <span>{scopeChartTotalPoints}</span>
+                      </div>
+                    </div>
+                    <div className="daily-scope-meter-legend">
+                      {scopeChartSegments.map((segment) => (
+                        <div key={segment.key} className="daily-stats-legend-row">
+                          <span className="daily-stats-legend-dot" style={{ backgroundColor: segment.color }} aria-hidden="true" />
+                          <span className="min-w-0 flex-1">{segment.label}</span>
+                          <span className="tabular-nums text-muted-foreground">{t("daily.pointsValue", { points: segment.value })}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ) : null}
+              </CardContent>
+            </Card>
+
+            {sprintIssuesWithIncompleteHistory.length > 0 ? (
+              <Alert><AlertDescription className="break-words">{t("daily.scopeHistoryIncompleteForIssues", { issues: sprintIssuesWithIncompleteHistory.join(", ") })}</AlertDescription></Alert>
+            ) : null}
+            {sprintIssuesWithoutStoryPoints.length > 0 ? (
+              <Alert><AlertDescription className="break-words">{t("daily.storyPointsUnavailableForIssues", { issues: sprintIssuesWithoutStoryPoints.join(", ") })}</AlertDescription></Alert>
+            ) : null}
+            {sprintIssuesWithoutScopePoints.length > 0 ? (
+              <Alert><AlertDescription className="break-words">{t("daily.scopeStoryPointsUnavailableForIssues", { issues: sprintIssuesWithoutScopePoints.join(", ") })}</AlertDescription></Alert>
+            ) : null}
+            {sprintIssuesWithUnavailableStatus.length > 0 ? (
+              <Alert><AlertDescription className="break-words">{t("daily.statusHistoryUnavailableForIssues", { issues: sprintIssuesWithUnavailableStatus.join(", ") })}</AlertDescription></Alert>
+            ) : null}
+
+            <Card>
+              <CardHeader variant="section">
+                <CardTitle>{t("daily.scopeIssuesTitle")}</CardTitle>
+                <CardDescription>
+                  <span className="daily-scope-issue-added-marker" aria-hidden="true">*</span> {t("daily.scopeIssuesAddedLegend")}
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="p-0">
+                {sprintScopeIssues.length > 0 ? (
+                  <div className="daily-scope-issues-scroll">
+                    <Table className="min-w-[680px]">
+                      <TableCaption className="sr-only">{t("daily.scopeIssuesTitle")}</TableCaption>
+                      <TableHeader>
+                        <TableRow className="hover:bg-transparent">
+                          <TableHead scope="col" className="py-2 pl-3">{t("daily.scopeIssuesKey")}</TableHead>
+                          <TableHead scope="col" className="py-2">{t("daily.scopeIssuesSummary")}</TableHead>
+                          <TableHead scope="col" className="py-2">{t("daily.scopeIssuesStatus")}</TableHead>
+                          <TableHead scope="col" className="py-2 pr-3 text-right">{t("daily.scopeIssuesPoints")}</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {sprintScopeIssues.map((issue) => (
+                          <TableRow key={issue.key} data-added-after-start={issue.addedAfterStart ? "true" : undefined}>
+                            <TableCell className="whitespace-nowrap py-2 pl-3 font-medium">
+                              {issue.addedAfterStart ? <><span className="daily-scope-issue-added-marker" aria-hidden="true">*</span><span className="sr-only">{t("daily.scopeIssueAddedLabel")}</span></> : null}
+                              {issue.key}
+                            </TableCell>
+                            <TableCell className="max-w-[520px] py-2 break-words">{issue.summary || "—"}</TableCell>
+                            <TableCell className="py-2">
+                              {issue.status ? <span className={cn(badgeVariants({ variant: "outline" }), issueStatusBadgeClass(issue.status))}>{issue.status}</span> : "—"}
+                            </TableCell>
+                            <TableCell className="whitespace-nowrap py-2 pr-3 text-right tabular-nums">{issue.storyPoints === null ? "—" : t("daily.pointsValue", { points: issue.storyPoints })}</TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </div>
+                ) : sprintStats?.scopeAvailability === "available" ? (
+                  <Alert className="m-4"><AlertDescription>{t("daily.scopeIssuesEmpty")}</AlertDescription></Alert>
+                ) : (
+                  <Alert className="m-4"><AlertDescription>{t("daily.historyScopeUnavailable")}</AlertDescription></Alert>
+                )}
+              </CardContent>
+            </Card>
+            <p role="status" className="text-sm text-muted-foreground">{t(sprintStats?.availability === "available" ? "daily.statsAvailable" : sprintStats?.availability === "partial" ? "daily.statsPartial" : "daily.statsUnavailable")}</p>
+          </section>
+        ) : activeTab === "myTasks" ? (
+          <section id="sprint-panel-myTasks" role="tabpanel" aria-labelledby="sprint-tab-myTasks">
+            {!workspace.currentUserAccountId || !currentUserMember ? (
+              <Alert><AlertTitle>{t("daily.myTasksUnavailable")}</AlertTitle><AlertDescription>{t("daily.myTasksConfigureMember")}</AlertDescription></Alert>
+            ) : (
+              <Card>
+                <CardHeader variant="section" className="daily-my-tasks-header">
+                  <div className="min-w-0">
+                    <CardTitle className="flex items-center gap-3"><MemberAvatar member={currentUserMember} className="h-9 w-9" managedProjectId={workspace.managedProjectId} />{memberDisplayName(currentUserMember)}</CardTitle>
+                  </div>
+                  <div className="daily-my-tasks-progress">
+                    <StatusDonut
+                      data={[
+                        { key: "done", label: t("daily.statusCategory.done"), value: hasCompleteMyTaskPoints ? myTaskPointsByStatus.done : 0, color: "var(--chart-2)" },
+                        { key: "progress", label: t("daily.statusCategory.inProgress"), value: hasCompleteMyTaskPoints ? myTaskPointsByStatus.progress : 0, color: "var(--chart-1)" },
+                        { key: "backlog", label: t("daily.statusCategory.todo"), value: hasCompleteMyTaskPoints ? myTaskPointsByStatus.backlog : 0, color: "var(--muted-foreground)" },
+                      ]}
+                      percent={myTasksCompletionPercent}
+                      size={76}
+                      label={myTasksCompletionPercent === null
+                        ? myTasksProgressUnavailable
+                        : t("daily.myTasksProgressAria", { percent: myTasksCompletionPercent, done: myTaskPointsByStatus.done, total: myTasksPointsTotal ?? 0 })}
+                    />
+                    <div className="daily-my-tasks-legend" aria-hidden="true">
+                      {[
+                        { label: t("daily.statusCategory.done"), points: myTaskPointsByStatus.done },
+                        { label: t("daily.statusCategory.inProgress"), points: myTaskPointsByStatus.progress },
+                        { label: t("daily.statusCategory.todo"), points: myTaskPointsByStatus.backlog },
+                      ].map((item) => (
+                        <span key={item.label}>
+                          {item.label} · {myTasksPointsTotal === null
+                            ? "—"
+                            : myTasksPointsTotal > 0
+                              ? t("daily.pointsBreakdown", { points: item.points, percent: Math.round(item.points / myTasksPointsTotal * 100) })
+                              : t("daily.pointsValue", { points: item.points })}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                </CardHeader>
+                <CardContent className="daily-task-content">
+                  {myTasks.length > 0 && myTasksPointsTotal === null ? (
+                    <Alert role="status" className="mb-4 p-3"><AlertDescription className="break-words">{myTasksPointsUnavailableMessage}</AlertDescription></Alert>
+                  ) : null}
+                  {myTasks.length === 0 ? <p className="text-sm text-muted-foreground">{t("daily.noAssigneeTasks")}</p> : <div className="daily-task-list">{myTasks.map((task) => <article key={task.id} className="daily-task-row"><span className="daily-task-key">{task.key}</span><span className="daily-task-summary"><strong>{task.summary}</strong><small>{task.issueType}</small></span><span className={cn(badgeVariants({ variant: "outline" }), issueStatusBadgeClass(task.status))}>{task.status}</span><span className="daily-task-points">SP {task.storyPoints ?? "—"}</span></article>)}</div>}
+                </CardContent>
+              </Card>
+            )}
+          </section>
+        ) : (
+        <section id="sprint-panel-teamTasks" role="tabpanel" aria-labelledby="sprint-tab-teamTasks">
+        <div className="daily-workspace-layout">
             <Card className="daily-members-card">
               <CardHeader variant="section" className="daily-panel-header">
                 <CardTitle className="text-[15px]">{t("daily.assignees")}</CardTitle>
@@ -1044,7 +1312,6 @@ export function DailyPage() {
                 )}
               </CardContent>
             </Card>
-          ) : null}
 
           <section className="daily-tasks-column" aria-label={t("daily.selectedTasks")}>
             {selectedOwner ? (
@@ -1177,6 +1444,9 @@ export function DailyPage() {
             )}
           </section>
         </div>
+        </section>
+        )}
+        </>
       ) : null}
     </section>
   );
