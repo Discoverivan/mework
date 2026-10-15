@@ -7,7 +7,7 @@ use time::{format_description::well_known::Rfc3339, OffsetDateTime};
 
 use crate::application::{
     confluence::{ConfluenceSearchRequest, ConfluenceSearchResponse, ConfluenceSpaceDto},
-    daily::{DailySprintDto, DailySubtaskDto, DailyWorkspaceDto},
+    daily::{DailySprintDto, DailySprintStatsDto, DailySubtaskDto, DailyWorkspaceDto},
     data_integrations::settings::IntegrationDto,
     developer::{
         MyPullRequestDto, MyPullRequestsPageDto, PullRequestActivity, PullRequestReviewSummaryDto,
@@ -272,6 +272,10 @@ impl MockIntegrationState {
             .find(|sprint| sprint.id == selected_sprint_id)
             .unwrap();
         let members = self.mock_team_members()?;
+        let current_user_member = members
+            .iter()
+            .find(|member| member.account_id == "mock-user-a" && member.active)
+            .cloned();
         let now = now_iso();
         Ok(DailyWorkspaceDto {
             managed_project_id: managed_project_id.to_owned(),
@@ -283,6 +287,26 @@ impl MockIntegrationState {
                 "https://jira.example.invalid/secure/RapidBoard.jspa?rapidView=mock-board-1"
                     .to_owned(),
             sprint_board_urls_by_assignee: Default::default(),
+            current_user_account_id: Some("mock-user-a".to_owned()),
+            current_user_member,
+            sprint_stats: DailySprintStatsDto {
+                availability: "unavailable".to_owned(),
+                original_task_count: None,
+                completed_original_task_count: None,
+                original_story_points: None,
+                completed_original_story_points: None,
+                added_task_count: None,
+                completed_added_task_count: None,
+                added_story_points: None,
+                completed_added_story_points: None,
+                scope_availability: "unavailable".to_owned(),
+                issues_with_incomplete_scope_history: Vec::new(),
+                issues_with_unavailable_status: Vec::new(),
+                issues_without_scope_story_points: Vec::new(),
+                scope_issues: Vec::new(),
+                status_breakdown: Vec::new(),
+                issues_without_story_points: Vec::new(),
+            },
             sprints,
             members,
             subtasks: vec![
@@ -291,6 +315,7 @@ impl MockIntegrationState {
                     key: "MOCK-201".to_owned(),
                     summary: "MOCK DATA · Prepare example handoff".to_owned(),
                     status: "In Progress".to_owned(),
+                    status_category: Some("indeterminate".to_owned()),
                     story_points: Some(3),
                     status_transition_at: Some(now.clone()),
                     assignee_account_id: Some("mock-user-a".to_owned()),
@@ -305,6 +330,7 @@ impl MockIntegrationState {
                     key: "MOCK-202".to_owned(),
                     summary: "MOCK DATA · Verify local scenario".to_owned(),
                     status: "To Do".to_owned(),
+                    status_category: Some("new".to_owned()),
                     story_points: Some(2),
                     status_transition_at: Some(now.clone()),
                     assignee_account_id: Some("mock-user-b".to_owned()),
@@ -319,6 +345,7 @@ impl MockIntegrationState {
                     key: "MOCK-203".to_owned(),
                     summary: "MOCK DATA · Review sample workflow".to_owned(),
                     status: "Done".to_owned(),
+                    status_category: Some("done".to_owned()),
                     story_points: Some(5),
                     status_transition_at: Some(now),
                     assignee_account_id: Some("mock-user-a".to_owned()),

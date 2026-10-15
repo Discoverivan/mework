@@ -1,19 +1,51 @@
 use sqlx::SqlitePool;
-use tauri::State;
+use tauri::{AppHandle, State};
 
-use crate::application::daily::DailyWorkspaceDto;
+use crate::application::daily::{DailyMyTasksDto, DailySprintStatsDto, DailyTeamWorkspaceDto};
 use crate::application::planning::PlanningCommandError;
 
 #[tauri::command]
-pub async fn daily_workspace(
+pub async fn daily_my_tasks(
     state: State<'_, SqlitePool>,
     managed_project_id: String,
     sprint_id: Option<String>,
-) -> Result<DailyWorkspaceDto, PlanningCommandError> {
-    crate::application::daily::load_daily_workspace(
+) -> Result<DailyMyTasksDto, PlanningCommandError> {
+    crate::application::daily::load_daily_my_tasks(
         &state,
         &managed_project_id,
         sprint_id.as_deref(),
+    )
+    .await
+}
+
+#[tauri::command]
+pub async fn daily_team_workspace(
+    state: State<'_, SqlitePool>,
+    managed_project_id: String,
+    sprint_id: Option<String>,
+) -> Result<DailyTeamWorkspaceDto, PlanningCommandError> {
+    crate::application::daily::load_daily_team_workspace(
+        &state,
+        &managed_project_id,
+        sprint_id.as_deref(),
+    )
+    .await
+}
+
+#[tauri::command]
+pub async fn daily_sprint_stats(
+    app: AppHandle,
+    state: State<'_, SqlitePool>,
+    managed_project_id: String,
+    sprint_id: String,
+    request_id: String,
+) -> Result<DailySprintStatsDto, PlanningCommandError> {
+    crate::application::daily::load_daily_sprint_stats(
+        &state,
+        &managed_project_id,
+        &sprint_id,
+        &request_id,
+        &app,
     )
     .await
 }

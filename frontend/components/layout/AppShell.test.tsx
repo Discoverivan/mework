@@ -22,7 +22,7 @@ describe("AppShell product navigation", () => {
     expect(tokenBurnerLink.querySelector("svg.lucide-flask-conical")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Create task" })).toHaveAttribute("href", "#product/create-task");
     expect(screen.getByRole("link", { name: "Task tracker" })).toHaveAttribute("href", "#product/task-tracker");
-    expect(screen.getByRole("link", { name: "Sprint tasks" })).toHaveAttribute("href", "#product/daily");
+    expect(screen.getByRole("link", { name: "Sprint" })).toHaveAttribute("href", "#product/daily");
     expect(screen.getByRole("link", { name: "Knowledge search" })).toHaveAttribute("href", "#product/confluence-search");
     expect(screen.getByRole("link", { name: "PRs to review, 3 unread" })).toHaveAttribute("href", "#developer/pull-requests");
     expect(screen.getByRole("link", { name: "PRs to review, 3 unread" })).toHaveAttribute("aria-current", "page");
@@ -34,7 +34,7 @@ describe("AppShell product navigation", () => {
     expect(screen.getByRole("link", { name: "Command board" }).querySelector("svg")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Create task" }).querySelector("svg")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Task tracker" }).querySelector("svg")).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Sprint tasks" }).querySelector("svg")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Sprint" }).querySelector("svg")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "AI settings" })).toHaveAttribute("href", "#settings/ai");
     expect(screen.getByRole("link", { name: "About" })).toHaveAttribute("href", "#settings/application-info");
     expect(screen.getByRole("link", { name: "Data integrations" })).toHaveAttribute("href", "#settings/integrations");

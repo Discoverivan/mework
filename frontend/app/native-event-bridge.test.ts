@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { MyPullRequestPage } from "@/shared/contracts/developer";
+import type { DailySprintStatsProgressEvent, MyPullRequestPage } from "@/shared/contracts/developer";
 import type { TaskTrackerMonitor } from "@/shared/contracts/task-tracker";
 import type { TokenBurnerSnapshot } from "@/shared/contracts/token-burner";
 import { APP_EVENT, subscribeAppEvent } from "./app-events";
@@ -28,11 +28,13 @@ describe("native event bridge", () => {
     const listener = vi.fn();
     const taskTrackerListener = vi.fn();
     const burnerListener = vi.fn();
+    const dailyProgressListener = vi.fn();
     const membersListener = vi.fn();
     const unsubscribeMembers = subscribeAppEvent(APP_EVENT.teamMembersChanged, membersListener);
     const unsubscribe = subscribeAppEvent(APP_EVENT.reviewerPullRequestsUpdated, listener);
     const unsubscribeTaskTracker = subscribeAppEvent(APP_EVENT.taskTrackerUpdated, taskTrackerListener);
     const unsubscribeBurner = subscribeAppEvent(APP_EVENT.tokenBurnerChanged, burnerListener);
+    const unsubscribeDailyProgress = subscribeAppEvent(APP_EVENT.dailySprintStatsProgress, dailyProgressListener);
     const stop = await startNativeEventBridge();
 
     nativeListeners.get("pull_request_review_updated")?.({ payload: page });
@@ -43,6 +45,8 @@ describe("native event bridge", () => {
       status: "idle", tokensUsedToday: 0, activeForMs: 0, previousSessionInterrupted: false, activeIterations: [], completedIterations: [],
     };
     nativeListeners.get("token_burner_changed")?.({ payload: burner });
+    const statsProgress: DailySprintStatsProgressEvent = { requestId: "request-1", managedProjectId: "example-team", sprintId: "sprint-1", phase: "history", completed: 2, total: 5 };
+    nativeListeners.get("daily_sprint_stats_progress")?.({ payload: statsProgress });
     const members = { managedProjectId: "example-team", members: [] };
     nativeListeners.get("team_members_changed")?.({ payload: members });
 
@@ -50,10 +54,12 @@ describe("native event bridge", () => {
     expect(taskTrackerListener).toHaveBeenCalledWith(monitors);
     expect(burnerListener).toHaveBeenCalledWith(burner);
     expect(membersListener).toHaveBeenCalledWith(members);
+    expect(dailyProgressListener).toHaveBeenCalledWith(statsProgress);
     stop();
     unsubscribe();
     unsubscribeTaskTracker();
     unsubscribeBurner();
     unsubscribeMembers();
+    unsubscribeDailyProgress();
   });
 });

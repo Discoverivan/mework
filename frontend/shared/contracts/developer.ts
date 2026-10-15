@@ -13,6 +13,7 @@ export interface DailySubtask {
   key: string;
   summary: string;
   status: string;
+  statusCategory?: string;
   storyPoints?: number;
   statusTransitionAt?: string;
   assigneeAccountId?: string;
@@ -31,6 +32,74 @@ export interface DailySprint {
   endDate?: string | null;
 }
 
+export interface DailySprintScopeIssue {
+  key: string;
+  summary: string;
+  status: string | null;
+  statusCategory?: string | null;
+  storyPoints: number | null;
+  addedAfterStart: boolean;
+}
+
+export interface DailySprintStats {
+  availability: "available" | "partial" | "unavailable";
+  originalTaskCount: number | null;
+  completedOriginalTaskCount: number | null;
+  originalStoryPoints: number | null;
+  completedOriginalStoryPoints: number | null;
+  addedTaskCount: number | null;
+  completedAddedTaskCount: number | null;
+  addedStoryPoints: number | null;
+  completedAddedStoryPoints: number | null;
+  scopeAvailability: "available" | "partial" | "unavailable";
+  issuesWithIncompleteScopeHistory: string[];
+  issuesWithUnavailableStatus: string[];
+  issuesWithoutScopeStoryPoints: string[];
+  scopeIssues: DailySprintScopeIssue[];
+  statusBreakdown: {
+    category: "todo" | "inProgress" | "done" | "unknown";
+    taskCount: number;
+    storyPoints: number | null;
+  }[];
+  issuesWithoutStoryPoints: string[];
+}
+
+export interface DailyMyTasksDto {
+  managedProjectId: string;
+  projectName: string;
+  projectKey: string;
+  selectedSprintId: string;
+  selectedSprintName: string;
+  currentUserAccountId: string | null;
+  currentUserMember: TeamMember | null;
+  sprints: DailySprint[];
+  subtasks: DailySubtask[];
+}
+
+export interface DailyTeamWorkspaceDto {
+  managedProjectId: string;
+  projectName: string;
+  projectKey: string;
+  selectedSprintId: string;
+  selectedSprintName: string;
+  sprintBoardUrl: string;
+  sprintBoardUrlsByAssignee: Record<string, string>;
+  sprints: DailySprint[];
+  members: TeamMember[];
+  subtasks: DailySubtask[];
+}
+
+export interface DailySprintStatsDto extends DailySprintStats {}
+
+export interface DailySprintStatsProgressEvent {
+  requestId: string;
+  managedProjectId: string;
+  sprintId: string;
+  phase: string;
+  completed: number;
+  total: number;
+}
+
 export interface DailyWorkspace {
   managedProjectId: string;
   projectName: string;
@@ -42,6 +111,9 @@ export interface DailyWorkspace {
   sprints: DailySprint[];
   members: TeamMember[];
   subtasks: DailySubtask[];
+  currentUserAccountId?: string | null;
+  currentUserMember?: TeamMember | null;
+  sprintStats: DailySprintStats;
 }
 
 export interface DailyPresenterState {

@@ -7,6 +7,7 @@ import type { TaskTrackerMonitor } from "@/shared/contracts/task-tracker";
 import type { TokenBurnerSnapshot } from "@/shared/contracts/token-burner";
 import type { UpdateAvailabilitySnapshot } from "@/shared/contracts/updates";
 import type { TeamMembersChangedEvent } from "@/shared/contracts/planning";
+import type { DailySprintStatsProgressEvent } from "@/shared/contracts/developer";
 import { APP_EVENT, emitAppEvent } from "./app-events";
 
 type Cleanup = () => void;
@@ -21,6 +22,7 @@ interface NativeEventMap {
   task_tracker_updated: TaskTrackerMonitor[];
   update_availability_changed: UpdateAvailabilitySnapshot;
   token_burner_changed: TokenBurnerSnapshot;
+  daily_sprint_stats_progress: DailySprintStatsProgressEvent;
 }
 
 async function listenSafely<Name extends keyof NativeEventMap>(
@@ -57,6 +59,8 @@ export async function startNativeEventBridge(): Promise<Cleanup> {
       emitAppEvent(APP_EVENT.updateAvailabilityChanged, payload)),
     listenSafely("token_burner_changed", (payload) =>
       emitAppEvent(APP_EVENT.tokenBurnerChanged, payload)),
+    listenSafely("daily_sprint_stats_progress", (payload) =>
+      emitAppEvent(APP_EVENT.dailySprintStatsProgress, payload)),
   ]);
 
   return () => cleanups.forEach((cleanup) => cleanup?.());

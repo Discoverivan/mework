@@ -258,6 +258,10 @@ impl HttpRequestBuilderExt for RequestBuilder {
     }
 }
 
+const MAX_HTTP_RETRIES: u8 = 3;
+const RETRY_FLOOR: std::time::Duration = std::time::Duration::from_millis(200);
+const MAX_RETRY_DELAY: std::time::Duration = std::time::Duration::from_secs(30);
+
 pub async fn send_http_request(
     request: RequestBuilder,
     component: &str,
@@ -265,19 +269,52 @@ pub async fn send_http_request(
     body_policy: HttpBodyPolicy,
 ) -> Result<Response, reqwest::Error> {
     let diagnostic = request.try_clone().and_then(|request| request.build().ok());
-    if let Some(request) = diagnostic.as_ref() {
-        log_http_request(request, component, operation, body_policy);
+    let method = diagnostic.as_ref().map(|request| request.method().clone());
+    let safe_replay = method
+        .as_ref()
+        .is_some_and(|method| *method == reqwest::Method::GET);
+    let mut builder = Some(request);
+    for attempt in 0..=MAX_HTTP_RETRIES {
+        let request = builder
+            .take()
+            .expect("request builder is retained for one attempt");
+        let retry_builder = request.try_clone();
+        if let Some(request) = diagnostic.as_ref() {
+            log_http_request(request, component, operation, body_policy);
+        }
+        match request.send().await {
+            Ok(response) => {
+                log_http_response(
+                    component,
+                    operation,
+                    method.as_ref().map(reqwest::Method::as_str),
+                    &response,
+                );
+                if !should_retry_response(&response, safe_replay, attempt) {
+                    return Ok(response);
+                }
+                if retry_builder.is_none() {
+                    return Ok(response);
+                }
+                let delay = retry_delay(attempt, response.headers());
+                drop(response);
+                tokio::time::sleep(delay).await;
+                builder = retry_builder;
+            }
+            Err(error) => {
+                error_log_http_transport(component, operation, diagnostic.as_ref(), &error);
+                if !safe_replay || attempt == MAX_HTTP_RETRIES || !is_transient_transport(&error) {
+                    return Err(error);
+                }
+                tokio::time::sleep(retry_delay(attempt, &reqwest::header::HeaderMap::new())).await;
+                builder = retry_builder;
+                if builder.is_none() {
+                    return Err(error);
+                }
+            }
+        }
     }
-    let response = request.send().await.inspect_err(|error| {
-        error_log_http_transport(component, operation, diagnostic.as_ref(), error);
-    })?;
-    log_http_response(
-        component,
-        operation,
-        diagnostic.as_ref().map(|request| request.method().as_str()),
-        &response,
-    );
-    Ok(response)
+    unreachable!("bounded HTTP retry loop always returns")
 }
 
 pub async fn execute_http_request(
@@ -287,13 +324,82 @@ pub async fn execute_http_request(
     operation: &str,
     body_policy: HttpBodyPolicy,
 ) -> Result<Response, reqwest::Error> {
+    let safe_replay = request.method() == reqwest::Method::GET;
+    let diagnostic = request.try_clone();
     let method = request.method().as_str().to_owned();
-    log_http_request(&request, component, operation, body_policy);
-    let response = client.execute(request).await.inspect_err(|error| {
-        error_log_http_transport(component, operation, None, error);
-    })?;
-    log_http_response(component, operation, Some(&method), &response);
-    Ok(response)
+    let mut next_request = Some(request);
+    for attempt in 0..=MAX_HTTP_RETRIES {
+        let request = next_request
+            .take()
+            .expect("request retained for one attempt");
+        let retry_request = request.try_clone();
+        log_http_request(&request, component, operation, body_policy);
+        match client.execute(request).await {
+            Ok(response) => {
+                log_http_response(component, operation, Some(&method), &response);
+                if !should_retry_response(&response, safe_replay, attempt) {
+                    return Ok(response);
+                }
+                if retry_request.is_none() {
+                    return Ok(response);
+                }
+                let delay = retry_delay(attempt, response.headers());
+                drop(response);
+                tokio::time::sleep(delay).await;
+                next_request = retry_request;
+            }
+            Err(error) => {
+                error_log_http_transport(component, operation, diagnostic.as_ref(), &error);
+                if !safe_replay || attempt == MAX_HTTP_RETRIES || !is_transient_transport(&error) {
+                    return Err(error);
+                }
+                tokio::time::sleep(retry_delay(attempt, &reqwest::header::HeaderMap::new())).await;
+                next_request = retry_request;
+                if next_request.is_none() {
+                    return Err(error);
+                }
+            }
+        }
+    }
+    unreachable!("bounded HTTP retry loop always returns")
+}
+
+fn should_retry_response(response: &Response, safe_replay: bool, attempt: u8) -> bool {
+    attempt < MAX_HTTP_RETRIES
+        && safe_replay
+        && (response.status().as_u16() == 429 || response.status().is_server_error())
+}
+
+fn is_transient_transport(error: &reqwest::Error) -> bool {
+    error.is_timeout() || error.is_connect() || error.is_request()
+}
+
+fn retry_delay(attempt: u8, headers: &reqwest::header::HeaderMap) -> std::time::Duration {
+    let retry_after = headers
+        .get(reqwest::header::RETRY_AFTER)
+        .and_then(|value| value.to_str().ok())
+        .and_then(parse_retry_after);
+    retry_after
+        .map(|delay| delay.max(RETRY_FLOOR).min(MAX_RETRY_DELAY))
+        .unwrap_or_else(|| {
+            RETRY_FLOOR
+                .saturating_mul(1_u32 << attempt.min(7))
+                .min(MAX_RETRY_DELAY)
+        })
+}
+
+fn parse_retry_after(value: &str) -> Option<std::time::Duration> {
+    if let Ok(seconds) = value.trim().parse::<u64>() {
+        return Some(std::time::Duration::from_secs(seconds));
+    }
+    let date =
+        time::OffsetDateTime::parse(value, &time::format_description::well_known::Rfc2822).ok()?;
+    let now = time::OffsetDateTime::now_utc();
+    Some(std::time::Duration::from_secs(
+        date.unix_timestamp()
+            .saturating_sub(now.unix_timestamp())
+            .max(0) as u64,
+    ))
 }
 
 fn log_http_request(
@@ -821,6 +927,89 @@ pub fn configure(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn retry_after_values_use_delta_or_http_date_with_nonzero_floor() {
+        assert_eq!(parse_retry_after("0"), Some(std::time::Duration::ZERO));
+        let delay = retry_delay(0, &reqwest::header::HeaderMap::new());
+        assert!(delay >= RETRY_FLOOR);
+        let retry_date = (time::OffsetDateTime::now_utc() + time::Duration::seconds(5))
+            .format(&time::format_description::well_known::Rfc2822)
+            .unwrap();
+        let date_delay = parse_retry_after(&retry_date).unwrap();
+        assert!(date_delay >= std::time::Duration::from_secs(3));
+        assert!(date_delay <= std::time::Duration::from_secs(5));
+        let mut headers = reqwest::header::HeaderMap::new();
+        headers.insert(
+            reqwest::header::RETRY_AFTER,
+            reqwest::header::HeaderValue::from_static("3600"),
+        );
+        assert_eq!(retry_delay(0, &headers), MAX_RETRY_DELAY);
+        assert_eq!(parse_retry_after("not-a-date"), None);
+    }
+
+    #[tokio::test]
+    async fn does_not_replay_a_rate_limited_post() {
+        use wiremock::{
+            matchers::{method, path},
+            Mock, MockServer, ResponseTemplate,
+        };
+
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/resource"))
+            .respond_with(ResponseTemplate::new(429).insert_header("retry-after", "0"))
+            .expect(1)
+            .mount(&server)
+            .await;
+        let client = reqwest::Client::new();
+        let request = client
+            .post(format!("{}/resource", server.uri()))
+            .body("synthetic write")
+            .build()
+            .unwrap();
+        let response = execute_http_request(
+            &client,
+            request,
+            "tests",
+            "rate_limited_write",
+            HttpBodyPolicy::Omit,
+        )
+        .await
+        .unwrap();
+        assert_eq!(response.status(), reqwest::StatusCode::TOO_MANY_REQUESTS);
+    }
+
+    #[tokio::test]
+    async fn retries_explicit_rate_limit_with_a_bounded_get_replay() {
+        use wiremock::{
+            matchers::{method, path},
+            Mock, MockServer, ResponseTemplate,
+        };
+
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/resource"))
+            .respond_with(ResponseTemplate::new(429).insert_header("retry-after", "0"))
+            .up_to_n_times(1)
+            .mount(&server)
+            .await;
+        Mock::given(method("GET"))
+            .and(path("/resource"))
+            .respond_with(ResponseTemplate::new(200).set_body_string("ok"))
+            .expect(1)
+            .mount(&server)
+            .await;
+        let response = send_http_request(
+            reqwest::Client::new().get(format!("{}/resource", server.uri())),
+            "data_integrations.jira",
+            "retry_smoke",
+            HttpBodyPolicy::Omit,
+        )
+        .await
+        .expect("429 should be retried");
+        assert_eq!(response.status(), reqwest::StatusCode::OK);
+    }
 
     #[test]
     fn writes_daily_parts_resumes_them_and_prunes_by_date_and_total_size() {

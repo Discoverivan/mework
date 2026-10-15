@@ -13,19 +13,19 @@ export interface DailyProgressMetrics {
   backlogPercent: number;
 }
 
-export function dailyProgressCategory(status: string): DailyProgressCategory {
-  const tone = dailyStatusTone(status);
+export function dailyProgressCategory(status: string, statusCategory?: string | null): DailyProgressCategory {
+  const tone = dailyStatusTone(status, statusCategory);
   if (tone === "done") return "done";
   if (tone === "backlog") return "backlog";
   return "progress";
 }
 
 export function dailyProgressMetrics(
-  tasks: Pick<DailySubtask, "status" | "storyPoints">[],
+  tasks: Pick<DailySubtask, "status" | "statusCategory" | "storyPoints">[],
 ): DailyProgressMetrics {
   const points = tasks.reduce((metrics, task) => {
     const storyPoints = task.storyPoints ?? 0;
-    const category = dailyProgressCategory(task.status);
+    const category = dailyProgressCategory(task.status, task.statusCategory);
     if (category === "done") metrics.completedPoints += storyPoints;
     else if (category === "backlog") metrics.backlogPoints += storyPoints;
     else metrics.inProgressPoints += storyPoints;

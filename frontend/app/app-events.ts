@@ -5,6 +5,7 @@ import type { TaskTrackerMonitor } from "@/shared/contracts/task-tracker";
 import type { TokenBurnerSnapshot } from "@/shared/contracts/token-burner";
 import type { UpdateAvailabilitySnapshot } from "@/shared/contracts/updates";
 import type { TeamMembersChangedEvent } from "@/shared/contracts/planning";
+import type { DailySprintStatsProgressEvent } from "@/shared/contracts/developer";
 import type { TaskTrackerReadStateChanged } from "@/features/product/task-tracker-read-state";
 import type { PullRequestDisplayScope, PullRequestQuickFilter } from "@/features/developer/display-options";
 
@@ -27,6 +28,7 @@ export const APP_EVENT = {
   updateNoticeDismissalChanged: "updates:notice-dismissal-changed",
   tokenBurnerChanged: "token-burner:changed",
   extraFunctionsEnabledChanged: "settings:extra-functions-enabled-changed",
+  dailySprintStatsProgress: "daily:sprint-stats-progress",
 } as const;
 
 interface AppEventMap {
@@ -48,6 +50,7 @@ interface AppEventMap {
   [APP_EVENT.updateNoticeDismissalChanged]: string | null;
   [APP_EVENT.tokenBurnerChanged]: TokenBurnerSnapshot;
   [APP_EVENT.extraFunctionsEnabledChanged]: { extraFunctionsEnabled: boolean; modelTestingEnabled: boolean };
+  [APP_EVENT.dailySprintStatsProgress]: DailySprintStatsProgressEvent;
 }
 
 type AppEventName = keyof AppEventMap;
