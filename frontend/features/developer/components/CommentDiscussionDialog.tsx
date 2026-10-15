@@ -10,6 +10,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { MarkdownContent } from "@/components/shared/MarkdownContent";
 import { useI18n } from "@/i18n/context";
+import { formatAiError } from "@/lib/ai-error";
 import { cn } from "@/lib/utils";
 import type { PullRequestReviewComment, ReviewCommentDecision, ReviewCommentDiscussion } from "@/shared/contracts/developer";
 import { ReviewCommentLocation } from "./ReviewCommentLocation";
@@ -122,7 +123,7 @@ export function CommentDiscussionDialog({ comment, pullRequestUrl, onOpenLocatio
           <p className="font-medium">{t("pr.discuss.reason")}</p>
           <p className="whitespace-pre-wrap break-words">{discussion.reason}</p>
         </div> : null}
-        {error !== undefined ? <p role="alert" className="rounded-md border px-4 py-3 text-sm text-destructive">{error || t("pr.discuss.error")}</p> : null}
+        {error !== undefined ? <p role="alert" className="rounded-md border px-4 py-3 text-sm text-destructive">{error ? formatAiError(error, t) : t("pr.discuss.error")}</p> : null}
       </DialogBody>
       <DialogFooter>
         <Button data-dialog-cancel size="sm" actionTone="neutral" onClick={onClose}>{t("pr.discuss.close")}</Button>
@@ -145,7 +146,7 @@ export function CommentDiscussionDialog({ comment, pullRequestUrl, onOpenLocatio
           <Label htmlFor="comment-discussion-reason">{t("pr.discuss.reason")}</Label>
           <Textarea id="comment-discussion-reason" className="min-h-32 px-3!" maxLength={8000} value={reason} disabled={pending} onChange={event => setReason(event.target.value)} placeholder={t("pr.discuss.reasonPlaceholder")} />
         </div>
-        {dismissalAttempted && error !== undefined ? <p role="alert" className="rounded-md border px-4 py-3 text-sm text-destructive">{error || t("pr.discuss.error")}</p> : null}
+        {dismissalAttempted && error !== undefined ? <p role="alert" className="rounded-md border px-4 py-3 text-sm text-destructive">{error ? formatAiError(error, t) : t("pr.discuss.error")}</p> : null}
       </DialogBody>
       <DialogFooter>
         <Button data-dialog-cancel size="sm" actionTone="neutral" disabled={pending} onClick={() => setDismissalOpen(false)}>{t("settings.common.cancel")}</Button>

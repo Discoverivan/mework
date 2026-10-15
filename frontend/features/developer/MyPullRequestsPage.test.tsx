@@ -852,7 +852,7 @@ describe("MyPullRequestsPage", () => {
       status: "failed",
       reviewedCommit: "commit-7",
       result: null,
-      error: "Example review failure details",
+      error: "ai_output_token_limit_reached",
       startedAt: 1,
       finishedAt: 2,
       execution: { provider: "codex-cli", providerName: "Codex CLI", providerInstanceId: null, model: "example-failed-model", reasoning: "high", mode: "normal" },
@@ -879,7 +879,7 @@ describe("MyPullRequestsPage", () => {
     fireEvent.click(await screen.findByRole("button", { name: "AI review error" }));
 
     let dialog = await screen.findByRole("dialog", { name: "AI review results" });
-    expect(within(dialog).getByText("Example review failure details")).toBeInTheDocument();
+    expect(within(dialog).getByText(/^The model reached its output-token limit/)).toBeInTheDocument();
     expect(within(dialog).getAllByRole("button").map((button) => button.textContent)).toEqual(["", "Close", "Retry review", "Close"]);
     expect(within(dialog).getByRole("link", { name: "Open in browser" })).toHaveAttribute("href", pullRequests[0].url);
     fireEvent.click(within(dialog).getByRole("button", { name: "Show review details" }));

@@ -97,6 +97,7 @@ fn generate_blocking(
                     status.as_u16()
                 ));
             }
+            ai::ensure_openai_response_complete(&body)?;
             let value: Value = serde_json::from_slice(&body).map_err(|_| {
                 crate::application::logging::log_parse_failure(
                     "ai.openai_compatible",

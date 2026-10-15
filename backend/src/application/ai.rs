@@ -1862,6 +1862,31 @@ fn safe_openai_log_url(value: &str) -> String {
     url.to_string()
 }
 
+pub const OUTPUT_TOKEN_LIMIT_ERROR: &str = "ai_output_token_limit_reached";
+
+pub fn ensure_openai_response_complete(body: &[u8]) -> Result<(), String> {
+    let limited = |payload: &Value| {
+        payload
+            .pointer("/choices/0/finish_reason")
+            .and_then(Value::as_str)
+            == Some("length")
+    };
+    let reached = serde_json::from_slice::<Value>(body)
+        .ok()
+        .is_some_and(|payload| limited(&payload))
+        || String::from_utf8_lossy(body)
+            .lines()
+            .filter_map(|line| {
+                serde_json::from_str::<Value>(line.strip_prefix("data:")?.trim()).ok()
+            })
+            .any(|payload| limited(&payload));
+    if reached {
+        Err(OUTPUT_TOKEN_LIMIT_ERROR.to_owned())
+    } else {
+        Ok(())
+    }
+}
+
 pub fn openai_stream_message_content(body: &[u8]) -> Option<String> {
     let text = String::from_utf8_lossy(body);
     let mut content = String::new();
@@ -2060,6 +2085,20 @@ pub fn test_process_env_lock() -> &'static std::sync::Mutex<()> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn identifies_a_completion_that_used_its_token_budget() {
+        let response = br#"{"choices":[{"finish_reason":"length","message":{"content":null}}]}"#;
+        assert_eq!(
+            super::ensure_openai_response_complete(response).unwrap_err(),
+            super::OUTPUT_TOKEN_LIMIT_ERROR
+        );
+        let stream =
+            b"data: {\"choices\":[{\"finish_reason\":\"length\",\"delta\":{}}]}\n\ndata: [DONE]\n";
+        assert_eq!(
+            super::ensure_openai_response_complete(stream).unwrap_err(),
+            super::OUTPUT_TOKEN_LIMIT_ERROR
+        );
+    }
     #[tokio::test]
     async fn completes_structured_request_when_server_declines_json_mode() {
         use wiremock::{

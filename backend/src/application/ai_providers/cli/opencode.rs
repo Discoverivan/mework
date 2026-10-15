@@ -535,8 +535,17 @@ fn run_in_workspace(
             "run_structured",
             Some(model),
         )?;
+        let result = parse_result(&captured.output);
+        if matches!(&result, Err(error) if error == crate::application::ai::OUTPUT_TOKEN_LIMIT_ERROR)
+        {
+            return result;
+        }
         if captured.success {
-            return parse_result(&captured.output);
+            if result.is_err() && session_reached_token_limit(binary, &workspace, &captured.output)
+            {
+                return Err(crate::application::ai::OUTPUT_TOKEN_LIMIT_ERROR.to_owned());
+            }
+            return result;
         }
         if attempt == 0 && json_mode && rejected_json_mode(&captured.output) {
             workspace.config.clone_from(&original_config);
@@ -550,6 +559,67 @@ fn run_in_workspace(
         return Err("OpenCode CLI run failed".to_owned());
     }
     unreachable!("the final attempt always returns")
+}
+
+fn session_reached_token_limit(binary: &Path, workspace: &Workspace, output: &[u8]) -> bool {
+    let events: Vec<Value> = output
+        .split(|byte| *byte == b'\n')
+        .filter_map(|line| serde_json::from_slice(line).ok())
+        .collect();
+    if events.iter().any(|event| event["type"] == "step_finish") {
+        return false;
+    }
+    let mut ids = events
+        .iter()
+        .filter_map(|event| event["sessionID"].as_str());
+    let Some(session_id) = ids.next() else {
+        return false;
+    };
+    if !session_id.starts_with("ses")
+        || session_id.len() > 128
+        || !session_id
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b"_-".contains(&b))
+        || ids.any(|id| id != session_id)
+    {
+        return false;
+    }
+    // V2 can reconcile text without emitting completion metadata. Read only
+    // the sanitized export of this run, without persisting or logging it.
+    let mut command = workspace.command(binary);
+    command.args([
+        "session",
+        "export",
+        "--standalone",
+        "--sanitize",
+        session_id,
+    ]);
+    let Ok(export) = capture_cli_output(
+        command,
+        None,
+        Duration::from_secs(30),
+        "OpenCode CLI",
+        "read_completion_metadata",
+        None,
+    ) else {
+        return false;
+    };
+    let Ok(value) = serde_json::from_slice::<Value>(&export) else {
+        return false;
+    };
+    value["info"]["id"] == session_id && exported_session_reached_token_limit(&value)
+}
+
+fn exported_session_reached_token_limit(value: &Value) -> bool {
+    value["messages"]
+        .as_array()
+        .and_then(|messages| {
+            messages
+                .iter()
+                .rev()
+                .find(|message| message["type"] == "assistant")
+        })
+        .is_some_and(|message| message["finish"] == "length")
 }
 
 fn rejected_json_mode(output: &[u8]) -> bool {
@@ -594,6 +664,9 @@ fn parse_result(output: &[u8]) -> Result<(Vec<u8>, Option<AiTokenUsageCounts>), 
             }
             Some("step_finish") => {
                 let part = &event["part"];
+                if part.get("reason").and_then(Value::as_str) == Some("length") {
+                    return Err(crate::application::ai::OUTPUT_TOKEN_LIMIT_ERROR.to_owned());
+                }
                 if part.get("reason").and_then(Value::as_str) != Some("stop") {
                     return Err("OpenCode CLI did not complete the response".to_owned());
                 }
@@ -641,6 +714,18 @@ fn parse_result(output: &[u8]) -> Result<(Vec<u8>, Option<AiTokenUsageCounts>), 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn identifies_token_exhaustion_from_cli_completion_metadata() {
+        let event = br#"{"type":"step_finish","part":{"reason":"length"}}"#;
+        assert_eq!(
+            parse_result(event).unwrap_err(),
+            crate::application::ai::OUTPUT_TOKEN_LIMIT_ERROR
+        );
+        assert!(exported_session_reached_token_limit(
+            &json!({"messages":[{"type":"assistant","finish":"length"}]})
+        ));
+    }
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     #[ignore = "requires an installed OpenCode V2 binary"]
     async fn runs_json_mode_and_recovers_from_an_explicit_server_rejection() {

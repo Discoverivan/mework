@@ -1350,6 +1350,7 @@ fn execute_openai_task_draft_with_usage(
                 detail
             ));
         }
+        ai::ensure_openai_response_complete(&body)?;
         let response_value = serde_json::from_slice::<Value>(&body).ok();
         if response_value.is_none() {
             crate::application::logging::log_parse_failure(

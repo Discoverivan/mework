@@ -1776,6 +1776,7 @@ async fn request_openai_json_content(
             detail
         ));
     }
+    crate::application::ai::ensure_openai_response_complete(&body)?;
     let payload = serde_json::from_slice::<serde_json::Value>(&body).ok();
     let content = payload
         .as_ref()

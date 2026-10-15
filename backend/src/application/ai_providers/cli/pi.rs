@@ -375,7 +375,7 @@ fn run_at_with_settings(
     command
         .args(["--print", "--mode", "json", "--model", model])
         .current_dir(workdir);
-    let output = capture_cli_output(
+    let captured = super::capture_cli_output_with_status(
         command,
         Some(input),
         execution.timeout(),
@@ -383,7 +383,13 @@ fn run_at_with_settings(
         "run_structured",
         Some(model),
     )?;
-    parse_result(&output)
+    let result = parse_result(&captured.output);
+    if captured.success
+        || matches!(&result, Err(error) if error == crate::application::ai::OUTPUT_TOKEN_LIMIT_ERROR)
+    {
+        return result;
+    }
+    Err("Pi CLI run failed".to_owned())
 }
 
 fn parse_result(output: &[u8]) -> Result<(Vec<u8>, Option<AiTokenUsageCounts>), String> {
@@ -435,6 +441,9 @@ fn parse_result(output: &[u8]) -> Result<(Vec<u8>, Option<AiTokenUsageCounts>), 
         last_message = Some(message.clone());
     }
     let message = last_message.ok_or_else(|| "Pi CLI returned no assistant result".to_owned())?;
+    if message.get("stopReason").and_then(Value::as_str) == Some("length") {
+        return Err(crate::application::ai::OUTPUT_TOKEN_LIMIT_ERROR.to_owned());
+    }
     if message.get("stopReason").and_then(Value::as_str) != Some("stop") {
         return Err("Pi CLI did not complete the response".to_owned());
     }
@@ -461,6 +470,15 @@ fn parse_result(output: &[u8]) -> Result<(Vec<u8>, Option<AiTokenUsageCounts>), 
 mod tests {
     use super::super::usable_cli_path;
     use super::*;
+
+    #[test]
+    fn identifies_output_token_limit() {
+        let event = br#"{"type":"message_end","message":{"role":"assistant","stopReason":"length","content":[]}}"#;
+        assert_eq!(
+            parse_result(event).unwrap_err(),
+            crate::application::ai::OUTPUT_TOKEN_LIMIT_ERROR
+        );
+    }
 
     #[test]
     fn discovers_models_and_runs_an_isolated_structured_request() {
