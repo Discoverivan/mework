@@ -87,6 +87,7 @@ vi.mock("../components/shared/update-check", () => ({
 }));
 
 vi.mock("@tauri-apps/api/window", () => ({
+  getAllWindows: vi.fn().mockResolvedValue([{ setTheme: vi.fn().mockResolvedValue(undefined) }]),
   getCurrentWindow: () => ({ theme: nativeThemeMock, onThemeChanged: onThemeChangedMock }),
 }));
 
