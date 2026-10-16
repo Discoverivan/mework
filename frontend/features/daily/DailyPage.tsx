@@ -46,7 +46,7 @@ import { Table, TableBody, TableCaption, TableCell, TableHead, TableHeader, Tabl
 import type { DailyIssueTransition, DailySprintStats, DailySubtask, DailyWorkspace } from "@/shared/contracts/developer";
 import type { ManagedProject, TeamMember } from "@/shared/contracts/planning";
 import { closePresenterView, generateSprintSummary, loadDailyIssueTransitions, loadJiraAvatarData, openPresenterView, publishPresenterState, refreshDailyWorkspace, subscribePresenterState, transitionDailyIssue } from "./api";
-import { loadMyTasks, loadSprintStats, loadTeamWorkspace, readManagedProjectsCache, readMyTasksCache, readSprintStatsCache, readTeamWorkspaceCache, refreshManagedProjectsCache, writeDailyWorkspaceCache } from "./cache";
+import { loadMyTasks, loadSprintStats, loadTeamWorkspace, readManagedProjectsCache, readMyTasksCache, readSprintStatsCache, readTeamWorkspaceCache, refreshManagedProjectsCache, writeDailyWorkspaceCache, writeTeamWorkspaceCache } from "./cache";
 import { dailyStatusBadgeClass, dailyStatusTone } from "./status";
 import { dailyProgressCategory } from "./presenterMetrics";
 import { ChartContainer, type ChartConfig } from "@/components/ui/chart";
@@ -393,6 +393,7 @@ export function DailyPage() {
   const [loadingTeam, setLoadingTeam] = useState(false);
   const [loadingStats, setLoadingStats] = useState(false);
   const [statsLoadError, setStatsLoadError] = useState<string>();
+  const [scopeIssuesSort, setScopeIssuesSort] = useState<{ column: "key" | "summary" | "status" | "storyPoints"; direction: "ascending" | "descending" }>({ column: "key", direction: "ascending" });
   const [refreshConfirmOpen, setRefreshConfirmOpen] = useState(false);
   const [refreshingStatuses, setRefreshingStatuses] = useState(false);
   const [error, setError] = useState<string>();
@@ -618,6 +619,18 @@ export function DailyPage() {
     return subscribePresenterState((nextState) => {
       if (nextState.workspace.managedProjectId !== managedProjectId) return;
       setSelectedMemberId(nextState.selectedMemberId);
+      writeTeamWorkspaceCache({
+        managedProjectId,
+        projectName: nextState.workspace.projectName,
+        projectKey: nextState.workspace.projectKey,
+        selectedSprintId: nextState.workspace.selectedSprintId,
+        selectedSprintName: nextState.workspace.selectedSprintName,
+        sprintBoardUrl: nextState.workspace.sprintBoardUrl,
+        sprintBoardUrlsByAssignee: nextState.workspace.sprintBoardUrlsByAssignee,
+        sprints: nextState.workspace.sprints,
+        members: nextState.workspace.members,
+        subtasks: nextState.workspace.subtasks,
+      });
       setWorkspace((current) => current && current.managedProjectId === managedProjectId
         ? { ...current, members: readUpdatedTeamMembers(managedProjectId) ?? nextState.workspace.members, subtasks: nextState.workspace.subtasks }
         : current);
@@ -797,6 +810,22 @@ export function DailyPage() {
   const showInitialStatsLoader = loadingStats && (!hasCachedStats || !hasCompleteStats);
   const showStatsContent = hasCompleteStats && !statsLoadError && !showInitialStatsLoader;
   const sprintScopeIssues = sprintStats?.scopeIssues ?? [];
+  const sortedSprintScopeIssues = useMemo(() => {
+    const direction = scopeIssuesSort.direction === "ascending" ? 1 : -1;
+    return [...sprintScopeIssues].sort((left, right) => {
+      const leftValue = left[scopeIssuesSort.column];
+      const rightValue = right[scopeIssuesSort.column];
+      if (leftValue === null || leftValue === undefined || leftValue === "") return rightValue === null || rightValue === undefined || rightValue === "" ? 0 : 1;
+      if (rightValue === null || rightValue === undefined || rightValue === "") return -1;
+      if (typeof leftValue === "number" && typeof rightValue === "number") return (leftValue - rightValue) * direction;
+      return String(leftValue).localeCompare(String(rightValue), language) * direction;
+    });
+  }, [language, scopeIssuesSort, sprintScopeIssues]);
+  function toggleScopeIssuesSort(column: typeof scopeIssuesSort.column) {
+    setScopeIssuesSort((current) => current.column === column
+      ? { column, direction: current.direction === "ascending" ? "descending" : "ascending" }
+      : { column, direction: "ascending" });
+  }
   const plannedScopePoints = sprintStats?.originalStoryPoints ?? null;
   const plannedScopeTasks = sprintStats?.originalTaskCount ?? null;
   const addedScopePoints = sprintStats?.addedStoryPoints ?? null;
@@ -1296,14 +1325,14 @@ export function DailyPage() {
                       <TableCaption className="sr-only">{t("daily.scopeIssuesTitle")}</TableCaption>
                       <TableHeader>
                         <TableRow className="hover:bg-transparent">
-                          <TableHead scope="col" className="w-[120px] py-2 pl-3">{t("daily.scopeIssuesKey")}</TableHead>
-                          <TableHead scope="col" className="py-2">{t("daily.scopeIssuesSummary")}</TableHead>
-                          <TableHead scope="col" className="w-[150px] py-2">{t("daily.scopeIssuesStatus")}</TableHead>
-                          <TableHead scope="col" className="w-[80px] py-2 pr-3 text-right">{t("daily.scopeIssuesPoints")}</TableHead>
+                          <TableHead scope="col" aria-sort={scopeIssuesSort.column === "key" ? scopeIssuesSort.direction : "none"} className="w-[120px] py-2 pl-3"><button type="button" onClick={() => toggleScopeIssuesSort("key")} className="text-left">{t("daily.scopeIssuesKey")}</button></TableHead>
+                          <TableHead scope="col" aria-sort={scopeIssuesSort.column === "summary" ? scopeIssuesSort.direction : "none"} className="py-2"><button type="button" onClick={() => toggleScopeIssuesSort("summary")} className="text-left">{t("daily.scopeIssuesSummary")}</button></TableHead>
+                          <TableHead scope="col" aria-sort={scopeIssuesSort.column === "status" ? scopeIssuesSort.direction : "none"} className="w-[150px] py-2"><button type="button" onClick={() => toggleScopeIssuesSort("status")} className="text-left">{t("daily.scopeIssuesStatus")}</button></TableHead>
+                          <TableHead scope="col" aria-sort={scopeIssuesSort.column === "storyPoints" ? scopeIssuesSort.direction : "none"} className="w-[80px] py-2 pr-3 text-right"><button type="button" onClick={() => toggleScopeIssuesSort("storyPoints")} className="text-right">{t("daily.scopeIssuesPoints")}</button></TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
-                        {sprintScopeIssues.map((issue) => (
+                        {sortedSprintScopeIssues.map((issue) => (
                           <TableRow key={issue.key} data-added-after-start={issue.addedAfterStart ? "true" : undefined}>
                             <TableCell className="whitespace-nowrap py-2 pl-3 font-medium">{issue.addedAfterStart ? <><span className="daily-scope-issue-added-marker" aria-hidden="true">*</span><span className="sr-only">{t("daily.scopeIssueAddedLabel")}</span></> : null}{issue.key}</TableCell>
                             <TableCell className="whitespace-normal py-2 break-words">{issue.summary || "—"}</TableCell>

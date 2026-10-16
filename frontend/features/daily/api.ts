@@ -45,6 +45,9 @@ export const loadJiraAvatarData = (managedProjectId: string, avatarUrl: string) 
 export const refreshDailyWorkspace = async (managedProjectId: string, sprintId: string) =>
   (await loadDailyTeamWorkspace(managedProjectId, sprintId)).subtasks;
 
+export const refreshDailyTeamWorkspace = (managedProjectId: string, sprintId: string) =>
+  loadDailyTeamWorkspace(managedProjectId, sprintId);
+
 export const loadDailyIssueTransitions = (managedProjectId: string, sprintId: string, issueKey: string) =>
   invoke<DailyIssueTransition[]>("daily_issue_transitions", { managedProjectId, sprintId, issueKey });
 

@@ -1,9 +1,9 @@
-import { act, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { DailyPresenterState } from "@/shared/contracts/developer";
 import { PresenterView } from "./PresenterView";
-import { publishPresenterState, readNativePresenterState, readPresenterState, subscribePresenterState } from "./api";
+import { publishPresenterState, readNativePresenterState, readPresenterState, refreshDailyTeamWorkspace, subscribePresenterState } from "./api";
 import { APP_EVENT, emitAppEvent } from "@/app/app-events";
 import { clearTeamMembersStateForTests } from "../planning/team-members-state";
 
@@ -17,7 +17,7 @@ vi.mock("./api", () => ({
   publishPresenterState: vi.fn(),
   readNativePresenterState: vi.fn(),
   readPresenterState: vi.fn(),
-  refreshDailyWorkspace: vi.fn(),
+  refreshDailyTeamWorkspace: vi.fn(),
   subscribePresenterState: vi.fn(),
 }));
 
@@ -97,6 +97,7 @@ const state: DailyPresenterState = {
 const readPresenterStateMock = vi.mocked(readPresenterState);
 const readNativePresenterStateMock = vi.mocked(readNativePresenterState);
 const subscribePresenterStateMock = vi.mocked(subscribePresenterState);
+const refreshDailyTeamWorkspaceMock = vi.mocked(refreshDailyTeamWorkspace);
 
 describe("PresenterView progress smoke test", () => {
   beforeEach(() => {
@@ -105,6 +106,7 @@ describe("PresenterView progress smoke test", () => {
     readPresenterStateMock.mockReturnValue(state);
     readNativePresenterStateMock.mockResolvedValue(null);
     subscribePresenterStateMock.mockReturnValue(() => undefined);
+    refreshDailyTeamWorkspaceMock.mockResolvedValue({ ...state.workspace, subtasks: [{ ...state.workspace.subtasks[0], status: "Done" }] });
   });
 
   it("renders colored story-point segments, status badges, and transition date", async () => {
@@ -130,5 +132,19 @@ describe("PresenterView progress smoke test", () => {
     // Presenter transports can still carry a snapshot published before the edit.
     act(() => subscribePresenterStateMock.mock.calls[0][0](state));
     expect(screen.getByRole("heading", { name: "Example Presenter Member" })).toBeInTheDocument();
+  });
+
+  it("confirms and propagates a Team Tasks refresh", async () => {
+    render(<PresenterView />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Refresh" }));
+    expect(screen.getByRole("alertdialog")).toBeInTheDocument();
+    expect(refreshDailyTeamWorkspaceMock).not.toHaveBeenCalled();
+    fireEvent.click(within(screen.getByRole("alertdialog")).getByRole("button", { name: "Refresh" }));
+
+    await waitFor(() => expect(refreshDailyTeamWorkspaceMock).toHaveBeenCalledWith("managed-1", "sprint-1"));
+    await waitFor(() => expect(publishPresenterState).toHaveBeenCalledWith(expect.objectContaining({
+      workspace: expect.objectContaining({ subtasks: expect.arrayContaining([expect.objectContaining({ status: "Done" })]) }),
+    })));
   });
 });

@@ -3,6 +3,8 @@ import { APP_EVENT, subscribeAppEvent } from "@/app/app-events";
 import { listen } from "@tauri-apps/api/event";
 import { ArrowLeft, ArrowRight, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { useI18n } from "@/i18n/context";
 import { formatDisplayDate } from "@/lib/display-date";
 import type { DailyPresenterState, DailySubtask } from "@/shared/contracts/developer";
@@ -14,7 +16,7 @@ import {
   publishPresenterState,
   readNativePresenterState,
   readPresenterState,
-  refreshDailyWorkspace,
+  refreshDailyTeamWorkspace,
   subscribePresenterState,
 } from "./api";
 import { dailyStatusTone } from "./status";
@@ -150,6 +152,8 @@ export function PresenterView() {
     return saved ? reconcilePresenterMembers(saved) : undefined;
   });
   const [refreshing, setRefreshing] = useState(false);
+  const [refreshError, setRefreshError] = useState(false);
+  const [refreshConfirmOpen, setRefreshConfirmOpen] = useState(false);
 
   useEffect(() => subscribeAppEvent(APP_EVENT.teamMembersChanged, ({ managedProjectId, members }) => {
     if (state?.workspace.managedProjectId !== managedProjectId) return;
@@ -189,14 +193,19 @@ export function PresenterView() {
   }, []);
 
   const refreshWorkspace = async () => {
-    const managedProjectId = state?.workspace.managedProjectId;
-    if (!managedProjectId) return;
+    if (!state) return;
+    const managedProjectId = state.workspace.managedProjectId;
     setRefreshing(true);
+    setRefreshError(false);
     try {
-      const subtasks = await refreshDailyWorkspace(managedProjectId, state?.workspace.selectedSprintId ?? "");
-      setState((current) => current
-        ? { ...current, workspace: { ...current.workspace, subtasks } }
+      const workspace = await refreshDailyTeamWorkspace(managedProjectId, state?.workspace.selectedSprintId ?? "");
+      setState((current) => current && current.workspace.managedProjectId === managedProjectId
+        ? { ...current, workspace: { ...current.workspace, ...workspace } }
         : current);
+      const nextState = { ...state, workspace: { ...state.workspace, ...workspace } };
+      void publishPresenterState(nextState);
+    } catch {
+      setRefreshError(true);
     } finally {
       setRefreshing(false);
     }
@@ -233,7 +242,7 @@ export function PresenterView() {
         <div className="daily-presenter-project">{workspace?.projectName ?? t("presenter.meeting")}</div>
         <div className="daily-presenter-header-actions">
           <div className="daily-presenter-date">{formatDate(locale)}</div>
-          <Button type="button" variant="ghost" className="daily-presenter-refresh" onClick={() => void refreshWorkspace()} disabled={!workspace || refreshing}>
+          <Button type="button" variant="ghost" className="daily-presenter-refresh" onClick={() => setRefreshConfirmOpen(true)} disabled={!workspace || refreshing}>
             <RefreshCw aria-hidden="true" className={refreshing ? "animate-spin" : undefined} />
             {t("presenter.refresh")}
           </Button>
@@ -243,7 +252,12 @@ export function PresenterView() {
         </div>
       </header>
 
+      <AlertDialog open={refreshConfirmOpen} onOpenChange={setRefreshConfirmOpen}>
+        <AlertDialogContent><AlertDialogHeader><AlertDialogTitle>{t("daily.confirmRefreshTitle")}</AlertDialogTitle><AlertDialogDescription>{t("daily.confirmRefreshDescription")}</AlertDialogDescription></AlertDialogHeader><AlertDialogFooter><AlertDialogCancel>{t("settings.common.cancel")}</AlertDialogCancel><AlertDialogAction onClick={() => { setRefreshConfirmOpen(false); void refreshWorkspace(); }}>{t("daily.refresh")}</AlertDialogAction></AlertDialogFooter></AlertDialogContent>
+      </AlertDialog>
+
       <section className="daily-presenter-content">
+        {refreshError ? <Alert variant="destructive"><AlertDescription>{t("presenter.refreshError")}</AlertDescription></Alert> : null}
         {workspace && member ? (
           <>
             <div className="daily-presenter-member-heading">
