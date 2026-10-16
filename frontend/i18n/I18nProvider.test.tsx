@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { useI18n } from "./context";
@@ -14,7 +14,13 @@ vi.mock("@/features/settings/general/api", () => ({
   saveAppearanceSettings: vi.fn(),
 }));
 
+const { setWindowThemeMock } = vi.hoisted(() => ({ setWindowThemeMock: vi.fn().mockResolvedValue(undefined) }));
+
 vi.mock("@tauri-apps/api/window", () => ({
+  getAllWindows: vi.fn().mockResolvedValue([
+    { setTheme: setWindowThemeMock },
+    { setTheme: setWindowThemeMock },
+  ]),
   getCurrentWindow: () => ({
     theme: vi.fn().mockResolvedValue("light"),
     onThemeChanged: vi.fn().mockResolvedValue(vi.fn()),
@@ -28,12 +34,13 @@ function ThemeProbe() {
 
 describe("I18nProvider startup appearance", () => {
   beforeEach(() => {
+    setWindowThemeMock.mockClear();
     window.localStorage.clear();
     vi.stubGlobal("matchMedia", () => ({ matches: false }));
     generalSettingsMock.mockImplementation(() => new Promise(() => undefined));
   });
 
-  it("uses the cached theme while Rust settings are loading", () => {
+  it("uses the cached theme while Rust settings are loading", async () => {
     window.localStorage.setItem(THEME_PREFERENCE_CACHE_KEY, "dark");
     window.localStorage.setItem(BUTTON_STYLE_CACHE_KEY, "filled_borderless");
     window.localStorage.setItem(PANEL_STYLE_CACHE_KEY, "bordered");
@@ -48,6 +55,9 @@ describe("I18nProvider startup appearance", () => {
     expect(document.documentElement).toHaveAttribute("data-theme", "dark");
     expect(document.documentElement).toHaveAttribute("data-button-style", "filled_borderless");
     expect(document.documentElement).toHaveAttribute("data-panel-style", "bordered");
+    await waitFor(() => expect(setWindowThemeMock).toHaveBeenCalledTimes(2));
+    expect(setWindowThemeMock).toHaveBeenNthCalledWith(1, "dark");
+    expect(setWindowThemeMock).toHaveBeenNthCalledWith(2, "dark");
   });
 
   it("starts with borderless Filled buttons and bordered panels without cached preferences", () => {

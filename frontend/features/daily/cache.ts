@@ -91,6 +91,9 @@ export function readMyTasksCache(projectId: string, sprintId?: string): DailyMyT
 export function readTeamWorkspaceCache(projectId: string, sprintId?: string): DailyTeamWorkspaceDto | undefined {
   return teamCache.get(key(projectId, sprintId ?? ""));
 }
+export function writeTeamWorkspaceCache(workspace: DailyTeamWorkspaceDto): void {
+  teamCache.set(key(workspace.managedProjectId, workspace.selectedSprintId), workspace);
+}
 export function readSprintStatsCache(projectId: string, sprintId: string): DailySprintStatsDto | undefined {
   return statsCache.get(key(projectId, sprintId));
 }

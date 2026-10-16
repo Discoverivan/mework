@@ -582,7 +582,7 @@ fn jira_response(
     {
         return json_response(
             200,
-            json!({"startAt":0,"maxResults":2,"total":2,"values":[{"id":1,"name":"Current sprint","state":"active","startDate":"2026-09-21T00:00:00.000Z","endDate":"2026-10-05T00:00:00.000Z"},{"id":2,"name":"Next sprint","state":"future","startDate":"2026-10-06T00:00:00.000Z","endDate":"2026-10-20T00:00:00.000Z"}]}),
+            json!({"startAt":0,"maxResults":2,"total":2,"values":[{"id":1,"name":"Current sprint","state":"active","startDate":"2026-09-21T00:00:00.000Z","activatedDate":"2026-09-21T00:00:00.000Z","endDate":"2026-10-05T00:00:00.000Z"},{"id":2,"name":"Next sprint","state":"future","startDate":"2026-10-06T00:00:00.000Z","endDate":"2026-10-20T00:00:00.000Z"}]}),
         );
     }
     let sprint_issue_prefix = "/jira/rest/agile/1.0/sprint/";
@@ -714,6 +714,7 @@ fn jira_response(
             200,
             json!([
                 {"id":"mock-story-points","name":"Story Points","custom":true,"schema":{"type":"number"}},
+                {"id":"mock-sprint-field","name":"Sprint","custom":true,"schema":{"type":"array"}},
                 {"id":"mock-epic-link","name":"Epic Link","custom":true,"schema":{"type":"string"}}
             ]),
         );
@@ -748,27 +749,36 @@ fn jira_response(
             .flat_map(|monitor| monitor.issues)
             .find(|issue| issue.key == issue_key);
         if is_changelog {
-            let values = ram_task
-                .as_ref()
-                .and_then(|task| task.last_change.as_ref())
-                .filter(|change| {
+            let mut values = Vec::new();
+            if let Some(task) = ram_task.as_ref() {
+                if let Some(change) = task.last_change.as_ref().filter(|change| {
                     change.kind == crate::application::task_tracker::TaskTrackerChangeKind::Status
-                })
-                .and_then(|change| {
-                    let from = change
+                }) {
+                    if let Some(from) = change
                         .description
-                        .strip_prefix("Status changed: ")?
-                        .split_once(" → ")?
-                        .0;
-                    Some(json!([{
-                        "id": change.detected_at,
-                        "created": change.detected_at,
-                        "items": [{"field":"status","fromString":from,"toString":ram_task.as_ref()?.status,
-                            "from":jira_status(from)["id"],"to":jira_status(&ram_task.as_ref()?.status)["id"]}]
-                    }]))
-                })
-                .unwrap_or_else(|| json!([]));
-            let total = values.as_array().map_or(0, Vec::len);
+                        .strip_prefix("Status changed: ")
+                        .and_then(|value| value.split_once(" → ").map(|parts| parts.0))
+                    {
+                        values.push(json!({
+                            "id": change.detected_at,
+                            "created": change.detected_at,
+                            "items": [{"field":"status","fromString":from,"toString":task.status,
+                                "from":jira_status(from)["id"],"to":jira_status(&task.status)["id"]}]
+                        }));
+                    }
+                }
+                if matches!(
+                    issue_key,
+                    "MOCK-101" | "MOCK-102" | "MOCK-103" | "MOCK-104" | "MOCK-105"
+                ) {
+                    values.push(json!({
+                        "id": format!("{issue_key}-sprint-membership"),
+                        "created": "2026-09-20T12:00:00.000Z",
+                        "items": [{"field":"Sprint","fieldId":"mock-sprint-field","from":null,"to":"1","fromString":null,"toString":"Current sprint"}]
+                    }));
+                }
+            }
+            let total = values.len();
             return json_response(
                 200,
                 json!({"startAt":0,"maxResults":total,"total":total,"values":values}),
@@ -849,10 +859,22 @@ fn jira_issue_from_overlay(issue: crate::application::task_tracker::TaskTrackerI
             "priority": {"name": issue.priority},
             "assignee": {"accountId":"mock-user-a", "displayName":assignee, "active":true},
             "issuetype": {"name":"Task", "subtask":false},
+            "mock-story-points": mock_story_points(&issue.key),
             "updated": issue.updated,
             "project": {"id":"mock-project-id", "key":"MOCK", "name":"Example project", "projectTypeKey":"software"}
         }
     })
+}
+
+fn mock_story_points(issue_key: &str) -> Option<i64> {
+    match issue_key {
+        "MOCK-101" => Some(3),
+        "MOCK-102" => Some(2),
+        "MOCK-103" => Some(5),
+        "MOCK-104" => Some(1),
+        "MOCK-105" => Some(3),
+        _ => None,
+    }
 }
 
 fn jira_issue_matches_mock_jql(issue: &Value, jql: &str) -> bool {
@@ -1014,8 +1036,29 @@ mod tests {
         assert_eq!(boards.values.len(), 1);
         let sprints = planning.list_sprints("1", 20).await.unwrap();
         assert_eq!(sprints.values.len(), 2);
+        assert_eq!(
+            sprints.values[0].activated_date.as_deref(),
+            Some("2026-09-21T00:00:00.000Z")
+        );
         let sprint_issues = planning.list_sprint_issues("1", 20).await.unwrap();
         assert_eq!(sprint_issues.values.len(), 6);
+        for (key, points) in [
+            ("MOCK-101", 3),
+            ("MOCK-102", 2),
+            ("MOCK-103", 5),
+            ("MOCK-104", 1),
+            ("MOCK-105", 3),
+        ] {
+            assert_eq!(
+                sprint_issues
+                    .values
+                    .iter()
+                    .find(|issue| issue.key == key)
+                    .unwrap()
+                    .fields["mock-story-points"],
+                points
+            );
+        }
         assert_eq!(
             sprint_issues
                 .values
@@ -1030,6 +1073,15 @@ mod tests {
             .await
             .expect("parent issue and status history");
         assert_eq!(summary_context["fields"]["status"]["name"], "Done");
+        assert_eq!(summary_context["fields"]["mock-story-points"], 3);
+        assert!(summary_context["changelog"]["histories"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|history| {
+                history.pointer("/items/0/fieldId").and_then(Value::as_str)
+                    == Some("mock-sprint-field")
+            }));
         assert_eq!(
             summary_context.pointer("/changelog/histories/0/items/0/fromString"),
             Some(&serde_json::Value::String("In Progress".to_owned()))

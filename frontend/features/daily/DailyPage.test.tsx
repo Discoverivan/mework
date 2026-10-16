@@ -108,15 +108,15 @@ describe("DailyPage data loading and actions", () => {
     expect(chart.querySelector(".daily-scope-meter-axis")).toBeNull();
   });
 
-  it("renders the overview period and a four-column parent issues table with status tones", async () => {
+  it("renders and sorts the four-column tasks table", async () => {
     statsMock.mockResolvedValueOnce({
       ...stats,
       addedTaskCount: 2,
       addedStoryPoints: 2,
       scopeIssues: [
-        { key: "DEMO-10", summary: "Example closed parent issue", status: "Closed", statusCategory: "done", storyPoints: 2, addedAfterStart: false },
-        { key: "DEMO-11", summary: "Example release parent issue", status: "In Release", statusCategory: "indeterminate", storyPoints: 1, addedAfterStart: true },
-        { key: "DEMO-12", summary: "Example pending parent issue", status: "To Do", statusCategory: "new", storyPoints: 2, addedAfterStart: true },
+        { key: "DEMO-10", summary: "Example closed task", status: "Closed", statusCategory: "done", storyPoints: 3, addedAfterStart: false },
+        { key: "DEMO-11", summary: "Example release task", status: "In Release", statusCategory: "indeterminate", storyPoints: 1, addedAfterStart: true },
+        { key: "DEMO-12", summary: "Example pending task", status: "To Do", statusCategory: "new", storyPoints: 2, addedAfterStart: true },
       ],
       statusBreakdown: [
         { category: "todo", taskCount: 1, storyPoints: 2 },
@@ -129,13 +129,21 @@ describe("DailyPage data loading and actions", () => {
     await screen.findByText("DEMO-1");
     fireEvent.click(screen.getByRole("tab", { name: "Sprint Stats" }));
 
-    const table = await screen.findByRole("table", { name: "Parent issues" });
+    const table = await screen.findByRole("table", { name: "Tasks" });
     expect(screen.getByText("02.10.2026 – 15.10.2026")).toBeInTheDocument();
     expect(within(table).getAllByRole("columnheader").map((header) => header.textContent)).toEqual(["Key", "Summary", "Status", "SP"]);
     expect(within(table).getAllByRole("row")).toHaveLength(4);
     expect(within(table).getByText("Closed")).toHaveClass("bg-success/20");
     expect(within(table).getByText("In Release")).toHaveClass("bg-success/10");
-    expect(within(table).getByText("Example release parent issue")).toHaveClass("whitespace-normal");
+    expect(within(table).getByText("Example release task")).toHaveClass("whitespace-normal");
+    const headers = within(table).getAllByRole("columnheader");
+    expect(headers[0]).toHaveAttribute("aria-sort", "ascending");
+    fireEvent.click(within(headers[3] as HTMLElement).getByRole("button", { name: "SP" }));
+    expect(headers[3]).toHaveAttribute("aria-sort", "ascending");
+    expect(within(table).getAllByRole("row").slice(1).map((row) => row.textContent?.match(/DEMO-\d+/)?.[0])).toEqual(["DEMO-11", "DEMO-12", "DEMO-10"]);
+    fireEvent.click(within(headers[3] as HTMLElement).getByRole("button", { name: "SP" }));
+    expect(headers[3]).toHaveAttribute("aria-sort", "descending");
+    expect(within(table).getAllByRole("row").slice(1).map((row) => row.textContent?.match(/DEMO-\d+/)?.[0])).toEqual(["DEMO-10", "DEMO-12", "DEMO-11"]);
   });
 
   it("keeps a pending stats request alive and reuses it when returning to the tab", async () => {

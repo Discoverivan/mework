@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { getCurrentWindow } from "@tauri-apps/api/window";
+import { getAllWindows, getCurrentWindow } from "@tauri-apps/api/window";
 
 import {
   generalSettings,
@@ -223,6 +223,10 @@ export function I18nProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     document.documentElement.dataset.theme = resolvedTheme;
     document.documentElement.style.colorScheme = resolvedTheme;
+
+    void getAllWindows()
+      .then((windows) => Promise.all(windows.map((appWindow) => appWindow.setTheme(resolvedTheme))))
+      .catch(() => undefined);
   }, [resolvedTheme]);
 
   useEffect(() => {
