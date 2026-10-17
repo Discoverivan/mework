@@ -529,6 +529,8 @@ export const ru: Record<TranslationKey, string> = {
   "daily.selectTeam": "Выберите команду",
   "daily.sprint": "Спринт",
   "daily.selectSprint": "Выберите спринт",
+  "daily.sprintRequiredTitle": "Выберите спринт, чтобы начать",
+  "daily.sprintRequiredDescription": "Выберите спринт в меню справа вверху, чтобы увидеть задачи, работу команды и статистику.",
   "daily.searchSprints": "Поиск спринтов…",
   "daily.noSprintsFound": "Спринты не найдены.",
   "daily.sprintState.active": "Активный",

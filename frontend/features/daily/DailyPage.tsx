@@ -16,6 +16,7 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { badgeVariants } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { EmptyState } from "@/components/shared/EmptyState";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Calendar } from "@/components/ui/calendar";
@@ -530,7 +531,7 @@ export function DailyPage() {
   }, [refreshWorkspace, selectedProjectId]);
 
   useEffect(() => {
-    if (!selectedProjectId || !workspace) return;
+    if (!selectedProjectId || !workspace?.selectedSprintId) return;
     if (activeTab === "teamTasks") {
       const cachedTeam = readTeamWorkspaceCache(selectedProjectId, workspace.selectedSprintId);
       if (cachedTeam) setWorkspace((current) => current ? { ...current, ...cachedTeam } : current);
@@ -1015,7 +1016,7 @@ export function DailyPage() {
             </PopoverContent>
           </Popover>
         ) : null}
-        {workspace ? (
+        {workspace?.selectedSprintId ? (
           <Button type="button" variant="outline" size="icon" aria-label={t("daily.openSprintBoard")} title={t("daily.openSprintBoard")} disabled={!workspace.sprintBoardUrl || loadingTeam} onClick={() => { if (workspace.sprintBoardUrl) void openJiraIssue(workspace.sprintBoardUrl); }}>
             <ExternalLink aria-hidden="true" />
           </Button>
@@ -1160,8 +1161,8 @@ export function DailyPage() {
       ) : null}
 
       {loadingWorkspace && !hasCachedMyTasks ? <DailyLoadingState label={t("daily.loadingTasks")} /> : null}
-      {workspace && (!loadingWorkspace || hasCachedMyTasks) ? (
-        <>
+      {workspace && (!loadingWorkspace || hasCachedMyTasks || !workspace.selectedSprintId) ? (
+        workspace.selectedSprintId ? <>
         <div className="daily-workspace-tabs-row flex flex-wrap items-center gap-2">
         <div role="tablist" aria-label={t("daily.workspaceTabs")} className="daily-workspace-tabs">
           {SPRINT_WORKSPACE_TABS.map((tab) => {
@@ -1189,7 +1190,7 @@ export function DailyPage() {
         </div>
         <div className="daily-workspace-actions ml-auto flex items-center gap-2">
           {activeTab === "teamTasks" ? <>
-            <Button type="button" variant="outline" size="icon" aria-label={t("daily.aiSummary")} title={t("daily.aiSummary")} className="mb-1" disabled={!workspace} onClick={() => { setAiSprintId(workspace?.selectedSprintId ?? ""); setAiDateRange(undefined); setAiCalendarOpen(false); setAiResult(""); setAiError(undefined); setAiSummaryOpen(true); }}><Sparkles aria-hidden="true" /></Button>
+            <Button type="button" variant="outline" size="icon" aria-label={t("daily.aiSummary")} title={t("daily.aiSummary")} className="mb-1" disabled={!workspace?.selectedSprintId} onClick={() => { setAiSprintId(workspace?.selectedSprintId ?? ""); setAiDateRange(undefined); setAiCalendarOpen(false); setAiResult(""); setAiError(undefined); setAiSummaryOpen(true); }}><Sparkles aria-hidden="true" /></Button>
             <Button type="button" variant={presenterOpen ? "secondary" : "default"} size="icon" className="mb-1" disabled={presenterBusy || !workspace || !hasCachedTeamData || loadingTeam || (!presenterOpen && !selectedMember)} aria-busy={presenterBusy} aria-pressed={presenterOpen} aria-label={presenterOpen ? t("daily.presenter.stop") : t("daily.presenter.start")} title={presenterOpen ? t("daily.presenter.stop") : t("daily.presenter.start")} onClick={() => void togglePresenter()}>{presenterOpen ? <Square aria-hidden="true" /> : <Presentation aria-hidden="true" />}</Button>
           </> : null}
           <Button type="button" variant="outline" size="icon" aria-label={t("daily.refresh")} title={t("daily.refresh")} className="daily-workspace-refresh mb-1" disabled={!selectedProjectId || loadingWorkspace || loadingTeam || loadingStats || refreshingStatuses} onClick={() => activeTab === "myTasks" ? selectedProjectId && void refreshWorkspace(selectedProjectId, workspace?.selectedSprintId, true, "myTasks") : setRefreshConfirmOpen(true)}><RefreshCw aria-hidden="true" className={loadingWorkspace || loadingTeam || loadingStats ? "animate-spin" : undefined} /></Button>
@@ -1578,7 +1579,21 @@ export function DailyPage() {
         </div> : null}
         </section>
         )}
-        </>
+        </> : loadingWorkspace ? (
+          <EmptyState
+            titleId="daily-sprint-loading-title"
+            title={t("daily.loadingTasks")}
+            description={t("daily.loadingTasksDescription")}
+            icon={<RefreshCw className="size-5 animate-spin" />}
+          />
+        ) : (
+          <EmptyState
+            titleId="daily-sprint-required-title"
+            title={t("daily.sprintRequiredTitle")}
+            description={t("daily.sprintRequiredDescription")}
+            icon={<CalendarDays className="size-5" />}
+          />
+        )
       ) : null}
     </section>
   );

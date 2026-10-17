@@ -503,6 +503,17 @@ pub async fn load_daily_team_workspace(
     })
 }
 
+fn select_daily_sprint<'a>(
+    sprints: &'a [PlanningSprint],
+    requested_id: Option<&str>,
+    active_id: Option<&str>,
+) -> Option<&'a PlanningSprint> {
+    let id = requested_id
+        .filter(|value| !value.trim().is_empty())
+        .or(active_id)?;
+    sprints.iter().find(|sprint| sprint.id == id)
+}
+
 pub async fn load_daily_my_tasks(
     pool: &SqlitePool,
     managed_project_id: &str,
@@ -533,14 +544,14 @@ pub async fn load_daily_my_tasks(
             sprints.values.push(sprint);
         }
     }
-    let selected = if let Some(requested) = sprint_id.filter(|value| !value.trim().is_empty()) {
-        sprints.values.iter().find(|sprint| sprint.id == requested)
-    } else {
-        active_id
-            .as_deref()
-            .and_then(|id| sprints.values.iter().find(|sprint| sprint.id == id))
+    let selected = select_daily_sprint(&sprints.values, sprint_id, active_id.as_deref());
+    if sprint_id.is_some_and(|id| !id.trim().is_empty()) && selected.is_none() {
+        return Err(daily_error(
+            "not_found",
+            "The selected Jira sprint was not found",
+            false,
+        ));
     }
-    .ok_or_else(|| daily_error("not_found", "The selected Jira sprint was not found", false))?;
     let current_user_account_id = client
         .current_user_account_id()
         .await
@@ -553,28 +564,32 @@ pub async fn load_daily_my_tasks(
         None => None,
     };
     let issues = if current_user_account_id.is_some() {
-        let jql = format!(
-            "assignee = currentUser() AND sprint = {} AND issuetype in subTaskIssueTypes()",
-            selected.id
-        );
-        client
-            .search_planning_issues_with_jql(
-                &jql,
-                &[
-                    "summary",
-                    "status",
-                    "issuetype",
-                    "assignee",
-                    "parent",
-                    project
-                        .story_points_field_id
-                        .as_deref()
-                        .unwrap_or(DEFAULT_STORY_POINTS_FIELD_ID),
-                ],
-                100,
-            )
-            .await
-            .map_err(|error| jira_daily_error("Unable to load your Jira sprint tasks", error))?
+        if let Some(selected) = selected {
+            let jql = format!(
+                "assignee = currentUser() AND sprint = {} AND issuetype in subTaskIssueTypes()",
+                selected.id
+            );
+            client
+                .search_planning_issues_with_jql(
+                    &jql,
+                    &[
+                        "summary",
+                        "status",
+                        "issuetype",
+                        "assignee",
+                        "parent",
+                        project
+                            .story_points_field_id
+                            .as_deref()
+                            .unwrap_or(DEFAULT_STORY_POINTS_FIELD_ID),
+                    ],
+                    100,
+                )
+                .await
+                .map_err(|error| jira_daily_error("Unable to load your Jira sprint tasks", error))?
+        } else {
+            Vec::new()
+        }
     } else {
         Vec::new()
     };
@@ -618,8 +633,10 @@ pub async fn load_daily_my_tasks(
         managed_project_id: project.id,
         project_name: project.jira_project_name,
         project_key: project.jira_project_key,
-        selected_sprint_id: selected.id.clone(),
-        selected_sprint_name: selected.name.clone(),
+        selected_sprint_id: selected.map(|sprint| sprint.id.clone()).unwrap_or_default(),
+        selected_sprint_name: selected
+            .map(|sprint| sprint.name.clone())
+            .unwrap_or_default(),
         current_user_account_id,
         current_user_member,
         sprints: sprint_dtos,
@@ -1849,7 +1866,7 @@ mod tests {
         active_team_member_for_account, changelog_is_complete, collect_sprint_history_result,
         count_completed_scope_issues, current_parent_scope_issues, current_sprint_stats,
         daily_task, field_i64, is_assigned_subtask, jira_sprint_board_url, quick_filter_assignee,
-        reconstruct_historical_scope_issue, record_sprint_history_progress,
+        reconstruct_historical_scope_issue, record_sprint_history_progress, select_daily_sprint,
         sprint_scope_membership, status_transitions, sum_completed_scope_points,
         DailySprintStatsProgressDto, HistoricalScopeIssue, ScopeCandidateHistoryResult,
         ScopeReconstructionContext,
@@ -1871,6 +1888,28 @@ mod tests {
 
         let current_user = active_team_member_for_account(&members, "USER-A").unwrap();
         assert_eq!(current_user.alias.as_deref(), Some("Test Alias"));
+    }
+
+    #[test]
+    fn daily_sprint_selection_stays_empty_without_an_active_sprint() {
+        let sprints: Vec<super::PlanningSprint> = serde_json::from_value(json!([
+            {"id": "future-1", "name": "Future Sprint", "state": "future"},
+            {"id": "closed-1", "name": "Closed Sprint", "state": "closed"}
+        ]))
+        .unwrap();
+        assert!(select_daily_sprint(&sprints, None, None).is_none());
+        assert_eq!(
+            select_daily_sprint(&sprints, None, Some("future-1"))
+                .unwrap()
+                .id,
+            "future-1"
+        );
+        assert_eq!(
+            select_daily_sprint(&sprints, Some("closed-1"), None)
+                .unwrap()
+                .id,
+            "closed-1"
+        );
     }
 
     #[test]
