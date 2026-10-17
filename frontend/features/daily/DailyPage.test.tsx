@@ -57,6 +57,33 @@ describe("DailyPage data loading and actions", () => {
     expect(statsMock).not.toHaveBeenCalled();
   });
 
+  it("lets the user choose a sprint when the team has no active sprint", async () => {
+    myTasksMock.mockResolvedValueOnce({
+      ...myTasks,
+      selectedSprintId: "",
+      selectedSprintName: "",
+      sprints: [{ id: "future-2", name: "Future Sprint", state: "future" }],
+      subtasks: [],
+    });
+    let resolveSelectedSprint!: (value: DailyMyTasksDto) => void;
+    myTasksMock.mockReturnValueOnce(new Promise((resolve) => { resolveSelectedSprint = resolve; }));
+    render(<DailyPage />);
+
+    const sprintPicker = await screen.findByRole("combobox", { name: "Sprint" });
+    expect(sprintPicker).toHaveTextContent("Select a sprint");
+    expect(screen.getByRole("status")).toHaveTextContent("Choose a sprint to get started");
+    expect(screen.queryByRole("tablist")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Refresh" })).not.toBeInTheDocument();
+    fireEvent.click(sprintPicker);
+    fireEvent.click(await screen.findByRole("option", { name: "Future Sprint (Future)" }));
+
+    await waitFor(() => expect(myTasksMock).toHaveBeenCalledWith(project.id, "future-2"));
+    expect(screen.getByRole("status")).toHaveTextContent("Loading sprint tasks…");
+    resolveSelectedSprint(myTasks);
+    expect(await screen.findByText("DEMO-1")).toBeInTheDocument();
+    expect(screen.getByRole("tablist", { name: "Sprint workspace" })).toBeInTheDocument();
+  });
+
   it("loads minimal My Tasks on entry and lazily loads each other tab only when opened", async () => {
     render(<DailyPage />);
     expect(await screen.findByText("DEMO-1")).toBeInTheDocument();
