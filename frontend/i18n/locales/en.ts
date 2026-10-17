@@ -525,6 +525,8 @@ export const en = {
   "daily.selectTeam": "Select a team",
   "daily.sprint": "Sprint",
   "daily.selectSprint": "Select a sprint",
+  "daily.sprintRequiredTitle": "Choose a sprint to get started",
+  "daily.sprintRequiredDescription": "Select a sprint from the menu in the upper right to view its tasks, team activity, and statistics.",
   "daily.searchSprints": "Search sprints…",
   "daily.noSprintsFound": "No sprints found.",
   "daily.sprintState.active": "Active",
