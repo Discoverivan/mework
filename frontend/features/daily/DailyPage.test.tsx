@@ -43,6 +43,7 @@ const statsMock = vi.mocked(loadDailySprintStats);
 
 beforeEach(() => {
   vi.clearAllMocks(); clearDailyWorkspaceCacheForTests();
+  window.localStorage.removeItem("mework.sprint-selection.v1");
   listProjectsMock.mockResolvedValue([project]);
   myTasksMock.mockResolvedValue(myTasks);
   teamMock.mockResolvedValue(team);
@@ -70,8 +71,8 @@ describe("DailyPage data loading and actions", () => {
     render(<DailyPage />);
 
     const sprintPicker = await screen.findByRole("combobox", { name: "Sprint" });
-    expect(sprintPicker).toHaveTextContent("Select a sprint");
-    expect(screen.getByRole("status")).toHaveTextContent("Choose a sprint to get started");
+    expect(sprintPicker).toHaveTextContent("Current sprint");
+    await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("Choose a sprint to get started"));
     expect(screen.queryByRole("tablist")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Refresh" })).not.toBeInTheDocument();
     fireEvent.click(sprintPicker);
@@ -82,6 +83,81 @@ describe("DailyPage data loading and actions", () => {
     resolveSelectedSprint(myTasks);
     expect(await screen.findByText("DEMO-1")).toBeInTheDocument();
     expect(screen.getByRole("tablist", { name: "Sprint workspace" })).toBeInTheDocument();
+  });
+
+  it("revalidates the current sprint and preserves a pinned selection across visits until automatic mode is restored", async () => {
+    const closed = { id: "closed-2", name: "Previous Sprint", state: "closed" };
+    const initial = { ...myTasks, sprints: [...myTasks.sprints, closed] };
+    myTasksMock.mockResolvedValueOnce({ ...initial, selectedSprintId: "", selectedSprintName: "", subtasks: [] });
+    await prefetchDailyWorkspaces([project.integrationId]);
+    myTasksMock.mockResolvedValueOnce(initial);
+    const first = render(<DailyPage />);
+    const picker = await screen.findByRole("combobox", { name: "Sprint" });
+    await waitFor(() => expect(picker).toHaveTextContent("Current sprint: Sprint 42"));
+    expect(myTasksMock).toHaveBeenCalledTimes(2);
+
+    myTasksMock.mockResolvedValueOnce({ ...initial, selectedSprintId: closed.id, selectedSprintName: closed.name });
+    fireEvent.click(picker);
+    fireEvent.click(await screen.findByRole("option", { name: "Previous Sprint (Closed)" }));
+    await waitFor(() => expect(picker).toHaveTextContent("Previous Sprint"));
+    first.unmount();
+    // A new process has no workspace cache, but keeps display preferences.
+    clearDailyWorkspaceCacheForTests();
+    myTasksMock.mockResolvedValueOnce({ ...initial, selectedSprintId: closed.id, selectedSprintName: closed.name });
+    const second = render(<DailyPage />);
+    await waitFor(() => expect(screen.getByRole("combobox", { name: "Sprint" })).toHaveTextContent("Previous Sprint"));
+    expect(myTasksMock).toHaveBeenLastCalledWith(project.id, closed.id);
+
+    const next = { ...initial, selectedSprintId: "active-3", selectedSprintName: "Next Sprint", sprints: [...initial.sprints, { id: "active-3", name: "Next Sprint", state: "active" }] };
+    myTasksMock.mockResolvedValue(next);
+    fireEvent.click(screen.getByRole("combobox", { name: "Sprint" }));
+    fireEvent.click(await screen.findByRole("option", { name: /Current sprint/ }));
+    await waitFor(() => expect(screen.getByRole("combobox", { name: "Sprint" })).toHaveTextContent("Current sprint: Next Sprint"));
+    expect(myTasksMock).toHaveBeenLastCalledWith(project.id, undefined);
+    second.unmount();
+    render(<DailyPage />);
+    await waitFor(() => expect(myTasksMock).toHaveBeenCalledTimes(6));
+    expect(screen.getByRole("combobox", { name: "Sprint" })).toHaveTextContent("Current sprint: Next Sprint");
+  });
+
+  it("loads the selected team's sprint before its team tasks and keeps a pin when returning to My Tasks", async () => {
+    Element.prototype.scrollIntoView = vi.fn();
+    const otherProject = { ...project, id: "managed-2", name: "Example Second Team" };
+    const previousSprint = { id: "closed-2", name: "Previous Sprint", state: "closed" };
+    const otherTasks = { ...myTasks, managedProjectId: otherProject.id, selectedSprintId: "sprint-2", selectedSprintName: "Second Sprint", sprints: [{ id: "sprint-2", name: "Second Sprint", state: "active" }, previousSprint] };
+    listProjectsMock.mockResolvedValue([project, otherProject]);
+    const selectedTasks = (projectId: string, sprintId?: string) => projectId === project.id ? myTasks : {
+      ...otherTasks,
+      ...(sprintId === previousSprint.id ? {
+        selectedSprintId: previousSprint.id, selectedSprintName: previousSprint.name,
+        subtasks: [{ ...myTasks.subtasks[0], key: "DEMO-2", summary: "Example previous sprint task" }],
+      } : {}),
+    };
+    myTasksMock.mockImplementation(async (projectId, sprintId) => selectedTasks(projectId, sprintId));
+    teamMock.mockImplementation(async (projectId, sprintId) => ({ ...team, ...selectedTasks(projectId, sprintId) }));
+    const view = render(<DailyPage />);
+    await screen.findByText("DEMO-1");
+    fireEvent.click(screen.getByRole("tab", { name: "Team Tasks" }));
+    await waitFor(() => expect(teamMock).toHaveBeenCalledTimes(1));
+
+    fireEvent.click(screen.getByRole("combobox", { name: "Team" }));
+    fireEvent.click(await screen.findByRole("option", { name: otherProject.name }));
+    await waitFor(() => expect(teamMock).toHaveBeenLastCalledWith(otherProject.id, "sprint-2"));
+    expect(screen.getByRole("combobox", { name: "Sprint" })).toHaveTextContent("Current sprint: Second Sprint");
+
+    fireEvent.click(screen.getByRole("combobox", { name: "Sprint" }));
+    fireEvent.click(await screen.findByRole("option", { name: "Previous Sprint (Closed)" }));
+    await waitFor(() => expect(teamMock).toHaveBeenLastCalledWith(otherProject.id, previousSprint.id));
+    fireEvent.click(screen.getByRole("tab", { name: "My Tasks" }));
+    expect(screen.getByRole("combobox", { name: "Sprint" })).toHaveTextContent("Previous Sprint");
+    expect(screen.getByText("DEMO-2")).toBeInTheDocument();
+    expect(myTasksMock).toHaveBeenLastCalledWith(otherProject.id, previousSprint.id);
+    view.unmount();
+    clearDailyWorkspaceCacheForTests();
+    render(<DailyPage />);
+    await waitFor(() => expect(screen.getByRole("combobox", { name: "Team" })).toHaveTextContent(otherProject.name));
+    await waitFor(() => expect(screen.getByRole("combobox", { name: "Sprint" })).toHaveTextContent("Previous Sprint"));
+    expect(myTasksMock).toHaveBeenLastCalledWith(otherProject.id, previousSprint.id);
   });
 
   it("loads minimal My Tasks on entry and lazily loads each other tab only when opened", async () => {
