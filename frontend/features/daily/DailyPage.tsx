@@ -49,6 +49,7 @@ import type { ManagedProject, TeamMember } from "@/shared/contracts/planning";
 import { closePresenterView, generateSprintSummary, loadDailyIssueTransitions, loadJiraAvatarData, openPresenterView, publishPresenterState, refreshDailyWorkspace, subscribePresenterState, transitionDailyIssue } from "./api";
 import { loadMyTasks, loadSprintStats, loadTeamWorkspace, readManagedProjectsCache, readMyTasksCache, readSprintStatsCache, readTeamWorkspaceCache, refreshManagedProjectsCache, writeDailyWorkspaceCache, writeTeamWorkspaceCache } from "./cache";
 import { dailyStatusBadgeClass, dailyStatusTone } from "./status";
+import { readSprintSelection, sprintSelectionScope, writeSprintSelection } from "./selection";
 import { dailyProgressCategory } from "./presenterMetrics";
 import { ChartContainer, type ChartConfig } from "@/components/ui/chart";
 import { Cell, Pie, PieChart } from "recharts";
@@ -373,15 +374,19 @@ function StatusDonut({
 
 export function DailyPage() {
   const { t, language } = useI18n();
+  const [selection, setSelection] = useState(readSprintSelection);
   const [activeTab, setActiveTab] = useState<SprintWorkspaceTab>("myTasks");
   const workspaceTabRefs = useRef<Partial<Record<SprintWorkspaceTab, HTMLButtonElement | null>>>({});
   const [projects, setProjects] = useState<ManagedProject[]>(() => readManagedProjectsCache() ?? []);
-  const [selectedProjectId, setSelectedProjectId] = useState<string | undefined>(() => readManagedProjectsCache()?.[0]?.id);
+  const [selectedProjectId, setSelectedProjectId] = useState<string | undefined>(() => selection.projectId ?? readManagedProjectsCache()?.[0]?.id);
+  const selectedProject = projects.find((project) => project.id === selectedProjectId);
+  const selectionScope = selectedProject ? sprintSelectionScope(selectedProject) : undefined;
+  const pinnedSprintId = selectionScope ? selection.pinnedSprints[selectionScope] : undefined;
   const [workspace, setWorkspace] = useState<DailyWorkspace | undefined>(() => {
-    const projectId = readManagedProjectsCache()?.[0]?.id;
-    const myTasks = projectId ? readMyTasksCache(projectId) : undefined;
+    const projectId = selectedProjectId;
+    const myTasks = projectId ? readMyTasksCache(projectId, pinnedSprintId) : undefined;
     if (!myTasks) return undefined;
-    const team = readTeamWorkspaceCache(projectId!);
+    const team = readTeamWorkspaceCache(projectId!, myTasks.selectedSprintId);
     const currentUserMember = activeTeamMemberForAccount(team?.members ?? [], myTasks.currentUserAccountId)
       ?? myTasks.currentUserMember;
     return { ...myTasks, currentUserMember, sprintBoardUrl: team?.sprintBoardUrl ?? "", sprintBoardUrlsByAssignee: team?.sprintBoardUrlsByAssignee ?? {}, members: team?.members ?? [], sprintStats: EMPTY_STATS };
@@ -414,7 +419,25 @@ export function DailyPage() {
   const [aiError, setAiError] = useState<string>();
 
   const workspaceRequestRevision = useRef(0);
+  const pendingWorkspaceRequests = useRef<Partial<Record<SprintWorkspaceTab, number>>>({});
   const statusRefreshRevision = useRef(0);
+
+  useEffect(() => {
+    writeSprintSelection({ ...selection, projectId: selectedProjectId });
+  }, [selection, selectedProjectId]);
+
+  function selectSprint(sprintId?: string) {
+    if (!selectionScope) return;
+    setSprintPickerOpen(false);
+    setSelection((current) => {
+      const pinnedSprints = { ...current.pinnedSprints };
+      if (sprintId) pinnedSprints[selectionScope] = sprintId;
+      else delete pinnedSprints[selectionScope];
+      return { ...current, pinnedSprints };
+    });
+    // Re-selecting the current mode is an explicit revalidation too.
+    if (sprintId === pinnedSprintId && selectedProjectId) void refreshWorkspace(selectedProjectId, sprintId, true);
+  }
 
   useEffect(() => subscribeAppEvent(APP_EVENT.teamMembersChanged, ({ managedProjectId, members }) => {
     setWorkspace((current) => current?.managedProjectId === managedProjectId ? {
@@ -449,6 +472,7 @@ export function DailyPage() {
   const refreshWorkspace = useCallback(async (projectId: string, sprintId?: string, force = false, tab: SprintWorkspaceTab = "myTasks") => {
     const revision = workspaceRequestRevision.current + 1;
     workspaceRequestRevision.current = revision;
+    pendingWorkspaceRequests.current[tab] = revision;
     setError(undefined);
     if (tab === "myTasks") {
       setLoadingWorkspace(true);
@@ -494,14 +518,16 @@ export function DailyPage() {
         else setError(commandError(reason));
       }
     } finally {
-      if (tab === "myTasks") setLoadingWorkspace(false);
-      if (tab === "teamTasks") setLoadingTeam(false);
-      if (tab === "stats") { setLoadingStats(false); setRefreshingStatuses(false); }
+      if (pendingWorkspaceRequests.current[tab] === revision) {
+        if (tab === "myTasks") setLoadingWorkspace(false);
+        if (tab === "teamTasks") setLoadingTeam(false);
+        if (tab === "stats") { setLoadingStats(false); setRefreshingStatuses(false); }
+      }
     }
   }, []);
 
   useEffect(() => {
-    if (!selectedProjectId) {
+    if (!selectedProjectId || !selectionScope) {
       workspaceRequestRevision.current += 1;
       statusRefreshRevision.current += 1;
       setWorkspace(undefined);
@@ -512,11 +538,15 @@ export function DailyPage() {
     }
     setSelectedMemberId(undefined);
     setStatsLoadError(undefined);
-    const cachedMyTasks = readMyTasksCache(selectedProjectId);
+    pendingWorkspaceRequests.current = {};
+    setLoadingTeam(false);
+    setLoadingStats(false);
+    setRefreshingStatuses(false);
+    const cachedMyTasks = readMyTasksCache(selectedProjectId, pinnedSprintId);
     if (cachedMyTasks) {
       const cachedTeam = readTeamWorkspaceCache(selectedProjectId, cachedMyTasks.selectedSprintId);
       const cachedStats = readSprintStatsCache(selectedProjectId, cachedMyTasks.selectedSprintId);
-      setWorkspace((current) => current?.managedProjectId === selectedProjectId ? current : {
+      setWorkspace({
         ...cachedMyTasks,
         sprintBoardUrl: cachedTeam?.sprintBoardUrl ?? "",
         sprintBoardUrlsByAssignee: cachedTeam?.sprintBoardUrlsByAssignee ?? {},
@@ -526,12 +556,13 @@ export function DailyPage() {
     } else {
       setWorkspace(undefined);
     }
-    void refreshWorkspace(selectedProjectId);
+    // The automatic cache is only a preview: re-resolve the active sprint on entry.
+    void refreshWorkspace(selectedProjectId, pinnedSprintId, !pinnedSprintId);
     return undefined;
-  }, [refreshWorkspace, selectedProjectId]);
+  }, [refreshWorkspace, selectedProjectId, selectionScope, pinnedSprintId]);
 
   useEffect(() => {
-    if (!selectedProjectId || !workspace?.selectedSprintId) return;
+    if (!selectedProjectId || !workspace?.selectedSprintId || loadingWorkspace) return;
     if (activeTab === "teamTasks") {
       const cachedTeam = readTeamWorkspaceCache(selectedProjectId, workspace.selectedSprintId);
       if (cachedTeam) setWorkspace((current) => current ? { ...current, ...cachedTeam } : current);
@@ -541,7 +572,7 @@ export function DailyPage() {
       if (cachedStats) setWorkspace((current) => current ? { ...current, sprintStats: cachedStats } : current);
       else void refreshWorkspace(selectedProjectId, workspace.selectedSprintId, false, "stats");
     }
-  }, [activeTab, selectedProjectId, workspace?.selectedSprintId, refreshWorkspace]);
+  }, [activeTab, selectedProjectId, workspace?.selectedSprintId, loadingWorkspace, refreshWorkspace]);
 
 
   const owners = useMemo(
@@ -795,7 +826,7 @@ export function DailyPage() {
       : myTasksPointsUnavailableMessage;
   const sprintStats = workspace?.sprintStats;
   const currentSprintId = workspace && workspace.managedProjectId === selectedProjectId ? workspace.selectedSprintId : undefined;
-  const hasCachedMyTasks = Boolean(selectedProjectId && (currentSprintId ? readMyTasksCache(selectedProjectId, currentSprintId) : readMyTasksCache(selectedProjectId)));
+  const hasCachedMyTasks = Boolean(selectedProjectId && readMyTasksCache(selectedProjectId, currentSprintId ?? pinnedSprintId));
   const hasCachedTeamData = Boolean(selectedProjectId && currentSprintId && readTeamWorkspaceCache(selectedProjectId, currentSprintId));
   const hasCachedStats = Boolean(selectedProjectId && currentSprintId && readSprintStatsCache(selectedProjectId, currentSprintId));
   const statsHasDiagnostics = Boolean(sprintStats && (
@@ -953,7 +984,7 @@ export function DailyPage() {
             </SelectContent>
           </Select>
         ) : null}
-        {workspace ? (
+        {selectedProjectId ? (
           <Popover open={sprintPickerOpen} onOpenChange={(open) => {
             setSprintPickerOpen(open);
             if (!open) setSprintQuery("");
@@ -969,11 +1000,13 @@ export function DailyPage() {
                 disabled={loadingWorkspace}
                 className="w-fit max-w-full justify-between gap-2 px-3 font-normal"
               >
-                <span className="truncate">{selectedSprint?.name ?? t("daily.selectSprint")}</span>
+                <span className="truncate">{pinnedSprintId
+                  ? selectedSprint?.name ?? t("daily.selectSprint")
+                  : selectedSprint ? t("daily.currentSprintName", { name: selectedSprint.name }) : t("daily.currentSprint")}</span>
                 <ChevronDown aria-hidden="true" className="-mr-1 size-4 shrink-0 opacity-50" />
               </Button>
             </PopoverTrigger>
-            <PopoverContent align="start" className="w-[min(20rem,calc(100vw-2rem))] p-2">
+            <PopoverContent align="end" className="w-[min(20rem,calc(100vw-2rem))] p-2">
               <Input
                 type="search"
                 aria-label={t("daily.searchSprints")}
@@ -983,6 +1016,17 @@ export function DailyPage() {
                 className="mb-2 h-9"
               />
               <div role="listbox" aria-label={t("daily.sprint")} className="max-h-[min(18rem,calc(100vh-10rem))] overflow-y-auto">
+                <button
+                  type="button"
+                  role="option"
+                  aria-selected={!pinnedSprintId}
+                  className="flex w-full cursor-pointer select-none flex-col items-start rounded-sm px-3 py-1.5 text-left text-sm outline-none data-[pointer-hover=true]:text-primary focus-visible:text-primary aria-selected:bg-primary/10"
+                  {...directPointerMoveHover<HTMLButtonElement>({})}
+                  onClick={() => selectSprint()}
+                >
+                  <span>{t("daily.currentSprint")}</span>
+                  <span className="text-xs text-muted-foreground">{t("daily.currentSprintDescription")}</span>
+                </button>
                 {filteredSprints.length > 0 ? (
                   filteredSprints.map((sprint) => {
                       const state = sprint.state === "active"
@@ -997,12 +1041,11 @@ export function DailyPage() {
                           key={sprint.id}
                           type="button"
                           role="option"
-                          aria-selected={sprint.id === workspace.selectedSprintId}
+                          aria-selected={sprint.id === pinnedSprintId}
                           className="flex w-full cursor-pointer select-none items-center rounded-sm px-3 py-1.5 text-left text-sm outline-none data-[pointer-hover=true]:text-primary focus-visible:text-primary aria-selected:bg-primary/10"
                           {...directPointerMoveHover<HTMLButtonElement>({})}
                           onClick={() => {
-                            setSprintPickerOpen(false);
-                            if (selectedProjectId) void refreshWorkspace(selectedProjectId, sprint.id);
+                            selectSprint(sprint.id);
                           }}
                         >
                           {sprint.name} ({state})
@@ -1193,7 +1236,7 @@ export function DailyPage() {
             <Button type="button" variant="outline" size="icon" aria-label={t("daily.aiSummary")} title={t("daily.aiSummary")} className="mb-1" disabled={!workspace?.selectedSprintId} onClick={() => { setAiSprintId(workspace?.selectedSprintId ?? ""); setAiDateRange(undefined); setAiCalendarOpen(false); setAiResult(""); setAiError(undefined); setAiSummaryOpen(true); }}><Sparkles aria-hidden="true" /></Button>
             <Button type="button" variant={presenterOpen ? "secondary" : "default"} size="icon" className="mb-1" disabled={presenterBusy || !workspace || !hasCachedTeamData || loadingTeam || (!presenterOpen && !selectedMember)} aria-busy={presenterBusy} aria-pressed={presenterOpen} aria-label={presenterOpen ? t("daily.presenter.stop") : t("daily.presenter.start")} title={presenterOpen ? t("daily.presenter.stop") : t("daily.presenter.start")} onClick={() => void togglePresenter()}>{presenterOpen ? <Square aria-hidden="true" /> : <Presentation aria-hidden="true" />}</Button>
           </> : null}
-          <Button type="button" variant="outline" size="icon" aria-label={t("daily.refresh")} title={t("daily.refresh")} className="daily-workspace-refresh mb-1" disabled={!selectedProjectId || loadingWorkspace || loadingTeam || loadingStats || refreshingStatuses} onClick={() => activeTab === "myTasks" ? selectedProjectId && void refreshWorkspace(selectedProjectId, workspace?.selectedSprintId, true, "myTasks") : setRefreshConfirmOpen(true)}><RefreshCw aria-hidden="true" className={loadingWorkspace || loadingTeam || loadingStats ? "animate-spin" : undefined} /></Button>
+          <Button type="button" variant="outline" size="icon" aria-label={t("daily.refresh")} title={t("daily.refresh")} className="daily-workspace-refresh mb-1" disabled={!selectedProjectId || loadingWorkspace || loadingTeam || loadingStats || refreshingStatuses} onClick={() => activeTab === "myTasks" ? selectedProjectId && void refreshWorkspace(selectedProjectId, pinnedSprintId, true, "myTasks") : setRefreshConfirmOpen(true)}><RefreshCw aria-hidden="true" className={loadingWorkspace || loadingTeam || loadingStats ? "animate-spin" : undefined} /></Button>
         </div>
         </div>
         {activeTab !== "stats" ? <section id="sprint-panel-stats" role="tabpanel" aria-labelledby="sprint-tab-stats" hidden /> : null}
