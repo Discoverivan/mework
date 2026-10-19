@@ -519,6 +519,7 @@ export function DailyPage() {
       }
     } finally {
       if (pendingWorkspaceRequests.current[tab] === revision) {
+        delete pendingWorkspaceRequests.current[tab];
         if (tab === "myTasks") setLoadingWorkspace(false);
         if (tab === "teamTasks") setLoadingTeam(false);
         if (tab === "stats") { setLoadingStats(false); setRefreshingStatuses(false); }
@@ -562,7 +563,10 @@ export function DailyPage() {
   }, [refreshWorkspace, selectedProjectId, selectionScope, pinnedSprintId]);
 
   useEffect(() => {
-    if (!selectedProjectId || !workspace?.selectedSprintId || loadingWorkspace) return;
+    // Selection effects start My Tasks before React commits its loading state.
+    // Do not load another tab using the previous selection in that same effect pass.
+    if (!selectedProjectId || workspace?.managedProjectId !== selectedProjectId || !workspace.selectedSprintId
+      || loadingWorkspace || pendingWorkspaceRequests.current.myTasks !== undefined) return;
     if (activeTab === "teamTasks") {
       const cachedTeam = readTeamWorkspaceCache(selectedProjectId, workspace.selectedSprintId);
       if (cachedTeam) setWorkspace((current) => current ? { ...current, ...cachedTeam } : current);
@@ -1044,9 +1048,7 @@ export function DailyPage() {
                           aria-selected={sprint.id === pinnedSprintId}
                           className="flex w-full cursor-pointer select-none items-center rounded-sm px-3 py-1.5 text-left text-sm outline-none data-[pointer-hover=true]:text-primary focus-visible:text-primary aria-selected:bg-primary/10"
                           {...directPointerMoveHover<HTMLButtonElement>({})}
-                          onClick={() => {
-                            selectSprint(sprint.id);
-                          }}
+                          onClick={() => selectSprint(sprint.id)}
                         >
                           {sprint.name} ({state})
                         </button>

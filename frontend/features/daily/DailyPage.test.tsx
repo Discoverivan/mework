@@ -120,6 +120,46 @@ describe("DailyPage data loading and actions", () => {
     expect(screen.getByRole("combobox", { name: "Sprint" })).toHaveTextContent("Current sprint: Next Sprint");
   });
 
+  it("loads the selected team's sprint before its team tasks and keeps a pin when returning to My Tasks", async () => {
+    Element.prototype.scrollIntoView = vi.fn();
+    const otherProject = { ...project, id: "managed-2", name: "Example Second Team" };
+    const previousSprint = { id: "closed-2", name: "Previous Sprint", state: "closed" };
+    const otherTasks = { ...myTasks, managedProjectId: otherProject.id, selectedSprintId: "sprint-2", selectedSprintName: "Second Sprint", sprints: [{ id: "sprint-2", name: "Second Sprint", state: "active" }, previousSprint] };
+    listProjectsMock.mockResolvedValue([project, otherProject]);
+    const selectedTasks = (projectId: string, sprintId?: string) => projectId === project.id ? myTasks : {
+      ...otherTasks,
+      ...(sprintId === previousSprint.id ? {
+        selectedSprintId: previousSprint.id, selectedSprintName: previousSprint.name,
+        subtasks: [{ ...myTasks.subtasks[0], key: "DEMO-2", summary: "Example previous sprint task" }],
+      } : {}),
+    };
+    myTasksMock.mockImplementation(async (projectId, sprintId) => selectedTasks(projectId, sprintId));
+    teamMock.mockImplementation(async (projectId, sprintId) => ({ ...team, ...selectedTasks(projectId, sprintId) }));
+    const view = render(<DailyPage />);
+    await screen.findByText("DEMO-1");
+    fireEvent.click(screen.getByRole("tab", { name: "Team Tasks" }));
+    await waitFor(() => expect(teamMock).toHaveBeenCalledTimes(1));
+
+    fireEvent.click(screen.getByRole("combobox", { name: "Team" }));
+    fireEvent.click(await screen.findByRole("option", { name: otherProject.name }));
+    await waitFor(() => expect(teamMock).toHaveBeenLastCalledWith(otherProject.id, "sprint-2"));
+    expect(screen.getByRole("combobox", { name: "Sprint" })).toHaveTextContent("Current sprint: Second Sprint");
+
+    fireEvent.click(screen.getByRole("combobox", { name: "Sprint" }));
+    fireEvent.click(await screen.findByRole("option", { name: "Previous Sprint (Closed)" }));
+    await waitFor(() => expect(teamMock).toHaveBeenLastCalledWith(otherProject.id, previousSprint.id));
+    fireEvent.click(screen.getByRole("tab", { name: "My Tasks" }));
+    expect(screen.getByRole("combobox", { name: "Sprint" })).toHaveTextContent("Previous Sprint");
+    expect(screen.getByText("DEMO-2")).toBeInTheDocument();
+    expect(myTasksMock).toHaveBeenLastCalledWith(otherProject.id, previousSprint.id);
+    view.unmount();
+    clearDailyWorkspaceCacheForTests();
+    render(<DailyPage />);
+    await waitFor(() => expect(screen.getByRole("combobox", { name: "Team" })).toHaveTextContent(otherProject.name));
+    await waitFor(() => expect(screen.getByRole("combobox", { name: "Sprint" })).toHaveTextContent("Previous Sprint"));
+    expect(myTasksMock).toHaveBeenLastCalledWith(otherProject.id, previousSprint.id);
+  });
+
   it("loads minimal My Tasks on entry and lazily loads each other tab only when opened", async () => {
     render(<DailyPage />);
     expect(await screen.findByText("DEMO-1")).toBeInTheDocument();
