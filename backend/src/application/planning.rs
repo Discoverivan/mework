@@ -1278,20 +1278,16 @@ pub async fn sync_team_members(
     let project = planning_repositories::get_managed_project(pool, managed_project_id)
         .await
         .map_err(|_| command_error("not_found", "Managed project was not found", false))?;
-    let integration = repositories::get_integration(pool, &project.integration_id)
-        .await
-        .map_err(|_| command_error("not_found", "Jira integration was not found", false))?;
-    let mut builder = reqwest::Client::builder().timeout(Duration::from_secs(30));
-    if integration.allow_insecure_tls {
-        builder = builder.danger_accept_invalid_certs(true);
-    }
-    let http = builder.build().map_err(|_| {
-        command_error(
-            "transport_unavailable",
-            "Jira transport is unavailable",
-            true,
-        )
-    })?;
+    let http = reqwest::Client::builder()
+        .timeout(Duration::from_secs(30))
+        .build()
+        .map_err(|_| {
+            command_error(
+                "transport_unavailable",
+                "Jira transport is unavailable",
+                true,
+            )
+        })?;
     let (client, _) = planning_read_client(
         pool,
         &project,
