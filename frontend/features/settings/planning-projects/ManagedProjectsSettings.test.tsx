@@ -11,6 +11,7 @@ import {
   removePlanningTeamMember,
   reorderPlanningTeamMembers,
   searchPlanningTeamMembers,
+  syncPlanningTeamMembers,
 } from "../../planning/api";
 import { deleteManagedProject, listManagedProjects, saveManagedProject } from "./api";
 
@@ -29,6 +30,7 @@ vi.mock("../../planning/api", () => ({
   removePlanningTeamMember: vi.fn(),
   reorderPlanningTeamMembers: vi.fn(),
   searchPlanningTeamMembers: vi.fn(),
+  syncPlanningTeamMembers: vi.fn(),
 }));
 
 const listProjectsMock = vi.mocked(listManagedProjects);
@@ -78,6 +80,32 @@ beforeEach(() => {
 });
 
 describe("ManagedProjectsSettings task creation settings", () => {
+  it("replaces the configured team from active sprint assignees and locks only the member controls", async () => {
+    listMembersMock.mockResolvedValue([{ accountId: "user-old", displayName: "Example Previous Member", tags: ["backend"], active: true }]);
+    const members = [{ accountId: "user-new", displayName: "Example Sprint Member", tags: [], active: true }];
+    let finishSync!: (value: typeof members) => void;
+    vi.mocked(syncPlanningTeamMembers).mockReturnValue(new Promise((resolve) => { finishSync = resolve; }));
+    render(<ManagedProjectsSettings jiraIntegrations={[{
+      id: "jira-1", kind: "jira", baseUrl: "https://jira.example.invalid", enabled: true, capabilities: {},
+    }]} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Open Platform team project details" }));
+    await screen.findByRole("button", { name: "Edit Example Previous Member" });
+    const sync = screen.getByRole("button", { name: "Sync from sprint" });
+    const add = screen.getByRole("button", { name: "Add team member" });
+    expect(sync.compareDocumentPosition(add) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    fireEvent.click(sync);
+    expect(syncPlanningTeamMembers).toHaveBeenCalledExactlyOnceWith(project.id);
+    expect(screen.getByRole("button", { name: "Syncing…" })).toBeDisabled();
+    expect(add).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Delete Example Previous Member" })).toBeDisabled();
+    await waitFor(() => expect(screen.getByRole("combobox", { name: "Default sprint" })).toBeEnabled());
+    finishSync(members);
+    expect(await screen.findByRole("button", { name: "Edit Example Sprint Member" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Edit Example Previous Member" })).not.toBeInTheDocument();
+    expect(screen.getByRole("status")).toHaveTextContent("Team replaced with sprint assignees: 1.");
+    expect(add).toBeEnabled();
+  });
+
   it("keeps team details mounted during collapse and opens them again", async () => {
     const { container } = render(<ManagedProjectsSettings jiraIntegrations={[{
       id: "jira-1", kind: "jira", baseUrl: "https://jira.example.invalid", enabled: true, capabilities: {},

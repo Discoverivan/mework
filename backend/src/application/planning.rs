@@ -1,7 +1,9 @@
 pub mod sync;
+#[cfg(test)]
+mod team_sync_tests;
 
 use std::collections::{BTreeMap, BTreeSet};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
 
 use base64::Engine;
@@ -1252,6 +1254,194 @@ pub async fn list_configured_team_members(
         .unwrap_or_default())
 }
 
+type TeamMemberLocks = Mutex<BTreeMap<(String, String), Arc<tokio::sync::Mutex<()>>>>;
+static TEAM_MEMBER_LOCKS: OnceLock<TeamMemberLocks> = OnceLock::new();
+
+fn team_members_lock(project: &ManagedProject) -> Arc<tokio::sync::Mutex<()>> {
+    TEAM_MEMBER_LOCKS
+        .get_or_init(Mutex::default)
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .entry((
+            project.integration_id.clone(),
+            project.jira_project_id.clone(),
+        ))
+        .or_default()
+        .clone()
+}
+
+pub async fn sync_team_members(
+    pool: &SqlitePool,
+    managed_project_id: &str,
+) -> Result<Vec<TeamMemberDto>, PlanningCommandError> {
+    let keyring = planning_credential_store(pool).await?;
+    let project = planning_repositories::get_managed_project(pool, managed_project_id)
+        .await
+        .map_err(|_| command_error("not_found", "Managed project was not found", false))?;
+    let http = reqwest::Client::builder()
+        .timeout(Duration::from_secs(30))
+        .build()
+        .map_err(|_| {
+            command_error(
+                "transport_unavailable",
+                "Jira transport is unavailable",
+                true,
+            )
+        })?;
+    let (client, _) = planning_read_client(
+        pool,
+        &project,
+        keyring.as_ref(),
+        Arc::new(ReqwestPlanningTransport::new(http)),
+    )
+    .await?;
+    sync_team_members_with_client(pool, &project, &client).await
+}
+
+async fn sync_team_members_with_client(
+    pool: &SqlitePool,
+    project: &ManagedProject,
+    client: &JiraPlanningClient,
+) -> Result<Vec<TeamMemberDto>, PlanningCommandError> {
+    let member_lock = team_members_lock(project);
+    let _member_guard = member_lock.lock().await;
+    let board_id = project
+        .board_id
+        .as_deref()
+        .filter(|id| !id.trim().is_empty())
+        .ok_or_else(|| command_error("missing_metadata", "Jira board is required", false))?;
+    let sprints = client
+        .list_active_sprints(board_id, 100)
+        .await
+        .map_err(|error| {
+            map_read_error_at(
+                error,
+                "sync_team_members",
+                "/rest/agile/1.0/board/{board}/sprint",
+            )
+        })?;
+    if sprints.total != sprints.values.len() as u64 {
+        return Err(command_error(
+            "invalid_response",
+            "Jira sprint list is incomplete",
+            true,
+        ));
+    }
+    if sprints.values.is_empty() {
+        return Err(command_error(
+            "no_active_sprint",
+            "The board has no active sprint",
+            false,
+        ));
+    }
+    let mut assignees = BTreeMap::new();
+    for sprint in sprints.values {
+        let users = client
+            .list_board_sprint_assignees(board_id, &sprint.id)
+            .await
+            .map_err(|error| {
+                map_read_error_at(
+                    error,
+                    "sync_team_members",
+                    "/rest/agile/1.0/board/{board}/sprint/{sprint}/issue",
+                )
+            })?;
+        for user in users {
+            assignees
+                .entry(user.account_id.to_lowercase())
+                .or_insert(user);
+        }
+    }
+    if assignees.is_empty() {
+        return Err(command_error(
+            "no_sprint_assignees",
+            "Active sprints have no assignees",
+            false,
+        ));
+    }
+    let now = timestamp();
+    let (mut preset, previous_members) = planning_repositories::list_team_presets(
+        pool,
+        &project.integration_id,
+        &project.jira_project_id,
+    )
+    .await
+    .map_err(db_error)?
+    .into_iter()
+    .find(|(preset, _)| preset.name == "Project team")
+    .unwrap_or_else(|| {
+        (
+            TeamPreset {
+                id: Uuid::now_v7().to_string(),
+                integration_id: project.integration_id.clone(),
+                jira_project_id: project.jira_project_id.clone(),
+                name: "Project team".into(),
+                display_color: None,
+                selected: false,
+                created_at: now.clone(),
+                updated_at: now.clone(),
+            },
+            Vec::new(),
+        )
+    });
+    preset.updated_at = now.clone();
+    let mut next_order = previous_members
+        .iter()
+        .map(|member| member.display_order)
+        .max()
+        .unwrap_or(-1)
+        .saturating_add(1);
+    let mut previous_members = previous_members
+        .into_iter()
+        .map(|member| (member.account_id.to_lowercase(), member))
+        .collect::<BTreeMap<_, _>>();
+    let mut users = assignees.into_values().collect::<Vec<_>>();
+    users.sort_by(|a, b| {
+        a.display_name
+            .cmp(&b.display_name)
+            .then_with(|| a.account_id.cmp(&b.account_id))
+    });
+    let mut members = users
+        .into_iter()
+        .map(|user| {
+            let mut member = previous_members
+                .remove(&user.account_id.to_lowercase())
+                .unwrap_or_else(|| {
+                    let display_order = next_order;
+                    next_order = next_order.saturating_add(1);
+                    TeamMember {
+                        id: Uuid::now_v7().to_string(),
+                        preset_id: preset.id.clone(),
+                        account_id: user.account_id.clone(),
+                        display_name: user.display_name.clone(),
+                        alias: None,
+                        avatar_url: None,
+                        tags_json: "[]".into(),
+                        active: true,
+                        display_order,
+                        created_at: now.clone(),
+                        updated_at: now.clone(),
+                    }
+                });
+            member.account_id = user.account_id;
+            member.display_name = user.display_name;
+            member.avatar_url = user.avatar_url;
+            member.active = user.active.unwrap_or(true);
+            member.updated_at = now.clone();
+            member
+        })
+        .collect::<Vec<_>>();
+    members.sort_by(|a, b| {
+        a.display_order
+            .cmp(&b.display_order)
+            .then_with(|| a.account_id.cmp(&b.account_id))
+    });
+    planning_repositories::upsert_team_preset(pool, &preset, &members)
+        .await
+        .map_err(db_error)?;
+    Ok(members.into_iter().map(team_member_dto).collect())
+}
+
 pub async fn search_team_members(
     pool: &SqlitePool,
     request: TeamMemberSearchRequest,
@@ -1333,6 +1523,8 @@ pub async fn add_team_member(
     let project = planning_repositories::get_managed_project(pool, &request.managed_project_id)
         .await
         .map_err(|_| command_error("not_found", "managed project was not found", false))?;
+    let member_lock = team_members_lock(&project);
+    let _member_guard = member_lock.lock().await;
     let existing_presets = planning_repositories::list_team_presets(
         pool,
         &project.integration_id,
@@ -1387,7 +1579,12 @@ pub async fn add_team_member(
             avatar_url: request.avatar_url.clone(),
             tags_json,
             active: true,
-            display_order: members.len() as i64,
+            display_order: members
+                .iter()
+                .map(|member| member.display_order)
+                .max()
+                .unwrap_or(-1)
+                .saturating_add(1),
             created_at: now.clone(),
             updated_at: now.clone(),
         };
@@ -1416,6 +1613,8 @@ pub async fn remove_team_member(
     let project = planning_repositories::get_managed_project(pool, managed_project_id)
         .await
         .map_err(|_| command_error("not_found", "managed project was not found", false))?;
+    let member_lock = team_members_lock(&project);
+    let _member_guard = member_lock.lock().await;
     let existing_presets = planning_repositories::list_team_presets(
         pool,
         &project.integration_id,
@@ -1456,6 +1655,8 @@ pub async fn reorder_team_members(
     let project = planning_repositories::get_managed_project(pool, &request.managed_project_id)
         .await
         .map_err(|_| command_error("not_found", "managed project was not found", false))?;
+    let member_lock = team_members_lock(&project);
+    let _member_guard = member_lock.lock().await;
     let (preset, members) = planning_repositories::list_team_presets(
         pool,
         &project.integration_id,

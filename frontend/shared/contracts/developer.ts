@@ -70,6 +70,7 @@ export interface DailyMyTasksDto {
   projectKey: string;
   selectedSprintId: string;
   selectedSprintName: string;
+  sprintBoardUrl: string;
   currentUserAccountId: string | null;
   currentUserMember: TeamMember | null;
   sprints: DailySprint[];

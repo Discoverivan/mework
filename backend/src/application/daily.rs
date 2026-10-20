@@ -96,6 +96,7 @@ pub struct DailyMyTasksDto {
     pub project_key: String,
     pub selected_sprint_id: String,
     pub selected_sprint_name: String,
+    pub sprint_board_url: String,
     pub current_user_account_id: Option<String>,
     pub current_user_member: Option<TeamMemberDto>,
     pub sprints: Vec<DailySprintDto>,
@@ -629,6 +630,17 @@ pub async fn load_daily_my_tasks(
         "future" => 1,
         _ => 2,
     });
+    let sprint_board_url = selected
+        .map(|sprint| {
+            jira_sprint_board_url(
+                &integration.base_url,
+                board_id,
+                &project.jira_project_key,
+                &sprint.id,
+            )
+        })
+        .transpose()?
+        .unwrap_or_default();
     Ok(DailyMyTasksDto {
         managed_project_id: project.id,
         project_name: project.jira_project_name,
@@ -637,6 +649,7 @@ pub async fn load_daily_my_tasks(
         selected_sprint_name: selected
             .map(|sprint| sprint.name.clone())
             .unwrap_or_default(),
+        sprint_board_url,
         current_user_account_id,
         current_user_member,
         sprints: sprint_dtos,

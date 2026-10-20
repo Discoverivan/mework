@@ -1,5 +1,6 @@
 import { Hint } from "@/components/ui/tooltip";
-import { ChevronDown, GripVertical, LoaderCircle, Pencil, Trash2 } from "lucide-react";
+import { ChevronDown, GripVertical, LoaderCircle, Pencil, RefreshCw, Trash2 } from "lucide-react";
+import { APP_EVENT, subscribeAppEvent } from "@/app/app-events";
 import { createPortal } from "react-dom";
 import { Fragment, useEffect, useRef, useState, type FormEvent } from "react";
 import { PageHeader } from "@/components/shared/PageHeader";
@@ -37,6 +38,7 @@ import {
   reorderPlanningTeamMembers,
   removePlanningTeamMember,
   searchPlanningTeamMembers,
+  syncPlanningTeamMembers,
 } from "../../planning/api";
 import type { ManagedProjectSaveInput } from "@/shared/contracts/settings";
 import { deleteManagedProject, listManagedProjects, saveManagedProject } from "./api";
@@ -265,6 +267,11 @@ export function ManagedProjectsSettings({
   const [boardsError, setBoardsError] = useState<string | null>(null);
 
   const [configuredMembers, setConfiguredMembers] = useState<TeamMember[]>([]);
+  const [memberSyncStates, setMemberSyncStates] = useState<Record<string, { pending: boolean; error?: string; count?: number }>>({});
+  const memberSyncRequests = useRef(new Set<string>());
+  const memberReadRevision = useRef(0);
+  const detailProjectId = useRef<string | undefined>(undefined);
+  detailProjectId.current = detailProject?.id;
   const [memberSearch, setMemberSearch] = useState("");
   const [memberSearchResults, setMemberSearchResults] = useState<TeamMember[]>([]);
   const [selectedSearchMember, setSelectedSearchMember] = useState<TeamMember | null>(null);
@@ -342,6 +349,7 @@ export function ManagedProjectsSettings({
     if (!detailProject) return undefined;
 
     let active = true;
+    const memberRevision = ++memberReadRevision.current;
     setMemberLoadError(null);
     setTeamSaveError(null);
     setConfiguredMembers([]);
@@ -362,13 +370,13 @@ export function ManagedProjectsSettings({
 
     listPlanningConfiguredTeamMembers(detailProject.id)
       .then((members) => {
-        if (active) {
+        if (active && memberReadRevision.current === memberRevision) {
           const loadedMembers = Array.isArray(members) ? members : [];
           setConfiguredMembers(loadedMembers);
         }
       })
       .catch((error) => {
-        if (active) setMemberLoadError(commandError(error));
+        if (active && memberReadRevision.current === memberRevision) setMemberLoadError(commandError(error));
       });
 
     listTargetSprints(detailProject.id)
@@ -386,6 +394,13 @@ export function ManagedProjectsSettings({
       active = false;
     };
   }, [detailProject]);
+
+  useEffect(() => subscribeAppEvent(APP_EVENT.teamMembersChanged, ({ managedProjectId, members }) => {
+    if (detailProjectId.current !== managedProjectId) return;
+    memberReadRevision.current += 1;
+    setConfiguredMembers(members);
+    setMemberLoadError(null);
+  }), []);
 
   useEffect(() => {
     const query = memberSearch.trim();
@@ -421,6 +436,8 @@ export function ManagedProjectsSettings({
   const errors = form ? formErrors(form, t) : [];
   const addDetailsErrors = form ? addTeamDetailsErrors(form, t) : [];
   const controlsDisabled = action !== null || teamSaving;
+  const memberSyncState = detailProject ? memberSyncStates[detailProject.id] : undefined;
+  const memberControlsDisabled = controlsDisabled || memberSyncState?.pending === true;
   const formSession = useRef(0);
   const dismissDisabled = action !== null || teamSaving;
   const taskCreationDraft = taskCreationDefaults({
@@ -484,6 +501,7 @@ export function ManagedProjectsSettings({
   }
 
   function openAddMemberDialog() {
+    if (memberControlsDisabled) return;
     setEditingMemberAccountId(null);
     setSelectedSearchMember(null);
     setMemberSearch("");
@@ -493,6 +511,7 @@ export function ManagedProjectsSettings({
   }
 
   function openEditMemberDialog(member: TeamMember) {
+    if (memberControlsDisabled) return;
     setEditingMemberAccountId(member.accountId);
     setSelectedSearchMember(member);
     setMemberRole(member.tags[0] ?? "");
@@ -785,8 +804,32 @@ export function ManagedProjectsSettings({
     }
   }
 
+  async function handleSyncTeamMembers() {
+    if (!detailProject || memberControlsDisabled || memberSyncRequests.current.has(detailProject.id)) return;
+    const projectId = detailProject.id;
+    memberSyncRequests.current.add(projectId);
+    setMemberSyncStates((current) => ({ ...current, [projectId]: { pending: true } }));
+    try {
+      const members = await syncPlanningTeamMembers(projectId);
+      if (detailProjectId.current === projectId) {
+        memberReadRevision.current += 1;
+        setConfiguredMembers(members);
+        setMemberLoadError(null);
+      }
+      setMemberSyncStates((current) => ({ ...current, [projectId]: { pending: false, count: members.length } }));
+    } catch (error) {
+      const code = typeof error === "object" && error !== null ? (error as { code?: string }).code : undefined;
+      const message = code === "no_active_sprint" ? t("teams.syncMembersNoSprint")
+        : code === "no_sprint_assignees" ? t("teams.syncMembersNoAssignees")
+        : t("teams.syncMembersError", { error: commandError(error) });
+      setMemberSyncStates((current) => ({ ...current, [projectId]: { pending: false, error: message } }));
+    } finally {
+      memberSyncRequests.current.delete(projectId);
+    }
+  }
+
   async function handleAddTeamMember() {
-    if (!detailProject || !selectedSearchMember || !memberRole || teamSaving) return;
+    if (!detailProject || !selectedSearchMember || !memberRole || memberControlsDisabled) return;
     setTeamSaving(true);
     setTeamSaveError(null);
     try {
@@ -817,7 +860,7 @@ export function ManagedProjectsSettings({
   }
 
   async function handleSaveMemberDialog() {
-    if (!detailProject || !selectedSearchMember || !memberRole || controlsDisabled || !memberChanged) return;
+    if (!detailProject || !selectedSearchMember || !memberRole || memberControlsDisabled || !memberChanged) return;
     if (!editingMemberAccountId) {
       await handleAddTeamMember();
       return;
@@ -843,7 +886,7 @@ export function ManagedProjectsSettings({
   }
 
   async function handleRemoveTeamMember(accountId: string) {
-    if (!detailProject || controlsDisabled) return;
+    if (!detailProject || memberControlsDisabled) return;
     setTeamSaving(true);
     setRemovingMemberAccountId(accountId);
     setDeleteError(null);
@@ -888,7 +931,7 @@ export function ManagedProjectsSettings({
     dropInsertionIndex.current = null;
     setDraggingMemberAccountId(null);
     setPointerDropInsertionIndex(null);
-    if (!detailProject || !draggedAccountId || insertionIndex === null || teamSaving) return;
+    if (!detailProject || !draggedAccountId || insertionIndex === null || memberControlsDisabled) return;
 
     const currentIds = configuredMembers.map((member) => member.accountId);
     const nextIds = reorderMemberIdsAtInsertionIndex(currentIds, draggedAccountId, insertionIndex);
@@ -977,7 +1020,7 @@ export function ManagedProjectsSettings({
                           actionTone="edit"
                           className="size-8 [&_svg]:size-[18px]"
                           onClick={() => startEdit(project)}
-                          disabled={controlsDisabled}
+                          disabled={controlsDisabled || memberSyncStates[project.id]?.pending === true}
                           aria-label={t("teams.editTeamAction", { team: project.projectName })}
                           title={t("common.edit")}
                         >
@@ -990,7 +1033,7 @@ export function ManagedProjectsSettings({
                           actionTone="delete"
                           className="size-8 text-muted-foreground hover:bg-transparent hover:text-destructive [&_svg]:size-[18px]"
                           onClick={() => { setDeleteError(null); setDeleteTarget({ kind: "team", project }); }}
-                          disabled={controlsDisabled}
+                          disabled={controlsDisabled || memberSyncStates[project.id]?.pending === true}
                           aria-label={t(deletingProjectId === project.id ? "teams.deletingTeamAction" : "teams.deleteTeamAction", { team: project.projectName })}
                           title={t("common.delete")}
                         >
@@ -1354,9 +1397,17 @@ export function ManagedProjectsSettings({
             <section className="grid gap-2" aria-label={t("teams.members")}>
             <div className="flex items-center justify-between gap-3">
               <h3 className="font-semibold">{t("teams.members")}</h3>
-              <CreateButton label={t("teams.addMemberAction")} aria-label={t("teams.addMember")} title={t("teams.addMember")} onClick={openAddMemberDialog} disabled={controlsDisabled} />
+              <div data-slot="control-group" className="flex items-center">
+                <Button type="button" variant="outline" size="sm" actionTone="neutral" title={t("teams.syncMembersDescription")} onClick={() => void handleSyncTeamMembers()} disabled={memberControlsDisabled || !detailProject.boardId} aria-busy={memberSyncState?.pending === true}>
+                  {memberSyncState?.pending ? <LoaderCircle aria-hidden="true" className="animate-spin" /> : <RefreshCw aria-hidden="true" />}
+                  {t(memberSyncState?.pending ? "teams.syncingMembers" : "teams.syncMembers")}
+                </Button>
+                <CreateButton label={t("teams.addMemberAction")} aria-label={t("teams.addMember")} title={t("teams.addMember")} onClick={openAddMemberDialog} disabled={memberControlsDisabled} />
+              </div>
             </div>
             <Separator className="-mt-1" />
+            {memberSyncState?.error ? <Alert variant="destructive" role="alert" className="px-4 py-3"><AlertDescription>{memberSyncState.error}</AlertDescription></Alert> : null}
+            {memberSyncState?.count !== undefined ? <Alert role="status" className="px-4 py-3"><AlertDescription>{t("teams.syncMembersSuccess", { count: memberSyncState.count })}</AlertDescription></Alert> : null}
             <Dialog open={memberDialogOpen} onOpenChange={(open) => { if (open) setMemberDialogOpen(true); else closeMemberDialog(); }}>
               <DialogContent>
                 <DialogHeader>
@@ -1378,7 +1429,7 @@ export function ManagedProjectsSettings({
                 }}
                 placeholder={t("teams.memberSearchPlaceholder")}
                 autoComplete="off"
-                disabled={controlsDisabled}
+                disabled={memberControlsDisabled}
               />
               {memberSearch.trim().length > 0 && memberSearch.trim().length < 3 ? (
                 <p className="text-sm text-muted-foreground">{t("teams.memberSearchHint")}</p>
@@ -1425,7 +1476,7 @@ export function ManagedProjectsSettings({
                 <div className="grid gap-2 sm:max-w-xs">
                   <Label htmlFor="team-member-role">{t("teams.role")}</Label>
                   <div>
-                    <Select value={memberRole || NO_SELECTION} onValueChange={(value) => setMemberRole(value === NO_SELECTION ? "" : value)} disabled={controlsDisabled}>
+                    <Select value={memberRole || NO_SELECTION} onValueChange={(value) => setMemberRole(value === NO_SELECTION ? "" : value)} disabled={memberControlsDisabled}>
                       <SelectTrigger id="team-member-role" aria-label={t("teams.roleFor", { member: selectedSearchMember.displayName })}><SelectValue /></SelectTrigger>
                       <SelectContent>
                         <SelectItem value={NO_SELECTION}>{t("teams.chooseRole")}</SelectItem>
@@ -1441,7 +1492,7 @@ export function ManagedProjectsSettings({
                     value={memberAlias}
                     onChange={(event) => setMemberAlias(event.target.value)}
                     placeholder={t("teams.displayName")}
-                    disabled={controlsDisabled}
+                    disabled={memberControlsDisabled}
                   />
                 </div>
                 <DialogFooter>
@@ -1450,11 +1501,11 @@ export function ManagedProjectsSettings({
                     variant="ghost"
                     data-dialog-cancel
                     onClick={closeMemberDialog}
-                    disabled={controlsDisabled}
+                    disabled={memberControlsDisabled}
                   >
                     {t("settings.common.cancel")}
                   </Button>
-                  <Button type="button" actionTone={editingMemberAccountId ? "edit" : "add"} onClick={() => void handleSaveMemberDialog()} disabled={!memberRole || controlsDisabled || !memberChanged}>
+                  <Button type="button" actionTone={editingMemberAccountId ? "edit" : "add"} onClick={() => void handleSaveMemberDialog()} disabled={!memberRole || memberControlsDisabled || !memberChanged}>
                     {teamSaving ? t("settings.common.saving") : editingMemberAccountId ? t("settings.common.save") : t("teams.addMemberAction")}
                   </Button>
                 </DialogFooter>
@@ -1481,7 +1532,7 @@ export function ManagedProjectsSettings({
                         className="cursor-grab touch-none text-muted-foreground active:cursor-grabbing"
                         aria-label={t("teams.dragMember", { member: label })}
                         onPointerDown={(event) => {
-                          if (controlsDisabled || event.button !== 0) return;
+                          if (memberControlsDisabled || event.button !== 0) return;
                           event.preventDefault();
                           event.currentTarget.setPointerCapture(event.pointerId);
                           draggedMemberAccountId.current = member.accountId;
@@ -1528,7 +1579,7 @@ export function ManagedProjectsSettings({
                         actionTone="edit"
                         className="size-8 [&_svg]:size-[18px]"
                         onClick={() => openEditMemberDialog(member)}
-                        disabled={controlsDisabled}
+                        disabled={memberControlsDisabled}
                         aria-label={t("teams.editMemberAction", { member: label })}
                         title={t("common.edit")}
                       >
@@ -1541,7 +1592,7 @@ export function ManagedProjectsSettings({
                         actionTone="delete"
                         className="size-8 text-muted-foreground hover:bg-transparent hover:text-destructive [&_svg]:size-[18px]"
                         onClick={() => { setDeleteError(null); setDeleteTarget({ kind: "member", member }); }}
-                        disabled={controlsDisabled}
+                        disabled={memberControlsDisabled}
                         aria-label={t(removingMemberAccountId === member.accountId ? "teams.deletingMemberAction" : "teams.deleteMemberAction", { member: label })}
                         title={t("common.delete")}
                       >
