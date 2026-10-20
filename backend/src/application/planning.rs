@@ -1583,7 +1583,12 @@ pub async fn add_team_member(
             avatar_url: request.avatar_url.clone(),
             tags_json,
             active: true,
-            display_order: members.len() as i64,
+            display_order: members
+                .iter()
+                .map(|member| member.display_order)
+                .max()
+                .unwrap_or(-1)
+                .saturating_add(1),
             created_at: now.clone(),
             updated_at: now.clone(),
         };

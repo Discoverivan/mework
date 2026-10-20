@@ -706,7 +706,6 @@ export function DailyPage() {
     if (workspaceRequestRevision.current !== workspaceRevision) return;
     const revision = (statusRefreshRevisions.current.get(task.key) ?? 0) + 1;
     statusRefreshRevisions.current.set(task.key, revision);
-    setRefreshingStatuses(false);
     setWorkspace((current) => {
       if (!current || current.managedProjectId !== managedProjectId || current.selectedSprintId !== sprintId) return current;
       const nextWorkspace = {

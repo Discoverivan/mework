@@ -126,6 +126,29 @@ async fn sync_team_members_replaces_roster_with_unique_assignees_from_all_pages_
         serde_json::to_value(persisted).unwrap(),
         serde_json::to_value(members).unwrap()
     );
+    add_team_member(
+        &pool,
+        TeamMemberAddRequest {
+            managed_project_id: project.id.clone(),
+            account_id: "user-0".into(),
+            display_name: "Example Added Member".into(),
+            alias: None,
+            avatar_url: None,
+            role: "backend".into(),
+        },
+    )
+    .await
+    .unwrap();
+    let updated = list_configured_team_members(&pool, &project.id)
+        .await
+        .unwrap();
+    assert_eq!(
+        updated
+            .iter()
+            .map(|member| member.account_id.as_str())
+            .collect::<Vec<_>>(),
+        ["user-a", "user-b", "user-0"]
+    );
     server.verify().await;
 }
 
