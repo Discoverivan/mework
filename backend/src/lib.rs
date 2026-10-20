@@ -542,6 +542,7 @@ pub fn run() {
             commands::planning::planning_team_preset_remove,
             commands::planning::planning_team_members,
             commands::planning::planning_team_members_configured,
+            commands::planning::planning_team_members_sync,
             commands::planning::planning_team_members_search,
             commands::planning::planning_team_member_add,
             commands::planning::planning_team_member_remove,

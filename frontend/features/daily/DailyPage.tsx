@@ -46,8 +46,8 @@ import {
 import { Table, TableBody, TableCaption, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import type { DailyIssueTransition, DailySprintStats, DailySubtask, DailyWorkspace } from "@/shared/contracts/developer";
 import type { ManagedProject, TeamMember } from "@/shared/contracts/planning";
-import { closePresenterView, generateSprintSummary, loadDailyIssueTransitions, loadJiraAvatarData, openPresenterView, publishPresenterState, refreshDailyWorkspace, subscribePresenterState, transitionDailyIssue } from "./api";
-import { loadMyTasks, loadSprintStats, loadTeamWorkspace, readManagedProjectsCache, readMyTasksCache, readSprintStatsCache, readTeamWorkspaceCache, refreshManagedProjectsCache, writeDailyWorkspaceCache, writeTeamWorkspaceCache } from "./cache";
+import { closePresenterView, generateSprintSummary, loadDailyIssueTransitions, loadDailyMyTasks, loadJiraAvatarData, openPresenterView, publishPresenterState, refreshDailyWorkspace, subscribePresenterState, transitionDailyIssue } from "./api";
+import { loadMyTasks, loadSprintStats, loadTeamWorkspace, readManagedProjectsCache, readMyTasksCache, readSprintStatsCache, readTeamWorkspaceCache, refreshManagedProjectsCache, updateDailyTaskCache, writeTeamWorkspaceCache } from "./cache";
 import { dailyStatusBadgeClass, dailyStatusTone } from "./status";
 import { readSprintSelection, sprintSelectionScope, writeSprintSelection } from "./selection";
 import { dailyProgressCategory } from "./presenterMetrics";
@@ -334,6 +334,81 @@ function TaskStatusMenu({
   );
 }
 
+function DailyTaskRow({ subtask, managedProjectId, sprintId, showAssignee = false, onTransition, onError, onOpen, onCopy }: {
+  subtask: DailySubtask;
+  managedProjectId: string;
+  sprintId: string;
+  showAssignee?: boolean;
+  onTransition: (task: DailySubtask, transition: DailyIssueTransition) => Promise<void>;
+  onError: (message?: string) => void;
+  onOpen: (url: string) => Promise<void>;
+  onCopy: (value: string, notice: string) => Promise<void>;
+}) {
+  const { t } = useI18n();
+  return (
+    <article className="daily-task-row">
+      <Hint content={t("daily.openInJira")}><button
+        type="button"
+        className="daily-task-key daily-task-link"
+        onClick={() => void onOpen(subtask.url)}
+      >
+        {subtask.key}
+      </button></Hint>
+      <span className="daily-task-summary">
+        <strong>{subtask.summary}</strong>
+        <small>
+          {subtask.issueType}
+          {subtask.parentIssueKey ? ` · ${t("daily.parent", { key: subtask.parentIssueKey })}` : ""}
+          {showAssignee && subtask.assigneeDisplayName ? ` · ${subtask.assigneeDisplayName}` : ""}
+        </small>
+      </span>
+      <span className="daily-task-points">SP {subtask.storyPoints ?? "—"}</span>
+      <TaskStatusMenu
+        managedProjectId={managedProjectId}
+        sprintId={sprintId}
+        task={subtask}
+        onTransition={onTransition}
+        onError={onError}
+      />
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button type="button" variant="ghost" size="icon" className="daily-task-menu size-8" aria-label={t("daily.actions", { key: subtask.key })}>
+            <MoreHorizontal aria-hidden="true" />
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end" className="w-max min-w-0 max-w-[var(--radix-dropdown-menu-content-available-width)]">
+          <DropdownMenuItem onSelect={() => void onOpen(subtask.url)}>
+            <ExternalLink aria-hidden="true" />
+            {t("daily.openInJira")}
+          </DropdownMenuItem>
+          {subtask.parentUrl && subtask.parentIssueKey ? (
+            <DropdownMenuItem
+              className="items-start"
+              aria-label={t("daily.openParentInJira", { key: subtask.parentIssueKey })}
+              onSelect={() => void onOpen(subtask.parentUrl!)}
+            >
+              <ExternalLink aria-hidden="true" className="mt-0.5" />
+              <span className="flex min-w-0 flex-col">
+                <span>{t("daily.openParent")}</span>
+                <span className="truncate text-xs text-muted-foreground">{subtask.parentIssueKey}</span>
+              </span>
+            </DropdownMenuItem>
+          ) : null}
+          <DropdownMenuSeparator className="mx-2 my-1.5 w-auto bg-border" />
+          <DropdownMenuItem onSelect={() => void onCopy(subtask.key, t("daily.keyCopied", { key: subtask.key }))}>
+            <Copy aria-hidden="true" />
+            {t("daily.copyKey")}
+          </DropdownMenuItem>
+          <DropdownMenuItem onSelect={() => void onCopy(subtask.url, t("daily.linkCopied", { key: subtask.key }))}>
+            <Copy aria-hidden="true" />
+            {t("daily.copyLink")}
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+    </article>
+  );
+}
+
 type SprintWorkspaceTab = "myTasks" | "teamTasks" | "stats";
 const SPRINT_WORKSPACE_TABS: SprintWorkspaceTab[] = ["myTasks", "teamTasks", "stats"];
 const SPRINT_WORKSPACE_TAB_ICONS = { myTasks: ListTodo, teamTasks: UsersRound, stats: ChartColumnIncreasing };
@@ -389,7 +464,7 @@ export function DailyPage() {
     const team = readTeamWorkspaceCache(projectId!, myTasks.selectedSprintId);
     const currentUserMember = activeTeamMemberForAccount(team?.members ?? [], myTasks.currentUserAccountId)
       ?? myTasks.currentUserMember;
-    return { ...myTasks, currentUserMember, sprintBoardUrl: team?.sprintBoardUrl ?? "", sprintBoardUrlsByAssignee: team?.sprintBoardUrlsByAssignee ?? {}, members: team?.members ?? [], sprintStats: EMPTY_STATS };
+    return { ...myTasks, currentUserMember, sprintBoardUrlsByAssignee: team?.sprintBoardUrlsByAssignee ?? {}, members: team?.members ?? [], sprintStats: EMPTY_STATS };
   });
   const [selectedMemberId, setSelectedMemberId] = useState<string>();
   const [sprintPickerOpen, setSprintPickerOpen] = useState(false);
@@ -420,7 +495,8 @@ export function DailyPage() {
 
   const workspaceRequestRevision = useRef(0);
   const pendingWorkspaceRequests = useRef<Partial<Record<SprintWorkspaceTab, number>>>({});
-  const statusRefreshRevision = useRef(0);
+  const statusRefreshRevisions = useRef(new Map<string, number>());
+  const taskTransitions = useRef(new Map<string, Promise<void>>());
 
   useEffect(() => {
     writeSprintSelection({ ...selection, projectId: selectedProjectId });
@@ -492,7 +568,7 @@ export function DailyPage() {
         const stats = readSprintStatsCache(projectId, my.selectedSprintId);
         const currentUserMember = activeTeamMemberForAccount(team?.members ?? [], my.currentUserAccountId)
           ?? my.currentUserMember;
-        setWorkspace({ ...my, currentUserMember, sprintBoardUrl: team?.sprintBoardUrl ?? "", sprintBoardUrlsByAssignee: team?.sprintBoardUrlsByAssignee ?? {}, members: team?.members ?? [], sprintStats: stats ?? EMPTY_STATS });
+        setWorkspace({ ...my, currentUserMember, sprintBoardUrlsByAssignee: team?.sprintBoardUrlsByAssignee ?? {}, members: team?.members ?? [], sprintStats: stats ?? EMPTY_STATS });
       } else {
         const selectedSprintId = sprintId ?? readMyTasksCache(projectId)?.selectedSprintId;
         if (!selectedSprintId) return;
@@ -530,7 +606,7 @@ export function DailyPage() {
   useEffect(() => {
     if (!selectedProjectId || !selectionScope) {
       workspaceRequestRevision.current += 1;
-      statusRefreshRevision.current += 1;
+      statusRefreshRevisions.current.clear();
       setWorkspace(undefined);
       setSelectedMemberId(undefined);
       setLoadingWorkspace(false);
@@ -549,7 +625,6 @@ export function DailyPage() {
       const cachedStats = readSprintStatsCache(selectedProjectId, cachedMyTasks.selectedSprintId);
       setWorkspace({
         ...cachedMyTasks,
-        sprintBoardUrl: cachedTeam?.sprintBoardUrl ?? "",
         sprintBoardUrlsByAssignee: cachedTeam?.sprintBoardUrlsByAssignee ?? {},
         members: cachedTeam?.members ?? [],
         sprintStats: cachedStats ?? EMPTY_STATS,
@@ -604,7 +679,19 @@ export function DailyPage() {
     setSelectedMemberId(owners[nextIndex]?.id);
   }
 
-  async function handleTaskTransition(task: DailySubtask, transition: DailyIssueTransition) {
+  function handleTaskTransition(task: DailySubtask, transition: DailyIssueTransition): Promise<void> {
+    if (!workspace) return Promise.resolve();
+    const key = JSON.stringify([workspace.managedProjectId, workspace.selectedSprintId, task.key]);
+    const pending = taskTransitions.current.get(key);
+    if (pending) return pending;
+    const request = performTaskTransition(task, transition).finally(() => {
+      if (taskTransitions.current.get(key) === request) taskTransitions.current.delete(key);
+    });
+    taskTransitions.current.set(key, request);
+    return request;
+  }
+
+  async function performTaskTransition(task: DailySubtask, transition: DailyIssueTransition) {
     if (!workspace) return;
     const workspaceRevision = workspaceRequestRevision.current;
     const managedProjectId = workspace.managedProjectId;
@@ -617,7 +704,8 @@ export function DailyPage() {
       crypto.randomUUID(),
     );
     if (workspaceRequestRevision.current !== workspaceRevision) return;
-    const revision = ++statusRefreshRevision.current;
+    const revision = (statusRefreshRevisions.current.get(task.key) ?? 0) + 1;
+    statusRefreshRevisions.current.set(task.key, revision);
     setRefreshingStatuses(false);
     setWorkspace((current) => {
       if (!current || current.managedProjectId !== managedProjectId || current.selectedSprintId !== sprintId) return current;
@@ -625,22 +713,28 @@ export function DailyPage() {
         ...current,
         subtasks: current.subtasks.map((item) => item.key === task.key ? { ...item, status: transition.toStatus } : item),
       };
-      writeDailyWorkspaceCache(nextWorkspace);
+      const updatedTask = nextWorkspace.subtasks.find((item) => item.key === task.key);
+      if (updatedTask) updateDailyTaskCache(nextWorkspace, updatedTask);
       return nextWorkspace;
     });
     setTaskActionError(undefined);
     setTaskActionNotice(t("daily.statusChanged", { key: task.key, status: transition.toStatus }));
     // Jira has confirmed the write. Reconcile other fields without keeping the status control busy.
-    void refreshDailyWorkspace(managedProjectId, sprintId).then((subtasks) => {
-      if (statusRefreshRevision.current !== revision) return;
+    const refresh = activeTab === "myTasks"
+      ? loadDailyMyTasks(managedProjectId, sprintId).then((loaded) => loaded.subtasks)
+      : refreshDailyWorkspace(managedProjectId, sprintId);
+    void refresh.then((subtasks) => {
+      if (workspaceRequestRevision.current !== workspaceRevision || statusRefreshRevisions.current.get(task.key) !== revision) return;
+      const updatedTask = subtasks.find((item) => item.key === task.key);
+      if (!updatedTask) return;
       setWorkspace((current) => {
         if (!current || current.managedProjectId !== managedProjectId || current.selectedSprintId !== sprintId) return current;
-        const nextWorkspace = { ...current, subtasks };
-        writeDailyWorkspaceCache(nextWorkspace);
+        const nextWorkspace = { ...current, subtasks: current.subtasks.map((item) => item.key === task.key ? updatedTask : item) };
+        updateDailyTaskCache(nextWorkspace, updatedTask);
         return nextWorkspace;
       });
     }).catch(() => {
-      if (statusRefreshRevision.current === revision) setTaskActionError(t("daily.statusRefreshFailed"));
+      if (workspaceRequestRevision.current === workspaceRevision && statusRefreshRevisions.current.get(task.key) === revision) setTaskActionError(t("daily.statusRefreshFailed"));
     });
   }
 
@@ -1062,7 +1156,7 @@ export function DailyPage() {
           </Popover>
         ) : null}
         {workspace?.selectedSprintId ? (
-          <Button type="button" variant="outline" size="icon" aria-label={t("daily.openSprintBoard")} title={t("daily.openSprintBoard")} disabled={!workspace.sprintBoardUrl || loadingTeam} onClick={() => { if (workspace.sprintBoardUrl) void openJiraIssue(workspace.sprintBoardUrl); }}>
+          <Button type="button" variant="outline" size="icon" aria-label={t("daily.openSprintBoard")} title={t("daily.openSprintBoard")} disabled={!workspace.sprintBoardUrl} onClick={() => { if (workspace.sprintBoardUrl) void openJiraIssue(workspace.sprintBoardUrl); }}>
             <ExternalLink aria-hidden="true" />
           </Button>
         ) : null}
@@ -1405,7 +1499,7 @@ export function DailyPage() {
             {!workspace.currentUserAccountId ? (
               <Alert><AlertTitle>{t("daily.myTasksUnavailable")}</AlertTitle><AlertDescription>{t("daily.myTasksConfigureMember")}</AlertDescription></Alert>
             ) : (
-              <Card>
+              <Card data-icon-size="normal">
                 <CardHeader variant="section" className="daily-my-tasks-header">
                   <div className="min-w-0">
                     <CardTitle className="flex items-center gap-3">{currentUserMember ? <MemberAvatar member={currentUserMember} className="h-9 w-9" managedProjectId={workspace.managedProjectId} /> : null}{currentUserMember ? memberDisplayName(currentUserMember) : workspace.projectName}</CardTitle>
@@ -1444,7 +1538,22 @@ export function DailyPage() {
                   {myTasks.length > 0 && myTasksPointsTotal === null ? (
                     <Alert role="status" className="mb-4 p-3"><AlertDescription className="break-words">{myTasksPointsUnavailableMessage}</AlertDescription></Alert>
                   ) : null}
-                  {myTasks.length === 0 ? <p className="text-sm text-muted-foreground">{t("daily.noAssigneeTasks")}</p> : <div className="daily-task-list">{myTasks.map((task) => <article key={task.id} className="daily-task-row"><span className="daily-task-key">{task.key}</span><span className="daily-task-summary"><strong>{task.summary}</strong><small>{task.issueType}</small></span><span className={cn(badgeVariants({ variant: "outline" }), dailyStatusBadgeClass(task.status, task.statusCategory))}>{task.status}</span><span className="daily-task-points">SP {task.storyPoints ?? "—"}</span></article>)}</div>}
+                  {myTasks.length === 0 ? <p className="text-sm text-muted-foreground">{t("daily.noAssigneeTasks")}</p> : (
+                    <div className="daily-task-list" aria-live="polite">
+                      {myTasks.map((task) => (
+                        <DailyTaskRow
+                          key={task.id}
+                          subtask={task}
+                          managedProjectId={workspace.managedProjectId}
+                          sprintId={workspace.selectedSprintId}
+                          onTransition={handleTaskTransition}
+                          onError={setTaskActionError}
+                          onOpen={openJiraIssue}
+                          onCopy={copyTaskValue}
+                        />
+                      ))}
+                    </div>
+                  )}
                 </CardContent>
               </Card>
             )}
@@ -1552,66 +1661,17 @@ export function DailyPage() {
                   ) : (
                     <div className="daily-task-list" aria-live="polite">
                       {selectedSubtasks.map((subtask) => (
-                        <article key={subtask.id} className="daily-task-row">
-                          <Hint content={t("daily.openInJira")}><button
-                            type="button"
-                            className="daily-task-key daily-task-link"
-                            onClick={() => void openJiraIssue(subtask.url)}
-                          >
-                            {subtask.key}
-                          </button></Hint>
-                          <span className="daily-task-summary">
-                            <strong>{subtask.summary}</strong>
-                            <small>
-                              {subtask.issueType}
-                              {subtask.parentIssueKey ? ` · ${t("daily.parent", { key: subtask.parentIssueKey })}` : ""}
-                              {selectedOwner.id === OTHER_ASSIGNEES_ID && subtask.assigneeDisplayName ? ` · ${subtask.assigneeDisplayName}` : ""}
-                            </small>
-                          </span>
-                          <span className="daily-task-points">SP {subtask.storyPoints ?? "—"}</span>
-                          <TaskStatusMenu
-                            managedProjectId={workspace.managedProjectId}
-                            sprintId={workspace.selectedSprintId}
-                            task={subtask}
-                            onTransition={handleTaskTransition}
-                            onError={setTaskActionError}
-                          />
-                          <DropdownMenu>
-                            <DropdownMenuTrigger asChild>
-                              <Button type="button" variant="ghost" size="icon" className="daily-task-menu size-8" aria-label={t("daily.actions", { key: subtask.key })}>
-                                <MoreHorizontal aria-hidden="true" />
-                              </Button>
-                            </DropdownMenuTrigger>
-                            <DropdownMenuContent align="end" className="w-max min-w-0 max-w-[var(--radix-dropdown-menu-content-available-width)]">
-                              <DropdownMenuItem onSelect={() => void openJiraIssue(subtask.url)}>
-                                <ExternalLink aria-hidden="true" />
-                                {t("daily.openInJira")}
-                              </DropdownMenuItem>
-                              {subtask.parentUrl && subtask.parentIssueKey ? (
-                                <DropdownMenuItem
-                                  className="items-start"
-                                  aria-label={t("daily.openParentInJira", { key: subtask.parentIssueKey })}
-                                  onSelect={() => void openJiraIssue(subtask.parentUrl!)}
-                                >
-                                  <ExternalLink aria-hidden="true" className="mt-0.5" />
-                                  <span className="flex min-w-0 flex-col">
-                                    <span>{t("daily.openParent")}</span>
-                                    <span className="truncate text-xs text-muted-foreground">{subtask.parentIssueKey}</span>
-                                  </span>
-                                </DropdownMenuItem>
-                              ) : null}
-                              <DropdownMenuSeparator className="mx-2 my-1.5 w-auto bg-border" />
-                              <DropdownMenuItem onSelect={() => void copyTaskValue(subtask.key, t("daily.keyCopied", { key: subtask.key }))}>
-                                <Copy aria-hidden="true" />
-                                {t("daily.copyKey")}
-                              </DropdownMenuItem>
-                              <DropdownMenuItem onSelect={() => void copyTaskValue(subtask.url, t("daily.linkCopied", { key: subtask.key }))}>
-                                <Copy aria-hidden="true" />
-                                {t("daily.copyLink")}
-                              </DropdownMenuItem>
-                            </DropdownMenuContent>
-                          </DropdownMenu>
-                        </article>
+                        <DailyTaskRow
+                          key={subtask.id}
+                          subtask={subtask}
+                          managedProjectId={workspace.managedProjectId}
+                          sprintId={workspace.selectedSprintId}
+                          showAssignee={selectedOwner.id === OTHER_ASSIGNEES_ID}
+                          onTransition={handleTaskTransition}
+                          onError={setTaskActionError}
+                          onOpen={openJiraIssue}
+                          onCopy={copyTaskValue}
+                        />
                       ))}
                     </div>
                   )}

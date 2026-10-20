@@ -6,6 +6,8 @@ import { listManagedProjects } from "../planning/api";
 import { loadDailyMyTasks, loadDailySprintStats, loadDailyTeamWorkspace } from "./api";
 import { clearDailyWorkspaceCacheForTests, prefetchDailyWorkspaces } from "./cache";
 import { DailyPage } from "./DailyPage";
+import { openUrl } from "@tauri-apps/plugin-opener";
+import { loadDailyIssueTransitions, transitionDailyIssue } from "./api";
 
 vi.mock("@tauri-apps/plugin-opener", () => ({ openUrl: vi.fn() }));
 vi.mock("../planning/api", () => ({ listManagedProjects: vi.fn() }));
@@ -19,6 +21,7 @@ vi.mock("./api", () => ({
 const project: ManagedProject = { id: "managed-1", integrationId: "jira-1", jiraProjectId: "10001", name: "Example Project", boardId: "42", boardName: "Example Board" };
 const myTasks: DailyMyTasksDto = {
   managedProjectId: project.id, projectName: project.name, projectKey: "DEMO", selectedSprintId: "sprint-1", selectedSprintName: "Sprint 42", currentUserAccountId: "test-user-a",
+  sprintBoardUrl: "https://jira.example.invalid/board",
   currentUserMember: { accountId: "test-user-a", displayName: "Test Member", active: true, tags: [] },
   sprints: [{ id: "sprint-1", name: "Sprint 42", state: "active", startDate: "2026-10-02T12:00:00", endDate: "2026-10-15T12:00:00" }],
   subtasks: [{ id: "task-1", key: "DEMO-1", summary: "Example task", status: "In Progress", issueType: "Task", assigneeAccountId: "test-user-a", url: "https://jira.example.invalid/browse/DEMO-1" }],
@@ -51,6 +54,41 @@ beforeEach(() => {
 });
 
 describe("DailyPage data loading and actions", () => {
+  it("opens the board and supports task actions and status changes from My Tasks before loading Team Tasks", async () => {
+    const task = { ...myTasks.subtasks[0], parentIssueKey: "DEMO-2", parentUrl: "https://jira.example.invalid/browse/DEMO-2" };
+    myTasksMock.mockResolvedValue({ ...myTasks, subtasks: [task] });
+    vi.mocked(loadDailyIssueTransitions).mockResolvedValue([{ id: "31", name: "Complete", toStatus: "Done", requiresFields: false }]);
+    vi.mocked(transitionDailyIssue).mockResolvedValue(undefined);
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText } });
+    render(<DailyPage />);
+    await screen.findByText("DEMO-1");
+
+    const board = screen.getByRole("button", { name: "Open sprint board in Jira" });
+    expect(board).toBeEnabled();
+    fireEvent.click(board);
+    expect(openUrl).toHaveBeenCalledWith(myTasks.sprintBoardUrl);
+    fireEvent.pointerDown(screen.getByRole("button", { name: "Actions for DEMO-1" }), { button: 0, ctrlKey: false });
+    const menu = await screen.findByRole("menu");
+    expect(within(menu).getByRole("menuitem", { name: "Open in Jira" })).toBeInTheDocument();
+    expect(within(menu).getByRole("menuitem", { name: /DEMO-2/ })).toBeInTheDocument();
+    expect(within(menu).getByRole("menuitem", { name: "Copy link" })).toBeInTheDocument();
+    fireEvent.click(within(menu).getByRole("menuitem", { name: "Copy key" }));
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith(task.key));
+
+    const status = screen.getByRole("button", { name: /DEMO-1.*In Progress/ });
+    expect(status).toHaveClass("daily-status-trigger");
+    myTasksMock.mockResolvedValue({ ...myTasks, subtasks: [{ ...task, status: "Done", statusCategory: "done" }] });
+    fireEvent.pointerDown(status, { button: 0, ctrlKey: false });
+    fireEvent.click(await screen.findByRole("menuitem", { name: /Done/ }));
+    await waitFor(() => expect(transitionDailyIssue).toHaveBeenCalledWith(project.id, "sprint-1", task.key, "31", expect.any(String)));
+    await waitFor(() => expect(screen.getByRole("button", { name: /DEMO-1.*Done/ })).toBeEnabled());
+    expect(teamMock).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("tab", { name: "Team Tasks" }));
+    await waitFor(() => expect(teamMock).toHaveBeenCalledTimes(1));
+    expect(await screen.findByRole("region", { name: "Selected member tasks" })).toBeInTheDocument();
+  });
+
   it("prefetches only minimal My Tasks for the healthy Jira projects", async () => {
     await prefetchDailyWorkspaces([project.integrationId]);
     expect(myTasksMock).toHaveBeenCalledWith(project.id, undefined);

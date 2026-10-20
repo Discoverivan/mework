@@ -1,4 +1,4 @@
-import type { DailyMyTasksDto, DailySprintStatsDto, DailySprintStatsProgressEvent, DailyTeamWorkspaceDto, DailyWorkspace } from "@/shared/contracts/developer";
+import type { DailyMyTasksDto, DailySprintStatsDto, DailySprintStatsProgressEvent, DailyTeamWorkspaceDto, DailyWorkspace, DailySubtask } from "@/shared/contracts/developer";
 import type { ManagedProject } from "@/shared/contracts/planning";
 import { listManagedProjects } from "../planning/api";
 import { loadDailyMyTasks, loadDailySprintStats, loadDailyTeamWorkspace } from "./api";
@@ -115,20 +115,16 @@ export function prefetchDailyWorkspaces(integrationIds: string[]): Promise<void>
 export function readManagedProjectsCache(): ManagedProject[] | undefined { return managedProjectsCache?.slice(); }
 export function writeManagedProjectsCache(projects: ManagedProject[]): void { managedProjectsCache = projects.slice(); }
 
-export function writeDailyWorkspaceCache(workspace: DailyWorkspace): void {
-  myTasksCache.set(key(workspace.managedProjectId, workspace.selectedSprintId), {
-    managedProjectId: workspace.managedProjectId, projectName: workspace.projectName, projectKey: workspace.projectKey,
-    selectedSprintId: workspace.selectedSprintId, selectedSprintName: workspace.selectedSprintName,
-    currentUserAccountId: workspace.currentUserAccountId ?? null, currentUserMember: workspace.currentUserMember ?? null,
-    sprints: workspace.sprints, subtasks: workspace.subtasks,
-  });
-  teamCache.set(key(workspace.managedProjectId, workspace.selectedSprintId), {
-    managedProjectId: workspace.managedProjectId, projectName: workspace.projectName, projectKey: workspace.projectKey,
-    selectedSprintId: workspace.selectedSprintId, selectedSprintName: workspace.selectedSprintName,
-    sprintBoardUrl: workspace.sprintBoardUrl, sprintBoardUrlsByAssignee: workspace.sprintBoardUrlsByAssignee,
-    sprints: workspace.sprints, members: workspace.members, subtasks: workspace.subtasks,
-  });
-  statsCache.set(key(workspace.managedProjectId, workspace.selectedSprintId), workspace.sprintStats);
+// Update only loaded resources: My Tasks must never seed an incomplete team cache.
+export function updateDailyTaskCache(workspace: DailyWorkspace, task: DailySubtask): void {
+  for (const [cacheKey, cached] of myTasksCache) {
+    if (cached.managedProjectId !== workspace.managedProjectId || cached.selectedSprintId !== workspace.selectedSprintId) continue;
+    myTasksCache.set(cacheKey, { ...cached, subtasks: cached.subtasks.map((item) => item.key === task.key ? task : item) });
+  }
+  for (const [cacheKey, cached] of teamCache) {
+    if (cached.managedProjectId !== workspace.managedProjectId || cached.selectedSprintId !== workspace.selectedSprintId) continue;
+    teamCache.set(cacheKey, { ...cached, subtasks: cached.subtasks.map((item) => item.key === task.key ? task : item) });
+  }
 }
 
 export function clearDailyWorkspaceCacheForTests(): void {

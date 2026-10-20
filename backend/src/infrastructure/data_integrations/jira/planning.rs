@@ -503,6 +503,55 @@ impl JiraPlanningClient {
             .await
     }
 
+    pub async fn list_board_sprint_assignees(
+        &self,
+        board_id: &str,
+        sprint_id: &str,
+    ) -> Result<Vec<AssignableUser>, JiraError> {
+        self.ensure_data_center()?;
+        validate_path_component(board_id)?;
+        validate_path_component(sprint_id)?;
+        let endpoint = self.endpoint(&format!(
+            "rest/agile/1.0/board/{board_id}/sprint/{sprint_id}/issue"
+        ))?;
+        let page: PlanningPage<PlanningIssue> = self
+            .paginate_with_fields(endpoint, 100, Some("assignee"), |mut raw| {
+                if let Some(object) = raw.as_object_mut() {
+                    if let Some(issues) = object.remove("issues") {
+                        object.insert("values".into(), issues);
+                    }
+                }
+                serde_json::from_value(raw)
+            })
+            .await?;
+        // Never replace the local roster from an incomplete or repeated issue page.
+        let unique_issues = page
+            .values
+            .iter()
+            .map(|issue| &issue.id)
+            .collect::<std::collections::HashSet<_>>();
+        if page.total != page.values.len() as u64 || unique_issues.len() != page.values.len() {
+            return Err(JiraError::InvalidResponse);
+        }
+        let mut users = Vec::new();
+        for issue in page.values {
+            let assignee = issue
+                .fields
+                .get("assignee")
+                .ok_or(JiraError::InvalidResponse)?;
+            if assignee.is_null() {
+                continue;
+            }
+            let user = serde_json::from_value::<AssignableUserWire>(assignee.clone())
+                .map_err(|_| JiraError::InvalidResponse)?
+                .into_assignable_user()
+                .filter(|user| !user.display_name.trim().is_empty())
+                .ok_or(JiraError::InvalidResponse)?;
+            users.push(user);
+        }
+        Ok(users)
+    }
+
     pub async fn list_usable_sprints(
         &self,
         board_id: &str,

@@ -55,6 +55,9 @@ export const listPlanningTeamMembers = (managedProjectId: string) =>
 export const listPlanningConfiguredTeamMembers = (managedProjectId: string) =>
   invoke<TeamMember[]>("planning_team_members_configured", { managedProjectId });
 
+export const syncPlanningTeamMembers = (managedProjectId: string) =>
+  invoke<TeamMember[]>("planning_team_members_sync", { managedProjectId });
+
 export const loadJiraAvatarData = (managedProjectId: string, avatarUrl: string) =>
   invoke<string | null>("jira_avatar_data", { managedProjectId, avatarUrl });
 

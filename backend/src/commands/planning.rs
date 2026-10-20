@@ -26,6 +26,7 @@ pub const PLANNING_COMMAND_NAMES: &[&str] = &[
     "planning_team_preset_remove",
     "planning_team_members",
     "planning_team_members_configured",
+    "planning_team_members_sync",
     "planning_team_members_search",
     "planning_team_member_add",
     "planning_team_member_remove",
@@ -178,6 +179,23 @@ pub async fn planning_team_members_configured(
     managed_project_id: String,
 ) -> Result<Vec<TeamMemberDto>, PlanningCommandError> {
     planning::list_configured_team_members(&state, &managed_project_id).await
+}
+
+#[tauri::command]
+pub async fn planning_team_members_sync(
+    app: AppHandle,
+    state: State<'_, SqlitePool>,
+    managed_project_id: String,
+) -> Result<Vec<TeamMemberDto>, PlanningCommandError> {
+    let members = planning::sync_team_members(&state, &managed_project_id).await?;
+    let _ = app.emit(
+        "team_members_changed",
+        planning::TeamMembersChangedEvent {
+            managed_project_id,
+            members: members.clone(),
+        },
+    );
+    Ok(members)
 }
 
 #[tauri::command]
