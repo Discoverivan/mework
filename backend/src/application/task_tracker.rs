@@ -146,6 +146,7 @@ async fn run_cron_ai<T: Send + 'static>(
                 &prompt,
                 schema,
                 &system,
+                worker_settings.retries.default,
             )?;
             validate(&bytes).map(|result| (result, usage))
         })

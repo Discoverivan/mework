@@ -16,6 +16,48 @@ pub(crate) fn command(path: impl AsRef<std::ffi::OsStr>) -> Command {
     local_cli_command(path)
 }
 
+const WORKSPACE_ROUTE_ERROR: &str = "ai_cli_workspace_route_unsupported";
+
+pub(crate) fn ensure_workspace_route() -> Result<(), &'static str> {
+    let root = std::env::var_os("CODEX_HOME")
+        .map(PathBuf::from)
+        .or_else(|| dirs::home_dir().map(|home| home.join(".codex")))
+        .ok_or(WORKSPACE_ROUTE_ERROR)?;
+    let file = match std::fs::File::open(root.join("config.toml")) {
+        Ok(file) => file,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(_) => return Err(WORKSPACE_ROUTE_ERROR),
+    };
+    let mut text = String::new();
+    file.take(1024 * 1024 + 1)
+        .read_to_string(&mut text)
+        .map_err(|_| WORKSPACE_ROUTE_ERROR)?;
+    if text.len() > 1024 * 1024 {
+        return Err(WORKSPACE_ROUTE_ERROR);
+    }
+    workspace_route_is_default(&text)
+        .then_some(())
+        .ok_or(WORKSPACE_ROUTE_ERROR)
+}
+
+fn workspace_route_is_default(text: &str) -> bool {
+    // Parse locally, never copy provider settings or credentials to another
+    // config, argv, prompts or diagnostics. Ignore parse error details as well.
+    let Ok(config) = toml::from_str::<toml::Value>(text) else {
+        return false;
+    };
+    config
+        .get("model_provider")
+        .is_none_or(|provider| provider.as_str() == Some("openai"))
+        && config
+            .get("model_providers")
+            .and_then(|providers| providers.get("openai"))
+            .is_none()
+        && config.get("chatgpt_base_url").is_none()
+        && config.get("openai_base_url").is_none()
+        && config.get("profile").is_none()
+}
+
 pub(crate) enum RunError {
     MissingBinary,
     PromptOpen,
@@ -32,6 +74,41 @@ pub(crate) fn run_structured_with_usage(
     output_path: &Path,
     workdir: &Path,
 ) -> Result<(Vec<u8>, Option<AiTokenUsageCounts>), RunError> {
+    run_structured(
+        settings,
+        prompt_path,
+        schema_path,
+        output_path,
+        workdir,
+        false,
+    )
+}
+
+pub(crate) fn run_workspace_with_usage(
+    settings: &AiSettings,
+    prompt_path: &Path,
+    schema_path: &Path,
+    output_path: &Path,
+    workdir: &Path,
+) -> Result<(Vec<u8>, Option<AiTokenUsageCounts>), RunError> {
+    run_structured(
+        settings,
+        prompt_path,
+        schema_path,
+        output_path,
+        workdir,
+        true,
+    )
+}
+
+fn run_structured(
+    settings: &AiSettings,
+    prompt_path: &Path,
+    schema_path: &Path,
+    output_path: &Path,
+    workdir: &Path,
+    isolated: bool,
+) -> Result<(Vec<u8>, Option<AiTokenUsageCounts>), RunError> {
     let binary = resolve_codex_binary().ok_or_else(|| {
         crate::application::logging::error("ai.cli", "executable_missing", serde_json::json!({"provider": "codex", "operation": "structured_generation", "model": settings.model}));
         RunError::MissingBinary
@@ -45,6 +122,22 @@ pub(crate) fn run_structured_with_usage(
     };
     let fast_mode = if settings.fast_mode { "true" } else { "false" };
     let mut command = command(binary);
+    if isolated {
+        // Authentication remains in Codex's own store. Do not import the user's
+        // MCP servers, plugins, hooks or tool permissions into a PR review.
+        command.args([
+            "--config",
+            "features.shell_tool=false",
+            "--config",
+            "features.multi_agent=false",
+            "--config",
+            "features.apps=false",
+            "--config",
+            "web_search=\"disabled\"",
+            "--config",
+            "project_doc_max_bytes=0",
+        ]);
+    }
     command
         .args([
             "--ask-for-approval",
@@ -69,9 +162,12 @@ pub(crate) fn run_structured_with_usage(
             schema_path.to_string_lossy().as_ref(),
             "--output-last-message",
             output_path.to_string_lossy().as_ref(),
-            "-",
         ])
         .current_dir(workdir);
+    if isolated {
+        command.args(["--ignore-user-config", "--ignore-rules"]);
+    }
+    command.arg("-");
     let prompt = std::fs::read_to_string(prompt_path).map_err(|_| RunError::PromptOpen)?;
     let captured = super::capture_cli_output_with_status(
         command,
@@ -497,4 +593,24 @@ pub(crate) fn safe_first_line(bytes: &[u8]) -> Option<String> {
                 .take(120)
                 .collect()
         })
+}
+
+#[cfg(test)]
+mod workspace_route_tests {
+    #[test]
+    fn isolates_default_routes_without_silently_switching_custom_providers() {
+        assert!(super::workspace_route_is_default(
+            "model = 'example-model'\nmodel_provider = 'openai'\n"
+        ));
+        assert!(!super::workspace_route_is_default("model_provider = 'example-proxy'\n[model_providers.example-proxy]\nbase_url = 'https://api.example.invalid/v1'\n"));
+        assert!(!super::workspace_route_is_default(
+            "model_provider = 'openai'\nopenai_base_url = 'https://api.example.invalid/v1'\n"
+        ));
+        assert!(!super::workspace_route_is_default(
+            "[model_providers.openai]\nbase_url = 'https://api.example.invalid/v1'\n"
+        ));
+        assert!(!super::workspace_route_is_default(
+            "profile = 'example-profile'\n"
+        ));
+    }
 }
