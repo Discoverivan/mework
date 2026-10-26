@@ -16,6 +16,68 @@ pub(crate) fn command(path: impl AsRef<std::ffi::OsStr>) -> Command {
     local_cli_command(path)
 }
 
+const WORKSPACE_ROUTE_ERROR: &str = "ai_cli_workspace_route_unsupported";
+
+pub(crate) fn ensure_workspace_route() -> Result<(), &'static str> {
+    let root = std::env::var_os("CODEX_HOME")
+        .map(PathBuf::from)
+        .or_else(|| dirs::home_dir().map(|home| home.join(".codex")))
+        .ok_or(WORKSPACE_ROUTE_ERROR)?;
+    let file = match std::fs::File::open(root.join("config.toml")) {
+        Ok(file) => file,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(_) => return Err(WORKSPACE_ROUTE_ERROR),
+    };
+    let mut text = String::new();
+    file.take(1024 * 1024 + 1)
+        .read_to_string(&mut text)
+        .map_err(|_| WORKSPACE_ROUTE_ERROR)?;
+    if text.len() > 1024 * 1024 {
+        return Err(WORKSPACE_ROUTE_ERROR);
+    }
+    workspace_route_is_default(&text)
+        .then_some(())
+        .ok_or(WORKSPACE_ROUTE_ERROR)
+}
+
+fn workspace_route_is_default(text: &str) -> bool {
+    // Parse locally, never copy provider settings or credentials to another
+    // config, argv, prompts or diagnostics. Ignore parse error details as well.
+    let Ok(config) = toml::from_str::<toml::Value>(text) else {
+        return false;
+    };
+    config
+        .get("model_provider")
+        .is_none_or(|provider| provider.as_str() == Some("openai"))
+        && config
+            .get("model_providers")
+            .and_then(|providers| providers.get("openai"))
+            .is_none()
+        && config.get("chatgpt_base_url").is_none()
+        && config.get("openai_base_url").is_none()
+        && config.get("profile").is_none()
+}
+
+#[cfg(test)]
+mod workspace_route_tests {
+    #[test]
+    fn isolates_default_routes_without_silently_switching_custom_providers() {
+        assert!(super::workspace_route_is_default(
+            "model = 'example-model'\nmodel_provider = 'openai'\n"
+        ));
+        assert!(!super::workspace_route_is_default("model_provider = 'example-proxy'\n[model_providers.example-proxy]\nbase_url = 'https://api.example.invalid/v1'\n"));
+        assert!(!super::workspace_route_is_default(
+            "model_provider = 'openai'\nopenai_base_url = 'https://api.example.invalid/v1'\n"
+        ));
+        assert!(!super::workspace_route_is_default(
+            "[model_providers.openai]\nbase_url = 'https://api.example.invalid/v1'\n"
+        ));
+        assert!(!super::workspace_route_is_default(
+            "profile = 'example-profile'\n"
+        ));
+    }
+}
+
 pub(crate) enum RunError {
     MissingBinary,
     PromptOpen,

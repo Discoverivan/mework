@@ -1651,6 +1651,7 @@ pub(super) fn execute_arbitration_prompt(
     prompt: &str,
     schema: &str,
     system_rules: &str,
+    retries: u8,
 ) -> Result<(Vec<u8>, Option<ai_usage_statistics::AiTokenUsageCounts>), String> {
     execute_arbitration_prompt_with_usage_pool(
         settings,
@@ -1659,6 +1660,7 @@ pub(super) fn execute_arbitration_prompt(
         schema,
         system_rules,
         None,
+        retries,
     )
 }
 
@@ -1669,6 +1671,7 @@ pub(super) fn execute_arbitration_prompt_with_usage_pool(
     schema: &str,
     system_rules: &str,
     usage_pool: Option<&SqlitePool>,
+    retries: u8,
 ) -> Result<(Vec<u8>, Option<ai_usage_statistics::AiTokenUsageCounts>), String> {
     if prompt.len() > super::review_workspace::INLINE_BYTES {
         let workspace = tempfile::Builder::new()
@@ -1689,7 +1692,7 @@ pub(super) fn execute_arbitration_prompt_with_usage_pool(
                     schema,
                     system_rules,
                     root,
-                    settings.retries.for_review_arbiter(),
+                    retries,
                 )?;
                 account_workspace_call(usage_pool, settings, response)
             },
@@ -1699,6 +1702,16 @@ pub(super) fn execute_arbitration_prompt_with_usage_pool(
         .prefix("mework-review-grouping-")
         .tempdir()
         .map_err(|_| "Failed to prepare arbitration workspace".to_owned())?;
+    if settings.provider != Some(crate::application::ai::AiProviderId::OpenAiCompatible) {
+        // Compact callers (including cron and discussions) retain the existing
+        // CLI configuration and do not require file-workspace isolation flags.
+        return execute_cli_structured_prompt_with_usage(
+            settings,
+            prompt,
+            schema,
+            workspace.path(),
+        );
+    }
     execute_workspace_request(
         settings,
         runtime,
@@ -1794,6 +1807,7 @@ pub(super) fn execute_workspace_request(
     workdir: &Path,
 ) -> Result<(Vec<u8>, Option<ai_usage_statistics::AiTokenUsageCounts>), String> {
     if settings.provider == Some(crate::application::ai::AiProviderId::CodexCli) {
+        crate::application::ai_providers::cli::codex::ensure_workspace_route()?;
         let prompt_path = workdir.join("prompt.txt");
         let schema_path = workdir.join("review-schema.json");
         let output_path = workdir.join("review-result.json");

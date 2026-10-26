@@ -4,6 +4,7 @@ export const en = {
   "ai.error.providerRateLimit": "The AI provider's request limit has been reached. Try again later.",
   "ai.error.providerAuthentication": "The AI provider could not authenticate. Check its connection or CLI sign-in.",
   "ai.error.cliUpdateRequired": "The installed AI CLI does not support the required options. Update the CLI and try again.",
+  "ai.error.workspaceRouteUnsupported": "The configured Codex provider route cannot be retained in an isolated large review. Select an API provider with the intended endpoint or use the default Codex route.",
   "ai.error.workspaceProviderFailed": "The AI provider could not complete a review request after the configured retries. No complete review was saved.",
   "ai.error.workspaceIncomplete": "The review did not finish reading the required materials within its analysis budget. No complete review was saved.",
   "ai.error.workspaceInputLimit": "A review material exceeds the supported retrieval size. The review was stopped without saving a partial result.",

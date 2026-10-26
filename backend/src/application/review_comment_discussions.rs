@@ -319,6 +319,7 @@ async fn generate(pool: &SqlitePool, prompt: String, system: String) -> Result<A
                 &prompt,
                 SCHEMA,
                 &system,
+                retries,
             )?;
             validate_assessment(&bytes).map(|assessment| (assessment, usage))
         })
@@ -466,6 +467,7 @@ mod tests {
                         &prompt,
                         SCHEMA,
                         &system,
+                        0,
                     )?;
                     validate_assessment(&bytes)
                 })
