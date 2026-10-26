@@ -58,26 +58,6 @@ fn workspace_route_is_default(text: &str) -> bool {
         && config.get("profile").is_none()
 }
 
-#[cfg(test)]
-mod workspace_route_tests {
-    #[test]
-    fn isolates_default_routes_without_silently_switching_custom_providers() {
-        assert!(super::workspace_route_is_default(
-            "model = 'example-model'\nmodel_provider = 'openai'\n"
-        ));
-        assert!(!super::workspace_route_is_default("model_provider = 'example-proxy'\n[model_providers.example-proxy]\nbase_url = 'https://api.example.invalid/v1'\n"));
-        assert!(!super::workspace_route_is_default(
-            "model_provider = 'openai'\nopenai_base_url = 'https://api.example.invalid/v1'\n"
-        ));
-        assert!(!super::workspace_route_is_default(
-            "[model_providers.openai]\nbase_url = 'https://api.example.invalid/v1'\n"
-        ));
-        assert!(!super::workspace_route_is_default(
-            "profile = 'example-profile'\n"
-        ));
-    }
-}
-
 pub(crate) enum RunError {
     MissingBinary,
     PromptOpen,
@@ -613,4 +593,24 @@ pub(crate) fn safe_first_line(bytes: &[u8]) -> Option<String> {
                 .take(120)
                 .collect()
         })
+}
+
+#[cfg(test)]
+mod workspace_route_tests {
+    #[test]
+    fn isolates_default_routes_without_silently_switching_custom_providers() {
+        assert!(super::workspace_route_is_default(
+            "model = 'example-model'\nmodel_provider = 'openai'\n"
+        ));
+        assert!(!super::workspace_route_is_default("model_provider = 'example-proxy'\n[model_providers.example-proxy]\nbase_url = 'https://api.example.invalid/v1'\n"));
+        assert!(!super::workspace_route_is_default(
+            "model_provider = 'openai'\nopenai_base_url = 'https://api.example.invalid/v1'\n"
+        ));
+        assert!(!super::workspace_route_is_default(
+            "[model_providers.openai]\nbase_url = 'https://api.example.invalid/v1'\n"
+        ));
+        assert!(!super::workspace_route_is_default(
+            "profile = 'example-profile'\n"
+        ));
+    }
 }
