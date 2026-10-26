@@ -250,8 +250,13 @@ impl<'a> Workspace<'a> {
                 std::str::from_utf8(&bytes).map_err(|_| "review_workspace_invalid_response")?;
             let text = super::ai_structured_output::json_object(text)
                 .map_err(|_| "review_workspace_invalid_response")?;
-            let reply: Reply =
-                serde_json::from_str(text).map_err(|_| "review_workspace_invalid_response")?;
+            let reply: Reply = serde_json::from_str(text).map_err(|_| {
+                let value: Value = serde_json::from_str(text).unwrap_or(Value::Null);
+                let missing: Vec<_> = ["requests", "notes"].into_iter().filter(|key| value.get(*key).is_none()).collect();
+                let unknown = value.as_object().map_or(0, |object| object.keys().filter(|key| !matches!(key.as_str(), "requests" | "notes" | "result")).count());
+                super::logging::error("developer_review", "workspace_response_rejected", json!({"step":step+1,"responseBytes":bytes.len(),"missingFields":missing,"unknownFieldCount":unknown}));
+                "review_workspace_invalid_response"
+            })?;
             if reply.notes.chars().count() > NOTES_CHARS || reply.requests.len() > 3 {
                 return Err("review_workspace_invalid_response".into());
             }
@@ -293,6 +298,9 @@ impl<'a> Workspace<'a> {
 struct Reply {
     requests: Vec<ReadRequest>,
     notes: String,
+    // Omitted nullable output still means "no completed result"; coverage and
+    // nonempty retrieval requests remain mandatory before a result is accepted.
+    #[serde(default)]
     result: Value,
 }
 
@@ -515,7 +523,7 @@ mod tests {
                 assert!(schema.contains("requests") && schema.contains("result"));
                 let pending: Value = serde_json::from_str(prompt.split_once("Required unread materials:\n").unwrap().1.split_once("\n\nJSON envelope schema:").unwrap().0).unwrap();
                 let pending = pending.as_array().unwrap();
-                let reply = if !pending.is_empty() {
+                let mut reply = if !pending.is_empty() {
                     let requests: Vec<_> = pending.iter().take(3).map(|file| json!({
                         "kind": "read", "file": file["file"], "startLine": file["nextUnreadLine"],
                         "lineCount": 4096, "query": ""
@@ -542,6 +550,10 @@ mod tests {
                         }]
                     }})
                 };
+                if calls == 1 && simulation.is_none() {
+                    // Some providers omit a nullable result while requesting materials.
+                    reply.as_object_mut().unwrap().remove("result");
+                }
                 if let Some(runtime) = simulation.as_ref() {
                     let settings = super::super::ai::AiSettings {
                         provider: Some(super::super::ai::AiProviderId::OpenAiCompatible),

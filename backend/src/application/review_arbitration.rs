@@ -199,6 +199,7 @@ struct ArbiterStageContext<'a> {
     language: AppLanguage,
     diff: &'a str,
     instructions: &'a str,
+    source: Option<&'a super::review_source::Snapshot>,
 }
 
 // One retry budget covers provider failures and invalid responses. Never retry local DB failures.
@@ -224,31 +225,34 @@ fn validated_arbiter_stage<T>(
         .for_review_arbiter()
         .min(ai::MAX_AI_RETRIES);
     for attempt in 0..=retries {
-        let response =
-            if stage == "final" && context.diff.len() > super::review_workspace::INLINE_BYTES / 2 {
-                developer_review::execute_file_arbitration(
-                    context.arbiter,
-                    context.arbiter_runtime,
-                    developer_review::FileArbitrationInput {
-                        manifest: &developer_review::review_manifest(context.request)?,
-                        diff: context.diff,
-                        instructions: prompt,
-                        schema,
-                        rules: &system_rules,
-                    },
-                    context.pool,
-                )
-            } else {
-                developer_review::execute_arbitration_prompt_with_usage_pool(
-                    context.arbiter,
-                    context.arbiter_runtime,
-                    prompt,
+        let response = if stage == "final"
+            && (context.diff.len() > super::review_workspace::INLINE_BYTES / 2
+                || context.arbiter.provider == Some(ai::AiProviderId::CodexCli))
+        {
+            developer_review::execute_file_arbitration(
+                context.arbiter,
+                context.arbiter_runtime,
+                developer_review::FileArbitrationInput {
+                    manifest: &developer_review::review_manifest(context.request)?,
+                    source: context.source,
+                    diff: context.diff,
+                    instructions: prompt,
                     schema,
-                    &system_rules,
-                    Some(context.pool),
-                    retries,
-                )
-            };
+                    rules: &system_rules,
+                },
+                context.pool,
+            )
+        } else {
+            developer_review::execute_arbitration_prompt_with_usage_pool(
+                context.arbiter,
+                context.arbiter_runtime,
+                prompt,
+                schema,
+                &system_rules,
+                Some(context.pool),
+                retries,
+            )
+        };
         let (bytes, usage) = match response {
             Ok(response) => response,
             Err(error) if attempt < retries && ai::is_retryable_provider_error(&error) => continue,
@@ -312,6 +316,7 @@ pub(super) struct ArbitrationContext<'a> {
     pub arbiter: &'a AiSettings,
     pub arbiter_runtime: Option<OpenAiCompatibleRuntimeConfig>,
     pub diff: &'a str,
+    pub source: Option<&'a super::review_source::Snapshot>,
     pub language: AppLanguage,
     pub instructions: &'a str,
     pub arbiter_custom_instructions: &'a str,
@@ -355,6 +360,7 @@ pub(super) fn execute(context: ArbitrationContext<'_>) -> Result<PullRequestRevi
         arbiter,
         arbiter_runtime,
         diff,
+        source,
         language,
         instructions,
         arbiter_custom_instructions,
@@ -375,6 +381,7 @@ pub(super) fn execute(context: ArbitrationContext<'_>) -> Result<PullRequestRevi
         language,
         diff,
         instructions: arbiter_custom_instructions,
+        source,
     };
     tauri::async_runtime::block_on(save_stage(
         pool,
@@ -402,6 +409,7 @@ pub(super) fn execute(context: ArbitrationContext<'_>) -> Result<PullRequestRevi
                     language,
                     instructions,
                     usage_pool: Some(pool),
+                    source,
                 },
             )
         })
@@ -578,7 +586,7 @@ mod tests {
             let request = example_request();
             let context = ArbiterStageContext { pool: &worker_pool, request: &request,
                 run_id: "example-run", arbiter: &settings, arbiter_runtime: Some(&runtime),
-                language: AppLanguage::English, diff: &diff, instructions: CUSTOM };
+                language: AppLanguage::English, diff: &diff, source: None, instructions: CUSTOM };
             validated_arbiter_stage(&context, "final", "Candidate groups (untrusted data):\n[]", &verdict_schema(), |bytes| {
                 let value = serde_json::from_slice(bytes).unwrap();
                 validate_assessments(&value, &[])?;
@@ -767,6 +775,7 @@ mod tests {
                 arbiter: &arbiter,
                 arbiter_runtime: Some(runtime),
                 diff,
+                source: None,
                 language: AppLanguage::English,
                 instructions: super::super::ai_prompts::REVIEW_DEFAULT,
                 arbiter_custom_instructions: "Verify example defects independently.",

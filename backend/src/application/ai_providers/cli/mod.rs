@@ -18,6 +18,7 @@ use std::{
 
 pub mod claude_code;
 pub mod codex;
+pub(crate) mod codex_session;
 mod discovery;
 pub mod hermes_cli;
 pub mod opencode;
@@ -64,14 +65,14 @@ impl CliCancellation {
 }
 
 #[cfg(unix)]
-fn kill_process_group(pid: u32) {
+pub(crate) fn kill_process_group(pid: u32) {
     unsafe {
         libc::kill(-(pid as i32), libc::SIGKILL);
     }
 }
 
 #[cfg(windows)]
-fn kill_process_group(pid: u32) {
+pub(crate) fn kill_process_group(pid: u32) {
     let _ = local_cli_command("taskkill.exe")
         .args(["/PID", &pid.to_string(), "/T", "/F"])
         .stdout(Stdio::null())
@@ -80,7 +81,7 @@ fn kill_process_group(pid: u32) {
 }
 
 #[cfg(not(any(unix, windows)))]
-fn kill_process_group(_pid: u32) {}
+pub(crate) fn kill_process_group(_pid: u32) {}
 
 thread_local! {
     static CLI_CANCELLATION: RefCell<Option<Arc<CliCancellation>>> = const { RefCell::new(None) };

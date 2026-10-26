@@ -349,6 +349,43 @@ impl BitbucketDcClient {
             })
     }
 
+    pub async fn get_repository(
+        &self,
+        project_key: &str,
+        repository_slug: &str,
+    ) -> Result<BitbucketRepository, BitbucketDcError> {
+        validate_path_segment(project_key)?;
+        validate_path_segment(repository_slug)?;
+        let url = self.url_with_segments(&[
+            "rest",
+            "api",
+            "1.0",
+            "projects",
+            project_key,
+            "repos",
+            repository_slug,
+        ])?;
+        let response = self
+            .authenticated_request(url)
+            .send_logged(
+                "data_integrations.bitbucket_dc",
+                "get_repository",
+                crate::application::logging::HttpBodyPolicy::Integration,
+            )
+            .await
+            .map_err(|_| BitbucketDcError::Transport)?;
+        if !response.status().is_success() {
+            return Err(Self::http_error(response).await);
+        }
+        crate::application::logging::parse_json_response::<BitbucketRepository>(
+            response,
+            "data_integrations.bitbucket_dc",
+            "get_repository",
+        )
+        .await
+        .map_err(|_| BitbucketDcError::InvalidResponse)
+    }
+
     pub async fn get_pull_request(
         &self,
         project_key: &str,
