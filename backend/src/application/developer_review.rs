@@ -33,6 +33,20 @@ struct ReviewUsageContext {
     usage: Option<ai_usage_statistics::AiTokenUsageCounts>,
 }
 
+pub(super) struct ReviewRunOptions<'a> {
+    pub language: crate::application::general::AppLanguage,
+    pub instructions: &'a str,
+    pub usage_pool: Option<&'a SqlitePool>,
+}
+
+pub(super) struct FileArbitrationInput<'a> {
+    pub manifest: &'a serde_json::Value,
+    pub diff: &'a str,
+    pub instructions: &'a str,
+    pub schema: &'a str,
+    pub rules: &'a str,
+}
+
 fn active_review_runs() -> &'static Mutex<HashSet<String>> {
     ACTIVE_REVIEW_RUNS.get_or_init(|| Mutex::new(HashSet::new()))
 }
@@ -664,8 +678,7 @@ pub async fn start_review_with_diff<R: Runtime>(
                     &ai_settings,
                     openai_runtime.clone(),
                     &diff,
-                    output_language,
-                    &instructions,
+                    ReviewRunOptions { language: output_language, instructions: &instructions, usage_pool: Some(&worker_pool_for_arbitration) },
                 )
             }) };
             crate::application::logging::info(
@@ -777,7 +790,15 @@ pub async fn wait_for_review(
                 PullRequestReviewStatus::Running => {}
             }
         }
-        if tokio::time::Instant::now() >= deadline {
+        // A large review has multiple bounded provider calls. The original
+        // single-call waiter budget must not report a timeout while its local
+        // worker is still progressing through the workspace.
+        if tokio::time::Instant::now() >= deadline
+            && !active_review_runs()
+                .lock()
+                .map(|runs| runs.contains(expected_run_id))
+                .unwrap_or(false)
+        {
             return Err("AI review timed out".to_owned());
         }
         tokio::time::sleep(Duration::from_millis(250)).await;
@@ -1141,8 +1162,11 @@ fn execute_review(
         ai_settings,
         openai_runtime,
         diff,
-        output_language,
-        ai_prompts::REVIEW_DEFAULT,
+        ReviewRunOptions {
+            language: output_language,
+            instructions: ai_prompts::REVIEW_DEFAULT,
+            usage_pool: None,
+        },
     )
     .map(|(result, _)| result)
 }
@@ -1153,8 +1177,7 @@ pub(super) fn execute_review_with_usage(
     ai_settings: &crate::application::ai::AiSettings,
     openai_runtime: Option<crate::application::ai::OpenAiCompatibleRuntimeConfig>,
     diff: &str,
-    output_language: crate::application::general::AppLanguage,
-    instructions: &str,
+    options: ReviewRunOptions<'_>,
 ) -> Result<
     (
         PullRequestReviewResult,
@@ -1162,18 +1185,23 @@ pub(super) fn execute_review_with_usage(
     ),
     String,
 > {
-    let workdir = std::env::temp_dir().join(format!("mework-pr-review-{run_id}"));
-    fs::create_dir_all(&workdir).map_err(|_| "Failed to prepare AI review workspace".to_owned())?;
+    let workdir = tempfile::Builder::new()
+        .prefix("mework-pr-review-")
+        .tempdir()
+        .map_err(|_| "Failed to prepare AI review workspace".to_owned())?;
+    crate::application::logging::info(
+        "developer_review",
+        "review_workspace_started",
+        serde_json::json!({"runId": run_id}),
+    );
     let result = execute_review_in_workspace_with_usage(
         request,
-        &workdir,
+        workdir.path(),
         ai_settings,
         openai_runtime.as_ref(),
         diff,
-        output_language,
-        instructions,
+        options,
     );
-    let _ = fs::remove_dir_all(&workdir);
     result
 }
 
@@ -1193,8 +1221,11 @@ fn execute_review_in_workspace(
         ai_settings,
         openai_runtime,
         diff,
-        output_language,
-        ai_prompts::REVIEW_DEFAULT,
+        ReviewRunOptions {
+            language: output_language,
+            instructions: ai_prompts::REVIEW_DEFAULT,
+            usage_pool: None,
+        },
     )
     .map(|(result, _)| result)
 }
@@ -1230,8 +1261,7 @@ fn execute_review_in_workspace_with_usage(
     ai_settings: &crate::application::ai::AiSettings,
     openai_runtime: Option<&crate::application::ai::OpenAiCompatibleRuntimeConfig>,
     diff: &str,
-    output_language: crate::application::general::AppLanguage,
-    instructions: &str,
+    options: ReviewRunOptions<'_>,
 ) -> Result<
     (
         PullRequestReviewResult,
@@ -1239,6 +1269,11 @@ fn execute_review_in_workspace_with_usage(
     ),
     String,
 > {
+    let ReviewRunOptions {
+        language: output_language,
+        instructions,
+        usage_pool,
+    } = options;
     let manifest_path = workdir.join("manifest.json");
     let diff_path = workdir.join("pull-request.diff");
     let prompt_path = workdir.join("prompt.txt");
@@ -1254,7 +1289,48 @@ fn execute_review_in_workspace_with_usage(
     fs::write(&diff_path, diff).map_err(|_| "Failed to prepare pull request diff".to_owned())?;
     fs::write(&schema_path, review_result_schema())
         .map_err(|_| "Failed to prepare review result schema".to_owned())?;
-    let prompt = review_prompt(&manifest, diff, output_language, instructions)?;
+    let prompt = if diff.len() > super::review_workspace::INLINE_BYTES {
+        None
+    } else {
+        Some(review_prompt(
+            &manifest,
+            diff,
+            output_language,
+            instructions,
+        )?)
+    };
+    if prompt
+        .as_ref()
+        .is_none_or(|prompt| prompt.len() > super::review_workspace::INLINE_BYTES)
+    {
+        let rules = format!("Review instructions:\n{instructions}\n\nMandatory application rules (take precedence):\n{}", ai_prompts::rules(PromptAction::PullRequestReview, output_language));
+        return super::review_workspace::review(
+            workdir,
+            &manifest,
+            diff,
+            &rules,
+            |prompt, schema, root| {
+                let response = execute_workspace_request_with_retries(
+                    ai_settings,
+                    openai_runtime,
+                    prompt,
+                    schema,
+                    &rules,
+                    root,
+                    ai_settings
+                        .retries
+                        .for_activity(crate::application::ai::AiActivity::PullRequestReview),
+                )?;
+                account_workspace_call(usage_pool, ai_settings, response)
+            },
+        );
+    }
+    let prompt = prompt.expect("bounded inline review prompt");
+    crate::application::logging::info(
+        "developer_review",
+        "inline_review_prepared",
+        serde_json::json!({"promptBytes": prompt.len()}),
+    );
     fs::write(&prompt_path, &prompt)
         .map_err(|_| "Failed to prepare AI review prompt".to_owned())?;
 
@@ -1576,6 +1652,166 @@ pub(super) fn execute_arbitration_prompt(
     schema: &str,
     system_rules: &str,
 ) -> Result<(Vec<u8>, Option<ai_usage_statistics::AiTokenUsageCounts>), String> {
+    execute_arbitration_prompt_with_usage_pool(
+        settings,
+        runtime,
+        prompt,
+        schema,
+        system_rules,
+        None,
+    )
+}
+
+pub(super) fn execute_arbitration_prompt_with_usage_pool(
+    settings: &crate::application::ai::AiSettings,
+    runtime: Option<&crate::application::ai::OpenAiCompatibleRuntimeConfig>,
+    prompt: &str,
+    schema: &str,
+    system_rules: &str,
+    usage_pool: Option<&SqlitePool>,
+) -> Result<(Vec<u8>, Option<ai_usage_statistics::AiTokenUsageCounts>), String> {
+    if prompt.len() > super::review_workspace::INLINE_BYTES {
+        let workspace = tempfile::Builder::new()
+            .prefix("mework-review-grouping-")
+            .tempdir()
+            .map_err(|_| "review_workspace_prepare_failed")?;
+        return super::review_workspace::document(
+            workspace.path(),
+            prompt,
+            schema,
+            system_rules,
+            None,
+            |prompt, schema, root| {
+                let response = execute_workspace_request_with_retries(
+                    settings,
+                    runtime,
+                    prompt,
+                    schema,
+                    system_rules,
+                    root,
+                    settings.retries.for_review_arbiter(),
+                )?;
+                account_workspace_call(usage_pool, settings, response)
+            },
+        );
+    }
+    let workspace = tempfile::Builder::new()
+        .prefix("mework-review-grouping-")
+        .tempdir()
+        .map_err(|_| "Failed to prepare arbitration workspace".to_owned())?;
+    execute_workspace_request(
+        settings,
+        runtime,
+        prompt,
+        schema,
+        system_rules,
+        workspace.path(),
+    )
+}
+
+pub(super) fn execute_file_arbitration(
+    settings: &crate::application::ai::AiSettings,
+    runtime: Option<&crate::application::ai::OpenAiCompatibleRuntimeConfig>,
+    input: FileArbitrationInput<'_>,
+    usage_pool: &SqlitePool,
+) -> Result<(Vec<u8>, Option<ai_usage_statistics::AiTokenUsageCounts>), String> {
+    let FileArbitrationInput {
+        manifest,
+        diff,
+        instructions,
+        schema,
+        rules,
+    } = input;
+    let workspace = tempfile::Builder::new()
+        .prefix("mework-review-arbitration-")
+        .tempdir()
+        .map_err(|_| "review_workspace_prepare_failed")?;
+    super::review_workspace::document(
+        workspace.path(),
+        instructions,
+        schema,
+        rules,
+        Some((manifest, diff)),
+        |prompt, schema, root| {
+            let response = execute_workspace_request_with_retries(
+                settings,
+                runtime,
+                prompt,
+                schema,
+                rules,
+                root,
+                settings.retries.for_review_arbiter(),
+            )?;
+            account_workspace_call(Some(usage_pool), settings, response)
+        },
+    )
+}
+
+fn account_workspace_call(
+    pool: Option<&SqlitePool>,
+    settings: &crate::application::ai::AiSettings,
+    response: (Vec<u8>, Option<ai_usage_statistics::AiTokenUsageCounts>),
+) -> Result<(Vec<u8>, Option<ai_usage_statistics::AiTokenUsageCounts>), String> {
+    if let (Some(pool), Some(provider), Some(counts)) = (pool, settings.provider, response.1) {
+        let provider =
+            serde_json::to_value(provider).map_err(|_| "Failed to record review usage")?;
+        let provider = provider.as_str().ok_or("Failed to record review usage")?;
+        tauri::async_runtime::block_on(ai_usage_statistics::record_now(
+            pool,
+            provider,
+            &settings.model,
+            counts,
+        ))
+        .map_err(|_| "Failed to record review usage")?;
+        // Each successful retrieval round is durable, even if a later round fails.
+        // Do not record the same counts again when finishing the review.
+        return Ok((response.0, None));
+    }
+    Ok(response)
+}
+
+fn execute_workspace_request_with_retries(
+    settings: &crate::application::ai::AiSettings,
+    runtime: Option<&crate::application::ai::OpenAiCompatibleRuntimeConfig>,
+    prompt: &str,
+    schema: &str,
+    rules: &str,
+    root: &Path,
+    retries: u8,
+) -> Result<(Vec<u8>, Option<ai_usage_statistics::AiTokenUsageCounts>), String> {
+    crate::application::ai::retry_provider_operation(retries, || {
+        execute_workspace_request(settings, runtime, prompt, schema, rules, root)
+    })
+    .map_err(|error| format!("review_workspace_provider_failed: {error}"))
+}
+
+pub(super) fn execute_workspace_request(
+    settings: &crate::application::ai::AiSettings,
+    runtime: Option<&crate::application::ai::OpenAiCompatibleRuntimeConfig>,
+    prompt: &str,
+    schema: &str,
+    system_rules: &str,
+    workdir: &Path,
+) -> Result<(Vec<u8>, Option<ai_usage_statistics::AiTokenUsageCounts>), String> {
+    if settings.provider == Some(crate::application::ai::AiProviderId::CodexCli) {
+        let prompt_path = workdir.join("prompt.txt");
+        let schema_path = workdir.join("review-schema.json");
+        let output_path = workdir.join("review-result.json");
+        fs::write(&prompt_path, prompt).map_err(|_| "review_workspace_prepare_failed")?;
+        fs::write(&schema_path, schema).map_err(|_| "review_workspace_prepare_failed")?;
+        // A failed call must never reuse the preceding retrieval round's result.
+        if output_path.exists() {
+            fs::remove_file(&output_path).map_err(|_| "review_workspace_prepare_failed")?;
+        }
+        return crate::application::ai_providers::cli::codex::run_workspace_with_usage(
+            settings,
+            &prompt_path,
+            &schema_path,
+            &output_path,
+            workdir,
+        )
+        .map_err(codex_review_run_error);
+    }
     if settings.provider == Some(crate::application::ai::AiProviderId::OpenAiCompatible) {
         let runtime =
             runtime.ok_or_else(|| "Arbiter API configuration is unavailable".to_owned())?;
@@ -1594,11 +1830,7 @@ pub(super) fn execute_arbitration_prompt(
             usage,
         ));
     }
-    let workspace = tempfile::Builder::new()
-        .prefix("mework-review-grouping-")
-        .tempdir()
-        .map_err(|_| "Failed to prepare arbitration workspace".to_owned())?;
-    execute_cli_structured_prompt_with_usage(settings, prompt, schema, workspace.path())
+    execute_cli_structured_prompt_with_usage(settings, prompt, schema, workdir)
 }
 
 fn execute_cli_structured_prompt_with_usage(
@@ -1909,63 +2141,18 @@ fn codex_review_run_error(error: crate::application::ai_providers::cli::codex::R
 }
 
 fn codex_failure_message(output: &std::process::Output) -> String {
+    if let Some(category) =
+        crate::application::ai_providers::cli::failure_category(&output.stdout, &output.stderr)
+    {
+        return category.to_owned();
+    }
     let status = output
         .status
         .code()
         .map(|code| code.to_string())
         .unwrap_or_else(|| "terminated by signal".to_owned());
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let detail = stderr
-        .lines()
-        .map(str::trim)
-        .find(|line| {
-            let lower = line.to_ascii_lowercase();
-            (lower.contains("error")
-                || lower.contains("invalid")
-                || lower.contains("failed")
-                || lower.contains("unsupported"))
-                && !lower.ends_with('{')
-        })
-        .and_then(safe_codex_failure_detail)
-        .or_else(|| codex_json_failure_detail(&stdout));
-    match detail {
-        Some(detail) => format!("Codex CLI review failed (exit {status}): {detail}"),
-        None => format!("Codex CLI review failed (exit {status})"),
-    }
-}
-
-fn codex_json_failure_detail(stdout: &str) -> Option<String> {
-    stdout.lines().find_map(|line| {
-        let event: serde_json::Value = serde_json::from_str(line).ok()?;
-        let event_type = event.get("type")?.as_str()?;
-        if event_type != "turn.failed" && event_type != "error" {
-            return None;
-        }
-        let message = event
-            .pointer("/error/message")
-            .and_then(serde_json::Value::as_str)
-            .or_else(|| event.get("error").and_then(serde_json::Value::as_str))
-            .or_else(|| event.get("message").and_then(serde_json::Value::as_str))?;
-        safe_codex_failure_detail(message)
-    })
-}
-
-fn safe_codex_failure_detail(detail: &str) -> Option<String> {
-    let lower = detail.to_ascii_lowercase();
-    if lower.contains("token")
-        || lower.contains("secret")
-        || lower.contains("authorization")
-        || lower.contains("cookie")
-    {
-        return None;
-    }
-    let detail = detail
-        .chars()
-        .filter(|character| !character.is_control())
-        .take(320)
-        .collect::<String>();
-    (!detail.is_empty()).then_some(detail)
+    // Persist only a fixed category or numeric exit status, never provider text.
+    format!("Codex CLI review failed (exit {status})")
 }
 
 fn review_prompt(
@@ -2457,22 +2644,6 @@ mod tests {
     }
 
     #[test]
-    fn extracts_safe_codex_failure_details_from_json_events() {
-        assert_eq!(
-            super::codex_json_failure_detail(
-                r#"{"type":"turn.started"}
-{"type":"turn.failed","error":{"message":"The selected model is unavailable."}}"#,
-            )
-            .as_deref(),
-            Some("The selected model is unavailable.")
-        );
-        assert!(super::codex_json_failure_detail(
-            r#"{"type":"turn.failed","error":{"message":"Invalid API token: synthetic-token"}}"#,
-        )
-        .is_none());
-    }
-
-    #[test]
     fn review_prompts_use_the_selected_language_for_generated_text() {
         let manifest = serde_json::json!({ "title": "Synthetic pull request" });
         let diff = "diff --git a/src/example.rs b/src/example.rs\\n+fn example() {}\\n";
@@ -2769,8 +2940,11 @@ mod tests {
             &ai_settings,
             None,
             "diff --git a/src/lib.rs b/src/lib.rs\n+return true;\n",
-            AppLanguage::Russian,
-            ai_prompts::REVIEW_DEFAULT,
+            super::ReviewRunOptions {
+                language: AppLanguage::Russian,
+                instructions: ai_prompts::REVIEW_DEFAULT,
+                usage_pool: None,
+            },
         )
         .unwrap();
         assert_eq!(
@@ -2834,8 +3008,11 @@ mod tests {
             &claude_settings,
             None,
             "diff --git a/src/lib.rs b/src/lib.rs\n+return true;\n",
-            AppLanguage::English,
-            ai_prompts::REVIEW_DEFAULT,
+            super::ReviewRunOptions {
+                language: AppLanguage::English,
+                instructions: ai_prompts::REVIEW_DEFAULT,
+                usage_pool: None,
+            },
         )
         .unwrap();
         std::env::remove_var("MEWORK_CLAUDE_CODE_CLI_BIN");

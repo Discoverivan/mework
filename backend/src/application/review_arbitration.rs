@@ -197,6 +197,7 @@ struct ArbiterStageContext<'a> {
     arbiter: &'a AiSettings,
     arbiter_runtime: Option<&'a OpenAiCompatibleRuntimeConfig>,
     language: AppLanguage,
+    diff: &'a str,
 }
 
 // One retry budget covers provider failures and invalid responses. Never retry local DB failures.
@@ -221,13 +222,30 @@ fn validated_arbiter_stage<T>(
         .for_review_arbiter()
         .min(ai::MAX_AI_RETRIES);
     for attempt in 0..=retries {
-        let response = developer_review::execute_arbitration_prompt(
-            context.arbiter,
-            context.arbiter_runtime,
-            prompt,
-            schema,
-            &system_rules,
-        );
+        let response =
+            if stage == "final" && context.diff.len() > super::review_workspace::INLINE_BYTES / 2 {
+                developer_review::execute_file_arbitration(
+                    context.arbiter,
+                    context.arbiter_runtime,
+                    developer_review::FileArbitrationInput {
+                        manifest: &developer_review::review_manifest(context.request)?,
+                        diff: context.diff,
+                        instructions: prompt,
+                        schema,
+                        rules: &system_rules,
+                    },
+                    context.pool,
+                )
+            } else {
+                developer_review::execute_arbitration_prompt_with_usage_pool(
+                    context.arbiter,
+                    context.arbiter_runtime,
+                    prompt,
+                    schema,
+                    &system_rules,
+                    Some(context.pool),
+                )
+            };
         let (bytes, usage) = match response {
             Ok(response) => response,
             Err(error) if attempt < retries && ai::is_retryable_provider_error(&error) => continue,
@@ -352,6 +370,7 @@ pub(super) fn execute(context: ArbitrationContext<'_>) -> Result<PullRequestRevi
         arbiter,
         arbiter_runtime: arbiter_runtime.as_ref(),
         language,
+        diff,
     };
     tauri::async_runtime::block_on(save_stage(
         pool,
@@ -375,15 +394,19 @@ pub(super) fn execute(context: ArbitrationContext<'_>) -> Result<PullRequestRevi
                 review,
                 review_runtime.clone(),
                 diff,
-                language,
-                instructions,
+                developer_review::ReviewRunOptions {
+                    language,
+                    instructions,
+                    usage_pool: Some(pool),
+                },
             )
         })
-        .map_err(|_| {
+        .map_err(|error| {
             format!(
-                "Independent review {}/{} could not be completed",
+                "Independent review {}/{} could not be completed: {}",
                 index + 1,
-                count
+                count,
+                error
             )
         })?;
         record_usage(pool, review, result.1);
@@ -435,13 +458,19 @@ pub(super) fn execute(context: ArbitrationContext<'_>) -> Result<PullRequestRevi
     );
     let schema = verdict_schema();
     let manifest = developer_review::review_manifest(request)?;
-    let prompt = developer_review::review_prompt_with_schema(
-        &manifest,
-        diff,
-        language,
-        &arbiter_instructions,
-        &schema,
-    )?;
+    let prompt = if diff.len() > super::review_workspace::INLINE_BYTES / 2 {
+        // The arbiter retrieves evidence from the workspace instead of receiving
+        // the complete diff again. All group identifiers remain mandatory input.
+        arbiter_instructions
+    } else {
+        developer_review::review_prompt_with_schema(
+            &manifest,
+            diff,
+            language,
+            &arbiter_instructions,
+            &schema,
+        )?
+    };
     let (result, value) =
         validated_arbiter_stage(&stage_context, "final", &prompt, &schema, |bytes| {
             let value: serde_json::Value = serde_json::from_slice(bytes)

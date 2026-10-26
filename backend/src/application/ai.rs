@@ -1170,6 +1170,20 @@ pub async fn settings_for_review(pool: &SqlitePool) -> Result<ReviewSettingsSnap
 }
 
 pub fn is_retryable_provider_error(error: &str) -> bool {
+    // Workspace calls already spend their retry budget locally. Restarting a
+    // whole large review would repeat all successfully analyzed parts.
+    if error.starts_with("review_workspace_provider_failed: ") {
+        return false;
+    }
+    if let Some((_, cause)) = error
+        .strip_prefix("Independent review ")
+        .and_then(|value| value.split_once("could not be completed: "))
+    {
+        return is_retryable_provider_error(cause);
+    }
+    if error.contains("ai_provider_rate_limit") {
+        return true;
+    }
     if error.contains("could not be completed") {
         return true;
     }

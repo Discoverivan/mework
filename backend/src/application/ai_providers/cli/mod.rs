@@ -145,6 +145,18 @@ impl CliInvocation {
         );
     }
 
+    fn failed_safely(&self, exit_code: Option<i32>, category: Option<&str>) {
+        crate::application::logging::error(
+            "ai.cli",
+            "process_failure",
+            serde_json::json!({
+                "provider": self.provider, "operation": self.operation, "model": self.model,
+                "exit_code": exit_code, "duration_ms": self.started.elapsed().as_millis(),
+                "category": category,
+            }),
+        );
+    }
+
     pub(crate) fn completed(&self, output_bytes: usize) {
         crate::application::logging::info(
             "ai.cli",
@@ -330,7 +342,7 @@ pub(crate) fn capture_cli_output_with_status(
         let sent = writer.is_none_or(|writer| writer.join().is_ok_and(|result| result.is_ok()));
         let status = status
             .ok_or_else(|| format!("{provider} timed out after {} seconds", timeout.as_secs()))?;
-        if !sent {
+        if !sent && status.success() {
             return Err(format!("{provider} run failed"));
         }
         if output.len() as u64 > OUTPUT_LIMIT || stderr.len() as u64 > OUTPUT_LIMIT {
@@ -346,9 +358,83 @@ pub(crate) fn capture_cli_output_with_status(
     match &result {
         Ok(captured) if captured.success => invocation.completed(captured.output.len()),
         // Prompts and generated text must never enter diagnostics.
-        _ => invocation.failed(exit_code, &[], &[]),
+        Ok(captured) => invocation.failed_safely(
+            exit_code,
+            failure_category(&captured.output, &captured.stderr),
+        ),
+        Err(_) => invocation.failed_safely(exit_code, None),
     }
     result
+}
+
+// Return only application-owned labels. Never persist excerpts of CLI output,
+// which may echo prompts, credentials or arbitrary provider-controlled strings.
+pub(crate) fn failure_category(stdout: &[u8], stderr: &[u8]) -> Option<&'static str> {
+    for bytes in [stdout, stderr] {
+        let lower = String::from_utf8_lossy(bytes).to_ascii_lowercase();
+        for (category, patterns) in [
+            (
+                "ai_input_context_limit",
+                &[
+                    "context_length_exceeded",
+                    "context window",
+                    "context length",
+                    "prompt is too long",
+                    "input is too long",
+                    "input too large",
+                    "maximum context",
+                    "prompt too long",
+                    "stdin prompt exceeds",
+                    "too many tokens",
+                    "payload too large",
+                    "request too large",
+                ][..],
+            ),
+            (
+                "ai_provider_rate_limit",
+                &["rate_limit_exceeded", "rate limit", "too many requests"][..],
+            ),
+            (
+                "ai_provider_authentication",
+                &[
+                    "authentication_error",
+                    "invalid_api_key",
+                    "not logged in",
+                    "unauthorized",
+                    "401 unauthorized",
+                ][..],
+            ),
+            (
+                "ai_cli_update_required",
+                &[
+                    "unexpected argument",
+                    "unrecognized option",
+                    "unknown option",
+                ][..],
+            ),
+        ] {
+            if patterns.iter().any(|pattern| lower.contains(pattern)) {
+                return Some(category);
+            }
+        }
+    }
+    None
+}
+
+#[cfg(test)]
+mod diagnostics_tests {
+    #[test]
+    fn classifies_failures_without_returning_provider_text() {
+        let diagnostic = b"context_length_exceeded: private synthetic prompt and credential value";
+        assert_eq!(
+            super::failure_category(&[], diagnostic),
+            Some("ai_input_context_limit")
+        );
+        assert_eq!(
+            super::failure_category(&[], b"private synthetic prompt"),
+            None
+        );
+    }
 }
 
 #[cfg(all(test, unix))]

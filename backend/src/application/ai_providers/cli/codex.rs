@@ -32,6 +32,41 @@ pub(crate) fn run_structured_with_usage(
     output_path: &Path,
     workdir: &Path,
 ) -> Result<(Vec<u8>, Option<AiTokenUsageCounts>), RunError> {
+    run_structured(
+        settings,
+        prompt_path,
+        schema_path,
+        output_path,
+        workdir,
+        false,
+    )
+}
+
+pub(crate) fn run_workspace_with_usage(
+    settings: &AiSettings,
+    prompt_path: &Path,
+    schema_path: &Path,
+    output_path: &Path,
+    workdir: &Path,
+) -> Result<(Vec<u8>, Option<AiTokenUsageCounts>), RunError> {
+    run_structured(
+        settings,
+        prompt_path,
+        schema_path,
+        output_path,
+        workdir,
+        true,
+    )
+}
+
+fn run_structured(
+    settings: &AiSettings,
+    prompt_path: &Path,
+    schema_path: &Path,
+    output_path: &Path,
+    workdir: &Path,
+    isolated: bool,
+) -> Result<(Vec<u8>, Option<AiTokenUsageCounts>), RunError> {
     let binary = resolve_codex_binary().ok_or_else(|| {
         crate::application::logging::error("ai.cli", "executable_missing", serde_json::json!({"provider": "codex", "operation": "structured_generation", "model": settings.model}));
         RunError::MissingBinary
@@ -45,6 +80,22 @@ pub(crate) fn run_structured_with_usage(
     };
     let fast_mode = if settings.fast_mode { "true" } else { "false" };
     let mut command = command(binary);
+    if isolated {
+        // Authentication remains in Codex's own store. Do not import the user's
+        // MCP servers, plugins, hooks or tool permissions into a PR review.
+        command.args([
+            "--config",
+            "features.shell_tool=false",
+            "--config",
+            "features.multi_agent=false",
+            "--config",
+            "features.apps=false",
+            "--config",
+            "web_search=\"disabled\"",
+            "--config",
+            "project_doc_max_bytes=0",
+        ]);
+    }
     command
         .args([
             "--ask-for-approval",
@@ -69,9 +120,12 @@ pub(crate) fn run_structured_with_usage(
             schema_path.to_string_lossy().as_ref(),
             "--output-last-message",
             output_path.to_string_lossy().as_ref(),
-            "-",
         ])
         .current_dir(workdir);
+    if isolated {
+        command.args(["--ignore-user-config", "--ignore-rules"]);
+    }
+    command.arg("-");
     let prompt = std::fs::read_to_string(prompt_path).map_err(|_| RunError::PromptOpen)?;
     let captured = super::capture_cli_output_with_status(
         command,

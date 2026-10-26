@@ -1,5 +1,13 @@
 export const en = {
   "ai.error.outputTokenLimit": "The model reached its output-token limit before completing the response. Reasoning may consume this budget. Increase the available Output tokens limit or reduce the request size. Model or server limits can still apply when Limit not set is selected.",
+  "ai.error.inputContextLimit": "The provider rejected the input because it exceeds the model's context limit.",
+  "ai.error.providerRateLimit": "The AI provider's request limit has been reached. Try again later.",
+  "ai.error.providerAuthentication": "The AI provider could not authenticate. Check its connection or CLI sign-in.",
+  "ai.error.cliUpdateRequired": "The installed AI CLI does not support the required options. Update the CLI and try again.",
+  "ai.error.workspaceProviderFailed": "The AI provider could not complete a review request after the configured retries. No complete review was saved.",
+  "ai.error.workspaceIncomplete": "The review did not finish reading the required materials within its analysis budget. No complete review was saved.",
+  "ai.error.workspaceInputLimit": "A review material exceeds the supported retrieval size. The review was stopped without saving a partial result.",
+  "ai.error.workspaceProtocol": "The review workspace could not be prepared or the model returned an invalid material request. No complete review was saved.",
   "settings.ai.advanced.providerHelp": "About AI provider settings",
   "settings.ai.advanced.retriesHelp": "About retries",
   "settings.ai.advanced.help": "About advanced settings",
