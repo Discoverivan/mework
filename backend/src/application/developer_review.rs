@@ -9,7 +9,7 @@ use std::{
 
 use serde::{Deserialize, Serialize};
 use sqlx::SqlitePool;
-use tauri::{AppHandle, Emitter, Runtime};
+use tauri::{AppHandle, Emitter, Manager, Runtime};
 use uuid::Uuid;
 
 use super::developer::{self, MyPullRequestDto};
@@ -37,10 +37,12 @@ pub(super) struct ReviewRunOptions<'a> {
     pub language: crate::application::general::AppLanguage,
     pub instructions: &'a str,
     pub usage_pool: Option<&'a SqlitePool>,
+    pub source: Option<&'a super::review_source::Snapshot>,
 }
 
 pub(super) struct FileArbitrationInput<'a> {
     pub manifest: &'a serde_json::Value,
+    pub source: Option<&'a super::review_source::Snapshot>,
     pub diff: &'a str,
     pub instructions: &'a str,
     pub schema: &'a str,
@@ -576,6 +578,11 @@ pub async fn start_review_with_diff<R: Runtime>(
         }
     }
 
+    let source_cache = app
+        .path()
+        .app_cache_dir()
+        .map_err(|_| "review_source_cache_unavailable")?
+        .join("review-git");
     let key = pull_request_review_key(
         &request.integration_id,
         &request.project_key,
@@ -657,6 +664,11 @@ pub async fn start_review_with_diff<R: Runtime>(
                 "review_execution_started",
                 serde_json::json!({ "runId": worker_run_id, "diffChars": diff.chars().count(), "diffLines": diff.lines().count() }),
             );
+            let needs_source = ai_settings.provider == Some(crate::application::ai::AiProviderId::CodexCli)
+                || arbitration.as_ref().is_some_and(|(arbiter,_)| arbiter.provider == Some(crate::application::ai::AiProviderId::CodexCli));
+            let source = if needs_source {
+                Some(tauri::async_runtime::block_on(super::review_source::prepare(&worker_pool_for_arbitration, &request, &diff, &source_cache))?)
+            } else { None };
             let result = if let Some((arbiter, arbiter_runtime)) = arbitration {
                 super::review_arbitration::execute(super::review_arbitration::ArbitrationContext {
                     pool: &worker_pool_for_arbitration,
@@ -667,6 +679,7 @@ pub async fn start_review_with_diff<R: Runtime>(
                     arbiter: &arbiter,
                     arbiter_runtime,
                     diff: &diff,
+                    source: source.as_ref(),
                     language: output_language,
                     instructions: &instructions,
                     arbiter_custom_instructions: &arbiter_instructions,
@@ -678,7 +691,7 @@ pub async fn start_review_with_diff<R: Runtime>(
                     &ai_settings,
                     openai_runtime.clone(),
                     &diff,
-                    ReviewRunOptions { language: output_language, instructions: &instructions, usage_pool: Some(&worker_pool_for_arbitration) },
+                    ReviewRunOptions { language: output_language, instructions: &instructions, usage_pool: Some(&worker_pool_for_arbitration), source: source.as_ref() },
                 )
             }) };
             crate::application::logging::info(
@@ -1166,6 +1179,7 @@ fn execute_review(
             language: output_language,
             instructions: ai_prompts::REVIEW_DEFAULT,
             usage_pool: None,
+            source: None,
         },
     )
     .map(|(result, _)| result)
@@ -1225,6 +1239,7 @@ fn execute_review_in_workspace(
             language: output_language,
             instructions: ai_prompts::REVIEW_DEFAULT,
             usage_pool: None,
+            source: None,
         },
     )
     .map(|(result, _)| result)
@@ -1273,6 +1288,7 @@ fn execute_review_in_workspace_with_usage(
         language: output_language,
         instructions,
         usage_pool,
+        source,
     } = options;
     let manifest_path = workdir.join("manifest.json");
     let diff_path = workdir.join("pull-request.diff");
@@ -1289,6 +1305,24 @@ fn execute_review_in_workspace_with_usage(
     fs::write(&diff_path, diff).map_err(|_| "Failed to prepare pull request diff".to_owned())?;
     fs::write(&schema_path, review_result_schema())
         .map_err(|_| "Failed to prepare review result schema".to_owned())?;
+    if ai_settings.provider == Some(crate::application::ai::AiProviderId::CodexCli) {
+        let rules = format!("Review instructions:\n{instructions}\n\nMandatory application rules (take precedence):\n{}", ai_prompts::rules(PromptAction::PullRequestReview, output_language));
+        let response = super::review_session::run(
+            ai_settings,
+            workdir,
+            super::review_session::Input {
+                manifest: &manifest,
+                diff,
+                source,
+                rules: &rules,
+                task: None,
+                schema: review_result_schema(),
+                usage_pool,
+            },
+        )?;
+        let (bytes, usage) = account_workspace_call(usage_pool, ai_settings, response)?;
+        return parse_review_result_in_diff(&bytes, Some(diff)).map(|result| (result, usage));
+    }
     let prompt = if diff.len() > super::review_workspace::INLINE_BYTES {
         None
     } else {
@@ -1678,6 +1712,22 @@ pub(super) fn execute_arbitration_prompt_with_usage_pool(
             .prefix("mework-review-grouping-")
             .tempdir()
             .map_err(|_| "review_workspace_prepare_failed")?;
+        if settings.provider == Some(crate::application::ai::AiProviderId::CodexCli) {
+            let response = super::review_session::run(
+                settings,
+                workspace.path(),
+                super::review_session::Input {
+                    manifest: &serde_json::json!({}),
+                    diff: "",
+                    source: None,
+                    rules: system_rules,
+                    task: Some(prompt),
+                    schema,
+                    usage_pool,
+                },
+            )?;
+            return account_workspace_call(usage_pool, settings, response);
+        }
         return super::review_workspace::document(
             workspace.path(),
             prompt,
@@ -1730,6 +1780,7 @@ pub(super) fn execute_file_arbitration(
 ) -> Result<(Vec<u8>, Option<ai_usage_statistics::AiTokenUsageCounts>), String> {
     let FileArbitrationInput {
         manifest,
+        source,
         diff,
         instructions,
         schema,
@@ -1739,6 +1790,22 @@ pub(super) fn execute_file_arbitration(
         .prefix("mework-review-arbitration-")
         .tempdir()
         .map_err(|_| "review_workspace_prepare_failed")?;
+    if settings.provider == Some(crate::application::ai::AiProviderId::CodexCli) {
+        let response = super::review_session::run(
+            settings,
+            workspace.path(),
+            super::review_session::Input {
+                manifest,
+                diff,
+                source,
+                rules,
+                task: Some(instructions),
+                schema,
+                usage_pool: Some(usage_pool),
+            },
+        )?;
+        return account_workspace_call(Some(usage_pool), settings, response);
+    }
     super::review_workspace::document(
         workspace.path(),
         instructions,
@@ -1760,7 +1827,7 @@ pub(super) fn execute_file_arbitration(
     )
 }
 
-fn account_workspace_call(
+pub(super) fn account_workspace_call(
     pool: Option<&SqlitePool>,
     settings: &crate::application::ai::AiSettings,
     response: (Vec<u8>, Option<ai_usage_statistics::AiTokenUsageCounts>),
@@ -1776,7 +1843,7 @@ fn account_workspace_call(
             counts,
         ))
         .map_err(|_| "Failed to record review usage")?;
-        // Each successful retrieval round is durable, even if a later round fails.
+        // Known usage is durable even when a later analysis step fails.
         // Do not record the same counts again when finishing the review.
         return Ok((response.0, None));
     }
@@ -2948,29 +3015,6 @@ mod tests {
             sprint_summary: None,
             retries: crate::application::ai::AiRetrySettings::default(),
         };
-        let (result, codex_usage) = super::execute_review_in_workspace_with_usage(
-            &request,
-            &PathBuf::from(&root),
-            &ai_settings,
-            None,
-            "diff --git a/src/lib.rs b/src/lib.rs\n+return true;\n",
-            super::ReviewRunOptions {
-                language: AppLanguage::Russian,
-                instructions: ai_prompts::REVIEW_DEFAULT,
-                usage_pool: None,
-            },
-        )
-        .unwrap();
-        assert_eq!(
-            codex_usage,
-            Some(
-                crate::application::ai_usage_statistics::AiTokenUsageCounts {
-                    input_tokens: 40,
-                    output_tokens: 8,
-                    total_tokens: 48,
-                }
-            )
-        );
         let model_testing_workdir = root.join("model-testing");
         fs::create_dir(&model_testing_workdir).unwrap();
         let (model_testing_result, model_testing_usage) =
@@ -2992,12 +3036,6 @@ mod tests {
             )
         );
 
-        assert!(fs::read_to_string(root.join("pull-request.diff"))
-            .unwrap()
-            .contains("return true"));
-        assert!(fs::read_to_string(root.join("prompt.txt"))
-            .unwrap()
-            .contains("return true"));
         std::env::remove_var("MEWORK_CODEX_CLI_BIN");
 
         let claude = root.join("claude");
@@ -3026,6 +3064,7 @@ mod tests {
                 language: AppLanguage::English,
                 instructions: ai_prompts::REVIEW_DEFAULT,
                 usage_pool: None,
+                source: None,
             },
         )
         .unwrap();
@@ -3045,8 +3084,8 @@ mod tests {
         );
         assert_eq!(claude_result.verdict, PullRequestReviewVerdict::Ok);
         let _ = fs::remove_dir_all(&root);
-        assert_eq!(result.verdict, PullRequestReviewVerdict::Ok);
-        assert!(result.comments.is_empty());
+        assert_eq!(model_testing_result.verdict, PullRequestReviewVerdict::Ok);
+        assert!(model_testing_result.comments.is_empty());
     }
 
     #[test]

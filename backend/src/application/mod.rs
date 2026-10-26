@@ -31,6 +31,8 @@ pub mod review_comment_discussions;
 pub mod review_comment_matches;
 pub mod review_instructions;
 mod review_locations;
+mod review_session;
+mod review_source;
 mod review_workspace;
 pub mod reviewer_discussions;
 pub mod sprint_report;

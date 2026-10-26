@@ -1170,6 +1170,15 @@ pub async fn settings_for_review(pool: &SqlitePool) -> Result<ReviewSettingsSnap
 }
 
 pub fn is_retryable_provider_error(error: &str) -> bool {
+    if matches!(
+        error,
+        "review_session_spawn_failed"
+            | "review_session_transport"
+            | "review_session_timed_out"
+            | "review_session_turn_failed"
+    ) {
+        return true;
+    }
     // Workspace calls already spend their retry budget locally. Restarting a
     // whole large review would repeat all successfully analyzed parts.
     if error.starts_with("review_workspace_provider_failed: ") {

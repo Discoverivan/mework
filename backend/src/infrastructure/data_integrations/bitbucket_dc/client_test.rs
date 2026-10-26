@@ -277,6 +277,14 @@ async fn loads_pull_request_diff_with_authentication() {
 async fn reads_pull_request_details_for_commit_validation() {
     let server = MockServer::start().await;
     Mock::given(method("GET"))
+        .and(path("/rest/api/1.0/projects/DEMO/repos/sample-repository"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "id": 1, "slug": "sample-repository", "name": "Example repository", "scmId": "git", "public": false,
+            "project": {"id": 1, "key": "DEMO", "name": "Example project"},
+            "links": {"clone": [{"name": "http", "href": "https://bitbucket.example.invalid/scm/demo/sample-repository.git"}]}
+        })))
+        .expect(1).mount(&server).await;
+    Mock::given(method("GET"))
         .and(path("/rest/api/1.0/projects/DEMO/repos/sample-repository/pull-requests/7"))
         .and(header("authorization", "Bearer test-token"))
         .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
@@ -308,6 +316,14 @@ async fn reads_pull_request_details_for_commit_validation() {
         .unwrap();
 
     assert_eq!(pull_request.id, 7);
+    let repository = client
+        .get_repository("DEMO", "sample-repository")
+        .await
+        .unwrap();
+    assert_eq!(
+        repository.links.unwrap().clone.unwrap()[0].name.as_deref(),
+        Some("http")
+    );
     assert_eq!(
         pull_request.from_ref.latest_commit.as_deref(),
         Some("abc123")
