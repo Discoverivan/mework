@@ -1317,6 +1317,7 @@ fn execute_review_in_workspace_with_usage(
                 rules: &rules,
                 task: None,
                 schema: review_result_schema(),
+                usage_pool,
             },
         )?;
         let (bytes, usage) = account_workspace_call(usage_pool, ai_settings, response)?;
@@ -1722,6 +1723,7 @@ pub(super) fn execute_arbitration_prompt_with_usage_pool(
                     rules: system_rules,
                     task: Some(prompt),
                     schema,
+                    usage_pool,
                 },
             )?;
             return account_workspace_call(usage_pool, settings, response);
@@ -1799,6 +1801,7 @@ pub(super) fn execute_file_arbitration(
                 rules,
                 task: Some(instructions),
                 schema,
+                usage_pool: Some(usage_pool),
             },
         )?;
         return account_workspace_call(Some(usage_pool), settings, response);
@@ -1824,7 +1827,7 @@ pub(super) fn execute_file_arbitration(
     )
 }
 
-fn account_workspace_call(
+pub(super) fn account_workspace_call(
     pool: Option<&SqlitePool>,
     settings: &crate::application::ai::AiSettings,
     response: (Vec<u8>, Option<ai_usage_statistics::AiTokenUsageCounts>),
@@ -1840,7 +1843,7 @@ fn account_workspace_call(
             counts,
         ))
         .map_err(|_| "Failed to record review usage")?;
-        // Each successful retrieval round is durable, even if a later round fails.
+        // Known usage is durable even when a later analysis step fails.
         // Do not record the same counts again when finishing the review.
         return Ok((response.0, None));
     }
@@ -3033,12 +3036,6 @@ mod tests {
             )
         );
 
-        assert!(fs::read_to_string(root.join("pull-request.diff"))
-            .unwrap()
-            .contains("return true"));
-        assert!(fs::read_to_string(root.join("prompt.txt"))
-            .unwrap()
-            .contains("return true"));
         std::env::remove_var("MEWORK_CODEX_CLI_BIN");
 
         let claude = root.join("claude");

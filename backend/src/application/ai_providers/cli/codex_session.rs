@@ -4,11 +4,80 @@ use serde_json::{json, Value};
 use std::{
     io::{BufRead, BufReader, Read},
     path::Path,
-    process::Stdio,
+    process::{ChildStdin, Stdio},
     sync::mpsc,
     thread,
     time::Instant,
 };
+
+pub(crate) struct SessionFailure {
+    pub code: String,
+    pub usage: Option<AiTokenUsageCounts>,
+}
+
+impl From<String> for SessionFailure {
+    fn from(code: String) -> Self {
+        Self { code, usage: None }
+    }
+}
+
+impl From<&str> for SessionFailure {
+    fn from(code: &str) -> Self {
+        code.to_owned().into()
+    }
+}
+
+// A tool response can exceed a pipe buffer. Keep writes off the protocol reader
+// so an unresponsive child cannot bypass the session's execution deadline.
+struct SessionWriter {
+    requests: mpsc::SyncSender<Value>,
+    completed: mpsc::Receiver<Result<(), ()>>,
+    deadline: Instant,
+}
+
+impl SessionWriter {
+    fn new(mut stdin: ChildStdin, deadline: Instant) -> Self {
+        let (requests, messages) = mpsc::sync_channel::<Value>(1);
+        let (finish, completed) = mpsc::sync_channel(1);
+        thread::spawn(move || {
+            use std::io::Write;
+            for value in messages {
+                let written = serde_json::to_writer(&mut stdin, &value)
+                    .map_err(|_| ())
+                    .and_then(|_| stdin.write_all(b"\n").map_err(|_| ()))
+                    .and_then(|_| stdin.flush().map_err(|_| ()));
+                let failed = written.is_err();
+                if finish.send(written).is_err() || failed {
+                    break;
+                }
+            }
+        });
+        Self {
+            requests,
+            completed,
+            deadline,
+        }
+    }
+
+    fn send(&mut self, value: Value) -> Result<(), String> {
+        let remaining = self
+            .deadline
+            .checked_duration_since(Instant::now())
+            .ok_or("review_session_timed_out")?;
+        // Calls wait for completion before enqueuing the next message, so the
+        // single-slot queue cannot contain an outstanding earlier write here.
+        self.requests
+            .send(value)
+            .map_err(|_| "review_session_transport")?;
+        self.completed
+            .recv_timeout(remaining)
+            .map_err(|error| match error {
+                mpsc::RecvTimeoutError::Timeout => "review_session_timed_out",
+                mpsc::RecvTimeoutError::Disconnected => "review_session_transport",
+            })?
+            .map_err(|_| "review_session_transport".into())
+    }
+}
 
 pub(crate) fn run(
     settings: &AiSettings,
@@ -18,7 +87,7 @@ pub(crate) fn run(
     schema: &Value,
     tools: Value,
     mut material: impl FnMut(&str, &Value) -> Value,
-) -> Result<(Vec<u8>, Option<AiTokenUsageCounts>), String> {
+) -> Result<(Vec<u8>, Option<AiTokenUsageCounts>), SessionFailure> {
     super::codex::ensure_workspace_route().map_err(str::to_owned)?;
     let binary = super::codex::resolve_codex_binary().ok_or("review_session_cli_unavailable")?;
     let mut command = super::codex::command(binary);
@@ -64,8 +133,13 @@ pub(crate) fn run(
         Some(&settings.model),
     )
     .map_err(|_| "review_session_spawn_failed")?;
-    let result = (|| {
-        let mut stdin = child.stdin.take().ok_or("review_session_transport")?;
+    let mut usage = None;
+    let result: Result<_, String> = (|| {
+        let started = Instant::now();
+        let mut stdin = SessionWriter::new(
+            child.stdin.take().ok_or("review_session_transport")?,
+            started + settings.execution.timeout(),
+        );
         let stdout = child.stdout.take().ok_or("review_session_transport")?;
         let stderr = child.stderr.take().ok_or("review_session_transport")?;
         // Drain without logging provider text, which may contain repository data.
@@ -92,22 +166,13 @@ pub(crate) fn run(
                 }
             }
         });
-        let started = Instant::now();
-        let send = |stdin: &mut std::process::ChildStdin, value: Value| -> Result<(), String> {
-            use std::io::Write;
-            serde_json::to_writer(&mut *stdin, &value).map_err(|_| "review_session_transport")?;
-            stdin
-                .write_all(b"\n")
-                .and_then(|_| stdin.flush())
-                .map_err(|_| "review_session_transport".into())
-        };
+        let send = |stdin: &mut SessionWriter, value: Value| stdin.send(value);
         send(
             &mut stdin,
             json!({"id":1,"method":"initialize","params":{"clientInfo":{"name":"mework","version":env!("CARGO_PKG_VERSION")},"capabilities":{"experimentalApi":true}}}),
         )?;
         let mut thread_id = None;
         let mut answer = None;
-        let mut usage = None;
         let mut calls = 0usize;
         let mut continuations = 0usize;
         let mut consecutive_tool_errors = 0usize;
@@ -339,5 +404,5 @@ pub(crate) fn run(
         );
     }
     // Intentionally omit raw stdout/stderr from diagnostics.
-    result
+    result.map_err(|code| SessionFailure { code, usage })
 }

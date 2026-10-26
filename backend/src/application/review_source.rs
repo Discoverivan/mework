@@ -508,6 +508,7 @@ mod tests {
                 rules: "Synthetic protocol verification: ONCE at the very start, intentionally issue exactly three identical mework_read calls for review/index.json with offset=null and limit=100, in one JavaScript loop. This tests recovery from the invalid-offset loop seen in production. After that fault injection, including if the turn is interrupted, never repeat the invalid requests: follow the original task and return the specified JSON.",
                 task: Some("Read all changes and head/contract.txt. Return the exact contract marker in marker."),
                 schema: r#"{"type":"object","additionalProperties":false,"required":["marker"],"properties":{"marker":{"type":"string"}}}"#,
+                usage_pool: None,
             }).unwrap();
             assert_eq!(
                 serde_json::from_slice::<serde_json::Value>(&bytes).unwrap()["marker"],

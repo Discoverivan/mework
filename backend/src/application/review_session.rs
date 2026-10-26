@@ -238,6 +238,7 @@ pub(super) struct Input<'a> {
     pub rules: &'a str,
     pub task: Option<&'a str>,
     pub schema: &'a str,
+    pub usage_pool: Option<&'a sqlx::SqlitePool>,
 }
 
 pub(super) fn run(
@@ -252,6 +253,7 @@ pub(super) fn run(
         rules,
         task,
         schema,
+        usage_pool,
     } = input;
     let mut materials = Materials::new(root, manifest, diff, snapshot, task)?;
     let rules = format!("{rules}\n\nMandatory material access rules:\n{RULES}");
@@ -263,7 +265,7 @@ pub(super) fn run(
         "Review the pull request in review/index.json. Inspect all changes and related source as needed."
     };
     let prompt = format!("{task} Read materials with the supplied mework tools, then return the final JSON. The entire diff must be read before completion.");
-    codex_session::run(
+    let result = codex_session::run(
         settings,
         root,
         &rules,
@@ -271,12 +273,65 @@ pub(super) fn run(
         &schema,
         tools(),
         |name, args| materials.call(name, args),
-    )
+    );
+    finish_session(settings, usage_pool, result)
+}
+
+fn finish_session(
+    settings: &AiSettings,
+    usage_pool: Option<&sqlx::SqlitePool>,
+    result: Result<(Vec<u8>, Option<AiTokenUsageCounts>), codex_session::SessionFailure>,
+) -> Result<(Vec<u8>, Option<AiTokenUsageCounts>), String> {
+    result.map_err(|failure| {
+        // The failed live session may already have consumed measured tokens.
+        // Persist those counts here; successful sessions are accounted by the caller.
+        super::developer_review::account_workspace_call(
+            usage_pool,
+            settings,
+            (Vec::new(), failure.usage),
+        )
+        .map_or_else(|error| error, |_| failure.code)
+    })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn failed_session_preserves_measured_usage() {
+        let directory = tempfile::tempdir().unwrap();
+        let pool =
+            crate::infrastructure::db::open_database(&directory.path().join("example.sqlite"))
+                .await
+                .unwrap();
+        let worker_pool = pool.clone();
+        let error = tokio::task::spawn_blocking(move || {
+            let settings = AiSettings {
+                provider: Some(super::super::ai::AiProviderId::CodexCli),
+                model: "example-review-model".into(),
+                ..Default::default()
+            };
+            finish_session(
+                &settings,
+                Some(&worker_pool),
+                Err(codex_session::SessionFailure {
+                    code: "review_session_incomplete".into(),
+                    usage: Some(AiTokenUsageCounts {
+                        input_tokens: 10,
+                        output_tokens: 5,
+                        total_tokens: 15,
+                    }),
+                }),
+            )
+            .unwrap_err()
+        })
+        .await
+        .unwrap();
+        assert_eq!(error, "review_session_incomplete");
+        let totals: (i64, i64) = sqlx::query_as("SELECT COUNT(*), SUM(total_tokens) FROM ai_token_usage WHERE provider = 'codex-cli' AND model = 'example-review-model'").fetch_one(&pool).await.unwrap();
+        assert_eq!(totals, (1, 15));
+    }
 
     #[test]
     fn material_tools_restrict_file_access_and_track_complete_coverage() {
