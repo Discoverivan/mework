@@ -40,14 +40,15 @@ pub struct PreparedBitbucketComment {
 
 impl PreparedBitbucketComment {
     pub async fn publish(self) -> Result<BitbucketComment, BitbucketDcError> {
-        let response = reqwest::RequestBuilder::from_parts(self.http, self.request)
-            .send_logged(
-                "data_integrations.bitbucket_dc",
-                self.operation,
-                crate::application::logging::HttpBodyPolicy::Integration,
-            )
-            .await
-            .map_err(|_| BitbucketDcError::Transport)?;
+        let response = crate::application::logging::execute_http_request(
+            &self.http,
+            self.request,
+            "data_integrations.bitbucket_dc",
+            self.operation,
+            crate::application::logging::HttpBodyPolicy::Integration,
+        )
+        .await
+        .map_err(|_| BitbucketDcError::Transport)?;
         if !response.status().is_success() {
             return Err(BitbucketDcClient::http_error(response).await);
         }
