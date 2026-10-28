@@ -20,7 +20,8 @@ use crate::infrastructure::data_integrations::bitbucket_dc::error::{
     BitbucketDcError, BitbucketHttpErrorKind,
 };
 use crate::infrastructure::data_integrations::bitbucket_dc::models::{
-    BitbucketDashboardPullRequest, BitbucketParticipant, BitbucketPullRequestAuthor, BitbucketUser,
+    BitbucketComment, BitbucketDashboardPullRequest, BitbucketParticipant,
+    BitbucketPullRequestAuthor, BitbucketUser,
 };
 use crate::infrastructure::db::repositories;
 use sqlx::SqlitePool;
@@ -1528,10 +1529,73 @@ pub async fn publish_pull_request_comment(
             return Err(command_error("comment_discussion_changed", "An existing discussion covers this comment; review the refreshed results before publishing", true));
         }
     }
-    // AI comparison can take minutes. Reject a stale discussion snapshot rather than
-    // publishing a duplicate or sending a clarification to a thread that changed.
-    let current_comments = context
-        .client
+    let status = publish_approved_comment(
+        pool,
+        &context.client,
+        &request,
+        &request_json,
+        pull_request_id,
+        &text,
+        &live_comments,
+    )
+    .await?;
+    update_cached_comment_count(
+        pool,
+        &request.integration_id,
+        &request.project_key,
+        &request.repository_slug,
+        &request.pull_request_id,
+    )
+    .await;
+    Ok(status)
+}
+
+async fn publish_approved_comment(
+    pool: &SqlitePool,
+    client: &BitbucketDcClient,
+    request: &PullRequestCommentRequest,
+    request_json: &str,
+    pull_request_id: u64,
+    text: &str,
+    live_comments: &[BitbucketComment],
+) -> Result<PullRequestCommentStatus, DeveloperCommandError> {
+    // Resolve the anchor and build the request before reserving an external write.
+    // A failed diff GET, parse or local validation leaves the approved comment retryable.
+    let publication = if let Some(parent) = request.parent_comment_id {
+        client
+            .prepare_pull_request_comment_reply(
+                &request.project_key,
+                &request.repository_slug,
+                pull_request_id,
+                parent,
+                text,
+            )
+            .map_err(map_error)?
+    } else {
+        client
+            .prepare_pull_request_comment(
+                &request.project_key,
+                &request.repository_slug,
+                pull_request_id,
+                BitbucketInlineComment {
+                    text,
+                    path: developer_review::review_comment_path(&request.file),
+                    line: request.line,
+                },
+            )
+            .await
+            .map_err(|error| {
+                map_error_at(
+                    error,
+                    "prepare_pull_request_comment",
+                    "GET",
+                    "/rest/api/1.0/projects/{project}/repos/{repo}/pull-requests/{id}/diff",
+                )
+            })?
+    };
+    // AI comparison and diff preparation can take time. Revalidate discussions and
+    // the approved revision after both, immediately before reserving the write.
+    let current_comments = client
         .list_pull_request_comments(
             &request.project_key,
             &request.repository_slug,
@@ -1541,7 +1605,7 @@ pub async fn publish_pull_request_comment(
         .await
         .map_err(map_error)?;
     if !super::review_comment_matches::file_discussions_unchanged(
-        &live_comments,
+        live_comments,
         &current_comments,
         developer_review::review_comment_path(&request.file),
     ) {
@@ -1552,7 +1616,7 @@ pub async fn publish_pull_request_comment(
         ));
     }
     validate_current_pull_request(
-        &context.client,
+        client,
         &request.project_key,
         &request.repository_slug,
         pull_request_id,
@@ -1562,67 +1626,22 @@ pub async fn publish_pull_request_comment(
             .expect("validated latest commit"),
     )
     .await?;
-    // Persist a local action key before any write. Identical retries, including after restart,
-    // must not post a second comment when the remote result is unknown.
+    // From this point any failure may hide a completed POST. Keep the durable key
+    // so identical retries, including after restart, cannot publish a duplicate.
     sqlx::query("INSERT INTO pull_request_comment_actions (idempotency_key, request_json, status) VALUES (?, ?, 'running')")
-        .bind(uuid::Uuid::now_v7().to_string()).bind(&request_json).execute(pool).await
+        .bind(uuid::Uuid::now_v7().to_string()).bind(request_json).execute(pool).await
         .map_err(|_| command_error("idempotency_conflict", "This comment publication is already running", false))?;
-    let result = if let Some(parent) = request.parent_comment_id {
-        context
-            .client
-            .reply_pull_request_comment(
-                &request.project_key,
-                &request.repository_slug,
-                pull_request_id,
-                parent,
-                &text,
-            )
-            .await
-    } else {
-        context
-            .client
-            .publish_pull_request_comment(
-                &request.project_key,
-                &request.repository_slug,
-                pull_request_id,
-                BitbucketInlineComment {
-                    text: &text,
-                    path: developer_review::review_comment_path(&request.file),
-                    line: request.line,
-                },
-            )
-            .await
-    };
-    let comment = match result {
-        Ok(comment) => comment,
-        Err(error) => {
-            // Input validation happens before POST, so these requests can safely be corrected/retried.
-            if matches!(error, BitbucketDcError::InvalidRequest) {
-                let _ =
-                    sqlx::query("DELETE FROM pull_request_comment_actions WHERE request_json = ?")
-                        .bind(&request_json)
-                        .execute(pool)
-                        .await;
-            }
-            return Err(map_error_at(
-                error,
-                "publish_pull_request_comment",
-                "POST",
-                "/rest/api/1.0/projects/{project}/repos/{repo}/pull-requests/{id}/comments",
-            ));
-        }
-    };
+    let comment = publication.publish().await.map_err(|error| {
+        map_error_at(
+            error,
+            "publish_pull_request_comment",
+            "POST",
+            "/rest/api/1.0/projects/{project}/repos/{repo}/pull-requests/{id}/comments",
+        )
+    })?;
     sqlx::query("UPDATE pull_request_comment_actions SET status = 'succeeded', comment_id = ? WHERE request_json = ?")
-        .bind(comment.id as i64).bind(&request_json).execute(pool).await
+        .bind(comment.id as i64).bind(request_json).execute(pool).await
         .map_err(|_| command_error("database", "Comment published but action status could not be saved", false))?;
-    update_cached_comment_count(
-        pool,
-        &request.integration_id,
-        &request.project_key,
-        &request.repository_slug,
-        &request.pull_request_id,
-    )
-    .await;
     Ok(PullRequestCommentStatus {
         comment_id: comment.id,
     })
@@ -2893,7 +2912,10 @@ mod tests {
     use crate::infrastructure::db::open_database;
 
     #[tokio::test]
-    async fn comment_publication_reuses_durable_action_after_restart() {
+    async fn comment_publication_retries_preparation_and_reuses_durable_action_after_restart() {
+        use wiremock::matchers::{body_json, method, path as http_path};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("example.sqlite");
         let pool = open_database(&path).await.unwrap();
@@ -2909,26 +2931,112 @@ mod tests {
             parent_comment_id: None,
         };
         let request_json = serde_json::to_string(&request).unwrap();
-        sqlx::query("INSERT INTO pull_request_comment_actions (idempotency_key, request_json, status) VALUES ('example-action', ?, 'running')")
-            .bind(&request_json).execute(&pool).await.unwrap();
-        // A pending/uncertain action must never reach the provider again.
+        let server = MockServer::start().await;
+        let client = super::BitbucketDcClient::new(server.uri()).unwrap();
+        let pr_path = "/rest/api/1.0/projects/DEMO/repos/sample-repository/pull-requests/7";
+        let failed_diff = Mock::given(method("GET"))
+            .and(http_path(format!("{pr_path}/diff")))
+            .respond_with(
+                ResponseTemplate::new(200).set_body_json(serde_json::json!({"diffs": null})),
+            )
+            .expect(1)
+            .mount_as_scoped(&server)
+            .await;
+        let error = super::publish_approved_comment(
+            &pool,
+            &client,
+            &request,
+            &request_json,
+            7,
+            &request.comment,
+            &[],
+        )
+        .await
+        .unwrap_err();
+        assert_eq!(error.code, "invalid_response");
+        assert_eq!(error.details.unwrap().method, "GET");
         assert_eq!(
-            super::publish_pull_request_comment(&pool, request.clone())
+            sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM pull_request_comment_actions")
+                .fetch_one(&pool)
                 .await
-                .unwrap_err()
-                .code,
-            "action_result_unknown"
+                .unwrap(),
+            0
         );
-        sqlx::query("UPDATE pull_request_comment_actions SET status = 'succeeded', comment_id = 11 WHERE request_json = ?")
-            .bind(&request_json).execute(&pool).await.unwrap();
+        drop(failed_diff);
+
+        Mock::given(method("GET"))
+            .and(http_path(format!("{pr_path}/diff")))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "diffs": [{
+                    "binary": true,
+                    "source": {"toString": "assets/example.bin"},
+                    "destination": {"toString": "assets/example.bin"}
+                }, {
+                    "source": {"toString": "src/retry.ts"},
+                    "destination": {"toString": "src/retry.ts"},
+                    "hunks": [{"segments": [{"type": "CONTEXT", "lines": [{"source": 39, "destination": 42}]}]}]
+                }]
+            })))
+            .expect(1).mount(&server).await;
+        Mock::given(method("GET"))
+            .and(http_path(format!("{pr_path}/activities")))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .set_body_json(serde_json::json!({"values": [], "isLastPage": true})),
+            )
+            .expect(1)
+            .mount(&server)
+            .await;
+        Mock::given(method("GET"))
+            .and(http_path(pr_path))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "id": 7, "version": 1, "title": "Example change", "state": "OPEN", "open": true, "closed": false,
+                "fromRef": {"id": "refs/heads/example", "displayId": "example", "latestCommit": "example-commit"},
+                "toRef": {"id": "refs/heads/main", "displayId": "main"},
+                "reviewers": [], "participants": []
+            })))
+            .expect(1).mount(&server).await;
+        Mock::given(method("POST"))
+            .and(http_path(format!("{pr_path}/comments")))
+            .and(body_json(serde_json::json!({
+                "text": request.comment,
+                "anchor": {"diffType": "EFFECTIVE", "path": "src/retry.ts", "line": 39, "lineType": "CONTEXT", "fileType": "FROM"}
+            })))
+            .respond_with(ResponseTemplate::new(201).set_body_json(serde_json::json!({"id": 11, "version": 0, "text": request.comment})))
+            .expect(1).mount(&server).await;
+        assert_eq!(
+            super::publish_approved_comment(
+                &pool,
+                &client,
+                &request,
+                &request_json,
+                7,
+                &request.comment,
+                &[],
+            )
+            .await
+            .unwrap()
+            .comment_id,
+            11
+        );
         pool.close().await;
         let reopened = open_database(&path).await.unwrap();
         assert_eq!(
-            super::publish_pull_request_comment(&reopened, request)
+            super::publish_pull_request_comment(&reopened, request.clone())
                 .await
                 .unwrap()
                 .comment_id,
             11
+        );
+        // If the POST result could not be saved, retrying must not send a second POST.
+        sqlx::query("UPDATE pull_request_comment_actions SET status = 'running', comment_id = NULL WHERE request_json = ?")
+            .bind(&request_json).execute(&reopened).await.unwrap();
+        assert_eq!(
+            super::publish_pull_request_comment(&reopened, request)
+                .await
+                .unwrap_err()
+                .code,
+            "action_result_unknown"
         );
         reopened.close().await;
     }

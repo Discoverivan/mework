@@ -31,6 +31,37 @@ pub struct BitbucketDcClient {
     authentication: Option<Authentication>,
 }
 
+/// A validated comment request whose next network operation is the external write.
+pub struct PreparedBitbucketComment {
+    http: Client,
+    request: reqwest::Request,
+    operation: &'static str,
+}
+
+impl PreparedBitbucketComment {
+    pub async fn publish(self) -> Result<BitbucketComment, BitbucketDcError> {
+        let response = crate::application::logging::execute_http_request(
+            &self.http,
+            self.request,
+            "data_integrations.bitbucket_dc",
+            self.operation,
+            crate::application::logging::HttpBodyPolicy::Integration,
+        )
+        .await
+        .map_err(|_| BitbucketDcError::Transport)?;
+        if !response.status().is_success() {
+            return Err(BitbucketDcClient::http_error(response).await);
+        }
+        crate::application::logging::parse_json_response::<BitbucketComment>(
+            response,
+            "data_integrations.bitbucket_dc",
+            self.operation,
+        )
+        .await
+        .map_err(|_| BitbucketDcError::InvalidResponse)
+    }
+}
+
 impl BitbucketDcClient {
     pub fn new(base_url: impl AsRef<str>) -> Result<Self, BitbucketDcError> {
         Self::with_authentication(base_url, None)
@@ -718,16 +749,23 @@ impl BitbucketDcClient {
             .authenticated_request(url)
             .query(&[("diffType", "EFFECTIVE"), ("withComments", "false")])
             .header(header::ACCEPT, "application/json")
-            .send()
+            .send_logged(
+                "data_integrations.bitbucket_dc",
+                "pull_request_comment_diff",
+                crate::application::logging::HttpBodyPolicy::Integration,
+            )
             .await
             .map_err(|_| BitbucketDcError::Transport)?;
         if !response.status().is_success() {
             return Err(Self::http_error(response).await);
         }
-        response
-            .json()
-            .await
-            .map_err(|_| BitbucketDcError::InvalidResponse)
+        crate::application::logging::parse_json_response::<BitbucketDiffResponse>(
+            response,
+            "data_integrations.bitbucket_dc",
+            "pull_request_comment_diff",
+        )
+        .await
+        .map_err(|_| BitbucketDcError::InvalidResponse)
     }
 
     pub async fn publish_pull_request_comment(
@@ -737,6 +775,19 @@ impl BitbucketDcClient {
         pull_request_id: u64,
         comment: BitbucketInlineComment<'_>,
     ) -> Result<BitbucketComment, BitbucketDcError> {
+        self.prepare_pull_request_comment(project_key, repository_slug, pull_request_id, comment)
+            .await?
+            .publish()
+            .await
+    }
+
+    pub async fn prepare_pull_request_comment(
+        &self,
+        project_key: &str,
+        repository_slug: &str,
+        pull_request_id: u64,
+        comment: BitbucketInlineComment<'_>,
+    ) -> Result<PreparedBitbucketComment, BitbucketDcError> {
         validate_path_segment(project_key)?;
         validate_path_segment(repository_slug)?;
         if comment.text.trim().is_empty()
@@ -805,26 +856,11 @@ impl BitbucketDcClient {
             &pull_request_id.to_string(),
             "comments",
         ])?;
-        let response = self
-            .authenticated_request_with_method(Method::POST, url)
-            .json(&serde_json::json!({ "text": comment.text, "anchor": anchor }))
-            .send_logged(
-                "data_integrations.bitbucket_dc",
-                "publish_pull_request_comment",
-                crate::application::logging::HttpBodyPolicy::Integration,
-            )
-            .await
-            .map_err(|_| BitbucketDcError::Transport)?;
-        if !response.status().is_success() {
-            return Err(Self::http_error(response).await);
-        }
-        crate::application::logging::parse_json_response::<BitbucketComment>(
-            response,
-            "data_integrations.bitbucket_dc",
+        self.prepare_comment_request(
+            url,
+            serde_json::json!({ "text": comment.text, "anchor": anchor }),
             "publish_pull_request_comment",
         )
-        .await
-        .map_err(|_| BitbucketDcError::InvalidResponse)
     }
 
     pub async fn reply_pull_request_comment(
@@ -835,6 +871,25 @@ impl BitbucketDcClient {
         parent_id: u64,
         text: &str,
     ) -> Result<BitbucketComment, BitbucketDcError> {
+        self.prepare_pull_request_comment_reply(
+            project_key,
+            repository_slug,
+            pull_request_id,
+            parent_id,
+            text,
+        )?
+        .publish()
+        .await
+    }
+
+    pub fn prepare_pull_request_comment_reply(
+        &self,
+        project_key: &str,
+        repository_slug: &str,
+        pull_request_id: u64,
+        parent_id: u64,
+        text: &str,
+    ) -> Result<PreparedBitbucketComment, BitbucketDcError> {
         validate_path_segment(project_key)?;
         validate_path_segment(repository_slug)?;
         if parent_id == 0 || text.trim().is_empty() {
@@ -852,26 +907,29 @@ impl BitbucketDcClient {
             &pull_request_id.to_string(),
             "comments",
         ])?;
-        let response = self
-            .authenticated_request_with_method(Method::POST, url)
-            .json(&serde_json::json!({ "text": text, "parent": { "id": parent_id } }))
-            .send_logged(
-                "data_integrations.bitbucket_dc",
-                "reply_pull_request_comment",
-                crate::application::logging::HttpBodyPolicy::Integration,
-            )
-            .await
-            .map_err(|_| BitbucketDcError::Transport)?;
-        if !response.status().is_success() {
-            return Err(Self::http_error(response).await);
-        }
-        crate::application::logging::parse_json_response::<BitbucketComment>(
-            response,
-            "data_integrations.bitbucket_dc",
+        self.prepare_comment_request(
+            url,
+            serde_json::json!({ "text": text, "parent": { "id": parent_id } }),
             "reply_pull_request_comment",
         )
-        .await
-        .map_err(|_| BitbucketDcError::InvalidResponse)
+    }
+
+    fn prepare_comment_request(
+        &self,
+        url: Url,
+        body: serde_json::Value,
+        operation: &'static str,
+    ) -> Result<PreparedBitbucketComment, BitbucketDcError> {
+        let request = self
+            .authenticated_request_with_method(Method::POST, url)
+            .json(&body)
+            .build()
+            .map_err(|_| BitbucketDcError::InvalidRequest)?;
+        Ok(PreparedBitbucketComment {
+            http: self.http.clone(),
+            request,
+            operation,
+        })
     }
 
     pub async fn set_pull_request_participant_status(
