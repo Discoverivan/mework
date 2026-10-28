@@ -190,6 +190,8 @@ pub struct BitbucketDiffResponse {
 pub struct BitbucketFileDiff {
     pub source: Option<BitbucketDiffPath>,
     pub destination: Option<BitbucketDiffPath>,
+    // Binary file diffs have paths but no text hunks.
+    #[serde(default)]
     pub hunks: Vec<BitbucketDiffHunk>,
 }
 
