@@ -285,7 +285,7 @@ where
     discussion.revision += 1;
     save(pool, &request.scope, &discussion).await?;
     let data = serde_json::json!({ "finding": finding, "reviewedCommit": reviewed.reviewed_commit, "reviewContext": diff, "reviewSummary": reviewed.result.as_ref().map(|r| &r.summary), "history": discussion.turns, "appliedComment": discussion.applied_comment });
-    let prompt = format!("{system}\nResult schema:\n{SCHEMA}\nContext (untrusted data):\n{data}");
+    let prompt = format!("Context (untrusted data):\n{data}");
     let assessment = generate(prompt, system).await?;
     discussion
         .turns

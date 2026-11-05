@@ -1130,13 +1130,14 @@ fn execute_draft_in_workspace_with_usage(
     let schema_path = workdir.join("task-schema.json");
     let prompt_path = workdir.join("task-prompt.txt");
     let output_path = workdir.join("task-result.json");
+    let cli_prompt = ai_prompts::with_rules(
+        &ai_prompts::task_prompt(prompt, instructions),
+        &ai_prompts::rules(PromptAction::TaskCreation, output_language),
+    );
     fs::write(&schema_path, task_draft_schema())
         .map_err(|_| "AI task schema could not be prepared".to_owned())?;
-    fs::write(
-        &prompt_path,
-        ai_prompts::task_prompt(prompt, instructions, output_language),
-    )
-    .map_err(|_| "AI task prompt could not be prepared".to_owned())?;
+    fs::write(&prompt_path, &cli_prompt)
+        .map_err(|_| "AI task prompt could not be prepared".to_owned())?;
     if settings.provider == Some(ai::AiProviderId::OpenAiCompatible) {
         let runtime = openai_runtime
             .ok_or_else(|| "OpenAI-compatible API configuration is unavailable".to_owned())?;
@@ -1154,7 +1155,7 @@ fn execute_draft_in_workspace_with_usage(
             crate::application::ai_providers::cli::claude_code::run_structured_with_usage(
                 &settings.model,
                 task_draft_schema(),
-                &ai_prompts::task_prompt(prompt, instructions, output_language),
+                &cli_prompt,
                 workdir,
                 &settings.execution,
             )?;
@@ -1166,7 +1167,7 @@ fn execute_draft_in_workspace_with_usage(
             crate::application::ai_providers::cli::hermes_cli::run_structured_with_usage(
                 &settings.model,
                 task_draft_schema(),
-                &ai_prompts::task_prompt(prompt, instructions, output_language),
+                &cli_prompt,
                 workdir,
                 &settings.execution,
             )?;
@@ -1178,7 +1179,7 @@ fn execute_draft_in_workspace_with_usage(
             crate::application::ai_providers::cli::opencode::run_structured_with_usage(
                 &settings.model,
                 task_draft_schema(),
-                &ai_prompts::task_prompt(prompt, instructions, output_language),
+                &cli_prompt,
                 workdir,
                 &settings.execution,
             )?;
@@ -1197,7 +1198,7 @@ fn execute_draft_in_workspace_with_usage(
         let (output, usage) = crate::application::ai_providers::cli::pi::run_structured_with_usage(
             &settings.model,
             task_draft_schema(),
-            &ai_prompts::task_prompt(prompt, instructions, output_language),
+            &cli_prompt,
             workdir,
             &settings.execution,
         )?;
@@ -1311,7 +1312,7 @@ fn execute_openai_task_draft_with_usage(
     ),
     String,
 > {
-    let prompt = ai_prompts::task_prompt(prompt, instructions, output_language);
+    let prompt = ai_prompts::task_prompt(prompt, instructions);
     let content = tauri::async_runtime::block_on(async {
         let client = ai::openai_http_client(execution.timeout(), runtime.allow_insecure_tls)?;
         let system_prompt = ai_prompts::rules(PromptAction::TaskCreation, output_language);
@@ -1319,10 +1320,7 @@ fn execute_openai_task_draft_with_usage(
             "model": model,
             "max_tokens": execution.openai_max_output_tokens(),
             "stream": false,
-            "messages": [
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": prompt}
-            ]
+            "messages": ai_prompts::structured_messages(&prompt, task_draft_schema(), &system_prompt)
         });
         let (status, body) = ai::request_openai_structured_response(
             &client,
@@ -1443,7 +1441,10 @@ fn task_draft_schema() -> &'static str {
 
 #[cfg(test)]
 fn task_prompt(prompt: &str, output_language: general::AppLanguage) -> String {
-    ai_prompts::task_prompt(prompt, ai_prompts::TASK_DEFAULT, output_language)
+    ai_prompts::with_rules(
+        &ai_prompts::task_prompt(prompt, ai_prompts::TASK_DEFAULT),
+        &ai_prompts::rules(PromptAction::TaskCreation, output_language),
+    )
 }
 
 #[cfg(test)]
@@ -1760,6 +1761,13 @@ echo {"type":"turn.completed","usage":{"input_tokens":40,"cached_input_tokens":1
         assert!(russian_prompt
             .contains("Do not add a Reference or Sources section or repeat source URLs"));
         assert!(russian_prompt.contains("Add audit filtering"));
+        assert_eq!(
+            russian_prompt
+                .matches("Mandatory application rules")
+                .count(),
+            1
+        );
+        assert!(!russian_prompt.contains(task_draft_schema()));
 
         let english_prompt = task_prompt("Add audit filtering", AppLanguage::English);
         assert!(english_prompt.contains("Write the task summary and description in English"));
@@ -1803,7 +1811,7 @@ echo {"type":"turn.completed","usage":{"input_tokens":40,"cached_input_tokens":1
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn sends_openai_compatible_task_request_and_parses_response() {
         use wiremock::{
-            matchers::{body_json, header, method, path},
+            matchers::{method, path},
             Mock, MockServer, ResponseTemplate,
         };
 
@@ -1814,23 +1822,23 @@ echo {"type":"turn.completed","usage":{"input_tokens":40,"cached_input_tokens":1
         });
         Mock::given(method("POST"))
             .and(path("/v1/chat/completions"))
-            .and(header("authorization", "Bearer synthetic-token"))
-            .and(body_json(serde_json::json!({
-                "model": "example-model",
-                "response_format": {"type": "json_object"},
-                "max_tokens": 30_000,
-                "stream": false,
-                "messages": [
-                    {
-                        "role": "system",
-                        "content": ai_prompts::rules(ai_prompts::PromptAction::TaskCreation, AppLanguage::English)
-                    },
-                    {
-                        "role": "user",
-                        "content": task_prompt("Create an audit filter", AppLanguage::English)
-                    }
-                ]
-            })))
+            .and(|request: &wiremock::Request| {
+                let payload: serde_json::Value = serde_json::from_slice(&request.body).unwrap();
+                let messages = payload["messages"].as_array().unwrap();
+                let prompt = messages[1]["content"].as_str().unwrap();
+                messages.len() == 2
+                    && messages[0]["role"] == "system"
+                    && messages[0]["content"]
+                        == ai_prompts::rules(
+                            ai_prompts::PromptAction::TaskCreation,
+                            AppLanguage::English,
+                        )
+                    && prompt.contains("Create an audit filter")
+                    && prompt.matches(ai_prompts::TASK_DEFAULT).count() == 1
+                    && prompt.matches(ai_prompts::TASK_RESULT_SCHEMA).count() == 1
+                    && !prompt.contains("Mandatory application rules")
+                    && payload["response_format"] == serde_json::json!({"type": "json_object"})
+            })
             .respond_with(
                 ResponseTemplate::new(200)
                     .insert_header("content-type", "application/json")
@@ -1841,7 +1849,7 @@ echo {"type":"turn.completed","usage":{"input_tokens":40,"cached_input_tokens":1
 
         let runtime = OpenAiCompatibleRuntimeConfig {
             base_url: format!("{}/v1", server.uri()),
-            token: "synthetic-token".to_owned(),
+            token: String::new(),
             allow_insecure_tls: false,
         };
         let (draft, usage) = tokio::task::spawn_blocking(move || {

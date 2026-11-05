@@ -23,10 +23,6 @@ pub async fn generate(pool: &SqlitePool, prompt: String) -> Result<AiSummaryResp
     let language = general_settings
         .ai_response_language
         .output_language(general_settings.language);
-    let prompt = format!(
-        "Mandatory application rules:\n{}\n\n{prompt}",
-        ai_prompts::rules(ai_prompts::PromptAction::SprintSummary, language)
-    );
     let runtime = if settings.provider == Some(ai::AiProviderId::OpenAiCompatible) {
         Some(
             ai::openai_compatible_runtime_config(pool, settings.provider_instance_id.as_deref())
@@ -69,18 +65,15 @@ fn generate_blocking(
         return tauri::async_runtime::block_on(async {
             let client =
                 ai::openai_http_client(settings.execution.timeout(), runtime.allow_insecure_tls)?;
-            let structured_prompt = format!(
-                "{prompt}\n\nReturn only a JSON object matching this schema:\n{}",
-                text_schema()
-            );
             let payload = json!({
                 "model": settings.model,
                 "max_tokens": settings.execution.openai_max_output_tokens(),
                 "stream": false,
-                "messages": [
-                    {"role": "system", "content": ai_prompts::rules(ai_prompts::PromptAction::SprintSummary, language)},
-                    {"role": "user", "content": structured_prompt}
-                ]
+                "messages": ai_prompts::structured_messages(
+                    prompt,
+                    &text_schema().to_string(),
+                    &ai_prompts::rules(ai_prompts::PromptAction::SprintSummary, language),
+                )
             });
             let (status, body) = ai::request_openai_structured_response(
                 &client,
@@ -134,6 +127,11 @@ fn generate_blocking(
         });
     }
 
+    let cli_prompt = ai_prompts::with_rules(
+        prompt,
+        &ai_prompts::rules(ai_prompts::PromptAction::SprintSummary, language),
+    );
+    let prompt = cli_prompt.as_str();
     let workdir = std::env::temp_dir().join(format!("mework-summary-{}", uuid::Uuid::now_v7()));
     fs::create_dir_all(&workdir)
         .map_err(|_| "AI summary workspace could not be prepared".to_owned())?;

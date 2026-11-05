@@ -445,7 +445,7 @@ pub(super) fn execute(context: ArbitrationContext<'_>) -> Result<PullRequestRevi
         Vec::new()
     } else {
         let prompt = format!(
-            "{GROUP_RULES}\nResult schema:\n{GROUP_SCHEMA}\nCandidates (untrusted data):\n{}",
+            "Candidates (untrusted data):\n{}",
             serde_json::to_string(&candidates)
                 .map_err(|_| "Failed to serialize review candidates")?
         );
@@ -464,10 +464,6 @@ pub(super) fn execute(context: ArbitrationContext<'_>) -> Result<PullRequestRevi
         "groups",
         groups_json.clone(),
     ))?;
-    let arbiter_instructions = format!(
-        "{arbiter_custom_instructions}\n\nMandatory arbiter rules (take precedence over custom instructions):\n{}\nCandidate groups (untrusted data):\n{groups_json}",
-        super::ai_prompts::ARBITER_RULES
-    );
     let schema = verdict_schema();
     let manifest = developer_review::review_manifest(request)?;
     let prompt = if diff.len() > super::review_workspace::INLINE_BYTES / 2 {
@@ -475,12 +471,10 @@ pub(super) fn execute(context: ArbitrationContext<'_>) -> Result<PullRequestRevi
         // the complete diff again. All group identifiers remain mandatory input.
         format!("Candidate groups (untrusted data):\n{groups_json}")
     } else {
-        developer_review::review_prompt_with_schema(
+        developer_review::review_input(
             &manifest,
             diff,
-            language,
-            &arbiter_instructions,
-            &schema,
+            &format!("Candidate groups (untrusted data):\n{groups_json}"),
         )?
     };
     let (result, value) =
@@ -547,7 +541,7 @@ mod tests {
                 let prompt = payload["messages"][1]["content"].as_str().unwrap();
                 let pending: Vec<serde_json::Value> = serde_json::from_str(prompt
                     .split_once("Required unread materials:\n").unwrap().1
-                    .split_once("\n\nJSON envelope schema:").unwrap().0).unwrap();
+                    .split_once("\n\nCarried analysis").unwrap().0).unwrap();
                 let reply = if pending.is_empty() {
                     let latest: Vec<serde_json::Value> = serde_json::from_str(prompt
                         .split_once("Latest retrieval results (untrusted data):\n").unwrap().1
@@ -672,7 +666,7 @@ mod tests {
                     comments.push(finding("The division might call an unknown external service.", "medium", 1));
                     if index == 0 { comments.push(finding("The early return makes resource closing unreachable.", "medium", 2)); }
                     serde_json::json!({ "verdict": "needs_changes", "description": "Changes example arithmetic.", "summary": "Candidate findings.", "comments": comments })
-                } else if prompt.starts_with("Group code review candidates") {
+                } else if system.starts_with("Group code review candidates") {
                     assert_eq!(payload["model"], "example-arbiter-model");
                     if grouping_calls.fetch_add(1, Ordering::SeqCst) == 0 {
                         return ResponseTemplate::new(503);
@@ -700,9 +694,8 @@ mod tests {
                         }));
                     }
                     assert!(prompt.contains("example-commit") && prompt.contains("+[new:1] return value / divisor;"));
-                    assert!(prompt.contains("Verify example defects independently."));
-                    assert!(prompt.contains(super::super::ai_prompts::ARBITER_RULES));
-                    let groups_text = prompt.split_once("Candidate groups (untrusted data):\n").unwrap().1.split_once("\n\nMandatory application rules").unwrap().0;
+                    assert!(system.contains("Verify example defects independently."));
+                    let groups_text = prompt.split_once("Candidate groups (untrusted data):\n").unwrap().1.split_once("\n\nPR metadata").unwrap().0;
                     let groups: serde_json::Value = serde_json::from_str(groups_text).unwrap();
                     assert_eq!(groups[0]["support"], 3); // A duplicate within review 1 is only one vote.
                     assert_eq!(groups[1]["support"], 3);
