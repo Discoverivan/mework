@@ -378,22 +378,26 @@ describe("DailyPage data loading and actions", () => {
     expect(screen.getByRole("region", { name: "Selected member tasks" })).toBeInTheDocument();
   });
 
-  it("replaces incomplete Sprint Stats with a detailed retry state", async () => {
+  it("shows known Sprint Stats with a partial-totals warning and supports retry", async () => {
     statsMock.mockResolvedValueOnce({
       ...stats,
       availability: "partial",
       scopeAvailability: "partial",
-      issuesWithIncompleteScopeHistory: ["DEMO-1"],
+      issuesWithIncompleteScopeHistory: ["DEMO-2"],
+      scopeIssues: [{ key: "DEMO-1", summary: "Example planned task", status: "To Do", statusCategory: "new", storyPoints: 3, addedAfterStart: false }],
     });
     render(<DailyPage />);
     await screen.findByText("DEMO-1");
     fireEvent.click(screen.getByRole("tab", { name: "Sprint Stats" }));
-    expect(await screen.findByText("Unable to load complete sprint statistics.")).toBeInTheDocument();
-    expect(screen.getByText(/sprint membership history could not be read for: DEMO-1/i)).toBeInTheDocument();
-    expect(screen.queryByRole("group", { name: "Planned" })).not.toBeInTheDocument();
+    expect(await screen.findByText("Sprint statistics are incomplete.")).toBeInTheDocument();
+    expect(screen.getByText(/sprint membership could not be determined for: DEMO-2.*scope totals are partial/i)).toBeInTheDocument();
+    expect(screen.getByRole("group", { name: "Planned" })).toHaveTextContent("3 SP");
+    expect(screen.getByText("Example planned task")).toBeInTheDocument();
+    expect(screen.getByRole("group", { name: "Closure" })).not.toHaveTextContent("0%");
     fireEvent.click(screen.getByRole("button", { name: "Retry" }));
     await waitFor(() => expect(statsMock).toHaveBeenCalledTimes(2));
     expect(await screen.findByRole("group", { name: "Planned" })).toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByText("Sprint statistics are incomplete.")).not.toBeInTheDocument());
   });
 
   it("confirms Team Tasks refresh and only refreshes the active section", async () => {

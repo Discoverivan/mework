@@ -700,6 +700,7 @@ impl JiraPlanningClient {
                 "assignee",
                 "parent",
                 "statuscategorychangedate",
+                "created",
                 "updated",
                 field_id,
             ]
@@ -1929,7 +1930,7 @@ mod tests {
         let server = MockServer::start().await;
         Mock::given(method("GET"))
             .and(path("/rest/agile/1.0/sprint/sprint-1/issue"))
-            .and(query_param("fields", "summary,description,status,issuetype,assignee,parent,statuscategorychangedate,updated,customfield_10016"))
+            .and(query_param("fields", "summary,description,status,issuetype,assignee,parent,statuscategorychangedate,created,updated,customfield_10016"))
             .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
                 "startAt": 0,
                 "maxResults": 100,

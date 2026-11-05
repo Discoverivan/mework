@@ -1253,18 +1253,8 @@ async fn reconstruct_sprint_scope_history(
     );
     stats.issues_with_unavailable_status.sort();
     stats.issues_with_unavailable_status.dedup();
-    if unidentified_history_failure || !issues_with_incomplete_history.is_empty() {
-        stats.scope_availability = "partial".to_owned();
-        stats.original_task_count = None;
-        stats.completed_original_task_count = None;
-        stats.original_story_points = None;
-        stats.completed_original_story_points = None;
-        stats.added_task_count = None;
-        stats.completed_added_task_count = None;
-        stats.added_story_points = None;
-        stats.completed_added_story_points = None;
-        return stats;
-    }
+    let incomplete_history =
+        unidentified_history_failure || !issues_with_incomplete_history.is_empty();
 
     let original = historical_scope
         .iter()
@@ -1291,7 +1281,8 @@ async fn reconstruct_sprint_scope_history(
     stats.completed_original_story_points = sum_completed_scope_points(&original);
     stats.added_story_points = sum_scope_points(&added);
     stats.completed_added_story_points = sum_completed_scope_points(&added);
-    stats.scope_availability = if stats.issues_without_scope_story_points.is_empty()
+    stats.scope_availability = if !incomplete_history
+        && stats.issues_without_scope_story_points.is_empty()
         && stats.issues_with_unavailable_status.is_empty()
     {
         "available".to_owned()
@@ -1359,6 +1350,10 @@ fn reconstruct_historical_scope_issue(
         context.sprint_name,
         context.start_at,
         context.currently_in_sprint,
+        issue_fields
+            .get("created")
+            .and_then(Value::as_str)
+            .and_then(parse_jira_timestamp),
     )
     .ok_or(())?;
     if !original_scope && added_at.is_none() {
@@ -1452,6 +1447,7 @@ fn sprint_scope_membership(
     sprint_name: &str,
     start_at: OffsetDateTime,
     currently_in_sprint: bool,
+    created_at: Option<OffsetDateTime>,
 ) -> Option<(bool, Option<OffsetDateTime>)> {
     // Jira's sprint-issues endpoint is authoritative for current membership; the Sprint
     // custom field can retain closed or removed sprint values.
@@ -1484,18 +1480,21 @@ fn sprint_scope_membership(
         .filter(|(at, _, _)| *at > start_at)
         .collect::<Vec<_>>();
     let original_membership = if let Some((_, from, _)) = post_activation_events.first() {
-        Some(*from)
+        *from
     } else if let Some((_, _, to)) = events.last() {
-        Some(*to)
+        *to
     } else if !currently_in_sprint {
         // No Sprint history plus no current membership cannot indicate an in-sprint issue.
-        Some(false)
+        false
     } else {
-        // A current issue with no Sprint history could have been assigned at creation.
-        // Do not infer its baseline from the issue's creation timestamp.
-        None
+        // The caller requires a complete changelog. With no Sprint changes, treat
+        // current membership as assigned at creation, including post-start additions.
+        let created_at = created_at?;
+        return Some((
+            created_at <= start_at,
+            (created_at > start_at).then_some(created_at),
+        ));
     };
-    let original_membership = original_membership?;
     let first_addition = post_activation_events
         .iter()
         .find(|(_, from, to)| !*from && *to)
@@ -2134,6 +2133,7 @@ mod tests {
             "Sprint 42",
             activated_at,
             true,
+            None,
         )
         .unwrap();
 
@@ -2141,32 +2141,101 @@ mod tests {
         assert_eq!(addition_at, None);
     }
 
-    #[test]
-    fn current_membership_without_sprint_history_is_not_inferred_as_planned() {
-        let activated_at = super::parse_jira_timestamp("2026-01-05T11:52:00+03:00").unwrap();
+    #[tokio::test]
+    async fn calculates_scope_for_tasks_assigned_to_the_sprint_at_creation() {
+        use crate::infrastructure::data_integrations::jira::{
+            models::JiraDeployment, planning::JiraPlanningClient,
+            planning_write::ReqwestPlanningTransport,
+        };
+        use std::sync::Arc;
+        use wiremock::{
+            matchers::{method, path, query_param},
+            Mock, MockServer, ResponseTemplate,
+        };
 
-        assert_eq!(
-            sprint_scope_membership(
-                &[],
-                "customfield_sprint",
-                "42",
-                "Sprint 42",
-                activated_at,
-                true
-            ),
-            None
-        );
-        assert_eq!(
-            sprint_scope_membership(
-                &[],
-                "customfield_sprint",
-                "42",
-                "Sprint 42",
-                activated_at,
-                false
-            ),
-            Some((false, None))
-        );
+        let server = MockServer::start().await;
+        let issues = json!([
+            {"id": "1", "key": "DEMO-1", "fields": {
+                "created": "2026-01-04T10:00:00+0000", "issuetype": {"subtask": false},
+                "status": {"id": "1"}, "customfield_points": 2
+            }},
+            {"id": "2", "key": "DEMO-2", "fields": {
+                "created": "2026-01-06T10:00:00+0000", "issuetype": {"subtask": false},
+                "status": {"id": "2"}, "customfield_points": 3
+            }}
+        ]);
+        Mock::given(method("GET"))
+            .and(path("/rest/agile/1.0/sprint/42/issue"))
+            .and(query_param("fields", "summary,description,status,issuetype,assignee,parent,statuscategorychangedate,created,updated,customfield_points"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "startAt": 0, "maxResults": 100, "total": 2, "issues": issues
+            })))
+            .expect(1).mount(&server).await;
+        Mock::given(method("GET"))
+            .and(path("/rest/api/2/field"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!([
+                {"id": "customfield_sprint", "name": "Sprint"}
+            ])))
+            .expect(1)
+            .mount(&server)
+            .await;
+        Mock::given(method("GET"))
+            .and(path("/rest/api/2/search"))
+            .and(query_param("expand", "changelog"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "startAt": 0, "total": 2, "issues": [
+                    {"key": "DEMO-1", "changelog": {"total": 0, "histories": []}},
+                    {"key": "DEMO-2", "changelog": {"total": 0, "histories": []}}
+                ]
+            })))
+            .expect(1)
+            .mount(&server)
+            .await;
+        let client = JiraPlanningClient::new_with_dependencies(
+            server.uri(),
+            JiraDeployment::DataCenter,
+            Arc::new(ReqwestPlanningTransport::new(reqwest::Client::new())),
+            None,
+            None,
+        )
+        .unwrap();
+        let snapshot = client
+            .list_sprint_issues_with_fields("42", 100, Some("customfield_points"))
+            .await
+            .unwrap();
+        let sprint = crate::infrastructure::data_integrations::jira::planning::PlanningSprint {
+            id: "42".to_owned(),
+            name: "Sprint 42".to_owned(),
+            state: "active".to_owned(),
+            start_date: None,
+            end_date: None,
+            activated_date: Some("2026-01-05T10:00:00Z".to_owned()),
+        };
+        let statuses = [
+            ("1".to_owned(), "done".to_owned()),
+            ("2".to_owned(), "new".to_owned()),
+        ]
+        .into_iter()
+        .collect();
+        let current = current_sprint_stats(&snapshot.values, &statuses, Some("customfield_points"));
+        let stats = super::reconstruct_sprint_scope_history(
+            current,
+            &client,
+            &sprint,
+            &snapshot.values,
+            Some("customfield_points"),
+            &statuses,
+            &mut |_, _| {},
+        )
+        .await;
+
+        assert_eq!(stats.availability, "available");
+        assert_eq!(stats.original_task_count, Some(1));
+        assert_eq!(stats.original_story_points, Some(2));
+        assert_eq!(stats.completed_original_story_points, Some(2));
+        assert_eq!(stats.added_task_count, Some(1));
+        assert_eq!(stats.added_story_points, Some(3));
+        assert!(stats.issues_with_incomplete_scope_history.is_empty());
     }
 
     #[test]
@@ -2225,6 +2294,7 @@ mod tests {
             "Sprint 42",
             start,
             false,
+            None,
         )
         .unwrap();
 
@@ -2247,6 +2317,7 @@ mod tests {
             "Sprint 42",
             activated_at,
             true,
+            None,
         )
         .unwrap();
 
@@ -2270,6 +2341,7 @@ mod tests {
                 "Sprint 42",
                 activated_at,
                 true,
+                None,
             ),
             None
         );

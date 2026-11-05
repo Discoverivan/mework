@@ -935,9 +935,9 @@ export function DailyPage() {
   const hasCompleteStats = sprintStats?.availability === "available" && sprintStats.scopeAvailability === "available" && !statsHasDiagnostics;
   const statsUnavailable = sprintStats !== undefined && (!hasCompleteStats);
   const statsFailureReasons = statsLoadError ? [statsLoadError] : sprintStats ? dailyStatsDiagnosticReasons(sprintStats, t) : [t("daily.statsIncompleteReason")];
-  const showStatsFailure = !loadingStats && (statsLoadError !== undefined || statsUnavailable);
-  const showInitialStatsLoader = loadingStats && (!hasCachedStats || !hasCompleteStats);
-  const showStatsContent = hasCompleteStats && !statsLoadError && !showInitialStatsLoader;
+  const showStatsNotice = statsLoadError !== undefined || (hasCachedStats && statsUnavailable);
+  const showInitialStatsLoader = loadingStats && !hasCachedStats;
+  const showStatsContent = hasCachedStats && !statsLoadError && !showInitialStatsLoader;
   const sprintScopeIssues = sprintStats?.scopeIssues ?? [];
   const sortedSprintScopeIssues = useMemo(() => {
     const direction = scopeIssuesSort.direction === "ascending" ? 1 : -1;
@@ -969,7 +969,8 @@ export function DailyPage() {
   const completedScopeTasks = completedPlannedTasks !== null && completedAddedTasks !== null
     ? completedPlannedTasks + completedAddedTasks
     : null;
-  const scopeClosurePercent = plannedScopePoints !== null && plannedScopePoints > 0 && completedScopePoints !== null
+  const scopeClosurePercent = sprintStats?.scopeAvailability === "available"
+    && plannedScopePoints !== null && plannedScopePoints > 0 && completedScopePoints !== null
     ? Math.round(completedScopePoints / plannedScopePoints * 100)
     : null;
   const scopeChartReady = sprintStats?.scopeAvailability === "available"
@@ -1043,7 +1044,7 @@ export function DailyPage() {
       icon: CircleGauge,
       label: t("daily.kpiClosure"),
       value: scopeClosurePercent === null ? "—" : `${scopeClosurePercent}%`,
-      detail: completedScopePoints === null || plannedScopePoints === null
+      detail: scopeClosurePercent === null || completedScopePoints === null || plannedScopePoints === null
         ? "—"
         : t("daily.kpiClosureDetail", { done: completedScopePoints, planned: plannedScopePoints }),
       tone: "closure",
@@ -1341,25 +1342,26 @@ export function DailyPage() {
           <section id="sprint-panel-stats" role="tabpanel" aria-labelledby="sprint-tab-stats" className="daily-stats-layout">
             {showInitialStatsLoader ? (
               <DailyLoadingState label={t("daily.statsLoading")} />
-            ) : showStatsFailure ? (
-              <div className="daily-stats-error-state">
-                <Alert variant="destructive" role="alert">
-                  <AlertTitle>{t("daily.statsLoadFailed")}</AlertTitle>
-                  <AlertDescription>
-                    <ul className="grid gap-2">
-                      {statsFailureReasons.map((reason) => <li key={reason} className="break-words">{reason}</li>)}
-                    </ul>
-                  </AlertDescription>
-                </Alert>
-                <Button type="button" variant="outline" disabled={loadingStats} onClick={() => {
-                  if (selectedProjectId && workspace) void refreshWorkspace(selectedProjectId, workspace.selectedSprintId, true, "stats");
-                }}>
-                  {loadingStats ? <RefreshCw data-icon="inline-start" className="animate-spin" aria-hidden="true" /> : <RefreshCw data-icon="inline-start" aria-hidden="true" />}
-                  {t("daily.statsRetry")}
-                </Button>
-              </div>
             ) : (
               <>
+              {showStatsNotice ? (
+                <div className={cn("grid gap-4", statsLoadError && "daily-stats-error-state")}>
+                  <Alert variant={statsLoadError ? "destructive" : "default"} role="alert" className="px-4 py-3">
+                    <AlertTitle>{t(statsLoadError ? "daily.statsLoadFailed" : "daily.statsIncomplete")}</AlertTitle>
+                    <AlertDescription>
+                      <ul className="grid gap-2">
+                        {statsFailureReasons.map((reason) => <li key={reason} className="break-words">{reason}</li>)}
+                      </ul>
+                    </AlertDescription>
+                  </Alert>
+                  <Button type="button" variant="outline" className={statsLoadError ? undefined : "justify-self-start"} disabled={loadingStats} onClick={() => {
+                    if (selectedProjectId && workspace) void refreshWorkspace(selectedProjectId, workspace.selectedSprintId, true, "stats");
+                  }}>
+                    {loadingStats ? <RefreshCw data-icon="inline-start" className="animate-spin" aria-hidden="true" /> : <RefreshCw data-icon="inline-start" aria-hidden="true" />}
+                    {t("daily.statsRetry")}
+                  </Button>
+                </div>
+              ) : null}
               {loadingStats && hasCachedStats ? (
                 <div className="daily-stats-refresh-progress" role="status" aria-label={t("daily.statsLoading")}>
                   <RefreshCw className="size-4 animate-spin text-primary" aria-hidden="true" />
