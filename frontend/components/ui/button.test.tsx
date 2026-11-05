@@ -143,9 +143,10 @@ it("keeps Filled action backgrounds while highlighting text and visible borders"
 
 it("applies the minimal action style to form and confirmation buttons", () => {
   // Use the application's unlayered appearance rules; Tailwind utilities are built by Vite.
+  // Substitute the unresolved background token because jsdom cannot compute its color.
   const css = readFileSync(resolve(import.meta.dirname, "../../index.css"), "utf8");
   const style = document.createElement("style");
-  style.textContent = ".app-shell { --muted-foreground: rgb(128, 128, 128); } .example-navigation { height: 36px; padding: 8px 12px; color: rgb(255, 255, 255); } .example-selector { background-color: rgb(240, 240, 240); border-color: rgb(100, 100, 100); }" + css.slice(css.indexOf(".app-icon-button,")).replace(/var\(--input\)/g, "rgb(100, 100, 100)");
+  style.textContent = ".app-shell { --muted-foreground: rgb(128, 128, 128); } .example-navigation { height: 36px; padding: 8px 12px; color: rgb(255, 255, 255); } .example-selector { background-color: rgb(240, 240, 240); border-color: rgb(100, 100, 100); }" + css.slice(css.indexOf(".app-icon-button,")).replace(/var\(--input\)/g, "rgb(100, 100, 100)").replace(/var\(--app-action-background, var\(--secondary\)\)/g, "rgb(240, 244, 248)");
   document.head.append(style);
   const previousStyle = document.documentElement.dataset.buttonStyle;
   document.documentElement.dataset.buttonStyle = "quiet";
@@ -232,7 +233,7 @@ it("applies the minimal action style to form and confirmation buttons", () => {
     const apply = screen.getByRole("button", { name: "Apply" });
     const save = screen.getByRole("button", { name: "Save" });
     const cancel = screen.getByRole("button", { name: "Cancel" });
-    expect(getComputedStyle(save).background).toBe("var(--app-action-background, var(--secondary))");
+    expect(getComputedStyle(save).backgroundColor).toBe("rgb(240, 244, 248)");
     expect(getComputedStyle(save).backgroundColor).toBe(getComputedStyle(cancel).backgroundColor);
     expect(getComputedStyle(screen.getByRole("button", { name: "Rewrite example" })).background).toBe(getComputedStyle(save).background);
     expect(getComputedStyle(save).color).toBe(getComputedStyle(cancel).color);
@@ -254,7 +255,7 @@ it("applies the minimal action style to form and confirmation buttons", () => {
     apply.setAttribute("data-action-tone", "add");
     style.textContent += "\n";
     expect(getComputedStyle(apply).color).toBe("var(--app-action-color)");
-    expect(getComputedStyle(apply).background).toBe("var(--app-action-background, var(--secondary))");
+    expect(getComputedStyle(apply).backgroundColor).toBe("rgb(240, 244, 248)");
   } finally {
     style.remove();
     if (previousStyle === undefined) delete document.documentElement.dataset.buttonStyle;
@@ -265,8 +266,8 @@ it("applies the minimal action style to form and confirmation buttons", () => {
 it("keeps Filled section-header actions distinct and filter actions compact", () => {
   const css = readFileSync(resolve(import.meta.dirname, "../../index.css"), "utf8");
   const style = document.createElement("style");
-  // jsdom does not resolve CSS variables in border-color; keep the real cascade with a synthetic token.
-  style.textContent = ".example-number-control { border: 1px solid rgb(100, 100, 100); }" + (css.slice(css.indexOf(":root,"), css.indexOf("@layer base")) + css.slice(css.indexOf(".app-icon-button,"))).replace(/var\(--input\)/g, "rgb(100, 100, 100)").replace(/var\(--border\)/g, "rgb(100, 100, 100)").replace(/var\(--app-action-color\)/g, "rgb(70, 90, 180)");
+  // jsdom does not resolve these CSS colors; keep the real cascade with synthetic tokens.
+  style.textContent = ".example-number-control { border: 1px solid rgb(100, 100, 100); }" + (css.slice(css.indexOf(":root,"), css.indexOf("@layer base")) + css.slice(css.indexOf(".app-icon-button,"))).replace(/var\(--input\)/g, "rgb(100, 100, 100)").replace(/var\(--border\)/g, "rgb(100, 100, 100)").replace(/var\(--app-action-color\)/g, "rgb(70, 90, 180)").replace(/var\(--app-action-background, var\(--secondary\)\)/g, "rgb(240, 244, 248)");
   document.head.append(style);
   const previousStyle = document.documentElement.dataset.buttonStyle;
   const previousTheme = document.documentElement.dataset.theme;
@@ -303,22 +304,21 @@ it("keeps Filled section-header actions distinct and filter actions compact", ()
       expect(getComputedStyle(message).borderWidth).toBe("1px");
       expect(getComputedStyle(message).borderColor).toBe("rgb(100, 100, 100)");
     }
-    // jsdom retains custom properties in the background shorthand.
-    expect(getComputedStyle(addFilter).background).toBe("var(--app-action-background, var(--secondary))");
+    expect(getComputedStyle(addFilter).backgroundColor).toBe("rgb(240, 244, 248)");
     expect(getComputedStyle(addFilter.parentElement!).getPropertyValue("--app-action-background")).toBe("var(--card)");
     const cancel = screen.getByRole("button", { name: "Cancel" });
     fireEvent.mouseOver(cancel);
     cancel.focus();
     // jsdom caches computed styles across focus changes until CSS is refreshed.
     style.textContent += "\n";
-    expect(getComputedStyle(cancel).background).toBe("var(--app-action-background, var(--secondary))");
+    expect(getComputedStyle(cancel).backgroundColor).toBe("rgb(240, 244, 248)");
     expect(getComputedStyle(cancel).borderColor).toBe("rgb(70, 90, 180)");
     cancel.blur();
     const iconAction = screen.getByRole("button", { name: "Expand section" });
     fireEvent.mouseOver(iconAction);
     iconAction.focus();
     style.textContent += "\n";
-    expect(getComputedStyle(iconAction).background).toBe("var(--app-action-background, var(--secondary))");
+    expect(getComputedStyle(iconAction).backgroundColor).toBe("rgb(240, 244, 248)");
     expect(getComputedStyle(iconAction).borderColor).toBe("rgb(70, 90, 180)");
     iconAction.blur();
     fireEvent.mouseOut(iconAction);
@@ -341,7 +341,7 @@ it("keeps Filled section-header actions distinct and filter actions compact", ()
     }
     for (const button of [addFilter, iconAction, cancel]) {
       expect(getComputedStyle(button).borderColor).toBe("rgba(0, 0, 0, 0)");
-      expect(getComputedStyle(button).background).toBe("var(--app-action-background, var(--secondary))");
+      expect(getComputedStyle(button).backgroundColor).toBe("rgb(240, 244, 248)");
     }
     expect(getComputedStyle(addFilter).background).not.toBe(getComputedStyle(addFilter.parentElement!).background);
     for (const button of [addFilter, screen.getByRole("button", { name: "Remove filter" })]) {
