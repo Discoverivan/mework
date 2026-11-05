@@ -1480,12 +1480,12 @@ fn sprint_scope_membership(
         .filter(|(at, _, _)| *at > start_at)
         .collect::<Vec<_>>();
     let original_membership = if let Some((_, from, _)) = post_activation_events.first() {
-        Some(*from)
+        *from
     } else if let Some((_, _, to)) = events.last() {
-        Some(*to)
+        *to
     } else if !currently_in_sprint {
         // No Sprint history plus no current membership cannot indicate an in-sprint issue.
-        Some(false)
+        false
     } else {
         // The caller requires a complete changelog. With no Sprint changes, treat
         // current membership as assigned at creation, including post-start additions.
@@ -1495,7 +1495,6 @@ fn sprint_scope_membership(
             (created_at > start_at).then_some(created_at),
         ));
     };
-    let original_membership = original_membership?;
     let first_addition = post_activation_events
         .iter()
         .find(|(_, from, to)| !*from && *to)
