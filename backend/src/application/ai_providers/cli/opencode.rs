@@ -1,4 +1,4 @@
-use super::{capture_cli_output, capture_cli_output_with_status, local_cli_command};
+use super::{capture_cli_output, local_cli_command};
 use crate::application::ai::{AiProviderDto, AiProviderId, AiProviderStatus};
 use crate::application::ai_usage_statistics::AiTokenUsageCounts;
 use serde_json::{json, Value};
@@ -510,10 +510,19 @@ fn run_in_workspace(
 ) -> Result<(Vec<u8>, Option<AiTokenUsageCounts>), String> {
     capabilities(binary, &workspace)?;
     workspace.apply_output_limit(model, execution.opencode_max_output_tokens())?;
+    let queue_key = crate::application::ai_request_queue::cli_key(model);
+    let _permit =
+        tauri::async_runtime::block_on(crate::application::ai_request_queue::acquire(&queue_key))?;
+    let status_store =
+        session_status_store(binary, &workspace).ok_or("ai_cli_session_status_unavailable")?;
     let original_config = workspace.config.clone();
     let json_mode = workspace.enable_json_mode(model);
-    let input=format!("Return only a JSON object matching this schema. Do not use tools or modify files.\nSchema:\n{schema}\n\nInput:\n{prompt}");
-    for attempt in 0..2 {
+    let mut input=format!("Return only a JSON object matching this schema. Do not use tools or modify files.\nSchema:\n{schema}\n\nInput:\n{prompt}");
+    let mut repaired = false;
+    let mut fallback = false;
+    let mut total_usage = None;
+    for _ in 0..3 {
+        let session_id = format!("ses_{}", uuid::Uuid::now_v7().simple());
         let mut command = workspace.command(binary);
         command.args([
             "run",
@@ -526,28 +535,78 @@ fn run_in_workspace(
             "mework",
             "--title",
             "mework AI action",
+            "--session",
+            &session_id,
         ]);
-        let captured = capture_cli_output_with_status(
+        let mut observe = || match session_retry(&status_store, &session_id) {
+            Ok(Some(retry_at)) => Some(crate::application::ai_request_queue::defer(
+                &queue_key, retry_at,
+            )),
+            Ok(None) => None,
+            Err(error) => Some(error),
+        };
+        let captured = super::capture_cli_output_observed(
             command,
             Some(input.clone()),
             execution.timeout(),
             "OpenCode CLI",
             "run_structured",
             Some(model),
+            Some(&mut observe),
         )?;
         let result = parse_result(&captured.output);
+        let result = result.and_then(|(bytes, usage)| {
+            let text = std::str::from_utf8(&bytes)
+                .map_err(|_| "OpenCode CLI returned invalid structured output".to_owned())?;
+            crate::application::ai_structured_output::validate_shape(text, schema)
+                .map_err(|_| "OpenCode CLI returned invalid structured output".to_owned())?;
+            Ok((bytes, usage))
+        });
+        let counts = result
+            .as_ref()
+            .ok()
+            .and_then(|r| r.1)
+            .or_else(|| exported_usage(binary, &workspace, &session_id));
+        let counts = tauri::async_runtime::block_on(
+            crate::application::ai_request_queue::account_usage("open-code-cli", model, counts),
+        )?;
+        if let Some(counts) = counts {
+            let total = total_usage.get_or_insert(AiTokenUsageCounts {
+                input_tokens: 0,
+                output_tokens: 0,
+                total_tokens: 0,
+            });
+            total.input_tokens = total.input_tokens.saturating_add(counts.input_tokens);
+            total.output_tokens = total.output_tokens.saturating_add(counts.output_tokens);
+            total.total_tokens = total.total_tokens.saturating_add(counts.total_tokens);
+        }
         if matches!(&result, Err(error) if error == crate::application::ai::OUTPUT_TOKEN_LIMIT_ERROR)
         {
-            return result;
+            return result.map(|(bytes, _)| (bytes, total_usage));
         }
         if captured.success {
             if result.is_err() && session_reached_token_limit(binary, &workspace, &captured.output)
             {
                 return Err(crate::application::ai::OUTPUT_TOKEN_LIMIT_ERROR.to_owned());
             }
-            return result;
+            if !repaired
+                && result
+                    .as_ref()
+                    .is_err_and(|e| crate::application::ai_structured_output::is_format_error(e))
+            {
+                crate::application::logging::info(
+                    "ai.cli",
+                    "structured_response_repair",
+                    json!({"runId":crate::application::ai_request_queue::run_id(),"provider":"OpenCode CLI","model":model}),
+                );
+                input = crate::application::ai_structured_output::repair_prompt(&input);
+                repaired = true;
+                continue;
+            }
+            return result.map(|(bytes, _)| (bytes, total_usage));
         }
-        if attempt == 0 && json_mode && rejected_json_mode(&captured.output) {
+        if !fallback && json_mode && rejected_json_mode(&captured.output) {
+            fallback = true;
             workspace.config.clone_from(&original_config);
             crate::application::logging::info(
                 "ai.cli",
@@ -556,9 +615,84 @@ fn run_in_workspace(
             );
             continue;
         }
-        return Err("OpenCode CLI run failed".to_owned());
+        return Err(super::failure_category(&captured.output, &captured.stderr)
+            .unwrap_or("OpenCode CLI run failed")
+            .to_owned());
     }
-    unreachable!("the final attempt always returns")
+    Err("OpenCode CLI returned invalid structured output".into())
+}
+
+// Inspect only this invocation's sanitized session. No provider text is logged or returned.
+fn export_session(binary: &Path, workspace: &Workspace, id: &str) -> Option<Value> {
+    let mut command = workspace.command(binary);
+    command.args(["session", "export", "--standalone", "--sanitize", id]);
+    let bytes = capture_cli_output(
+        command,
+        None,
+        Duration::from_secs(5),
+        "OpenCode CLI",
+        "read_completion_metadata",
+        None,
+    )
+    .ok()?;
+    let value: Value = serde_json::from_slice(&bytes).ok()?;
+    (value["info"]["id"] == id).then_some(value)
+}
+
+// V2 transcript exports exclude unfinished messages. Read only the current
+// assistant of our opaque session from OpenCode's read-only local status store.
+// Credentials, other sessions and provider configuration are never queried.
+fn session_status_store(binary: &Path, workspace: &Workspace) -> Option<sqlx::SqlitePool> {
+    let mut command = workspace.command(binary);
+    command.args(["debug", "paths", "db"]);
+    let bytes = capture_cli_output(
+        command,
+        None,
+        Duration::from_secs(5),
+        "OpenCode CLI",
+        "resolve_session_status",
+        None,
+    )
+    .ok()?;
+    let path = PathBuf::from(std::str::from_utf8(&bytes).ok()?.trim());
+    if !path.is_absolute() || !path.is_file() {
+        return None;
+    }
+    let options = sqlx::sqlite::SqliteConnectOptions::new()
+        .filename(path)
+        .read_only(true)
+        .create_if_missing(false)
+        .busy_timeout(Duration::from_millis(100));
+    Some(tauri::async_runtime::block_on(async move {
+        sqlx::sqlite::SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect_lazy_with(options)
+    }))
+}
+
+fn session_retry(store: &sqlx::SqlitePool, id: &str) -> Result<Option<Option<i64>>, String> {
+    // Project just the two scheduling fields; source text and reasoning stay in OpenCode.
+    let state:Option<(Option<i64>,Option<i64>)> = tauri::async_runtime::block_on(
+        sqlx::query_as("SELECT json_extract(data, '$.retry.error.status'), json_extract(data, '$.retry.at') FROM session_message WHERE session_id = ? AND type = 'assistant' ORDER BY seq DESC LIMIT 1").bind(id).fetch_optional(store)
+    ).map_err(|_| "ai_cli_session_status_unavailable".to_owned())?;
+    Ok(state.and_then(|(status, at)| (status == Some(429)).then_some(at)))
+}
+
+fn exported_usage(binary: &Path, workspace: &Workspace, id: &str) -> Option<AiTokenUsageCounts> {
+    let value = export_session(binary, workspace, id)?;
+    let t = &value["info"]["tokens"];
+    let input = t["input"]
+        .as_i64()?
+        .saturating_add(t["cache"]["read"].as_i64().unwrap_or(0))
+        .saturating_add(t["cache"]["write"].as_i64().unwrap_or(0));
+    let output = t["output"]
+        .as_i64()?
+        .saturating_add(t["reasoning"].as_i64().unwrap_or(0));
+    (input >= 0 && output >= 0 && input.saturating_add(output) > 0).then_some(AiTokenUsageCounts {
+        input_tokens: input,
+        output_tokens: output,
+        total_tokens: input.saturating_add(output),
+    })
 }
 
 fn session_reached_token_limit(binary: &Path, workspace: &Workspace, output: &[u8]) -> bool {
@@ -707,7 +841,10 @@ fn parse_result(output: &[u8]) -> Result<(Vec<u8>, Option<AiTokenUsageCounts>), 
     // text from persisted messages without emitting a step_finish event.
     // Usage is optional in that case; the complete JSON object is still required.
     let value: Value = crate::application::ai_structured_output::deserialize(text.as_bytes())
-        .map_err(|_| "OpenCode CLI returned invalid structured output".to_owned())?;
+        .map_err(|_| {
+            crate::application::logging::error("ai.cli","structured_response_rejected",json!({"runId":crate::application::ai_request_queue::run_id(),"provider":"OpenCode CLI","responseBytes":text.len(),"kind":crate::application::ai_structured_output::failure_kind(&text)}));
+            "OpenCode CLI returned invalid structured output".to_owned()
+        })?;
     if !value.is_object() {
         return Err("OpenCode CLI returned invalid structured output".to_owned());
     }
@@ -719,6 +856,34 @@ fn parse_result(output: &[u8]) -> Result<(Vec<u8>, Option<AiTokenUsageCounts>), 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    #[ignore = "requires an installed OpenCode V2 binary"]
+    async fn transfers_cli_quota_wait_to_the_application_queue() {
+        use wiremock::{
+            matchers::{method, path},
+            Mock, MockServer, ResponseTemplate,
+        };
+        let binary = resolve_binary().expect("Install OpenCode V2 before running this check");
+        let server = MockServer::start().await;
+        Mock::given(method("POST")).and(path("/v1/chat/completions"))
+            .respond_with(ResponseTemplate::new(429).insert_header("retry-after","120").set_body_json(json!({"error":{"code":"rate_limit_exceeded","message":"Synthetic provider quota reached."}})))
+            .mount(&server).await;
+        let directory = tempfile::tempdir().unwrap();
+        let config = directory.path().join("opencode.json");
+        std::fs::write(&config,json!({"providers":{"example-quota":{"package":"@opencode/ai/providers/openai-compatible","settings":{"baseURL":format!("{}/v1",server.uri()),"apiKey":""},"models":{"sample-model":{}}}}}).to_string()).unwrap();
+        let started = std::time::Instant::now();
+        let error=tokio::task::spawn_blocking(move || {
+            let workspace=Workspace::with_provider_sources(&[config],None).unwrap();
+            run_in_workspace(&binary,"example-quota/sample-model",r#"{"type":"object","required":["summary"],"properties":{"summary":{"type":"string"}}}"#,"Summarize synthetic example data.",workspace,&crate::application::ai::AiExecutionSettings{timeout_seconds:60,..Default::default()})
+        }).await.unwrap().unwrap_err();
+        assert!(error.starts_with("ai_provider_rate_limit:"), "{error}");
+        assert!(started.elapsed() < Duration::from_secs(20));
+        assert!(
+            error.split_once(':').unwrap().1.parse::<i64>().unwrap()
+                > crate::application::ai_request_queue::now_ms()
+        );
+    }
 
     #[test]
     fn identifies_token_exhaustion_from_cli_completion_metadata() {
@@ -824,12 +989,28 @@ mod tests {
         } else {
             "opencode"
         });
+        let status_path = directory.path().join("example-status.sqlite");
+        let store = tauri::async_runtime::block_on(
+            sqlx::sqlite::SqlitePoolOptions::new().connect_with(
+                sqlx::sqlite::SqliteConnectOptions::new()
+                    .filename(&status_path)
+                    .create_if_missing(true),
+            ),
+        )
+        .unwrap();
+        tauri::async_runtime::block_on(
+            sqlx::query(
+                "CREATE TABLE session_message (session_id TEXT,type TEXT,seq INTEGER,data TEXT)",
+            )
+            .execute(&store),
+        )
+        .unwrap();
         // V2 may emit only reconciled text after waiting for the session.
         let events = r#"{"type":"text","part":{"text":"Reasoning about {\"example\":true}. </think>\n{\"summary\":\"Example task\"}"}}"#;
         #[cfg(windows)]
-        let script=format!("@echo off\nset args=%*\necho %args% | findstr /c:\"--version\" >nul && (echo opencode v2.0.28 & exit /b 0)\necho %args% | findstr /c:\"--help\" >nul && (echo --standalone --format --model --agent --title & exit /b 0)\necho %args% | findstr /c:\"--standalone\" >nul || exit /b 1\nif not \"%OPENCODE_DISABLE_PROJECT_CONFIG%\"==\"1\" exit /b 1\nfindstr /c:\"deny\" opencode.json >nul || exit /b 1\necho %args% | findstr /c:\"models\" >nul && (echo example/sample-model & exit /b 0)\nset /p input=\n{}\n",events.lines().map(|line|format!("echo {line}")).collect::<Vec<_>>().join("\n"));
+        let script=format!("@echo off\nset args=%*\necho %args% | findstr /c:\"debug paths db\" >nul && (echo {status_path} & exit /b 0)\necho %args% | findstr /c:\"--version\" >nul && (echo opencode v2.0.28 & exit /b 0)\necho %args% | findstr /c:\"--help\" >nul && (echo --standalone --format --model --agent --title & exit /b 0)\necho %args% | findstr /c:\"--standalone\" >nul || exit /b 1\nif not \"%OPENCODE_DISABLE_PROJECT_CONFIG%\"==\"1\" exit /b 1\nfindstr /c:\"deny\" opencode.json >nul || exit /b 1\necho %args% | findstr /c:\"models\" >nul && (echo example/sample-model & exit /b 0)\nset /p input=\n{}\n",events.lines().map(|line|format!("echo {line}")).collect::<Vec<_>>().join("\n"),status_path=status_path.display());
         #[cfg(not(windows))]
-        let script=format!("#!/bin/sh\ncase \"$*\" in *--version*) echo opencode v2.0.28;exit 0;; *--help*) echo '--standalone --format --model --agent --title';exit 0;; esac\ncase \"$*\" in *--standalone*) ;; *) exit 1;; esac\n[ \"$OPENCODE_DISABLE_PROJECT_CONFIG\" = 1 ] || exit 1\ngrep -q deny opencode.json || exit 1\ncase \"$*\" in *models*) echo example/sample-model;exit 0;; esac\ncat >/dev/null\nprintf '%s\\n' '{events}'\n");
+        let script=format!("#!/bin/sh\ncase \"$*\" in *'debug paths db'*) echo '{status_path}';exit 0;; *--version*) echo opencode v2.0.28;exit 0;; *--help*) echo '--standalone --format --model --agent --title';exit 0;; esac\ncase \"$*\" in *--standalone*) ;; *) exit 1;; esac\n[ \"$OPENCODE_DISABLE_PROJECT_CONFIG\" = 1 ] || exit 1\ngrep -q deny opencode.json || exit 1\ncase \"$*\" in *models*) echo example/sample-model;exit 0;; esac\ncat >/dev/null\nprintf '%s\\n' '{events}'\n",status_path=status_path.display());
         std::fs::write(&binary, script).unwrap();
         #[cfg(unix)]
         {

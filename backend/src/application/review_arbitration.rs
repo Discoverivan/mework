@@ -351,6 +351,12 @@ fn parallel_reviews<T: Send>(
 }
 
 pub(super) fn execute(context: ArbitrationContext<'_>) -> Result<PullRequestReviewResult, String> {
+    let run_id = context.run_id;
+    let pool = context.pool;
+    super::ai_request_queue::with_review(run_id, pool, || execute_inner(context))
+}
+
+fn execute_inner(context: ArbitrationContext<'_>) -> Result<PullRequestReviewResult, String> {
     let ArbitrationContext {
         pool,
         request,
@@ -396,22 +402,24 @@ pub(super) fn execute(context: ArbitrationContext<'_>) -> Result<PullRequestRevi
         }),
     ))?;
     let results = parallel_reviews(count, |index| {
-        let result = ai::retry_provider_operation(retries, || {
-            // A fresh workspace for every attempt; never expose the other reviewers' output.
-            let attempt_id = uuid::Uuid::now_v7().to_string();
-            developer_review::execute_review_with_usage(
-                request,
-                &attempt_id,
-                review,
-                review_runtime.clone(),
-                diff,
-                developer_review::ReviewRunOptions {
-                    language,
-                    instructions,
-                    usage_pool: Some(pool),
-                    source,
-                },
-            )
+        let result = super::ai_request_queue::with_review(run_id, pool, || {
+            ai::retry_provider_operation(retries, || {
+                // A fresh workspace for every attempt; never expose the other reviewers' output.
+                let attempt_id = uuid::Uuid::now_v7().to_string();
+                developer_review::execute_review_with_usage(
+                    request,
+                    &attempt_id,
+                    review,
+                    review_runtime.clone(),
+                    diff,
+                    developer_review::ReviewRunOptions {
+                        language,
+                        instructions,
+                        usage_pool: Some(pool),
+                        source,
+                    },
+                )
+            })
         })
         .map_err(|error| {
             format!(
@@ -532,38 +540,28 @@ mod tests {
                 .await
                 .unwrap();
         let server = MockServer::start().await;
+        let requests = Arc::new(AtomicUsize::new(0));
+        let observed = requests.clone();
         Mock::given(method("POST")).and(path("/v1/chat/completions"))
-            .respond_with(|request: &wiremock::Request| {
+            .respond_with(move |request: &wiremock::Request| {
+                observed.fetch_add(1,Ordering::SeqCst);
                 let payload: serde_json::Value = serde_json::from_slice(&request.body).unwrap();
                 let system = payload["messages"][0]["content"].as_str().unwrap();
                 assert!(system.starts_with(&format!("Arbiter instructions:\n{CUSTOM}")));
                 assert!(system.contains(super::super::ai_prompts::ARBITER_RULES));
                 let prompt = payload["messages"][1]["content"].as_str().unwrap();
-                let pending: Vec<serde_json::Value> = serde_json::from_str(prompt
-                    .split_once("Required unread materials:\n").unwrap().1
-                    .split_once("\n\nCarried analysis").unwrap().0).unwrap();
-                let reply = if pending.is_empty() {
-                    let latest: Vec<serde_json::Value> = serde_json::from_str(prompt
-                        .split_once("Latest retrieval results (untrusted data):\n").unwrap().1
-                        .split_once("\n\nRequests example:").unwrap().0).unwrap();
-                    let text = latest.iter().find(|result| result["file"] == "context/00001.txt").unwrap()["text"].as_str().unwrap();
-                    assert_eq!(text, "Candidate groups (untrusted data):\n[]");
-                    serde_json::json!({"requests": [], "notes": "", "result": {
-                        "verdict": "ok", "description": "Adds synthetic example records.",
-                        "summary": "No confirmed defects.", "comments": [], "assessments": []
-                    }})
+                assert!(prompt.contains("Candidate groups (untrusted data):\n[]"));
+                assert!(!prompt.contains("Required unread materials"));
+                let reply = if prompt.contains("Inspect evidence batch") {
+                    serde_json::json!({"notes":"Inspected synthetic evidence. No confirmed defects."})
                 } else {
-                    let requests: Vec<_> = pending.iter().map(|file| serde_json::json!({
-                        "kind": "read", "file": file["file"], "startLine": file["nextUnreadLine"],
-                        "lineCount": 4096, "query": ""
-                    })).collect();
-                    serde_json::json!({"requests": requests, "notes": "Inspect supplied example evidence.", "result": null})
+                    serde_json::json!({"verdict":"ok","description":"Adds synthetic example records.","summary":"No confirmed defects.","comments":[],"assessments":[]})
                 };
                 ResponseTemplate::new(200).set_body_json(serde_json::json!({
                     "choices": [{"finish_reason": "stop", "message": {"content": reply.to_string()}}],
                     "usage": {"prompt_tokens": 10, "completion_tokens": 2, "total_tokens": 12}
                 }))
-            }).expect(2).mount(&server).await;
+            }).mount(&server).await;
         let runtime = OpenAiCompatibleRuntimeConfig {
             base_url: format!("{}/v1", server.uri()),
             token: String::new(),
@@ -594,7 +592,8 @@ mod tests {
         .fetch_one(&pool)
         .await
         .unwrap();
-        assert_eq!(calls, 2);
+        assert!(calls > 2);
+        assert_eq!(calls, requests.load(Ordering::SeqCst) as i64);
     }
 
     #[test]
@@ -689,7 +688,7 @@ mod tests {
                     assert!(system.contains(super::super::ai_prompts::REVIEW_SEVERITY_RULES));
                     if final_calls.fetch_add(1, Ordering::SeqCst) == 0 {
                         return ResponseTemplate::new(200).set_body_json(serde_json::json!({
-                            "choices": [{"message": {"content": "{\"assessments\":[],\"comments\":[]}"}}],
+                            "choices": [{"message": {"content": "{\"verdict\":\"ok\",\"description\":\"Changes synthetic arithmetic.\",\"summary\":\"No confirmed defects.\",\"assessments\":[],\"comments\":[]}"}}],
                             "usage": {"prompt_tokens": 100, "completion_tokens": 50, "total_tokens": 150}
                         }));
                     }

@@ -145,6 +145,8 @@ pub struct PullRequestReviewDto {
     pub execution: Option<PullRequestReviewExecution>,
     #[serde(default)]
     pub instructions_changed: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub progress: Option<super::ai_request_queue::ReviewProgress>,
 }
 
 async fn review_execution(
@@ -390,6 +392,7 @@ pub async fn get_review_states(
                 request.author_account_name.as_deref(),
             );
             mark_instructions_changed(&mut record, &effective, &arbiter_instructions);
+            record.progress = super::ai_request_queue::progress(&record.run_id);
             results.insert(key, record);
         }
     }
@@ -457,6 +460,7 @@ pub async fn attach_review_states(
                 pull_request.author_account_name.as_deref(),
             );
             mark_instructions_changed(&mut review, &effective, &arbiter_instructions);
+            review.progress = super::ai_request_queue::progress(&review.run_id);
             pull_request.review = Some(review);
         }
     }
@@ -619,6 +623,7 @@ pub async fn start_review_with_diff<R: Runtime>(
         finished_at: None,
         execution,
         instructions_changed: false,
+        progress: None,
     };
     state.reviews.insert(key.clone(), run.clone());
     super::review_comment_discussions::capture_context(pool, &run.run_id, &request, &diff).await?;
@@ -669,7 +674,7 @@ pub async fn start_review_with_diff<R: Runtime>(
             let source = if needs_source {
                 Some(tauri::async_runtime::block_on(super::review_source::prepare(&worker_pool_for_arbitration, &request, &diff, &source_cache))?)
             } else { None };
-            let result = if let Some((arbiter, arbiter_runtime)) = arbitration {
+            let result = super::ai_request_queue::with_review(&worker_run_id, &worker_pool_for_arbitration, || if let Some((arbiter, arbiter_runtime)) = arbitration {
                 super::review_arbitration::execute(super::review_arbitration::ArbitrationContext {
                     pool: &worker_pool_for_arbitration,
                     request: &request,
@@ -693,7 +698,7 @@ pub async fn start_review_with_diff<R: Runtime>(
                     &diff,
                     ReviewRunOptions { language: output_language, instructions: &instructions, usage_pool: Some(&worker_pool_for_arbitration), source: source.as_ref() },
                 )
-            }) };
+            }) });
             crate::application::logging::info(
                 "developer_review",
                 "review_execution_completed",
@@ -1064,6 +1069,7 @@ fn migrate_legacy_state(raw: &str) -> Option<PersistedReviewState> {
                     finished_at: value.finished_at,
                     execution: None,
                     instructions_changed: false,
+                    progress: None,
                 },
             )
         })
@@ -1294,7 +1300,6 @@ fn execute_review_in_workspace_with_usage(
     let diff_path = workdir.join("pull-request.diff");
     let prompt_path = workdir.join("prompt.txt");
     let schema_path = workdir.join("review-schema.json");
-    let output_path = workdir.join("review-result.json");
     let manifest = review_manifest(request)?;
     fs::write(
         &manifest_path,
@@ -1381,63 +1386,13 @@ fn execute_review_in_workspace_with_usage(
         );
     }
 
-    if ai_settings.provider == Some(crate::application::ai::AiProviderId::ClaudeCodeCli) {
-        let (output, usage) =
-            crate::application::ai_providers::cli::claude_code::run_structured_with_usage(
-                &ai_settings.model,
-                review_result_schema(),
-                &prompt,
-                workdir,
-                &ai_settings.execution,
-            )?;
-        return parse_review_result_in_diff(&output, Some(diff)).map(|result| (result, usage));
-    }
-
-    if ai_settings.provider == Some(crate::application::ai::AiProviderId::HermesCli) {
-        let (output, usage) =
-            crate::application::ai_providers::cli::hermes_cli::run_structured_with_usage(
-                &ai_settings.model,
-                review_result_schema(),
-                &prompt,
-                workdir,
-                &ai_settings.execution,
-            )?;
-        return parse_review_result_in_diff(&output, Some(diff)).map(|result| (result, usage));
-    }
-
-    if ai_settings.provider == Some(crate::application::ai::AiProviderId::OpenCodeCli) {
-        let (output, usage) =
-            crate::application::ai_providers::cli::opencode::run_structured_with_usage(
-                &ai_settings.model,
-                review_result_schema(),
-                &prompt,
-                workdir,
-                &ai_settings.execution,
-            )?;
-        return parse_review_result_in_diff(&output, Some(diff)).map(|result| (result, usage));
-    }
-
-    if ai_settings.provider == Some(crate::application::ai::AiProviderId::PiCli) {
-        let (output, usage) = crate::application::ai_providers::cli::pi::run_structured_with_usage(
-            &ai_settings.model,
-            review_result_schema(),
-            &prompt,
-            workdir,
-            &ai_settings.execution,
-        )?;
-        return parse_review_result_in_diff(&output, Some(diff)).map(|result| (result, usage));
-    }
-
-    let (result_bytes, usage) =
-        crate::application::ai_providers::cli::codex::run_structured_with_usage(
-            ai_settings,
-            &prompt_path,
-            &schema_path,
-            &output_path,
-            workdir,
-        )
-        .map_err(codex_review_run_error)?;
-    parse_review_result_in_diff(&result_bytes, Some(diff)).map(|result| (result, usage))
+    let (bytes, usage) = execute_cli_structured_prompt_with_usage(
+        ai_settings,
+        &prompt,
+        review_result_schema(),
+        workdir,
+    )?;
+    parse_review_result_in_diff(&bytes, Some(diff)).map(|result| (result, usage))
 }
 
 #[allow(dead_code)]
@@ -1854,7 +1809,7 @@ fn execute_workspace_request_with_retries(
     root: &Path,
     retries: u8,
 ) -> Result<(Vec<u8>, Option<ai_usage_statistics::AiTokenUsageCounts>), String> {
-    let rules = super::review_workspace::retrieval_rules(rules);
+    let rules = super::review_workspace::material_rules(rules, schema);
     crate::application::ai::retry_provider_operation(retries, || {
         execute_workspace_request(settings, runtime, prompt, schema, &rules, root)
     })
@@ -1926,6 +1881,64 @@ pub(super) fn execute_workspace_request(
 }
 
 fn execute_cli_structured_prompt_with_usage(
+    settings: &crate::application::ai::AiSettings,
+    prompt: &str,
+    schema: &str,
+    workdir: &Path,
+) -> Result<(Vec<u8>, Option<ai_usage_statistics::AiTokenUsageCounts>), String> {
+    let _permit = super::ai_request_queue::admit_cli(settings)?;
+    let provider = serde_json::to_value(settings.provider)
+        .ok()
+        .and_then(|p| p.as_str().map(str::to_owned))
+        .unwrap_or_default();
+    let mut usage: Option<ai_usage_statistics::AiTokenUsageCounts> = None;
+    for attempt in 0..2 {
+        let input = if attempt == 0 {
+            prompt.to_owned()
+        } else {
+            super::ai_structured_output::repair_prompt(prompt)
+        };
+        let result = execute_cli_structured_prompt_once(settings, &input, schema, workdir);
+        let (bytes, counts) = match result {
+            Err(error)
+                if attempt == 0
+                    && settings.provider
+                        != Some(crate::application::ai::AiProviderId::OpenCodeCli)
+                    && super::ai_structured_output::is_format_error(&error) =>
+            {
+                continue
+            }
+            result => result?,
+        };
+        let counts = tauri::async_runtime::block_on(super::ai_request_queue::account_usage(
+            &provider,
+            &settings.model,
+            counts,
+        ))?;
+        if let Some(counts) = counts {
+            let total = usage.get_or_insert(ai_usage_statistics::AiTokenUsageCounts {
+                input_tokens: 0,
+                output_tokens: 0,
+                total_tokens: 0,
+            });
+            total.input_tokens = total.input_tokens.saturating_add(counts.input_tokens);
+            total.output_tokens = total.output_tokens.saturating_add(counts.output_tokens);
+            total.total_tokens = total.total_tokens.saturating_add(counts.total_tokens);
+        }
+        let text = std::str::from_utf8(&bytes).map_err(|_| "review_workspace_invalid_response")?;
+        if super::ai_structured_output::validate_shape(text, schema).is_ok() {
+            return Ok((bytes, usage));
+        }
+        crate::application::logging::error(
+            "developer_review",
+            "structured_response_rejected",
+            serde_json::json!({"runId":super::ai_request_queue::run_id(),"provider":provider,"responseBytes":bytes.len(),"kind":super::ai_structured_output::failure_kind(text)}),
+        );
+    }
+    Err("review_workspace_invalid_response".into())
+}
+
+fn execute_cli_structured_prompt_once(
     settings: &crate::application::ai::AiSettings,
     prompt: &str,
     schema: &str,
@@ -2071,6 +2084,67 @@ async fn request_openai_json_content(
     ),
     String,
 > {
+    let mut usage: Option<ai_usage_statistics::AiTokenUsageCounts> = None;
+    for attempt in 0..2 {
+        let input = if attempt == 0 {
+            prompt.clone()
+        } else {
+            super::ai_structured_output::repair_prompt(&prompt)
+        };
+        let (content, counts) = request_openai_json_content_once(
+            runtime,
+            model,
+            input,
+            system_prompt.clone(),
+            schema,
+            max_output_tokens,
+            execution,
+        )
+        .await?;
+        let counts =
+            super::ai_request_queue::account_usage("openai-compatible", model, counts).await?;
+        if let Some(counts) = counts {
+            let total = usage.get_or_insert(ai_usage_statistics::AiTokenUsageCounts {
+                input_tokens: 0,
+                output_tokens: 0,
+                total_tokens: 0,
+            });
+            total.input_tokens = total.input_tokens.saturating_add(counts.input_tokens);
+            total.output_tokens = total.output_tokens.saturating_add(counts.output_tokens);
+            total.total_tokens = total.total_tokens.saturating_add(counts.total_tokens);
+        }
+        if attempt == 0
+            && content
+                .as_ref()
+                .is_err_and(|e| super::ai_structured_output::is_format_error(e))
+        {
+            crate::application::logging::info(
+                "developer_review",
+                "structured_response_repair",
+                serde_json::json!({"runId":super::ai_request_queue::run_id(),"provider":"openai-compatible","model":model}),
+            );
+            continue;
+        }
+        return Ok((content, usage));
+    }
+    unreachable!("bounded formatting repair")
+}
+
+async fn request_openai_json_content_once(
+    runtime: &crate::application::ai::OpenAiCompatibleRuntimeConfig,
+    model: &str,
+    prompt: String,
+    system_prompt: String,
+    schema: &str,
+    max_output_tokens: u32,
+    execution: crate::application::ai::AiExecutionSettings,
+) -> Result<
+    (
+        Result<Option<String>, String>,
+        Option<ai_usage_statistics::AiTokenUsageCounts>,
+    ),
+    String,
+> {
     let client = crate::application::ai::openai_http_client(
         execution.timeout(),
         runtime.allow_insecure_tls,
@@ -2087,7 +2161,12 @@ async fn request_openai_json_content(
     .await
     .map_err(|_| "OpenAI-compatible API review request could not be completed".to_owned())?;
     if status == reqwest::StatusCode::UNAUTHORIZED || status == reqwest::StatusCode::FORBIDDEN {
-        return Err("OpenAI-compatible API authorization failed during review".to_owned());
+        return Err("ai_provider_authentication".to_owned());
+    }
+    if status == reqwest::StatusCode::TOO_MANY_REQUESTS {
+        return Err(super::ai_request_queue::limit_error(
+            &super::ai_request_queue::http_key(&runtime.base_url, &runtime.token),
+        ));
     }
     if !status.is_success() {
         let detail = serde_json::from_slice::<serde_json::Value>(&body)
@@ -2131,19 +2210,20 @@ async fn request_openai_json_content(
     }
     let content = content
         .map(|text| {
-            super::ai_structured_output::json_object(&text)
+            super::ai_structured_output::validate_shape(&text, schema)
+                .and_then(|_|super::ai_structured_output::json_object(&text))
                 .map(str::to_owned)
                 .map_err(|_| {
-                    crate::application::logging::log_parse_failure(
-                        "ai.openai_compatible",
-                        "review",
-                        "structured_json",
-                        text.as_bytes(),
-                    );
+                    crate::application::logging::error("ai.openai_compatible","structured_response_rejected",serde_json::json!({"runId":super::ai_request_queue::run_id(),"model":model,"stage":"structured_json","responseBytes":text.len(),"kind":super::ai_structured_output::failure_kind(&text)}));
                     "OpenAI-compatible API returned invalid structured output".to_owned()
                 })
         })
         .transpose();
+    let content = content.and_then(|content| {
+        content
+            .map(Some)
+            .ok_or_else(|| "OpenAI-compatible API returned invalid structured output".to_owned())
+    });
     Ok((content, usage))
 }
 
@@ -2544,6 +2624,72 @@ fn now_millis() -> i64 {
 
 #[cfg(test)]
 mod tests {
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn retries_quota_then_repairs_json_and_records_each_measured_attempt() {
+        use std::sync::{
+            atomic::{AtomicUsize, Ordering},
+            Arc,
+        };
+        use wiremock::{
+            matchers::{method, path},
+            Mock, MockServer, ResponseTemplate,
+        };
+        let directory = tempfile::tempdir().unwrap();
+        let pool =
+            crate::infrastructure::db::open_database(&directory.path().join("example.sqlite"))
+                .await
+                .unwrap();
+        let server = MockServer::start().await;
+        let requests = Arc::new(AtomicUsize::new(0));
+        let seen = requests.clone();
+        Mock::given(method("POST")).and(path("/v1/chat/completions")).respond_with(move |request:&wiremock::Request| {
+            let number=seen.fetch_add(1,Ordering::SeqCst);
+            if number==0 { return ResponseTemplate::new(429).insert_header("retry-after","0").set_body_json(serde_json::json!({"error":{"code":"rate_limit_exceeded"}})); }
+            let body:serde_json::Value=serde_json::from_slice(&request.body).unwrap();
+            let text=if number==1 { "<DSML>example invalid response</DSML>" } else {
+                assert!(body["messages"][1]["content"].as_str().unwrap().contains("Application formatting correction"));
+                r#"{"summary":"Example response"}"#
+            };
+            ResponseTemplate::new(200).set_body_json(serde_json::json!({"choices":[{"finish_reason":"stop","message":{"content":text}}],"usage":{"prompt_tokens":10,"completion_tokens":2,"total_tokens":12}}))
+        }).expect(3).mount(&server).await;
+        let runtime = crate::application::ai::OpenAiCompatibleRuntimeConfig {
+            base_url: format!("{}/v1", server.uri()),
+            token: String::new(),
+            allow_insecure_tls: false,
+        };
+        let worker_pool = pool.clone();
+        let worker = tokio::task::spawn_blocking(move || {
+            super::super::ai_request_queue::with_review("example-repair-run", &worker_pool, || {
+                let settings = crate::application::ai::AiSettings {
+                    provider: Some(crate::application::ai::AiProviderId::OpenAiCompatible),
+                    model: "example-repair-model".into(),
+                    ..Default::default()
+                };
+                super::execute_workspace_request_with_retries(
+                    &settings,
+                    Some(&runtime),
+                    "Summarize synthetic example data.",
+                    r#"{"type":"object","additionalProperties":false,"required":["summary"],"properties":{"summary":{"type":"string"}}}"#,
+                    "Use only the synthetic input.",
+                    directory.path(),
+                    1,
+                )
+            })
+        });
+        let (bytes, usage) = worker.await.unwrap().unwrap();
+        assert_eq!(
+            serde_json::from_slice::<serde_json::Value>(&bytes).unwrap()["summary"],
+            "Example response"
+        );
+        assert!(usage.is_none());
+        let total: i64 = sqlx::query_scalar(
+            "SELECT SUM(total_tokens) FROM ai_token_usage WHERE model='example-repair-model'",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(total, 24);
+    }
     #[cfg(unix)]
     use super::PullRequestReviewRequest;
     use super::{
@@ -2620,6 +2766,7 @@ mod tests {
             finished_at: Some(2),
             execution: super::review_execution(&pool, &settings).await.unwrap(),
             instructions_changed: false,
+            progress: None,
         };
         let expected_result = review.result.clone();
         let key = pull_request_review_key("example", "DEMO", "sample", "7");

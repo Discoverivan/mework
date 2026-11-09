@@ -899,7 +899,8 @@ describe("MyPullRequestsPage", () => {
     expect(screen.getByRole("button", { name: "AI review…" }).querySelector("svg.lucide-sparkles")).not.toHaveClass("text-primary");
     expect(screen.getByText("AI review in progress")).toHaveAttribute("role", "status");
     expect(screen.queryByText("AI review error")).not.toBeInTheDocument();
-    resolveReview(runningReview);
+    resolveReview({ ...runningReview, progress: { phase: "waiting_quota", retryAt: Date.UTC(2026, 0, 2, 12) } });
+    expect(await screen.findByText(/^Waiting for provider \u00b7 retry after/)).toHaveAttribute("role", "status");
   });
 
   it("excludes a repository from the PR actions menu", async () => {

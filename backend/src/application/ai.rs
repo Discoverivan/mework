@@ -1760,6 +1760,7 @@ pub fn log_openai_chat_request(
 ) {
     append_openai_debug_json(&serde_json::json!({
         "event": "request",
+        "runId": super::ai_request_queue::run_id(),
         "operation": operation,
         "method": "POST",
         "url": safe_openai_log_url(&format!("{base_url}/chat/completions")),
@@ -1960,14 +1961,16 @@ pub async fn request_openai_structured_response(
     operation: &'static str,
     mut payload: Value,
     execution: AiExecutionSettings,
-) -> Result<(reqwest::StatusCode, Vec<u8>), reqwest::Error> {
+) -> Result<(reqwest::StatusCode, Vec<u8>), String> {
     if execution.output_tokens_mode == AiOutputTokensMode::Unlimited {
         if let Some(payload) = payload.as_object_mut() {
             payload.remove("max_tokens");
         }
     }
     payload["response_format"] = serde_json::json!({"type": "json_object"});
+    let queue_key = super::ai_request_queue::http_key(&runtime.base_url, &runtime.token);
     for attempt in 0..2 {
+        let _permit = super::ai_request_queue::acquire(&queue_key).await?;
         log_openai_chat_request(
             operation,
             &runtime.base_url,
@@ -1983,12 +1986,25 @@ pub async fn request_openai_structured_response(
                 operation,
                 crate::application::logging::HttpBodyPolicy::Omit,
             )
-            .await?;
+            .await
+            .map_err(|_| "OpenAI-compatible API request could not be completed".to_owned())?;
         let status = response.status();
-        let body = response.bytes().await.inspect_err(|error| {
-            log_openai_transport_error("structured_response_body", &error.to_string());
-        })?;
+        let retry_at = response
+            .headers()
+            .get(reqwest::header::RETRY_AFTER)
+            .and_then(|value| value.to_str().ok())
+            .and_then(super::ai_request_queue::retry_after);
+        let body = response
+            .bytes()
+            .await
+            .inspect_err(|error| {
+                log_openai_transport_error("structured_response_body", &error.to_string());
+            })
+            .map_err(|_| "OpenAI-compatible API response could not be read".to_owned())?;
         log_openai_chat_response(operation, status.as_u16(), &body);
+        if status == reqwest::StatusCode::TOO_MANY_REQUESTS {
+            super::ai_request_queue::defer(&queue_key, retry_at);
+        }
         let unsupported_format = matches!(status.as_u16(), 400 | 422)
             && serde_json::from_slice::<Value>(&body)
                 .ok()
