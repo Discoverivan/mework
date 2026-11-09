@@ -104,6 +104,16 @@ pub(crate) fn with_cli_cancellation<T>(
     run()
 }
 
+pub(crate) fn request_cancellation() -> Option<Arc<CliCancellation>> {
+    CLI_CANCELLATION.with(|current| current.borrow().clone())
+}
+
+impl CliCancellation {
+    pub(crate) fn is_cancelled(&self) -> bool {
+        self.cancelled.load(std::sync::atomic::Ordering::Acquire)
+    }
+}
+
 pub(crate) struct CliInvocation {
     provider: &'static str,
     operation: &'static str,
@@ -122,7 +132,7 @@ impl CliInvocation {
         crate::application::logging::info(
             "ai.cli",
             "process_started",
-            serde_json::json!({"provider": provider, "operation": operation, "model": model}),
+            serde_json::json!({"runId":crate::application::ai_request_queue::run_id(),"provider": provider, "operation": operation, "model": model}),
         );
         Self {
             provider,
@@ -259,12 +269,24 @@ pub(crate) fn capture_cli_output(
 // Failure output remains in memory for narrowly scoped protocol handling. Never
 // include it in logs: providers may echo credentials, prompts, or generated text.
 pub(crate) fn capture_cli_output_with_status(
+    command: Command,
+    input: Option<String>,
+    timeout: Duration,
+    provider: &'static str,
+    operation: &'static str,
+    model: Option<&str>,
+) -> Result<CapturedCliOutput, String> {
+    capture_cli_output_observed(command, input, timeout, provider, operation, model, None)
+}
+
+pub(crate) fn capture_cli_output_observed(
     mut command: Command,
     input: Option<String>,
     timeout: Duration,
     provider: &'static str,
     operation: &'static str,
     model: Option<&str>,
+    mut observe: Option<&mut dyn FnMut() -> Option<String>>,
 ) -> Result<CapturedCliOutput, String> {
     #[cfg(unix)]
     {
@@ -317,7 +339,21 @@ pub(crate) fn capture_cli_output_with_status(
                 .map(|mut stdin| thread::spawn(move || stdin.write_all(input.as_bytes())))
         });
         let deadline = Instant::now() + timeout;
+        let mut next_observation = Instant::now() + Duration::from_secs(2);
+        let mut interrupted = None;
         let status = loop {
+            if Instant::now() >= next_observation {
+                if let Some(observer) = observe.as_mut() {
+                    interrupted = observer();
+                }
+                next_observation = Instant::now() + Duration::from_secs(2);
+                if interrupted.is_some() {
+                    kill_process_group(child.id());
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    break None;
+                }
+            }
             match child.try_wait() {
                 Ok(Some(status)) => break Some(status),
                 Ok(None) if Instant::now() < deadline => thread::sleep(Duration::from_millis(10)),
@@ -341,8 +377,11 @@ pub(crate) fn capture_cli_output_with_status(
             .and_then(Result::ok)
             .ok_or_else(|| format!("{provider} error output could not be read"))?;
         let sent = writer.is_none_or(|writer| writer.join().is_ok_and(|result| result.is_ok()));
-        let status = status
-            .ok_or_else(|| format!("{provider} timed out after {} seconds", timeout.as_secs()))?;
+        let status = status.ok_or_else(|| {
+            interrupted.unwrap_or_else(|| {
+                format!("{provider} timed out after {} seconds", timeout.as_secs())
+            })
+        })?;
         if !sent && status.success() {
             return Err(format!("{provider} run failed"));
         }

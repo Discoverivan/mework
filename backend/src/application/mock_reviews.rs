@@ -102,6 +102,7 @@ pub fn review(id: u64, now: i64) -> Option<PullRequestReviewDto> {
         .map(|fixture| fixture.finding)
         .collect();
     Some(PullRequestReviewDto {
+        progress: None,
         run_id: format!("mock-review-{id}"),
         status: if id == 46 {
             PullRequestReviewStatus::Failed

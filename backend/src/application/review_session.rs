@@ -246,6 +246,7 @@ pub(super) fn run(
     root: &Path,
     input: Input<'_>,
 ) -> Result<(Vec<u8>, Option<AiTokenUsageCounts>), String> {
+    let _permit = super::ai_request_queue::admit_cli(settings)?;
     let Input {
         manifest,
         diff,

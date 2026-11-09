@@ -17,6 +17,7 @@ import type {
 } from "@/shared/contracts/developer";
 import { useI18n } from "@/i18n/context";
 import { cn } from "@/lib/utils";
+import { formatDisplayDateTime } from "@/lib/display-date";
 import type { TranslationKey } from "@/i18n/locales/en";
 import { formatRelativeDate } from "./pull-request-formatting";
 import { PullRequestReviewDetails } from "./PullRequestReviewDetails";
@@ -180,11 +181,16 @@ export function PullRequestListItem({
   completedLabel,
   showProjectKey = true,
 }: PullRequestListItemProps) {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   const review = pullRequest.review;
   const reviewRunning = reviewStarting || review?.status === "running";
   const reviewCompleted = review?.status === "completed" && review.result != null;
   const reviewFailed = review?.status === "failed";
+  const progressLabel = review?.progress?.phase === "waiting_quota"
+    ? review.progress.retryAt
+      ? t("pr.aiReviewWaitingQuotaUntil", { date: formatDisplayDateTime(review.progress.retryAt, locale, { hour12: false }) })
+      : t("pr.aiReviewWaitingQuota")
+    : review?.progress?.phase === "queued" ? t("pr.aiReviewQueued") : t("pr.aiReviewInProgress");
   let reviewLabel = t("pr.startAiReview");
   if (reviewRunning) {
     reviewLabel = t("pr.aiReviewRunning");
@@ -269,7 +275,7 @@ export function PullRequestListItem({
           {reviewRunning ? (
             <Badge variant="outline" className="h-7 gap-1.5 px-2.5 py-0 text-primary" role="status" aria-live="polite">
               <Loader2 className="size-3.5 animate-spin" aria-hidden="true" />
-              {t("pr.aiReviewInProgress")}
+              {progressLabel}
             </Badge>
           ) : null}
           {!reviewRunning && reviewCompleted && review?.result ? <AiVerdictBadge verdict={review.result.verdict} review={review} /> : null}

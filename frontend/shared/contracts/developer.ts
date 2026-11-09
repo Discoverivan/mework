@@ -197,6 +197,7 @@ export interface PullRequestReviewExecution {
 }
 
 export interface PullRequestReviewState {
+  progress?: { phase: "queued" | "waiting_quota"; retryAt: number | null } | null;
   instructionsChanged?: boolean;
   runId: string;
   status: PullRequestReviewStatus;
