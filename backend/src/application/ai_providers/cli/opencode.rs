@@ -585,8 +585,7 @@ fn run_in_workspace(
             return result.map(|(bytes, _)| (bytes, total_usage));
         }
         if captured.success {
-            if result.is_err() && session_reached_token_limit(binary, &workspace, &captured.output)
-            {
+            if result.is_err() && session_reached_token_limit(binary, &workspace, &session_id) {
                 return Err(crate::application::ai::OUTPUT_TOKEN_LIMIT_ERROR.to_owned());
             }
             if !repaired
@@ -695,58 +694,11 @@ fn exported_usage(binary: &Path, workspace: &Workspace, id: &str) -> Option<AiTo
     })
 }
 
-fn session_reached_token_limit(binary: &Path, workspace: &Workspace, output: &[u8]) -> bool {
-    let events: Vec<Value> = output
-        .split(|byte| *byte == b'\n')
-        .filter_map(|line| serde_json::from_slice(line).ok())
-        .collect();
-    if events.iter().any(|event| {
-        matches!(
-            event["type"].as_str(),
-            Some("step_finish" | "error" | "tool_use")
-        )
-    }) {
-        return false;
-    }
-    let mut ids = events
-        .iter()
-        .filter_map(|event| event["sessionID"].as_str());
-    let Some(session_id) = ids.next() else {
-        return false;
-    };
-    if !session_id.starts_with("ses")
-        || session_id.len() > 128
-        || !session_id
-            .bytes()
-            .all(|b| b.is_ascii_alphanumeric() || b"_-".contains(&b))
-        || ids.any(|id| id != session_id)
-    {
-        return false;
-    }
-    // V2 can reconcile text without emitting completion metadata. Read only
-    // the sanitized export of this run, without persisting or logging it.
-    let mut command = workspace.command(binary);
-    command.args([
-        "session",
-        "export",
-        "--standalone",
-        "--sanitize",
-        session_id,
-    ]);
-    let Ok(export) = capture_cli_output(
-        command,
-        None,
-        Duration::from_secs(30),
-        "OpenCode CLI",
-        "read_completion_metadata",
-        None,
-    ) else {
-        return false;
-    };
-    let Ok(value) = serde_json::from_slice::<Value>(&export) else {
-        return false;
-    };
-    value["info"]["id"] == session_id && exported_session_reached_token_limit(&value)
+fn session_reached_token_limit(binary: &Path, workspace: &Workspace, id: &str) -> bool {
+    // Completion events can be omitted even after an earlier length step.
+    // Inspect the last assistant of our own session, never a historical limit.
+    export_session(binary, workspace, id)
+        .is_some_and(|value| exported_session_reached_token_limit(&value))
 }
 
 fn exported_session_reached_token_limit(value: &Value) -> bool {
@@ -783,6 +735,8 @@ fn rejected_json_mode(output: &[u8]) -> bool {
 fn parse_result(output: &[u8]) -> Result<(Vec<u8>, Option<AiTokenUsageCounts>), String> {
     let mut text = String::new();
     let mut usage = None;
+    let mut finish = None;
+    let mut finished_message = None;
     for line in output
         .split(|b| *b == b'\n')
         .filter(|line| !line.iter().all(u8::is_ascii_whitespace))
@@ -794,6 +748,15 @@ fn parse_result(output: &[u8]) -> Result<(Vec<u8>, Option<AiTokenUsageCounts>), 
                 return Err("OpenCode CLI did not complete an isolated response".to_owned())
             }
             Some("text") => {
+                if event["part"]["messageID"]
+                    .as_str()
+                    .zip(finished_message.as_deref())
+                    .is_some_and(|(current, previous)| current != previous)
+                {
+                    // V2 can reconcile a continuation without its final finish event.
+                    finish = None;
+                    finished_message = None;
+                }
                 let part = event
                     .get("part")
                     .and_then(|p| p.get("text"))
@@ -803,12 +766,12 @@ fn parse_result(output: &[u8]) -> Result<(Vec<u8>, Option<AiTokenUsageCounts>), 
             }
             Some("step_finish") => {
                 let part = &event["part"];
-                if part.get("reason").and_then(Value::as_str) == Some("length") {
-                    return Err(crate::application::ai::OUTPUT_TOKEN_LIMIT_ERROR.to_owned());
-                }
-                if part.get("reason").and_then(Value::as_str) != Some("stop") {
-                    return Err("OpenCode CLI did not complete the response".to_owned());
-                }
+                finish = Some(match part["reason"].as_str() {
+                    Some("length") => "length",
+                    Some("stop") => "stop",
+                    _ => return Err("OpenCode CLI did not complete the response".to_owned()),
+                });
+                finished_message = part["messageID"].as_str().map(str::to_owned);
                 let t = &part["tokens"];
                 if let (Some(input), Some(output), Some(read), Some(write), Some(reasoning)) = (
                     t["input"].as_i64(),
@@ -823,19 +786,29 @@ fn parse_result(output: &[u8]) -> Result<(Vec<u8>, Option<AiTokenUsageCounts>), 
                     {
                         let input = input.saturating_add(read).saturating_add(write);
                         let output = output.saturating_add(reasoning);
-                        usage = Some(AiTokenUsageCounts {
-                            input_tokens: input,
-                            output_tokens: output,
-                            total_tokens: t["total"]
+                        let total = usage.get_or_insert(AiTokenUsageCounts {
+                            input_tokens: 0,
+                            output_tokens: 0,
+                            total_tokens: 0,
+                        });
+                        total.input_tokens = total.input_tokens.saturating_add(input);
+                        total.output_tokens = total.output_tokens.saturating_add(output);
+                        total.total_tokens = total.total_tokens.saturating_add(
+                            t["total"]
                                 .as_i64()
                                 .filter(|v| *v >= 0)
                                 .unwrap_or_else(|| input.saturating_add(output)),
-                        });
+                        );
                     }
                 }
             }
             _ => {}
         }
+    }
+    // OpenCode automatically continues length-limited responses. Only the final
+    // response determines exhaustion; preserve text across those continuations.
+    if finish == Some("length") {
+        return Err(crate::application::ai::OUTPUT_TOKEN_LIMIT_ERROR.to_owned());
     }
     // V2 waits for the session before exiting successfully, but can reconcile
     // text from persisted messages without emitting a step_finish event.
@@ -850,7 +823,8 @@ fn parse_result(output: &[u8]) -> Result<(Vec<u8>, Option<AiTokenUsageCounts>), 
     }
     let bytes = serde_json::to_vec(&value)
         .map_err(|_| "OpenCode CLI returned invalid structured output".to_owned())?;
-    Ok((bytes, usage))
+    // Missing final metadata requires session totals rather than partial usage.
+    Ok((bytes, usage.filter(|_| finish.is_some())))
 }
 
 #[cfg(test)]
@@ -895,6 +869,32 @@ mod tests {
         assert!(exported_session_reached_token_limit(
             &json!({"messages":[{"type":"assistant","finish":"length"}]})
         ));
+    }
+
+    #[test]
+    fn assembles_output_limit_continuations_and_sums_usage() {
+        let events = [
+            json!({"type":"reasoning","part":{"text":"Inspect the synthetic example."}}),
+            json!({"type":"step_finish","part":{"messageID":"example-first","reason":"length","tokens":{"input":10,"output":0,"reasoning":4,"cache":{"read":2,"write":0}}}}),
+            json!({"type":"text","part":{"messageID":"example-second","text":"{\"summary\":\"Example"}}),
+            json!({"type":"step_finish","part":{"messageID":"example-second","reason":"length","tokens":{"input":20,"output":6,"reasoning":0,"cache":{"read":0,"write":0}}}}),
+            json!({"type":"text","part":{"messageID":"example-third","text":" task\"}"}}),
+            json!({"type":"step_finish","part":{"messageID":"example-third","reason":"stop","tokens":{"input":30,"output":2,"reasoning":0,"cache":{"read":0,"write":0}}}}),
+        ];
+        let output = events.map(|event| event.to_string()).join("\n");
+        let (bytes, usage) = parse_result(output.as_bytes()).unwrap();
+        assert_eq!(
+            serde_json::from_slice::<Value>(&bytes).unwrap(),
+            json!({"summary":"Example task"})
+        );
+        assert_eq!(
+            usage,
+            Some(AiTokenUsageCounts {
+                input_tokens: 62,
+                output_tokens: 12,
+                total_tokens: 74,
+            })
+        );
     }
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     #[ignore = "requires an installed OpenCode V2 binary"]
