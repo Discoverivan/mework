@@ -6,6 +6,9 @@ import { APP_EVENT, subscribeAppEvent } from "@/app/app-events";
 import { I18nProvider } from "@/i18n/I18nProvider";
 import { clearDismissedUpdateNotice, dismissUpdateNotice } from "@/components/shared/update-notice";
 import { UpdateBanner } from "@/components/shared/UpdateBanner";
+import { AppShell } from "@/components/layout/AppShell";
+
+const saveAppIconStyleMock = vi.fn();
 
 const { generalSettingsMock, commandBoardTerminalPreferencesMock, saveCommandBoardTerminalPreferenceMock, openNotificationSettingsMock, requestNotificationPermissionMock, saveAppearanceSettingsMock, saveButtonStyleMock, savePanelStyleMock, saveGeneralSettingsMock, sendNotificationTestMock, updaterCheckMock, installAvailableUpdateMock, openUrlMock, invokeMock, beginUpdateCheckMock, recordUpdateCheckResultMock } = vi.hoisted(() => ({
   generalSettingsMock: vi.fn(),
@@ -49,6 +52,7 @@ vi.mock("./api", () => ({
   saveAppearanceSettings: saveAppearanceSettingsMock,
   saveButtonStyle: saveButtonStyleMock,
   savePanelStyle: savePanelStyleMock,
+  saveAppIconStyle: (...args: unknown[]) => saveAppIconStyleMock(...args),
   saveGeneralSettings: saveGeneralSettingsMock,
   sendNotificationTest: sendNotificationTestMock,
 }));
@@ -67,6 +71,7 @@ describe("GeneralSettingsPage", () => {
       themePreference: "system",
       buttonStyle: "filled",
       panelStyle: "bordered",
+      appIconStyle: "transparent",
       notificationsEnabled: true,
       reviewNotificationsEnabled: true,
       authoredNotificationsEnabled: true,
@@ -125,9 +130,32 @@ describe("GeneralSettingsPage", () => {
       persistedSettings = { ...persistedSettings, panelStyle };
       return persistedSettings;
     });
+    saveAppIconStyleMock.mockImplementation(async (appIconStyle) => {
+      persistedSettings = { ...persistedSettings, appIconStyle };
+      return persistedSettings;
+    });
+    generalSettingsMock.mockImplementation(async () => persistedSettings);
     sendNotificationTestMock.mockResolvedValue(undefined);
     updaterCheckMock.mockResolvedValue(null);
     installAvailableUpdateMock.mockResolvedValue(undefined);
+  });
+
+  it("switches the application icon and restores the saved selection", async () => {
+    const view = () => <I18nProvider><AppShell><GeneralSettingsPage /></AppShell></I18nProvider>;
+    const first = render(view());
+    await screen.findByRole("button", { name: "Show appearance settings" });
+    fireEvent.click(screen.getByRole("button", { name: "Show appearance settings" }));
+    const picker = await screen.findByRole("combobox", { name: "Application icon" });
+    const appearancePickers = document.querySelectorAll('#general-appearance-details [role="combobox"]');
+    expect(appearancePickers[appearancePickers.length - 1]).toBe(picker);
+    await waitFor(() => expect(picker).not.toBeDisabled());
+    fireEvent.click(picker);
+    fireEvent.click(screen.getByRole("option", { name: "Framed" }));
+    await waitFor(() => expect(saveAppIconStyleMock).toHaveBeenCalledWith("original"));
+    await waitFor(() => expect(document.querySelector(".app-brand img")).toHaveAttribute("src", "/mework-icon-original.png"));
+    first.unmount();
+    render(view());
+    await waitFor(() => expect(document.querySelector(".app-brand img")).toHaveAttribute("src", "/mework-icon-original.png"));
   });
 
   it("persists the extra-functions master switch without resetting individual choices", async () => {

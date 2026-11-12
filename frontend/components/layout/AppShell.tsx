@@ -23,6 +23,7 @@ import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 import { useI18n } from "@/i18n/context";
+import { appIconSource } from "@/lib/app-icon";
 import type { ThemePreference } from "@/features/settings/general/api";
 
 export type AppSection =
@@ -110,7 +111,7 @@ export function AppShell({
   modelTestingEnabled = false,
   developmentBanner = false,
 }: AppShellProps) {
-  const { resolvedTheme, themePreference: contextThemePreference, t } = useI18n();
+  const { resolvedTheme, themePreference: contextThemePreference, appIconStyle, t } = useI18n();
   const selectedTheme = themePreference ?? contextThemePreference;
   const versionLabel = version === "dev" ? t("nav.developmentBuild") : version ? `v${version}` : undefined;
   const updateActionLabel = updateAvailableVersion
@@ -178,7 +179,7 @@ export function AppShell({
       ) : null}
       <aside aria-label={t("nav.primary")}>
         <div className="app-brand">
-          <img src="/mework-icon.png" alt="" aria-hidden="true" />
+          <img src={appIconSource(appIconStyle)} alt="" aria-hidden="true" />
           <strong>mework</strong>
         </div>
         <nav className="sidebar-navigation" data-action-size="page">

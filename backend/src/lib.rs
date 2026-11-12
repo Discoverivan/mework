@@ -467,6 +467,7 @@ pub fn run() {
             commands::general::general_appearance_save,
             commands::general::general_button_style_save,
             commands::general::general_panel_style_save,
+            commands::general::general_app_icon_style_save,
             commands::general::notification_test,
             commands::general::notification_request_permission,
             commands::general::notification_open_settings,
@@ -562,6 +563,14 @@ pub fn run() {
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
         .run(|_app, _event| {
+            if let tauri::RunEvent::Ready = _event {
+                let app = _app.clone();
+                tauri::async_runtime::spawn(async move {
+                    if let Err(error) = crate::os::app_icon::restore_saved(app).await {
+                        eprintln!("Application icon restore failed: {error}");
+                    }
+                });
+            }
             #[cfg(target_os = "macos")]
             if let tauri::RunEvent::Reopen { .. } = _event {
                 crate::os::tray::show_and_focus_main_window(_app);

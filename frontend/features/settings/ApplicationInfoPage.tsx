@@ -14,6 +14,7 @@ import { beginUpdateCheck, checkForAvailableUpdate, recordUpdateCheckResult } fr
 import { installAvailableUpdate } from "@/components/shared/update-install";
 import { clearDismissedUpdateNotice, dismissUpdateNotice, useDismissedUpdateVersion } from "@/components/shared/update-notice";
 import { useI18n } from "@/i18n/context";
+import { appIconSource } from "@/lib/app-icon";
 import { formatDisplayDateTime } from "@/lib/display-date";
 import { EMPTY_UPDATE_AVAILABILITY, type UpdateAvailabilitySnapshot } from "@/shared/contracts/updates";
 import { listReleaseNotesVersions, loadAvailableUpdateReleaseNotes, loadReleaseNoteVersion, prefetchOlderReleaseNotes, type ReleaseNote } from "@/release-notes";
@@ -37,7 +38,7 @@ export function ApplicationInfoPage({
   onAvailableUpdateChange,
   mockMode = false,
 }: ApplicationInfoPageProps) {
-  const { t, language } = useI18n();
+  const { t, language, appIconStyle } = useI18n();
   const noteLanguage = language === "russian" ? "ru" : "en";
   const developmentBuild = import.meta.env.DEV || mockMode || version === "dev";
   const [checkingUpdates, setCheckingUpdates] = useState(false);
@@ -274,7 +275,7 @@ export function ApplicationInfoPage({
       <Card className="application-info-card">
         <div className="application-info-topline">
           <div className="application-info-identity">
-            <img className="application-info-icon" src="/mework-icon.png" alt="" aria-hidden="true" />
+            <img className="application-info-icon" src={appIconSource(appIconStyle)} alt="" aria-hidden="true" />
             <div className="application-info-copy">
               <div className="application-info-title-row">
                 <h2 className="application-info-name">{mockMode || version === "dev" ? "mework-dev" : "mework"}</h2>

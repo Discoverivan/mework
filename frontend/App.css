@@ -92,11 +92,12 @@ body,
   flex: 0 0 auto;
   align-items: center;
   justify-content: flex-start;
-  gap: 9px;
+  gap: 8px;
   padding: 10px 8px 6px;
   margin-bottom: 4px;
   color: var(--card-foreground);
   background: var(--card);
+  font-size: 14px;
 }
 
 .app-brand::after {
@@ -111,9 +112,9 @@ body,
 }
 
 .app-brand img {
-  width: 28px;
-  height: 28px;
-  border-radius: 7px;
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
 }
 
 .app-brand strong {

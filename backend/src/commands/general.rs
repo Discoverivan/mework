@@ -1,11 +1,11 @@
 use sqlx::SqlitePool;
-use tauri::{AppHandle, Manager, State};
+use tauri::{AppHandle, Emitter, Manager, State};
 use tauri_plugin_opener::OpenerExt;
 
 use crate::application::{
     dev_overlay::DevMockMode,
     general::{
-        self, AiResponseLanguage, AppLanguage, ButtonStyle, GeneralSettingsDto,
+        self, AiResponseLanguage, AppIconStyle, AppLanguage, ButtonStyle, GeneralSettingsDto,
         NotificationTestKind, PanelStyle, ThemePreference,
     },
 };
@@ -106,6 +106,26 @@ pub async fn general_panel_style_save(
     panel_style: PanelStyle,
 ) -> Result<GeneralSettingsDto, String> {
     general::save_panel_style(&state, panel_style).await?;
+    general::dto(&state, &app).await
+}
+
+#[tauri::command]
+pub async fn general_app_icon_style_save(
+    app: AppHandle,
+    state: State<'_, SqlitePool>,
+    app_icon_style: AppIconStyle,
+) -> Result<GeneralSettingsDto, String> {
+    let _guard = crate::os::app_icon::change_lock().lock().await;
+    let previous = general::load(&state).await?.app_icon_style;
+    if let Err(error) = crate::os::app_icon::apply(&app, app_icon_style) {
+        let _ = crate::os::app_icon::apply(&app, previous);
+        return Err(error);
+    }
+    if let Err(error) = general::save_app_icon_style(&state, app_icon_style).await {
+        let _ = crate::os::app_icon::apply(&app, previous);
+        return Err(error);
+    }
+    let _ = app.emit("app_icon_style_changed", app_icon_style);
     general::dto(&state, &app).await
 }
 

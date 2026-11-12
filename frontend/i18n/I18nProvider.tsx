@@ -6,6 +6,8 @@ import {
   saveAppearanceSettings,
   saveButtonStyle,
   savePanelStyle,
+  saveAppIconStyle,
+  type AppIconStyle,
   type ButtonStyle,
   type GeneralSettings,
   type PanelStyle,
@@ -13,9 +15,11 @@ import {
 } from "@/features/settings/general/api";
 import { en, type TranslationKey } from "./locales/en";
 import { ru } from "./locales/ru";
-import { cacheButtonStyle, cachePanelStyle, cacheThemePreference, readCachedButtonStyle, readCachedPanelStyle, readCachedThemePreference } from "./appearance-cache";
+import { cacheAppIconStyle, cacheButtonStyle, cachePanelStyle, cacheThemePreference, readCachedAppIconStyle, readCachedButtonStyle, readCachedPanelStyle, readCachedThemePreference } from "./appearance-cache";
 import { APP_LANGUAGE_LOCALES, AppLanguage, type TranslationParams } from "./types";
 import { I18nContext, type I18nContextValue } from "./context";
+import { appIconSource, defaultAppIconStyle } from "@/lib/app-icon";
+import { APP_EVENT, subscribeAppEvent } from "@/app/app-events";
 
 const translations: Record<AppLanguage, Record<TranslationKey, string>> = {
   [AppLanguage.English]: en,
@@ -40,6 +44,10 @@ export function I18nProvider({ children }: { children: ReactNode }) {
     return readCachedPanelStyle() ?? (!cachedButtonStyle || cachedButtonStyle === "filled" ? "bordered" : "borderless");
   });
   const [panelStyleSaving, setPanelStyleSaving] = useState(false);
+  const [appIconStyle, setAppIconStyle] = useState<AppIconStyle>(() => readCachedAppIconStyle() ?? defaultAppIconStyle());
+  const [appIconStyleSaving, setAppIconStyleSaving] = useState(false);
+  const appIconRevisionRef = useRef(0);
+  const appIconPendingRef = useRef<Promise<GeneralSettings> | null>(null);
   const [appearanceSaving, setAppearanceSaving] = useState(false);
   const languageRef = useRef(language);
   const themePreferenceRef = useRef(themePreference);
@@ -52,11 +60,45 @@ export function I18nProvider({ children }: { children: ReactNode }) {
     window.matchMedia?.("(prefers-color-scheme: dark)").matches ? "dark" : "light"
   );
 
+  const applyAppIconStyle = useCallback((style: AppIconStyle) => {
+    cacheAppIconStyle(style);
+    setAppIconStyle(style);
+  }, []);
+
+  useEffect(() => subscribeAppEvent(APP_EVENT.appIconStyleChanged, (style) => {
+    ++appIconRevisionRef.current;
+    applyAppIconStyle(style);
+  }), [applyAppIconStyle]);
+
+  const updateAppIconStyle = useCallback((style: AppIconStyle): Promise<GeneralSettings> => {
+    if (appIconPendingRef.current) return appIconPendingRef.current;
+    const revision = ++appIconRevisionRef.current;
+    setAppIconStyleSaving(true);
+    const pending = saveAppIconStyle(style).then((saved) => {
+      if (appIconRevisionRef.current === revision) applyAppIconStyle(saved.appIconStyle);
+      return saved;
+    }).finally(() => {
+      appIconPendingRef.current = null;
+      setAppIconStyleSaving(false);
+    });
+    appIconPendingRef.current = pending;
+    return pending;
+  }, [applyAppIconStyle]);
+
+  useEffect(() => {
+    const icon = document.querySelector<HTMLLinkElement>('link[rel="icon"]');
+    if (icon) icon.href = appIconSource(appIconStyle);
+  }, [appIconStyle]);
+
   useEffect(() => {
     const revision = appearanceRevisionRef.current;
     const buttonRevision = buttonStyleRevisionRef.current;
     const panelRevision = panelStyleRevisionRef.current;
+    const iconRevision = appIconRevisionRef.current;
     void generalSettings().then((settings) => {
+      if (appIconRevisionRef.current === iconRevision) {
+        applyAppIconStyle(settings.appIconStyle ?? defaultAppIconStyle());
+      }
       if (appearanceRevisionRef.current === revision) {
         languageRef.current = settings.language;
         themePreferenceRef.current = settings.themePreference;
@@ -250,13 +292,16 @@ export function I18nProvider({ children }: { children: ReactNode }) {
     buttonStyleSaving,
     panelStyle,
     panelStyleSaving,
+    appIconStyle,
+    appIconStyleSaving,
+    updateAppIconStyle,
     resolvedTheme,
     appearanceSaving,
     updateAppearance,
     updateButtonStyle,
     updatePanelStyle,
     t,
-  }), [appearanceSaving, buttonStyle, buttonStyleSaving, panelStyle, panelStyleSaving, language, resolvedTheme, t, themePreference, updateAppearance, updateButtonStyle, updatePanelStyle]);
+  }), [appearanceSaving, buttonStyle, buttonStyleSaving, panelStyle, panelStyleSaving, appIconStyle, appIconStyleSaving, updateAppIconStyle, language, resolvedTheme, t, themePreference, updateAppearance, updateButtonStyle, updatePanelStyle]);
 
   return <I18nContext.Provider value={value}>{children}</I18nContext.Provider>;
 }

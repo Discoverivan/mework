@@ -18,6 +18,7 @@ import {
   type CommandBoardTerminalPreferences,
   type ButtonStyle,
   type PanelStyle,
+  type AppIconStyle,
   type GeneralSettings,
   type GeneralSettingsSaveInput,
   type NotificationTestKind,
@@ -30,6 +31,7 @@ import { DataRetentionSettings } from "./DataRetentionSettings";
 import { SettingsReveal } from "./SettingsReveal";
 import { APP_EVENT, emitAppEvent } from "@/app/app-events";
 import { useKeyedOperation } from "@/shared/use-keyed-operation";
+import { appIconSource } from "@/lib/app-icon";
 
 function errorMessage(error: unknown, fallback: string): string {
   const message = error instanceof Error ? error.message : typeof error === "string" ? error : fallback;
@@ -37,7 +39,7 @@ function errorMessage(error: unknown, fallback: string): string {
 }
 
 export function GeneralSettingsPage() {
-  const { appearanceSaving, buttonStyle, buttonStyleSaving, panelStyle, panelStyleSaving, language, themePreference, t, updateAppearance, updateButtonStyle, updatePanelStyle } = useI18n();
+  const { appearanceSaving, buttonStyle, buttonStyleSaving, panelStyle, panelStyleSaving, appIconStyle, appIconStyleSaving, updateAppIconStyle, language, themePreference, t, updateAppearance, updateButtonStyle, updatePanelStyle } = useI18n();
   const [settings, setSettings] = useState<GeneralSettings | null>(null);
   const [languageExpanded, setLanguageExpanded] = useState(false);
   const [appearanceExpanded, setAppearanceExpanded] = useState(false);
@@ -373,6 +375,33 @@ export function GeneralSettingsPage() {
                   <SelectItem value="filled">{t("general.buttonStyleFilled")}</SelectItem>
                   <SelectItem value="filled_borderless">{t("general.buttonStyleFilledBorderless")}</SelectItem>
                   <SelectItem value="quiet">{t("general.buttonStyleQuiet")}</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          <Separator />
+          <div className="flex flex-wrap items-center justify-between gap-4">
+            <div className="min-w-0 flex-1">
+              <Label htmlFor="general-app-icon" alignment="inline" className="font-medium">{t("general.appIcon")}</Label>
+              <CardDescription className="mt-1 leading-snug">{t("general.appIconDescription")}</CardDescription>
+            </div>
+            <div className="w-full sm:w-auto">
+              <Select value={appIconStyle} disabled={loading || appIconStyleSaving} onValueChange={(value) => {
+                setError(null);
+                void updateAppIconStyle(value as AppIconStyle).catch((saveError) =>
+                  setError(t("general.saveError", { error: errorMessage(saveError, t("common.unknownError")) }))
+                );
+              }}>
+                <SelectTrigger data-menu-align="end" id="general-app-icon" aria-label={t("general.appIcon")}><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {(["original", "transparent"] as const).map((style) => (
+                    <SelectItem key={style} value={style}>
+                      <span className="flex items-center gap-2">
+                        <img src={appIconSource(style)} alt="" aria-hidden="true" className="size-5 shrink-0" />
+                        <span>{t(style === "original" ? "general.appIconFramed" : "general.appIconTransparent")}</span>
+                      </span>
+                    </SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
             </div>

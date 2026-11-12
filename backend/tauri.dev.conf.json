@@ -17,7 +17,7 @@
     ]
   },
   "bundle": {
-    "icon": ["icons/dev/icon.png"],
+    "icon": ["icons/icon.png", "icons/icon.ico"],
     "macOS": {
       "signingIdentity": "-"
     }

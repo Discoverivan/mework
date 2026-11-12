@@ -56,6 +56,7 @@ wiremock = { version = "0.6.5", optional = true }
 [target.'cfg(target_os = "macos")'.dependencies]
 block2 = "0.6"
 objc2 = "0.6"
+objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSApplication", "NSImage"] }
 objc2-foundation = "0.3"
 objc2-user-notifications = { version = "0.3", features = ["UNError", "UNNotificationSettings", "UNNotificationContent", "UNNotificationRequest", "UNNotificationSound", "UNNotificationTrigger", "block2"] }
 

@@ -1,8 +1,9 @@
 import { createContext, useContext } from "react";
 
-import type { ButtonStyle, GeneralSettings, PanelStyle, ThemePreference } from "@/features/settings/general/api";
+import type { AppIconStyle, ButtonStyle, GeneralSettings, PanelStyle, ThemePreference } from "@/features/settings/general/api";
 import { en, type TranslationKey } from "./locales/en";
 import { APP_LANGUAGE_LOCALES, AppLanguage, type TranslationParams } from "./types";
+import { defaultAppIconStyle } from "@/lib/app-icon";
 
 export interface I18nContextValue {
   language: AppLanguage;
@@ -12,6 +13,9 @@ export interface I18nContextValue {
   buttonStyleSaving: boolean;
   panelStyle: PanelStyle;
   panelStyleSaving: boolean;
+  appIconStyle: AppIconStyle;
+  appIconStyleSaving: boolean;
+  updateAppIconStyle: (style: AppIconStyle) => Promise<GeneralSettings>;
   resolvedTheme: "light" | "dark";
   appearanceSaving: boolean;
   updateAppearance: (changes: Partial<Pick<GeneralSettings, "language" | "themePreference">>) => Promise<GeneralSettings>;
@@ -36,6 +40,9 @@ export const I18nContext = createContext<I18nContextValue>({
   buttonStyleSaving: false,
   panelStyle: "bordered",
   panelStyleSaving: false,
+  appIconStyle: defaultAppIconStyle(),
+  appIconStyleSaving: false,
+  updateAppIconStyle: async () => { throw new Error("Application icon settings are unavailable"); },
   resolvedTheme: "light",
   appearanceSaving: false,
   updateAppearance: async () => { throw new Error("Appearance settings are unavailable"); },

@@ -1,4 +1,5 @@
 pub mod app_badge;
+pub mod app_icon;
 pub mod autostart;
 #[cfg(all(desktop, any(debug_assertions, target_os = "macos")))]
 pub mod menu;

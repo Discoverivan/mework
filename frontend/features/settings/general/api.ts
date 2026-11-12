@@ -6,6 +6,7 @@ export type NotificationTestKind = "review" | "authored" | "taskTracker";
 export type ThemePreference = "system" | "light" | "dark";
 export type ButtonStyle = "quiet" | "filled" | "filled_borderless";
 export type PanelStyle = "bordered" | "borderless";
+export type AppIconStyle = "original" | "transparent";
 export enum AiResponseLanguage {
   SameAsUi = "sameAsUi",
   English = "english",
@@ -29,6 +30,7 @@ export interface GeneralSettings {
   themePreference: ThemePreference;
   buttonStyle: ButtonStyle;
   panelStyle: PanelStyle;
+  appIconStyle: AppIconStyle;
   notificationsEnabled: boolean;
   reviewNotificationsEnabled: boolean;
   authoredNotificationsEnabled: boolean;
@@ -78,6 +80,9 @@ export const savePanelStyle = (panelStyle: PanelStyle) =>
 
 export const saveButtonStyle = (buttonStyle: ButtonStyle) =>
   invoke<GeneralSettings>("general_button_style_save", { buttonStyle });
+
+export const saveAppIconStyle = (appIconStyle: AppIconStyle) =>
+  invoke<GeneralSettings>("general_app_icon_style_save", { appIconStyle });
 
 export const commandBoardTerminalPreferences = () =>
   invoke<CommandBoardTerminalPreferences>("command_board_terminal_preferences");
