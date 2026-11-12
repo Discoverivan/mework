@@ -8,8 +8,10 @@ import type { TeamMembersChangedEvent } from "@/shared/contracts/planning";
 import type { DailySprintStatsProgressEvent } from "@/shared/contracts/developer";
 import type { TaskTrackerReadStateChanged } from "@/features/product/task-tracker-read-state";
 import type { PullRequestDisplayScope, PullRequestQuickFilter } from "@/features/developer/display-options";
+import type { AppIconStyle } from "@/features/settings/general/api";
 
 export const APP_EVENT = {
+  appIconStyleChanged: "settings:app-icon-style-changed",
   teamMembersChanged: "team-members:changed",
   integrationsChanged: "integrations:changed",
   integrationsHealthRefreshed: "integrations:health-refreshed",
@@ -32,6 +34,7 @@ export const APP_EVENT = {
 } as const;
 
 interface AppEventMap {
+  [APP_EVENT.appIconStyleChanged]: AppIconStyle;
   [APP_EVENT.teamMembersChanged]: TeamMembersChangedEvent;
   [APP_EVENT.integrationsChanged]: undefined;
   [APP_EVENT.integrationsHealthRefreshed]: IntegrationRedacted[];

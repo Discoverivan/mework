@@ -10,7 +10,7 @@ use crate::os::notifications::{
 };
 
 const GENERAL_SETTINGS_KEY: &str = "general.settings";
-const GENERAL_SETTINGS_SCHEMA_VERSION: i64 = 8;
+const GENERAL_SETTINGS_SCHEMA_VERSION: i64 = 9;
 pub const DEFAULT_AI_REVIEW_ATTEMPTS: u8 = 3;
 pub const MAX_AI_REVIEW_ATTEMPTS: u8 = 10;
 static GENERAL_SETTINGS_WRITE_LOCK: OnceLock<tokio::sync::Mutex<()>> = OnceLock::new();
@@ -97,6 +97,25 @@ pub enum PanelStyle {
     Borderless,
 }
 
+#[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum AppIconStyle {
+    #[serde(alias = "light_details")]
+    Original,
+    #[serde(alias = "transparent_details")]
+    Transparent,
+}
+
+impl Default for AppIconStyle {
+    fn default() -> Self {
+        if cfg!(target_os = "macos") {
+            Self::Original
+        } else {
+            Self::Transparent
+        }
+    }
+}
+
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct GeneralSettings {
@@ -118,6 +137,8 @@ pub struct GeneralSettings {
     #[serde(default)]
     pub panel_style: Option<PanelStyle>,
     #[serde(default)]
+    pub app_icon_style: AppIconStyle,
+    #[serde(default)]
     pub extra_functions_enabled: bool,
     #[serde(default = "enabled_by_default")]
     pub model_testing_enabled: bool,
@@ -137,6 +158,7 @@ impl Default for GeneralSettings {
             theme_preference: ThemePreference::System,
             button_style: ButtonStyle::FilledBorderless,
             panel_style: Some(PanelStyle::Bordered),
+            app_icon_style: AppIconStyle::default(),
             extra_functions_enabled: false,
             model_testing_enabled: true,
             ai_review_attempts: DEFAULT_AI_REVIEW_ATTEMPTS,
@@ -165,6 +187,7 @@ pub struct GeneralSettingsDto {
     pub theme_preference: ThemePreference,
     pub button_style: ButtonStyle,
     pub panel_style: PanelStyle,
+    pub app_icon_style: AppIconStyle,
     pub extra_functions_enabled: bool,
     pub model_testing_enabled: bool,
     pub ai_review_attempts: u8,
@@ -300,6 +323,13 @@ pub async fn save_panel_style(pool: &SqlitePool, panel_style: PanelStyle) -> Res
     update(pool, |settings| settings.panel_style = Some(panel_style)).await
 }
 
+pub async fn save_app_icon_style(
+    pool: &SqlitePool,
+    app_icon_style: AppIconStyle,
+) -> Result<(), String> {
+    update(pool, |settings| settings.app_icon_style = app_icon_style).await
+}
+
 pub async fn dto<R: Runtime>(
     pool: &SqlitePool,
     app: &AppHandle<R>,
@@ -320,6 +350,7 @@ pub async fn dto<R: Runtime>(
         theme_preference: settings.theme_preference,
         button_style: settings.button_style,
         panel_style: settings.resolved_panel_style(),
+        app_icon_style: settings.app_icon_style,
         extra_functions_enabled: settings.extra_functions_enabled,
         model_testing_enabled: settings.model_testing_enabled,
         ai_review_attempts: settings.ai_review_attempts,
@@ -409,6 +440,46 @@ mod tests {
     fn deserializes_task_tracker_notification_test_kind() {
         let kind: NotificationTestKind = serde_json::from_str("\"taskTracker\"").unwrap();
         assert_eq!(kind, NotificationTestKind::TaskTracker);
+    }
+
+    #[tokio::test]
+    async fn persists_icon_selection_and_preserves_both_native_variants() {
+        use super::{save_app_icon_style, AppIconStyle};
+        let pool = SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+        sqlx::query("CREATE TABLE settings (key TEXT PRIMARY KEY, value_json TEXT NOT NULL, schema_version INTEGER NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL)")
+            .execute(&pool).await.unwrap();
+        assert_eq!(
+            load(&pool).await.unwrap().app_icon_style,
+            if cfg!(target_os = "macos") {
+                AppIconStyle::Original
+            } else {
+                AppIconStyle::Transparent
+            }
+        );
+        save_app_icon_style(&pool, AppIconStyle::Original)
+            .await
+            .unwrap();
+        save_button_style(&pool, ButtonStyle::Filled).await.unwrap();
+        assert_eq!(
+            load(&pool).await.unwrap().app_icon_style,
+            AppIconStyle::Original
+        );
+        let original = crate::os::app_icon::image(AppIconStyle::Original);
+        let transparent = crate::os::app_icon::image(AppIconStyle::Transparent);
+        let background_alpha = (64 * original.width() as usize + 256) * 4 + 3;
+        assert!(original.rgba()[background_alpha] > 240);
+        assert_eq!(transparent.rgba()[background_alpha], 0);
+        save_app_icon_style(&pool, AppIconStyle::Transparent)
+            .await
+            .unwrap();
+        assert_eq!(
+            load(&pool).await.unwrap().app_icon_style,
+            AppIconStyle::Transparent
+        );
     }
 
     #[test]

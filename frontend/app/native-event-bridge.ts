@@ -9,10 +9,12 @@ import type { UpdateAvailabilitySnapshot } from "@/shared/contracts/updates";
 import type { TeamMembersChangedEvent } from "@/shared/contracts/planning";
 import type { DailySprintStatsProgressEvent } from "@/shared/contracts/developer";
 import { APP_EVENT, emitAppEvent } from "./app-events";
+import type { AppIconStyle } from "@/features/settings/general/api";
 
 type Cleanup = () => void;
 
 interface NativeEventMap {
+  app_icon_style_changed: AppIconStyle;
   team_members_changed: TeamMembersChangedEvent;
   ai_prompt_settings_changed: PromptSettings;
   integrations_health_refreshed: IntegrationRedacted[];
@@ -41,6 +43,8 @@ async function listenSafely<Name extends keyof NativeEventMap>(
 
 export async function startNativeEventBridge(): Promise<Cleanup> {
   const cleanups = await Promise.all([
+    listenSafely("app_icon_style_changed", (payload) =>
+      emitAppEvent(APP_EVENT.appIconStyleChanged, payload)),
     listenSafely("team_members_changed", (payload) =>
       emitAppEvent(APP_EVENT.teamMembersChanged, payload)),
     listenSafely("ai_prompt_settings_changed", (payload) =>

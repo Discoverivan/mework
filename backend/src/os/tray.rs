@@ -34,7 +34,7 @@ pub fn setup(app: &mut tauri::App) -> tauri::Result<()> {
     let quit = MenuItem::with_id(app, "quit", quit_label, true, None::<&str>)?;
     let menu = Menu::with_items(app, &[&open, &quit])?;
 
-    let tray_builder = TrayIconBuilder::new()
+    let tray_builder = TrayIconBuilder::with_id("main")
         .tooltip(app_name)
         .menu(&menu)
         .show_menu_on_left_click(true)

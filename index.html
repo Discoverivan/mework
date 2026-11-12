@@ -38,6 +38,21 @@
         </div>
       </div>
     </div>
+    <script>
+      (() => {
+        const fallback = /\bMacintosh\b/.test(navigator.userAgent) ? "original" : "transparent";
+        let style = fallback;
+        try {
+          const cached = window.localStorage.getItem("mework.appearance.appIconStyle.v1");
+          if (cached === "original" || cached === "transparent") style = cached;
+        } catch {
+          // Rust settings revalidate the startup cache when the application loads.
+        }
+        const source = style === "original" ? "/mework-icon-original.png" : "/mework-icon.png";
+        document.querySelector(".splash-logo").src = source;
+        document.querySelector('link[rel="icon"]').href = source;
+      })();
+    </script>
     <script type="module" src="/frontend/main.tsx"></script>
   </body>
 </html>

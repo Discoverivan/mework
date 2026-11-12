@@ -28,11 +28,17 @@ pub async fn open_presenter_view(app: AppHandle) -> Result<(), String> {
         })
         .unwrap_or((1440.0, 810.0));
 
+    let _icon_guard = crate::os::app_icon::change_lock().lock().await;
+    let icon_style = crate::application::general::load(&app.state::<sqlx::SqlitePool>())
+        .await?
+        .app_icon_style;
     WebviewWindowBuilder::new(
         &app,
         PRESENTER_WINDOW_LABEL,
         WebviewUrl::App("index.html#product/daily/presenter".into()),
     )
+    .icon(crate::os::app_icon::image(icon_style))
+    .map_err(|error| error.to_string())?
     .title("Daily: Presenter View")
     .inner_size(width, height)
     .min_inner_size(640.0, 360.0)
