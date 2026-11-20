@@ -32,7 +32,7 @@ pub async fn open_presenter_view(app: AppHandle) -> Result<(), String> {
     let icon_style = crate::application::general::load(&app.state::<sqlx::SqlitePool>())
         .await?
         .app_icon_style;
-    WebviewWindowBuilder::new(
+    let window = WebviewWindowBuilder::new(
         &app,
         PRESENTER_WINDOW_LABEL,
         WebviewUrl::App("index.html#product/daily/presenter".into()),
@@ -46,8 +46,11 @@ pub async fn open_presenter_view(app: AppHandle) -> Result<(), String> {
     .decorations(true)
     .center()
     .build()
-    .map(|_| ())
-    .map_err(|error| error.to_string())
+    .map_err(|error| error.to_string())?;
+    if cfg!(target_os = "windows") {
+        crate::os::app_icon::apply_to_window(&window, crate::os::app_icon::image(icon_style))?;
+    }
+    Ok(())
 }
 
 #[tauri::command]

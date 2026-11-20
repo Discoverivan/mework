@@ -1,8 +1,12 @@
 use std::sync::OnceLock;
 
-use tauri::{AppHandle, Manager, Runtime};
+use tauri::{AppHandle, Manager, Runtime, WebviewWindow};
 
 use crate::application::general::{self, AppIconStyle};
+
+#[cfg(target_os = "windows")]
+#[path = "app_icon_windows.rs"]
+mod windows;
 
 static CHANGE_LOCK: OnceLock<tokio::sync::Mutex<()>> = OnceLock::new();
 
@@ -32,9 +36,7 @@ pub fn image(style: AppIconStyle) -> tauri::image::Image<'static> {
 pub fn apply<R: Runtime>(app: &AppHandle<R>, style: AppIconStyle) -> Result<(), String> {
     let icon = image(style);
     for window in app.webview_windows().values() {
-        window
-            .set_icon(icon.clone())
-            .map_err(|_| "Could not update the window icon")?;
+        apply_to_window(window, icon.clone())?;
     }
     if let Some(tray) = app.tray_by_id("main") {
         tray.set_icon(Some(icon))
@@ -79,6 +81,22 @@ pub fn apply<R: Runtime>(app: &AppHandle<R>, style: AppIconStyle) -> Result<(), 
             .map_err(str::to_owned)?;
     }
     Ok(())
+}
+
+pub fn apply_to_window<R: Runtime>(
+    window: &WebviewWindow<R>,
+    icon: tauri::image::Image<'static>,
+) -> Result<(), String> {
+    #[cfg(target_os = "windows")]
+    {
+        windows::apply(window, icon)
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        window
+            .set_icon(icon)
+            .map_err(|_| "Could not update the window icon".to_owned())
+    }
 }
 
 pub async fn restore_saved<R: Runtime>(app: AppHandle<R>) -> Result<(), String> {
