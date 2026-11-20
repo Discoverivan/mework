@@ -177,7 +177,6 @@ pub async fn run(pool: &SqlitePool, id: &str) -> Result<CommandBoardRunStatus, S
         .as_deref()
         .map(validate_working_directory)
         .transpose()?;
-    let terminal_id = validate_terminal_selection(&state.terminal_id)?;
     #[cfg(target_os = "windows")]
     {
         validate_windows_process_input(&script_path)?;
@@ -189,7 +188,7 @@ pub async fn run(pool: &SqlitePool, id: &str) -> Result<CommandBoardRunStatus, S
         }
     }
     spawn_script_in_terminal(
-        &terminal_id,
+        &state.terminal_id,
         &script_path,
         &arguments,
         working_directory.as_deref(),
@@ -576,6 +575,25 @@ fn spawn_script_in_terminal(
         return Err("Script file has no supported interpreter and is not executable".to_owned());
     }
 
+    #[cfg(target_os = "windows")]
+    if interpreter == Some("wscript.exe") {
+        let mut command = Command::new("wscript.exe");
+        command
+            .args(["/b", "/nologo"])
+            .arg(script_path)
+            .args(arguments);
+        if let Some(working_directory) = working_directory {
+            command.current_dir(working_directory);
+        }
+        command
+            .spawn()
+            .map_err(|_| "Windows Script Host could not be started".to_owned())?;
+        return Ok(());
+    }
+
+    let terminal_id = validate_terminal_selection(terminal_id)?;
+    let terminal_id = terminal_id.as_str();
+
     #[cfg(target_os = "macos")]
     {
         spawn_macos_terminal(
@@ -669,6 +687,7 @@ fn interpreter_for_name(name: &str) -> Option<&'static str> {
             "py" | "python" | "python2" | "python3" => Some("python.exe"),
             "powershell" | "pwsh" | "ps1" => Some("powershell.exe"),
             "bat" | "cmd" => Some("cmd.exe"),
+            "vbs" => Some("wscript.exe"),
             _ => None,
         }
     }
@@ -1184,6 +1203,42 @@ mod tests {
     fn detects_interpreter_from_script_extension() {
         assert!(script_interpreter(std::path::Path::new("script.sh")).is_some());
         assert!(script_interpreter(std::path::Path::new("script.py")).is_some());
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn launches_vbscript_with_arguments_and_working_directory_without_a_terminal() {
+        let directory = tempfile::tempdir().unwrap();
+        let script = directory.path().join("sample script.VBS");
+        std::fs::write(
+            &script,
+            "Set fs = CreateObject(\"Scripting.FileSystemObject\")\n\
+             Set output = fs.CreateTextFile(\"result.txt\", True)\n\
+             output.Write WScript.Arguments(0)\n\
+             output.Close\n",
+        )
+        .unwrap();
+        let arguments = parse_command_line("\"sample value\"").unwrap();
+        super::spawn_script_in_terminal(
+            "unavailable-terminal",
+            script.to_str().unwrap(),
+            &arguments,
+            Some(directory.path().to_str().unwrap()),
+        )
+        .unwrap();
+
+        let result = directory.path().join("result.txt");
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        loop {
+            if std::fs::read_to_string(&result).is_ok_and(|value| value == "sample value") {
+                break;
+            }
+            assert!(
+                std::time::Instant::now() < deadline,
+                "VBScript did not write its argument in the requested directory"
+            );
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
     }
 
     #[test]

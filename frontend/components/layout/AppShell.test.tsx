@@ -12,7 +12,7 @@ describe("AppShell product navigation", () => {
     );
 
     expect(screen.queryByRole("note", { name: "Development build" })).not.toBeInTheDocument();
-    expect(document.querySelector(".app-brand img")).toHaveAttribute("src", "/mework-icon.png");
+    expect(document.querySelector(".app-brand img")).toHaveAttribute("src", "/mework-icon-dev.png");
     expect(document.querySelector(".sidebar-navigation")).toContainElement(screen.getByRole("link", { name: "About" }));
     expect(document.querySelector(".sidebar-navigation")).not.toContainElement(document.querySelector(".sidebar-footer"));
     expect(document.querySelectorAll("nav a svg")).toHaveLength(14);

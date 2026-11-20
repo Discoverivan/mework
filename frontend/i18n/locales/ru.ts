@@ -662,7 +662,7 @@ export const ru: Record<TranslationKey, string> = {
   "command.systemLauncher": "Системный запуск",
   "command.editTitle": "Изменение команды",
   "command.addTitle": "Добавление команды",
-  "command.dialogDescription": "Настройте локальный скрипт для быстрого запуска.",
+  "command.dialogDescription": "Настройте локальный скрипт для быстрого запуска. В Windows VBScript запускается без открытия терминала.",
   "command.name": "Название",
   "command.namePlaceholder": "Запустить проверки проекта",
   "command.settings": "Настройки команды",

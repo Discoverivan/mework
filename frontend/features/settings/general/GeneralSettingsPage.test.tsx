@@ -152,10 +152,10 @@ describe("GeneralSettingsPage", () => {
     fireEvent.click(picker);
     fireEvent.click(screen.getByRole("option", { name: "Framed" }));
     await waitFor(() => expect(saveAppIconStyleMock).toHaveBeenCalledWith("original"));
-    await waitFor(() => expect(document.querySelector(".app-brand img")).toHaveAttribute("src", "/mework-icon-original.png"));
+    await waitFor(() => expect(document.querySelector(".app-brand img")).toHaveAttribute("src", "/mework-icon-dev-original.png"));
     first.unmount();
     render(view());
-    await waitFor(() => expect(document.querySelector(".app-brand img")).toHaveAttribute("src", "/mework-icon-original.png"));
+    await waitFor(() => expect(document.querySelector(".app-brand img")).toHaveAttribute("src", "/mework-icon-dev-original.png"));
   });
 
   it("persists the extra-functions master switch without resetting individual choices", async () => {
@@ -497,7 +497,7 @@ describe("GeneralSettingsPage", () => {
     clearDismissedUpdateNotice();
     render(<ApplicationInfoPage version="dev" onAvailableUpdateChange={vi.fn()}
       updateAvailability={{ availableVersion: "0.1.5", lastCheckedAt: null, status: "available", checkSource: "manual", revision: 1 }} />);
-    expect(screen.getByRole("heading", { name: "mework-dev" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "mework (dev)" })).toBeInTheDocument();
     expect(screen.getByText("dev")).toHaveClass("application-info-version");
     for (const button of [screen.getByRole("button", { name: "Release notes" }), screen.getByRole("button", { name: "What's new" })]) {
       fireEvent.click(button);
@@ -509,7 +509,7 @@ describe("GeneralSettingsPage", () => {
 
   it("uses the dev version badge in mock mode", () => {
     render(<ApplicationInfoPage version="0.2.38" mockMode />);
-    expect(screen.getByRole("heading", { name: "mework-dev" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "mework (dev)" })).toBeInTheDocument();
     expect(screen.getByText("dev")).toHaveClass("application-info-version");
   });
 

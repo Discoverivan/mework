@@ -313,7 +313,7 @@ Rules:
 ### Native application lifecycle
 
 - Closing the main window hides it instead of terminating the process.
-- Tray icon uses the profile-specific bundled icon, shows `mework-dev` in the dev tooltip/menu, and exposes `Open mework-dev` and `Quit mework-dev` in dev; the release profile keeps `mework` labels.
+- Tray icon uses the profile-specific bundled icon, shows `mework (dev)` in the dev tooltip/menu, and exposes `Open mework (dev)` and `Quit mework (dev)` in dev; the release profile keeps `mework` labels.
 - Background health/PR loops remain alive while the window is hidden; `Quit mework` is the explicit full shutdown action.
 
 ## 7. Product / Daily

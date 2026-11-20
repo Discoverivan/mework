@@ -473,6 +473,16 @@ mod tests {
         let background_alpha = (64 * original.width() as usize + 256) * 4 + 3;
         assert!(original.rgba()[background_alpha] > 240);
         assert_eq!(transparent.rgba()[background_alpha], 0);
+        #[cfg(debug_assertions)]
+        for icon in [&original, &transparent] {
+            let marker = (448 * icon.width() as usize + 24) * 4;
+            let rgba = &icon.rgba()[marker..marker + 4];
+            assert_eq!(rgba[3], 255);
+            assert!(
+                rgba[2] > rgba[0] + 80,
+                "development icon keeps its blue marker"
+            );
+        }
         save_app_icon_style(&pool, AppIconStyle::Transparent)
             .await
             .unwrap();

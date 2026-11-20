@@ -112,9 +112,14 @@ body,
 }
 
 .app-brand img {
-  width: 24px;
-  height: 24px;
-  border-radius: 6px;
+  width: 28px;
+  height: 28px;
+  border-radius: 7px;
+}
+
+.app-brand img[data-icon-style="transparent"] {
+  box-sizing: border-box;
+  padding: 2px;
 }
 
 .app-brand strong {

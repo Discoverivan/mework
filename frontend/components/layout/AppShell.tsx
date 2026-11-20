@@ -179,7 +179,7 @@ export function AppShell({
       ) : null}
       <aside aria-label={t("nav.primary")}>
         <div className="app-brand">
-          <img src={appIconSource(appIconStyle)} alt="" aria-hidden="true" />
+          <img src={appIconSource(appIconStyle)} data-icon-style={appIconStyle} alt="" aria-hidden="true" />
           <strong>mework</strong>
         </div>
         <nav className="sidebar-navigation" data-action-size="page">

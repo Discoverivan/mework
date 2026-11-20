@@ -11,9 +11,21 @@ pub fn change_lock() -> &'static tokio::sync::Mutex<()> {
 }
 
 pub fn image(style: AppIconStyle) -> tauri::image::Image<'static> {
-    match style {
-        AppIconStyle::Original => tauri::include_image!("../public/mework-icon-original.png"),
-        AppIconStyle::Transparent => tauri::include_image!("icons/icon.png"),
+    #[cfg(debug_assertions)]
+    {
+        match style {
+            AppIconStyle::Original => {
+                tauri::include_image!("../public/mework-icon-dev-original.png")
+            }
+            AppIconStyle::Transparent => tauri::include_image!("../public/mework-icon-dev.png"),
+        }
+    }
+    #[cfg(not(debug_assertions))]
+    {
+        match style {
+            AppIconStyle::Original => tauri::include_image!("../public/mework-icon-original.png"),
+            AppIconStyle::Transparent => tauri::include_image!("icons/icon.png"),
+        }
     }
 }
 
@@ -30,6 +42,14 @@ pub fn apply<R: Runtime>(app: &AppHandle<R>, style: AppIconStyle) -> Result<(), 
     }
     #[cfg(target_os = "macos")]
     {
+        #[cfg(debug_assertions)]
+        let bytes: &'static [u8] = match style {
+            AppIconStyle::Original => {
+                include_bytes!("../../../public/mework-icon-dev-original.png")
+            }
+            AppIconStyle::Transparent => include_bytes!("../../../public/mework-icon-dev.png"),
+        };
+        #[cfg(not(debug_assertions))]
         let bytes: &'static [u8] = match style {
             AppIconStyle::Original => include_bytes!("../../../public/mework-icon-original.png"),
             AppIconStyle::Transparent => include_bytes!("../../icons/icon.png"),

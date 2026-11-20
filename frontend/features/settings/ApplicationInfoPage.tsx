@@ -278,7 +278,7 @@ export function ApplicationInfoPage({
             <img className="application-info-icon" src={appIconSource(appIconStyle)} alt="" aria-hidden="true" />
             <div className="application-info-copy">
               <div className="application-info-title-row">
-                <h2 className="application-info-name">{mockMode || version === "dev" ? "mework-dev" : "mework"}</h2>
+                <h2 className="application-info-name">{mockMode || version === "dev" ? "mework (dev)" : "mework"}</h2>
                 {displayedVersion ? <Badge variant="secondary" className="application-info-version">{displayedVersion}</Badge> : null}
               </div>
               {statusLabel ? <p className="application-info-status">{statusLabel}</p> : null}

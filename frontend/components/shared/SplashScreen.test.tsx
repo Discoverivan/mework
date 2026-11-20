@@ -14,7 +14,7 @@ describe("SplashScreen", () => {
 
     try {
       expect(screen.getByRole("status", { name: "Loading mework" })).toBeInTheDocument();
-      expect(screen.getByRole("img", { name: "mework" })).toHaveAttribute("src", "/mework-icon.png");
+      expect(screen.getByRole("img", { name: "mework" })).toHaveAttribute("src", "/mework-icon-dev.png");
       expect(screen.getByText("Loading mework")).toBeInTheDocument();
       expect(screen.getByText("Preparing your workspace…")).toBeInTheDocument();
       expect(screen.getByRole("progressbar", { name: "Application loading" })).toBeInTheDocument();
