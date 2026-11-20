@@ -48,7 +48,10 @@
         } catch {
           // Rust settings revalidate the startup cache when the application loads.
         }
-        const source = style === "original" ? "/mework-icon-original.png" : "/mework-icon.png";
+        const development = "%DEV%" === "true";
+        const source = development
+          ? (style === "original" ? "/mework-icon-dev-original.png" : "/mework-icon-dev.png")
+          : (style === "original" ? "/mework-icon-original.png" : "/mework-icon.png");
         document.querySelector(".splash-logo").src = source;
         document.querySelector('link[rel="icon"]').href = source;
       })();

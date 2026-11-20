@@ -1,12 +1,12 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "mework-dev",
+  "productName": "mework (dev)",
   "mainBinaryName": "mework-dev",
   "identifier": "com.discoverivan.app.mework.dev",
   "app": {
     "windows": [
       {
-        "title": "mework-dev",
+        "title": "mework (dev)",
         "width": 1280,
         "height": 800,
         "minWidth": 960,
@@ -17,7 +17,7 @@
     ]
   },
   "bundle": {
-    "icon": ["icons/icon.png", "icons/icon.ico"],
+    "icon": ["icons/dev/icon.png", "icons/dev/icon.ico"],
     "macOS": {
       "signingIdentity": "-"
     }

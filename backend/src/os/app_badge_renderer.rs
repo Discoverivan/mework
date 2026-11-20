@@ -2,6 +2,7 @@
 mod glyphs;
 
 const LOGICAL_SIZE: f32 = 16.0;
+const CONTENT_SCALE: f32 = 0.8125;
 const SAMPLES: u32 = 8;
 
 pub(super) fn icon_size(scale_factor: f64) -> u32 {
@@ -76,11 +77,15 @@ pub(super) fn render(count: u64, size: u32) -> Option<Vec<u8>> {
     // nonzero winding: same-direction strokes overlap without holes, while
     // opposite-direction contours keep numeral counters open.
     let sampled_size = size * SAMPLES;
-    let sample_scale = sampled_size as f32 / LOGICAL_SIZE;
+    // Scale the complete scene to 81.25% around the canvas center. Shapes,
+    // glyphs and optical adjustments share this transform; raster resolution
+    // still follows display DPI so the smaller badge keeps its sharp edges.
+    let sample_scale = sampled_size as f32 / LOGICAL_SIZE * CONTENT_SCALE;
+    let sample_origin = sampled_size as f32 * (1.0 - CONTENT_SCALE) / 2.0;
     let mut text = vec![false; (sampled_size * sampled_size) as usize];
     let mut intersections = Vec::new();
     for row in 0..sampled_size {
-        let y = (row as f32 + 0.5) / sample_scale;
+        let y = (row as f32 + 0.5 - sample_origin) / sample_scale;
         intersections.clear();
         for &((x1, y1), (x2, y2)) in &edges {
             if (y1 > y) != (y2 > y) {
@@ -97,8 +102,10 @@ pub(super) fn render(count: u64, size: u32) -> Option<Vec<u8>> {
             if previous == 0 && winding != 0 {
                 span_start = x;
             } else if previous != 0 && winding == 0 {
-                let start = ((span_start * sample_scale - 0.5).ceil() as u32).min(sampled_size);
-                let end = ((x * sample_scale - 0.5).ceil() as u32).min(sampled_size);
+                let start = ((span_start * sample_scale + sample_origin - 0.5).ceil() as u32)
+                    .min(sampled_size);
+                let end =
+                    ((x * sample_scale + sample_origin - 0.5).ceil() as u32).min(sampled_size);
                 let offset = (row * sampled_size) as usize;
                 text[offset + start as usize..offset + end as usize].fill(true);
             }
@@ -115,8 +122,8 @@ pub(super) fn render(count: u64, size: u32) -> Option<Vec<u8>> {
                 for sx in 0..SAMPLES {
                     let sample_x = x * SAMPLES + sx;
                     let sample_y = y * SAMPLES + sy;
-                    let px = (sample_x as f32 + 0.5) / sample_scale;
-                    let py = (sample_y as f32 + 0.5) / sample_scale;
+                    let px = (sample_x as f32 + 0.5 - sample_origin) / sample_scale;
+                    let py = (sample_y as f32 + 0.5 - sample_origin) / sample_scale;
                     // Longer labels get a rounded rectangle so the numerals keep
                     // comfortable padding even at their outer baseline corners.
                     let (radius, dx, dy) = if circular {
@@ -136,13 +143,13 @@ pub(super) fn render(count: u64, size: u32) -> Option<Vec<u8>> {
                     let sample_color = if text[(sample_y * sampled_size + sample_x) as usize] {
                         [255.0; 3]
                     } else {
-                        // A restrained coral-to-crimson finish echoes the app icon.
+                        // Cool blue keeps the unread count distinct from the pink paw.
                         let t = ((px + py) / 32.0).clamp(0.0, 1.0);
                         let rim = if distance > radius - 0.45 { 0.87 } else { 1.0 };
                         [
-                            (246.0 - 27.0 * t) * rim,
-                            (68.0 - 30.0 * t) * rim,
-                            (80.0 + 17.0 * t) * rim,
+                            (66.0 - 21.0 * t) * rim,
+                            (117.0 - 31.0 * t) * rim,
+                            (235.0 - 33.0 * t) * rim,
                         ]
                     };
                     for channel in 0..3 {
@@ -183,7 +190,7 @@ mod tests {
 
         // Inter builds 4 and + from overlapping contours. Their stroke
         // intersections must stay solid while the numeral counters stay open.
-        for (count, x, y) in [(4, 39, 41), (100, 50, 34)] {
+        for (count, x, y) in [(4, 38, 39), (100, 47, 34)] {
             let pixels = super::render(count, 64).expect("positive count draws its numeral");
             let offset = (y * 64 + x) * 4;
             assert_eq!(
@@ -194,6 +201,11 @@ mod tests {
         }
         // The asymmetric flag of 1 must not push its visible weight rightward.
         let one = super::render(1, 64).expect("one unread item draws its numeral");
+        // The compact badge leaves a visible transparent inset on its native
+        // canvas rather than enlarging its background to the icon bounds.
+        for x in [4, 59] {
+            assert_eq!(one[(32 * 64 + x) * 4 + 3], 0);
+        }
         let mut white_center_sum = 0.0;
         let mut white_pixels = 0;
         for (index, &pixel) in one.as_chunks::<4>().0.iter().enumerate() {
@@ -206,9 +218,13 @@ mod tests {
         assert!((white_center_sum / white_pixels as f32 - 32.0).abs() < 0.75);
 
         let eight = super::render(8, 64).expect("unread count draws its numeral");
-        for y in [23, 40] {
+        for y in [25, 38] {
             let offset = (y * 64 + 32) * 4;
-            assert!(eight[offset + 1] < 100, "8 must retain both red counters");
+            assert_ne!(
+                &eight[offset..offset + 3],
+                &[255, 255, 255],
+                "8 must retain both open counters"
+            );
             assert_eq!(eight[offset + 3], 255);
         }
     }

@@ -658,7 +658,7 @@ export const en = {
   "command.systemLauncher": "System launcher",
   "command.editTitle": "Edit command",
   "command.addTitle": "Add command",
-  "command.dialogDescription": "Configure a local script for quick access.",
+  "command.dialogDescription": "Configure a local script for quick access. On Windows, VBScript runs without opening a terminal.",
   "command.name": "Name",
   "command.namePlaceholder": "Run project checks",
   "command.settings": "Command settings",

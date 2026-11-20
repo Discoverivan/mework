@@ -20,7 +20,7 @@ pub fn tray_command_for_menu_id(id: &str) -> Option<TrayCommand> {
 
 pub fn application_name() -> &'static str {
     if cfg!(debug_assertions) {
-        "mework-dev"
+        "mework (dev)"
     } else {
         "mework"
     }

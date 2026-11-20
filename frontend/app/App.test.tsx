@@ -323,7 +323,7 @@ describe("mework application shell", () => {
     updaterCheckMock.mockResolvedValueOnce({ version: "0.1.5" });
     fireEvent.click(screen.getByRole("button", { name: "Open About mework and check for updates" }));
     expect(await screen.findByRole("heading", { name: "About", level: 1 })).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "mework-dev", level: 2 })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "mework (dev)", level: 2 })).toBeInTheDocument();
     const releaseNotesButton = screen.getAllByRole("button", { name: "Release notes" })[0];
     expect(releaseNotesButton).toHaveTextContent("Release notes");
     expect(releaseNotesButton.querySelector("svg.lucide-notebook-text")).not.toBeNull();

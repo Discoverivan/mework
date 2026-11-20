@@ -8,5 +8,8 @@ export function defaultAppIconStyle(): AppIconStyle {
 }
 
 export function appIconSource(style: AppIconStyle): string {
+  if (import.meta.env.DEV) {
+    return style === "original" ? "/mework-icon-dev-original.png" : "/mework-icon-dev.png";
+  }
   return style === "original" ? "/mework-icon-original.png" : "/mework-icon.png";
 }
