@@ -175,12 +175,9 @@ mod tests {
             assert_eq!(size, (16.0 * scale) as u32);
             let pixels = super::render(42, size).expect("positive unread count draws an overlay");
             assert_eq!(pixels.len(), (size * size * 4) as usize);
-            assert!(pixels
-                .chunks_exact(4)
-                .any(|pixel| pixel[3] > 0 && pixel[3] < 255));
-            assert!(pixels
-                .chunks_exact(4)
-                .any(|pixel| pixel == [255, 255, 255, 255]));
+            let rgba = pixels.as_chunks::<4>().0;
+            assert!(rgba.iter().any(|pixel| pixel[3] > 0 && pixel[3] < 255));
+            assert!(rgba.contains(&[255, 255, 255, 255]));
             assert_eq!(pixels[3], 0);
         }
 
@@ -199,7 +196,7 @@ mod tests {
         let one = super::render(1, 64).expect("one unread item draws its numeral");
         let mut white_center_sum = 0.0;
         let mut white_pixels = 0;
-        for (index, pixel) in one.chunks_exact(4).enumerate() {
+        for (index, &pixel) in one.as_chunks::<4>().0.iter().enumerate() {
             if pixel == [255, 255, 255, 255] {
                 white_center_sum += (index % 64) as f32 + 0.5;
                 white_pixels += 1;
