@@ -40,4 +40,5 @@ pub mod sprint_report;
 pub mod task_tracker;
 pub mod token_burner;
 pub mod updates;
+pub mod voice;
 pub mod workflow;

@@ -38,6 +38,27 @@ it("highlights multiline boundaries while keeping long text readable", () => {
   }
 });
 
+it("gives borderless Filled text inputs a distinct shared control surface", () => {
+  const css = readFileSync(resolve(import.meta.dirname, "../../index.css"), "utf8");
+  const style = document.createElement("style");
+  style.textContent = ":root { --secondary: rgb(230, 233, 240); } .app-control-border { border: 1px solid rgb(100, 100, 100); background: rgb(255, 255, 255); }" + css.slice(css.indexOf("/* Borderless Filled text inputs"), css.indexOf("/* All cards, including empty states"))
+    .replace("var(--control-background, var(--secondary))", "var(--secondary)")
+    .replace("var(--secondary)", "rgb(230, 233, 240)");
+  document.head.append(style);
+  const previousStyle = document.documentElement.dataset.buttonStyle;
+  try {
+    document.documentElement.dataset.buttonStyle = "filled_borderless";
+    render(<Input aria-label="Example voice endpoint" />);
+    const input = screen.getByRole("textbox", { name: "Example voice endpoint" });
+    expect(getComputedStyle(input).backgroundColor).toBe("rgb(230, 233, 240)");
+    expect(getComputedStyle(input).borderColor).toBe("rgba(0, 0, 0, 0)");
+  } finally {
+    style.remove();
+    if (previousStyle === undefined) delete document.documentElement.dataset.buttonStyle;
+    else document.documentElement.dataset.buttonStyle = previousStyle;
+  }
+});
+
 it("shares numeric value feedback across Filled styles while preserving their border appearance", () => {
   const css = readFileSync(resolve(import.meta.dirname, "../../index.css"), "utf8");
   const style = document.createElement("style");

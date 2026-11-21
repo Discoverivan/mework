@@ -113,3 +113,59 @@ pub async fn ai_provider_delete(
 ) -> Result<AiSettingsPageDto, String> {
     ai::delete_provider(&state, provider, instance_id).await
 }
+
+#[tauri::command]
+pub async fn voice_provider_add(
+    state: State<'_, SqlitePool>,
+    request: crate::application::voice::VoiceProviderAddRequest,
+) -> Result<AiSettingsPageDto, String> {
+    let provider_kind = match request.kind {
+        crate::application::voice::VoiceProviderKind::GptTranscribe => "gpt-transcribe",
+        crate::application::voice::VoiceProviderKind::OpenAiCompatible => "openai-compatible",
+    };
+    crate::application::logging::info(
+        "voice.provider",
+        "add_started",
+        serde_json::json!({"provider_kind": provider_kind}),
+    );
+    crate::application::voice::add(&state, request).await?;
+    match ai::dto(&state).await {
+        Ok(settings) => {
+            crate::application::logging::info(
+                "voice.provider",
+                "add_succeeded",
+                serde_json::json!({"provider_kind": provider_kind}),
+            );
+            Ok(settings)
+        }
+        Err(error) => {
+            crate::application::logging::error(
+                "voice.provider",
+                "add_failed",
+                serde_json::json!({
+                    "provider_kind": provider_kind,
+                    "stage": "load_updated_settings",
+                    "reason": "settings_dto_reload_failed",
+                }),
+            );
+            Err(error)
+        }
+    }
+}
+
+#[tauri::command]
+pub async fn voice_provider_delete(
+    state: State<'_, SqlitePool>,
+    id: String,
+) -> Result<AiSettingsPageDto, String> {
+    crate::application::voice::delete(&state, id).await?;
+    ai::dto(&state).await
+}
+
+#[tauri::command]
+pub async fn voice_transcribe(
+    state: State<'_, SqlitePool>,
+    request: crate::application::voice::TranscribeRequest,
+) -> Result<crate::application::voice::Transcription, String> {
+    crate::application::voice::transcribe(&state, request).await
+}

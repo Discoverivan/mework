@@ -23,6 +23,7 @@ import { Card, CardContent, CardDescription, CardHeader } from "@/components/ui/
 import { CreateButton } from "@/components/shared/CreateButton";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Field, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { StoredSecretInput } from "@/components/shared/StoredSecretInput";
 import { Label } from "@/components/ui/label";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
@@ -69,6 +70,8 @@ import {
   saveAiActionSettings,
   saveIntegration,
   saveOpenAiCompatibleProvider,
+  addVoiceProvider,
+  deleteVoiceProvider,
 } from "./api";
 import { validateJiraProjectKey } from "./planning-projects/api";
 import { resolveConfluenceSpace } from "../confluence/api";
@@ -206,7 +209,7 @@ const DEFAULT_AI_SETTINGS: AiSettings = {
   retries: { default: 0, actions: { taskCreation: null, pullRequestReview: null, tokenBurner: null, sprintSummary: null } },
 };
 
-const INITIAL_AI_DATA: AiSettingsPageData = { settings: DEFAULT_AI_SETTINGS, providers: [] };
+const INITIAL_AI_DATA: AiSettingsPageData = { settings: DEFAULT_AI_SETTINGS, providers: [], voiceProviders: [] };
 const UNAVAILABLE_AI_DATA: AiSettingsPageData = INITIAL_AI_DATA;
 
 const AI_STATUS_LABEL_KEYS: Record<AiProviderStatus, TranslationKey> = {
@@ -307,7 +310,25 @@ export function SettingsPage({ section = "integrations", focusActivity, mockMode
   const aiSavePendingRef = useRef(false);
   const [openAiDialogOpen, setOpenAiDialogOpen] = useState(false);
   const [addAiMenuOpen, setAddAiMenuOpen] = useState(false);
-  const [selectedAiGroup, setSelectedAiGroup] = useState<"cli" | "api">("cli");
+  const [selectedAiGroup, setSelectedAiGroup] = useState<"cli" | "api" | "voice">("cli");
+  const [voiceDialogOpen, setVoiceDialogOpen] = useState(false);
+  const [voiceKind, setVoiceKind] = useState<"gpt-transcribe" | "openai-compatible">("gpt-transcribe");
+  const [voiceBaseUrl, setVoiceBaseUrl] = useState("");
+  const [voiceModel, setVoiceModel] = useState("");
+  const [voiceApiKey, setVoiceApiKey] = useState("");
+  const [voiceBusy, setVoiceBusy] = useState(false);
+  const [voiceError, setVoiceError] = useState<string | null>(null);
+  const [microphones, setMicrophones] = useState<MediaDeviceInfo[]>([]);
+  const [microphoneLoading, setMicrophoneLoading] = useState(false);
+  const [microphoneError, setMicrophoneError] = useState<string | null>(null);
+  const [microphoneInventoryReady, setMicrophoneInventoryReady] = useState(false);
+  const [microphonePermissionDenied, setMicrophonePermissionDenied] = useState(false);
+  const [microphoneInventoryRevision, setMicrophoneInventoryRevision] = useState(0);
+  const microphoneRequest = useRef(0);
+  const microphoneInventoryRequest = useRef<Promise<{ devices: MediaDeviceInfo[]; permissionDenied: boolean }> | null>(null);
+  const microphoneResetAttempted = useRef<string | null>(null);
+  const microphoneInventoryIsFresh = useRef(false);
+  const microphoneMounted = useRef(true);
   const [addingAiProvider, setAddingAiProvider] = useState<AiCliProviderId | null>(null);
   const addingAi = addingAiProvider !== null;
   const [cliInspections, setCliInspections] = useState<Partial<Record<AiCliProviderId, CliInspection>>>({});
@@ -449,6 +470,7 @@ export function SettingsPage({ section = "integrations", focusActivity, mockMode
   const cliProviders = aiData.providers.filter((provider) => provider.id !== "openai-compatible").sort((a, b) => CLI_PROVIDER_OPTIONS.findIndex((option) => option.id === a.id) - CLI_PROVIDER_OPTIONS.findIndex((option) => option.id === b.id));
   const apiProviders = aiData.providers.filter((provider) => provider.id === "openai-compatible");
   const visibleAiProviders = selectedAiGroup === "cli" ? cliProviders : apiProviders;
+  const voiceProviders = aiData.voiceProviders ?? [];
   const pendingCliProvider = selectedAiGroup === "cli"
     ? CLI_PROVIDER_OPTIONS.find(({ id }) => id === addingAiProvider)
     : undefined;
@@ -649,6 +671,139 @@ export function SettingsPage({ section = "integrations", focusActivity, mockMode
     };
   }
 
+  useEffect(() => {
+    microphoneMounted.current = true;
+    return () => {
+      microphoneMounted.current = false;
+      microphoneRequest.current += 1;
+    };
+  }, []);
+
+  const refreshMicrophones = useCallback(async () => {
+    const request = ++microphoneRequest.current;
+    microphoneInventoryIsFresh.current = false;
+    setMicrophoneLoading(true);
+    setMicrophoneInventoryReady(false);
+    setMicrophonePermissionDenied(false);
+    setMicrophoneError(null);
+    let inventoryRequest: Promise<{ devices: MediaDeviceInfo[]; permissionDenied: boolean }> | null = null;
+    try {
+      inventoryRequest = microphoneInventoryRequest.current;
+      if (!inventoryRequest) {
+        inventoryRequest = (async () => {
+          if (!navigator.mediaDevices?.enumerateDevices) throw new Error("unavailable");
+          let devices = await navigator.mediaDevices.enumerateDevices();
+          const enumeratedAudioInputs = devices.filter((device) => device.kind === "audioinput");
+          let permissionDenied = false;
+          if (enumeratedAudioInputs.length === 0 || enumeratedAudioInputs.some((device) => !device.label.trim())) {
+            if (!navigator.mediaDevices.getUserMedia) throw new Error("unavailable");
+            let stream: MediaStream | undefined;
+            try {
+              stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            } catch (error) {
+              const errorName = error instanceof Error ? error.name : "";
+              permissionDenied = errorName === "NotAllowedError" || errorName === "PermissionDeniedError";
+              if (!permissionDenied && errorName !== "NotFoundError") throw error;
+            } finally {
+              stream?.getTracks().forEach((track) => track.stop());
+            }
+            if (!permissionDenied) devices = await navigator.mediaDevices.enumerateDevices();
+          }
+          return { devices, permissionDenied };
+        })();
+        microphoneInventoryRequest.current = inventoryRequest;
+      }
+      const { devices, permissionDenied } = await inventoryRequest;
+      if (!microphoneMounted.current || request !== microphoneRequest.current) return;
+      const audioInputs = devices.filter((device) => device.kind === "audioinput" && device.deviceId.trim() && device.deviceId !== "default" && device.deviceId !== "__default__");
+      setMicrophones(audioInputs);
+      setMicrophonePermissionDenied(permissionDenied);
+      microphoneInventoryIsFresh.current = !permissionDenied;
+      setMicrophoneInventoryReady(!permissionDenied);
+      setMicrophoneInventoryRevision((current) => current + 1);
+      if (permissionDenied) setMicrophoneError(t("settings.microphone.permissionDenied"));
+      else if (audioInputs.length === 0) setMicrophoneError(t("settings.microphone.none"));
+    } catch {
+      if (microphoneMounted.current && request === microphoneRequest.current) {
+        microphoneInventoryIsFresh.current = false;
+        setMicrophoneError(t("settings.microphone.error"));
+        setMicrophoneInventoryReady(false);
+      }
+    } finally {
+      if (microphoneInventoryRequest.current === inventoryRequest) microphoneInventoryRequest.current = null;
+      if (microphoneMounted.current && request === microphoneRequest.current) setMicrophoneLoading(false);
+    }
+  }, [t]);
+
+  useEffect(() => {
+    if (section !== "ai") return;
+    void refreshMicrophones();
+    return () => {
+      microphoneRequest.current += 1;
+      microphoneInventoryIsFresh.current = false;
+    };
+  }, [refreshMicrophones, section]);
+
+  useEffect(() => {
+    const selectedId = aiData.settings.microphoneDeviceId;
+    if (
+      section !== "ai"
+      || !microphoneInventoryReady
+      || !microphoneInventoryIsFresh.current
+      || microphonePermissionDenied
+      || microphoneLoading
+      || loading
+      || aiLoading
+      || !selectedId
+      || aiDraft.microphoneDeviceId !== selectedId
+      || microphones.some((device) => device.deviceId === selectedId)
+      || aiSavingScopes.includes("default")
+      || aiSavePendingRef.current
+      || aiDeleting
+      || addingAi
+      || openAiSaving
+      || voiceBusy
+    ) return;
+
+    const attemptKey = `${microphoneInventoryRevision}:${selectedId}`;
+    if (microphoneResetAttempted.current === attemptKey) return;
+    microphoneResetAttempted.current = attemptKey;
+    const previousSettings = aiData.settings;
+    const resetSettings = { ...previousSettings, microphoneDeviceId: null };
+    setAiSavingScopes((current) => current.includes("default") ? current : [...current, "default"]);
+    void saveAiActionSettings("default", resetSettings, null)
+      .then((saved) => {
+        setAiData(saved.ai);
+        setAiDraft((current) => rebaseAiDraft(current, previousSettings, saved.ai.settings));
+        emitAppEvent(APP_EVENT.aiSettingsChanged, saved.ai);
+        setAiError(null);
+        setAiFieldError(null);
+      })
+      .catch(() => {
+        setMicrophoneError(t("settings.microphone.saveError"));
+      })
+      .finally(() => {
+        setAiSavingScopes((current) => current.filter((scope) => scope !== "default"));
+      });
+  }, [
+    aiData.settings,
+    aiDeleting,
+    addingAi,
+    aiDraft.microphoneDeviceId,
+    aiLoading,
+    aiSavingScopes,
+    loading,
+    microphoneInventoryReady,
+    microphoneInventoryRevision,
+    microphoneLoading,
+    microphonePermissionDenied,
+    microphones,
+    openAiSaving,
+    section,
+    t,
+    voiceBusy,
+  ]);
+
   function renderInlineAiSettings(scope: AiSettingsScope, controls?: AdvancedActionControls) {
     const profile = scope === "default" ? aiDraft.provider ? {
       provider: aiDraft.provider, providerInstanceId: aiDraft.providerInstanceId, model: aiDraft.model,
@@ -664,6 +819,31 @@ export function SettingsPage({ section = "integrations", focusActivity, mockMode
           else updateAiProfile(scope, next);
         }} /> : null}
       {scope === "default" || profile ? renderRetries(scope, false, true) : null}
+      {scope === "default" ? <div data-slot="control-group" className="flex basis-full flex-wrap items-end gap-y-4">
+        <div data-slot="control-field" className="grid basis-[calc(50%-0.5rem)] min-w-0 max-w-full gap-2.5">
+          <Label id="voice-provider-label">{t("settings.voice.select")}</Label>
+          <Select value={aiDraft.voiceProviderInstanceId ?? "__none__"} onValueChange={(value) => updateAiSetting("voiceProviderInstanceId", value === "__none__" ? null : value)} disabled={aiLoading || aiSavingScopes.includes("default")}>
+            <SelectTrigger id="voice-provider" aria-labelledby="voice-provider-label" className="h-9"><SelectValue /></SelectTrigger>
+            <SelectContent><SelectItem value="__none__">{t("settings.voice.notSelected")}</SelectItem>{voiceProviders.map((provider) => <SelectItem key={provider.id} value={provider.id}>{provider.name}</SelectItem>)}</SelectContent>
+          </Select>
+        </div>
+        <div data-slot="control-field" data-menu-align="end" className="grid basis-[calc(50%-0.5rem)] min-w-0 max-w-full gap-2.5">
+          <Label id="microphone-label">{t("settings.microphone.label")}</Label>
+          <Select value={aiDraft.microphoneDeviceId ?? "__default__"} onValueChange={(value) => updateAiSetting("microphoneDeviceId", value === "__default__" ? null : value)} disabled={aiLoading || aiSavingScopes.includes("default")}>
+            <SelectTrigger id="microphone" aria-labelledby="microphone-label" aria-busy={microphoneLoading} className="h-9">
+              <SelectValue />
+              {microphoneLoading ? <Loader2 aria-hidden="true" className="ml-auto size-4 shrink-0 animate-spin text-muted-foreground" /> : null}
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="__default__">{t("settings.microphone.systemDefault")}</SelectItem>
+              {microphoneInventoryReady && aiDraft.microphoneDeviceId && !microphones.some((device) => device.deviceId === aiDraft.microphoneDeviceId) ? <SelectItem value={aiDraft.microphoneDeviceId}>{t("settings.microphone.unavailable")}</SelectItem> : null}
+              {microphones.map((device, index) => <SelectItem key={device.deviceId} value={device.deviceId}>{device.label.trim() || t("settings.microphone.device", { number: index + 1 })}</SelectItem>)}
+            </SelectContent>
+          </Select>
+          {microphoneLoading ? <span role="status" aria-live="polite" className="sr-only">{t("settings.microphone.loading")}</span> : null}
+          {microphoneError ? <p role="alert" className="text-xs text-destructive">{microphoneError}</p> : null}
+        </div>
+      </div> : null}
       {controls?.inlineFields}
     </div>;
   }
@@ -707,6 +887,20 @@ export function SettingsPage({ section = "integrations", focusActivity, mockMode
     });
     setOpenAiError(null);
     setOpenAiDialogOpen(true);
+  }
+
+  async function handleSaveVoiceProvider(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setVoiceBusy(true); setVoiceError(null);
+    try {
+      const saved = await addVoiceProvider({ kind: voiceKind, ...(voiceKind === "openai-compatible" ? { baseUrl: voiceBaseUrl, model: voiceModel } : {}), apiKey: voiceApiKey });
+      setAiData(saved);
+      setAiDraft((current) => rebaseAiDraft(current, aiData.settings, saved.settings));
+      emitAppEvent(APP_EVENT.aiSettingsChanged, saved);
+      setVoiceApiKey(""); setVoiceBaseUrl(""); setVoiceModel(""); setVoiceDialogOpen(false);
+    } catch {
+      setVoiceError(t("settings.voice.saveError"));
+    } finally { setVoiceApiKey(""); setVoiceBusy(false); }
   }
 
   async function handleSaveOpenAiCompatible(event: FormEvent<HTMLFormElement>) {
@@ -1099,11 +1293,12 @@ export function SettingsPage({ section = "integrations", focusActivity, mockMode
                   <h2 id="ai-providers-title" className="text-sm font-semibold leading-tight">{t("settings.aiProviders.title")}</h2>
                 </div>
                 <div data-menu-align="end" className="ml-auto flex shrink-0 items-center gap-1.5">
-                <Select value={selectedAiGroup} onValueChange={(value) => setSelectedAiGroup(value as "cli" | "api")}>
+                <Select value={selectedAiGroup} onValueChange={(value) => setSelectedAiGroup(value as "cli" | "api" | "voice")}>
                   <SelectTrigger aria-label={t("settings.aiProviders.groups")} className="h-9 shrink-0"><SelectValue /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="cli">{t("settings.aiProviders.cliGroup")}</SelectItem>
                     <SelectItem value="api">{t("settings.aiProviders.apiGroup")}</SelectItem>
+                    <SelectItem value="voice">{t("settings.aiProviders.voiceGroup")}</SelectItem>
                   </SelectContent>
                 </Select>
                 {selectedAiGroup === "cli" ? (
@@ -1131,13 +1326,20 @@ export function SettingsPage({ section = "integrations", focusActivity, mockMode
                       ))}
                     </DropdownMenuContent>
                   </DropdownMenu>
-                ) : (
+                ) : selectedAiGroup === "api" ? (
                   <CreateButton iconOnly type="button" variant="ghost" className="size-9" aria-label={t("settings.aiProviders.addApi")} title={t("settings.aiProviders.addApi")} onClick={() => openOpenAiCompatibleDialog()} />
+                ) : (
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild><CreateButton iconOnly type="button" variant="ghost" className="size-9" aria-label={t("settings.voice.add")} title={t("settings.voice.add")} /></DropdownMenuTrigger>
+                    <DropdownMenuContent align="end" className="w-max min-w-0">
+                      {(["gpt-transcribe", "openai-compatible"] as const).map((kind) => <DropdownMenuItem key={kind} onSelect={() => { setVoiceKind(kind); setVoiceError(null); setVoiceApiKey(""); setVoiceBaseUrl(""); setVoiceModel(""); setVoiceDialogOpen(true); }}>{t(kind === "gpt-transcribe" ? "settings.voice.gpt" : "settings.voice.compatible")}</DropdownMenuItem>)}
+                    </DropdownMenuContent>
+                  </DropdownMenu>
                 )}
                 </div>
               </CardHeader>
                 <CardContent className="px-4 pb-0 pt-0">
-                  {aiData.providers.length === 0 && !loading && !pendingCliProvider ? (
+                  {selectedAiGroup === "voice" ? (voiceProviders.length === 0 ? <p className="flex items-center py-3 text-sm text-muted-foreground">{t("settings.voice.empty")}</p> : voiceProviders.map((provider, index) => <Fragment key={provider.id}><div role="group" className="flex min-h-14 items-center gap-3 py-3"><div className="min-w-0 flex-1"><p className="text-[13.5px]">{provider.name}</p><p className="text-xs text-muted-foreground">{provider.baseUrl} · {provider.model}</p></div><div data-action-size="normal"><Button type="button" size="icon" variant="ghost" actionTone="delete" className="size-7 [&_svg]:!size-4" aria-label={`${t("settings.voice.delete")}: ${provider.name}`} title={t("common.delete")} disabled={voiceBusy} onClick={async () => { setVoiceBusy(true); try { const saved = await deleteVoiceProvider(provider.id); setAiData(saved); setAiDraft((current) => rebaseAiDraft(current, aiData.settings, saved.settings)); emitAppEvent(APP_EVENT.aiSettingsChanged, saved); } catch (error) { setVoiceError(errorMessage(error, t("settings.voice.saveError"))); } finally { setVoiceBusy(false); } }}><Trash2 aria-hidden="true" /></Button></div></div>{index < voiceProviders.length - 1 ? <Separator /> : null}</Fragment>)) : aiData.providers.length === 0 && !loading && !pendingCliProvider ? (
                     <div role="status" aria-labelledby="ai-providers-empty-title" className="flex min-h-14 items-center gap-3 py-2">
                       <div className="min-w-0 flex-1">
                         <h4 id="ai-providers-empty-title" className="text-[15px] font-medium">{t("settings.aiProviders.empty")}</h4>
@@ -1197,6 +1399,7 @@ export function SettingsPage({ section = "integrations", focusActivity, mockMode
                   ) : null}
                   {aiProviderRefreshError ? <p role="alert" className="pb-3 text-sm text-destructive">{aiProviderRefreshError}</p> : null}
                   {cliAddError ? <p role="alert" className="pb-3 text-sm text-destructive">{cliAddError}</p> : null}
+                  {voiceError ? <p role="alert" className="pb-3 text-sm text-destructive">{voiceError}</p> : null}
                 </CardContent>
             </Card>
           </section>
@@ -1409,6 +1612,33 @@ export function SettingsPage({ section = "integrations", focusActivity, mockMode
           </DialogContent>
         </Dialog>
 
+        <Dialog open={voiceDialogOpen} onOpenChange={(open) => { if (!voiceBusy) { setVoiceDialogOpen(open); if (!open) { setVoiceApiKey(""); setVoiceError(null); } } }}>
+          <DialogContent>
+            <DialogHeader><DialogTitle>{voiceKind === "gpt-transcribe" ? t("settings.voice.gpt") : t("settings.voice.compatible")}</DialogTitle><DialogDescription>{t("settings.voice.title")}</DialogDescription></DialogHeader>
+            <DialogBody>
+              {voiceError ? <Alert variant="destructive" role="alert"><AlertDescription>{voiceError}</AlertDescription></Alert> : null}
+              <form id="voice-provider-form" data-subform onSubmit={handleSaveVoiceProvider}>
+                <FieldGroup className="gap-4">
+                  {voiceKind === "openai-compatible" ? <>
+                    <Field>
+                      <FieldLabel htmlFor="voice-base-url">{t("settings.voice.baseUrl")}</FieldLabel>
+                      <Input id="voice-base-url" type="url" value={voiceBaseUrl} onChange={(event) => setVoiceBaseUrl(event.target.value)} required />
+                    </Field>
+                    <Field>
+                      <FieldLabel htmlFor="voice-model">{t("settings.voice.model")}</FieldLabel>
+                      <Input id="voice-model" value={voiceModel} onChange={(event) => setVoiceModel(event.target.value)} required />
+                    </Field>
+                  </> : null}
+                  <Field>
+                    <FieldLabel htmlFor="voice-api-key">{t("settings.voice.apiKey")}</FieldLabel>
+                    <Input id="voice-api-key" type="password" autoComplete="new-password" value={voiceApiKey} onChange={(event) => setVoiceApiKey(event.target.value)} required={voiceKind === "gpt-transcribe"} />
+                  </Field>
+                </FieldGroup>
+              </form>
+            </DialogBody>
+            <DialogFooter><Button data-dialog-cancel type="button" variant="outline" onClick={() => { setVoiceDialogOpen(false); setVoiceApiKey(""); }}>{t("settings.common.cancel")}</Button><Button type="submit" form="voice-provider-form" disabled={voiceBusy}>{voiceBusy ? t("settings.common.checking") : t("settings.common.save")}</Button></DialogFooter>
+          </DialogContent>
+        </Dialog>
         </div>
       ) : null}
 

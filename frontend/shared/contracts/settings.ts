@@ -69,6 +69,8 @@ export interface AiRetrySettings {
 export interface AiSettings {
   provider: AiProviderId | null;
   providerInstanceId?: string | null;
+  voiceProviderInstanceId?: string | null;
+  microphoneDeviceId?: string | null;
   model: string;
   reasoning: AiReasoning;
   fastMode: boolean;
@@ -103,9 +105,12 @@ export interface AiProvider {
   message?: string;
 }
 
+export interface VoiceProvider { id: string; kind: "gpt-transcribe" | "openai-compatible"; name: string; baseUrl: string; model: string; hasApiKey: boolean; }
+
 export interface AiSettingsPageData {
   settings: AiSettings;
   providers: AiProvider[];
+  voiceProviders?: VoiceProvider[];
 }
 
 export function matchesSelectedAiProvider(settings: AiSettings, provider: AiProvider): boolean {

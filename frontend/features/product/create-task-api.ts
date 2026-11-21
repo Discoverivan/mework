@@ -30,6 +30,9 @@ export interface CreatedJiraTask {
   warning?: string;
 }
 
+export const transcribeTaskPrompt = (audio: Uint8Array, mimeType: string) =>
+  invoke<{ text: string }>("voice_transcribe", { request: { audio: Array.from(audio), mimeType } });
+
 export const generateTaskDraft = (prompt: string, existingSources: TaskDraftSource[] = []) =>
   invoke<TaskDraft>("ai_task_draft", { request: { prompt, existingSources } });
 

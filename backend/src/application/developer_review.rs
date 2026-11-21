@@ -3144,6 +3144,8 @@ mod tests {
         let ai_settings = AiSettings {
             provider: Some(AiProviderId::CodexCli),
             provider_instance_id: None,
+            voice_provider_instance_id: None,
+            microphone_device_id: None,
             model: "gpt-5.5".to_owned(),
             reasoning: AiReasoning::Medium,
             fast_mode: false,
@@ -3192,6 +3194,8 @@ mod tests {
         let claude_settings = AiSettings {
             provider: Some(AiProviderId::ClaudeCodeCli),
             provider_instance_id: None,
+            voice_provider_instance_id: None,
+            microphone_device_id: None,
             model: "sonnet".to_owned(),
             ..ai_settings
         };
