@@ -653,8 +653,10 @@ mod tests {
         )
         .await
         .unwrap();
-        let mut settings = super::super::ai::AiSettings::default();
-        settings.voice_provider_instance_id = Some(id.to_owned());
+        let settings = super::super::ai::AiSettings {
+            voice_provider_instance_id: Some(id.to_owned()),
+            ..Default::default()
+        };
         repositories::upsert_setting(
             &pool,
             "ai.settings",
@@ -740,8 +742,10 @@ mod tests {
         .await
         .unwrap();
         let provider_id = providers[0].id.clone();
-        let mut settings = super::super::ai::AiSettings::default();
-        settings.voice_provider_instance_id = Some(provider_id.clone());
+        let settings = super::super::ai::AiSettings {
+            voice_provider_instance_id: Some(provider_id.clone()),
+            ..Default::default()
+        };
         let settings_json = serde_json::to_string(&settings).unwrap();
         repositories::upsert_setting(&pool, "ai.settings", &settings_json, 3)
             .await
@@ -791,8 +795,10 @@ mod tests {
         )
         .await
         .unwrap();
-        let mut settings = super::super::ai::AiSettings::default();
-        settings.voice_provider_instance_id = Some(providers[0].id.clone());
+        let settings = super::super::ai::AiSettings {
+            voice_provider_instance_id: Some(providers[0].id.clone()),
+            ..Default::default()
+        };
         repositories::upsert_setting(
             &pool,
             "ai.settings",
