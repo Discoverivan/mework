@@ -4,7 +4,7 @@ import { useEffect, useRef, useState, type FormEvent } from "react";
 import { APP_EVENT, emitAppEvent, subscribeAppEvent } from "@/app/app-events";
 import { readUpdatedTeamMembers } from "../planning/team-members-state";
 import type { TeamMember } from "@/shared/contracts/planning";
-import { Check, ClipboardList, ExternalLink, LoaderCircle, Pencil, RefreshCw, Sparkles, Trash2 } from "lucide-react";
+import { AudioLines, Check, ClipboardList, ExternalLink, LoaderCircle, Mic, Pencil, RefreshCw, Sparkles, Square, Trash2 } from "lucide-react";
 
 import { PageHeader } from "@/components/shared/PageHeader";
 import { EmptyState } from "@/components/shared/EmptyState";
@@ -35,11 +35,60 @@ import {
 import type { ManagedProject, PlanningSprint, EpicLinkJqlIssue } from "@/shared/contracts/planning";
 import { listManagedProjects, listTargetSprints, previewEpicLinkJql, loadJiraAvatarData } from "../planning/api";
 import type { CreatedJiraTask, JiraTaskIssueType, JiraTaskMember, TaskDraftSource } from "./create-task-api";
-import { createJiraTask, generateTaskDraft, listJiraTaskTeamMembers } from "./create-task-api";
+import { createJiraTask, generateTaskDraft, listJiraTaskTeamMembers, transcribeTaskPrompt } from "./create-task-api";
+import { getAiSettings, getCachedAiSettings } from "../settings/api";
+import type { AiSettingsPageData } from "@/shared/contracts/settings";
+import { cn } from "@/lib/utils";
 
 import "./create-task.css";
 
 const UNASSIGNED_VALUE = "__unassigned__";
+
+type VoiceErrorNotice = { key: TranslationKey; params?: TranslationParams };
+
+function voiceErrorMessage(error: unknown): string {
+  if (typeof error === "string") return error;
+  if (error instanceof Error) return error.message;
+  if (typeof error === "object" && error !== null && "message" in error && typeof error.message === "string") return error.message;
+  return "";
+}
+
+function voiceErrorNotice(error: unknown): VoiceErrorNotice {
+  const message = voiceErrorMessage(error);
+  const status = /^VOICE_STT_HTTP_(\d{3})$/.exec(message)?.[1];
+  if (status) {
+    const httpStatus = Number(status);
+    const params = { status: httpStatus };
+    if (httpStatus === 402) return { key: "task.voice.providerPaymentRequired", params };
+    if (httpStatus === 401 || httpStatus === 403) return { key: "task.voice.providerAuthRejected", params };
+    if (httpStatus === 404) return { key: "task.voice.providerModelNotFound", params };
+    if (httpStatus === 400) return { key: "task.voice.providerRequestRejected", params };
+    if (httpStatus >= 300 && httpStatus < 400) return { key: "task.voice.providerRedirect", params };
+    return { key: "task.voice.providerHttpError", params };
+  }
+  if (message === "VOICE_STT_TIMEOUT") return { key: "task.voice.requestTimeout" };
+  if (message === "VOICE_STT_CONNECTION_FAILED") return { key: "task.voice.connectionFailed" };
+  if (message === "No voice provider is selected") return { key: "task.voice.providerNotSelected" };
+  if (message === "Selected voice provider is unavailable") return { key: "task.voice.providerUnavailable" };
+  if (message === "Voice provider API key is unavailable in the operating system keyring") return { key: "task.voice.apiKeyUnavailable" };
+  if (message === "Audio is empty or exceeds the 10 MB limit") return { key: "task.voice.audioTooLarge" };
+  if (message === "Audio format is unsupported") return { key: "task.voice.unsupportedAudio" };
+  if (message === "Voice provider returned an invalid response") return { key: "task.voice.invalidResponse" };
+  if (message === "Voice provider returned no transcription text") return { key: "task.voice.emptyTranscript" };
+  return { key: "task.voice.transcriptionFailed" };
+}
+
+function microphoneErrorNotice(error: unknown): VoiceErrorNotice {
+  const name = error instanceof Error ? error.name : "";
+  if (name === "NotAllowedError" || name === "PermissionDeniedError") return { key: "task.voice.permissionDenied" };
+  if (name === "NotFoundError" || name === "OverconstrainedError") return { key: "task.voice.deviceUnavailable" };
+  return { key: "task.voice.captureFailed" };
+}
+
+function hasConfiguredVoiceProvider(data: AiSettingsPageData | null): boolean {
+  const selectedId = data?.settings.voiceProviderInstanceId;
+  return Boolean(selectedId && data?.voiceProviders?.some((provider) => provider.id === selectedId));
+}
 
 function readCreateTaskRouteContext(): { teamId?: string; sprintId?: string; openForm?: boolean } {
   if (typeof window === "undefined") return {};
@@ -342,6 +391,15 @@ export function CreateTaskPage() {
   const routeContext = useRef(readCreateTaskRouteContext()).current;
   const [dialogOpen, setDialogOpen] = useState(() => routeContext.openForm ?? false);
   const [prompt, setPrompt] = useState("");
+  const [voiceRecording, setVoiceRecording] = useState(false);
+  const [voiceTranscribing, setVoiceTranscribing] = useState(false);
+  const [voiceProviderConfigured, setVoiceProviderConfigured] = useState(() => hasConfiguredVoiceProvider(getCachedAiSettings()));
+  const [microphoneDeviceId, setMicrophoneDeviceId] = useState<string | null>(() => getCachedAiSettings()?.settings.microphoneDeviceId ?? null);
+  const [voiceError, setVoiceError] = useState<VoiceErrorNotice | null>(null);
+  const recorderRef = useRef<MediaRecorder | null>(null);
+  const voiceStreamRef = useRef<MediaStream | null>(null);
+  const voiceRunRef = useRef(0);
+  const voiceSettingsRevision = useRef(0);
   const [cards, setCards] = useState<TaskCard[]>(() => readPersistedCreateTaskState().cards);
   const [retryConfirmationCardId, setRetryConfirmationCardId] = useState<string>();
   const [teams, setTeams] = useState<ManagedProject[]>([]);
@@ -553,6 +611,99 @@ export function CreateTaskPage() {
       .filter((card) => card.status === "generating")
       .forEach((card) => startGeneration(card.id, card.prompt));
   }, [cards]);
+
+  useEffect(() => {
+    let active = true;
+    const updateVoiceSettings = (data: AiSettingsPageData) => {
+      voiceSettingsRevision.current += 1;
+      setVoiceProviderConfigured(hasConfiguredVoiceProvider(data));
+      setMicrophoneDeviceId(data.settings.microphoneDeviceId ?? null);
+    };
+    const unsubscribe = subscribeAppEvent(APP_EVENT.aiSettingsChanged, updateVoiceSettings);
+    const cached = getCachedAiSettings();
+    if (cached) updateVoiceSettings(cached);
+    const eventRevision = voiceSettingsRevision.current;
+    void getAiSettings().then((data) => { if (active && eventRevision === voiceSettingsRevision.current) updateVoiceSettings(data); }).catch(() => {
+      // Keep a previously loaded selection available through transient settings errors.
+    });
+    return () => {
+      active = false;
+      unsubscribe();
+      voiceRunRef.current += 1;
+      recorderRef.current?.stop();
+      voiceStreamRef.current?.getTracks().forEach((track) => track.stop());
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!voiceProviderConfigured) {
+      voiceRunRef.current += 1;
+      recorderRef.current?.stop();
+      recorderRef.current = null;
+      voiceStreamRef.current?.getTracks().forEach((track) => track.stop());
+      voiceStreamRef.current = null;
+      setVoiceRecording(false);
+      setVoiceTranscribing(false);
+    }
+  }, [voiceProviderConfigured]);
+
+  function stopVoiceCapture(cancel = false) {
+    if (cancel) { voiceRunRef.current += 1; setVoiceTranscribing(false); }
+    else setVoiceTranscribing(true);
+    const recorder = recorderRef.current;
+    recorderRef.current = null;
+    if (recorder && recorder.state !== "inactive") recorder.stop();
+    voiceStreamRef.current?.getTracks().forEach((track) => track.stop());
+    voiceStreamRef.current = null;
+    setVoiceRecording(false);
+  }
+
+  async function toggleVoiceCapture() {
+    setVoiceError(null);
+    if (recorderRef.current?.state === "recording") { stopVoiceCapture(); return; }
+    const run = ++voiceRunRef.current;
+    let stream: MediaStream | null = null;
+    let recorder: MediaRecorder | null = null;
+    try {
+      if (!navigator.mediaDevices?.getUserMedia) throw new Error("unavailable");
+      stream = await navigator.mediaDevices.getUserMedia(microphoneDeviceId ? { audio: { deviceId: { exact: microphoneDeviceId } } } : { audio: true });
+      if (run !== voiceRunRef.current) { stream.getTracks().forEach((track) => track.stop()); stream = null; return; }
+      const mimeType = ["audio/webm;codecs=opus", "audio/webm", "audio/mp4"].find((type) => MediaRecorder.isTypeSupported(type));
+      const acquiredStream = stream;
+      const recorderInstance = mimeType ? new MediaRecorder(acquiredStream, { mimeType }) : new MediaRecorder(acquiredStream);
+      recorder = recorderInstance;
+      const chunks: BlobPart[] = [];
+      let size = 0;
+      voiceStreamRef.current = acquiredStream; recorderRef.current = recorderInstance;
+      recorderInstance.ondataavailable = (event) => { if (event.data.size) { size += event.data.size; if (size > 10 * 1024 * 1024) { setVoiceError({ key: "task.voice.audioTooLarge" }); stopVoiceCapture(true); return; } chunks.push(event.data); } };
+      recorderInstance.onstop = () => {
+        acquiredStream.getTracks().forEach((track) => track.stop());
+        if (voiceStreamRef.current === acquiredStream) voiceStreamRef.current = null;
+        if (recorderRef.current === recorderInstance) recorderRef.current = null;
+        if (!chunks.length || run !== voiceRunRef.current) {
+          if (run === voiceRunRef.current) setVoiceTranscribing(false);
+          return;
+        }
+        const audio = new Blob(chunks, { type: recorderInstance.mimeType || "audio/webm" });
+        setVoiceTranscribing(true);
+        void audio.arrayBuffer().then((buffer) => transcribeTaskPrompt(new Uint8Array(buffer), audio.type || "audio/webm"))
+          .then(({ text }) => { if (run === voiceRunRef.current) setPrompt((current) => `${current}${current && !/\s$/.test(current) ? " " : ""}${text}`); })
+          .catch((error: unknown) => { if (run === voiceRunRef.current) setVoiceError(voiceErrorNotice(error)); })
+          .finally(() => { if (run === voiceRunRef.current) setVoiceTranscribing(false); });
+      };
+      recorderInstance.start(500);
+      setVoiceRecording(true);
+      window.setTimeout(() => { if (recorderRef.current === recorderInstance) stopVoiceCapture(); }, 60_000);
+    } catch (error: unknown) {
+      stream?.getTracks().forEach((track) => track.stop());
+      if (voiceStreamRef.current === stream) voiceStreamRef.current = null;
+      if (recorderRef.current === recorder) recorderRef.current = null;
+      if (run === voiceRunRef.current) {
+        setVoiceError(microphoneErrorNotice(error));
+        stopVoiceCapture(true);
+      }
+    }
+  }
 
   const submitPrompt = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -897,7 +1048,7 @@ export function CreateTaskPage() {
           icon={<ClipboardList className="size-5" />}
         />
       )}
-      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+      <Dialog open={dialogOpen} onOpenChange={(open) => { if (!open) stopVoiceCapture(true); setDialogOpen(open); }}>
         <DialogContent className="create-task-dialog">
           <DialogHeader>
             <DialogTitle>{t("task.describe")}</DialogTitle>
@@ -913,7 +1064,19 @@ export function CreateTaskPage() {
                 </Select>
               </div>
               <label className="sr-only" htmlFor="task-description">{t("task.describe")}</label>
-              <textarea autoComplete="off" id="task-description" className="create-task-textarea create-task-textarea--dialog" value={prompt} placeholder={t("task.describe")} autoFocus required onChange={(event) => setPrompt(event.target.value)} />
+              <div className="relative">
+                <textarea autoComplete="off" id="task-description" className="create-task-textarea create-task-textarea--dialog pr-12" value={prompt} placeholder={t("task.describe")} autoFocus required onChange={(event) => setPrompt(event.target.value)} />
+                {voiceProviderConfigured ? <Button type="button" variant="outline" size="icon"
+                  className={cn("absolute right-2 top-2 z-10 overflow-hidden transition-[width,border-radius] duration-300 ease-in-out motion-reduce:transition-none", voiceRecording ? "h-9 w-32 justify-between rounded-full px-2.5" : "h-9 w-9 justify-center rounded-md")}
+                  data-voice-state={voiceTranscribing ? "transcribing" : voiceRecording ? "recording" : "idle"}
+                  aria-label={voiceTranscribing ? t("task.voice.transcribing") : voiceRecording ? t("task.voice.stop") : t("task.voice.start")}
+                  title={voiceTranscribing ? t("task.voice.transcribing") : voiceRecording ? t("task.voice.stop") : t("task.voice.start")}
+                  onClick={() => void toggleVoiceCapture()} disabled={voiceTranscribing}>
+                  {voiceTranscribing ? <LoaderCircle className="animate-spin" aria-hidden="true" /> : voiceRecording ? <><AudioLines className="motion-safe:animate-pulse" data-icon="inline-start" aria-hidden="true" /><span>{t("task.voice.stop")}</span><Square data-icon="inline-end" aria-hidden="true" /></> : <Mic aria-hidden="true" />}
+                </Button> : null}
+                {voiceError ? <p role="alert" className="mt-2 text-sm text-destructive">{t(voiceError.key, voiceError.params)}</p> : null}
+                {voiceTranscribing ? <p role="status" className="mt-2 text-sm text-muted-foreground">{t("task.voice.transcribing")}</p> : null}
+              </div>
             </form>
           </DialogBody>
           <DialogFooter>

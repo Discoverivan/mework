@@ -2,8 +2,10 @@ import { act, fireEvent, render, screen, waitFor, within } from "@testing-librar
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { CreateTaskPage } from "./CreateTaskPage";
-import { createJiraTask, generateTaskDraft, listJiraTaskTeamMembers } from "./create-task-api";
+import { createJiraTask, generateTaskDraft, listJiraTaskTeamMembers, transcribeTaskPrompt } from "./create-task-api";
 import { listManagedProjects, listTargetSprints, loadJiraAvatarData, previewEpicLinkJql } from "../planning/api";
+import { getAiSettings } from "../settings/api";
+import type { AiSettings, AiSettingsPageData } from "@/shared/contracts/settings";
 import { APP_EVENT, emitAppEvent } from "@/app/app-events";
 import { clearTeamMembersStateForTests } from "../planning/team-members-state";
 
@@ -11,12 +13,17 @@ vi.mock("./create-task-api", () => ({
   createJiraTask: vi.fn(),
   generateTaskDraft: vi.fn(),
   listJiraTaskTeamMembers: vi.fn(),
+  transcribeTaskPrompt: vi.fn(),
 }));
 vi.mock("../planning/api", () => ({
   listManagedProjects: vi.fn(),
   listTargetSprints: vi.fn(),
   loadJiraAvatarData: vi.fn(),
   previewEpicLinkJql: vi.fn(),
+}));
+vi.mock("../settings/api", () => ({
+  getAiSettings: vi.fn(),
+  getCachedAiSettings: vi.fn().mockReturnValue(null),
 }));
 
 const listMembersMock = vi.mocked(listJiraTaskTeamMembers);
@@ -26,6 +33,14 @@ const avatarMock = vi.mocked(loadJiraAvatarData);
 const epicPreviewMock = vi.mocked(previewEpicLinkJql);
 const generateMock = vi.mocked(generateTaskDraft);
 const createMock = vi.mocked(createJiraTask);
+const transcribeMock = vi.mocked(transcribeTaskPrompt);
+const getAiSettingsMock = vi.mocked(getAiSettings);
+const baseAiSettings: AiSettings = {
+  provider: null, model: "", reasoning: "medium", fastMode: false,
+  retries: { default: 0, actions: { pullRequestReview: null, taskCreation: null, tokenBurner: null, sprintSummary: null } },
+};
+const noVoiceSettings = { settings: { ...baseAiSettings, voiceProviderInstanceId: null }, providers: [], voiceProviders: [] } satisfies AiSettingsPageData;
+const selectedVoiceSettings = { settings: { ...baseAiSettings, voiceProviderInstanceId: "voice-example", microphoneDeviceId: "synthetic-device-1" }, providers: [], voiceProviders: [{ id: "voice-example", kind: "openai-compatible" as const, name: "Example Voice", baseUrl: "https://voice.example.invalid/v1", model: "example-model", hasApiKey: false }] } satisfies AiSettingsPageData;
 
 const secondTeam = {
   id: "team-2",
@@ -39,6 +54,7 @@ const secondTeam = {
 beforeEach(() => {
   clearTeamMembersStateForTests();
   vi.clearAllMocks();
+  getAiSettingsMock.mockResolvedValue(noVoiceSettings);
   window.localStorage.clear();
   window.location.hash = "";
   Element.prototype.scrollIntoView = vi.fn();
@@ -63,6 +79,103 @@ beforeEach(() => {
 });
 
 describe("CreateTaskPage", () => {
+  it("shows animated dictation states only after a voice provider is selected", async () => {
+    let resolveTranscription: ((result: { text: string }) => void) | undefined;
+    transcribeMock.mockReturnValue(new Promise((resolve) => { resolveTranscription = resolve; }));
+    Object.defineProperty(navigator, "mediaDevices", { configurable: true, value: { getUserMedia: vi.fn().mockResolvedValue({ getTracks: () => [{ stop: vi.fn() }] }) } });
+    class FakeRecorder {
+      static isTypeSupported = () => true;
+      state: RecordingState = "inactive";
+      mimeType = "audio/webm";
+      ondataavailable: ((event: BlobEvent) => void) | null = null;
+      onstop: (() => void) | null = null;
+      constructor(_stream: MediaStream, _options?: MediaRecorderOptions) {}
+      start() { this.state = "recording"; }
+      stop() { this.state = "inactive"; this.ondataavailable?.({ data: new Blob(["synthetic audio"]) } as BlobEvent); this.onstop?.(); }
+    }
+    vi.stubGlobal("MediaRecorder", FakeRecorder);
+    render(<CreateTaskPage />);
+    fireEvent.click(screen.getByRole("button", { name: "Create task" }));
+    const textarea = screen.getByPlaceholderText("Describe your task");
+    await waitFor(() => expect(getAiSettingsMock).toHaveBeenCalled());
+    expect(screen.queryByRole("button", { name: "Start dictation" })).not.toBeInTheDocument();
+    await act(async () => emitAppEvent(APP_EVENT.aiSettingsChanged, selectedVoiceSettings));
+    fireEvent.change(textarea, { target: { value: "Existing prompt " } });
+    const startButton = await screen.findByRole("button", { name: "Start dictation" });
+    expect(startButton).toHaveAttribute("data-voice-state", "idle");
+    fireEvent.click(startButton);
+    await waitFor(() => expect(navigator.mediaDevices.getUserMedia).toHaveBeenCalledWith({ audio: { deviceId: { exact: "synthetic-device-1" } } }));
+    const stopButton = await screen.findByRole("button", { name: "Stop dictation" });
+    expect(stopButton).toHaveAttribute("data-voice-state", "recording");
+    expect(stopButton).toHaveClass("duration-300");
+    fireEvent.click(stopButton);
+    const loadingButton = await screen.findByRole("button", { name: "Transcribing…" });
+    expect(loadingButton).toHaveAttribute("data-voice-state", "transcribing");
+    await act(async () => resolveTranscription?.({ text: "recognized words" }));
+    await waitFor(() => expect(textarea).toHaveValue("Existing prompt recognized words"));
+    expect(await screen.findByRole("button", { name: "Start dictation" })).toHaveAttribute("data-voice-state", "idle");
+    expect(transcribeMock).toHaveBeenCalledTimes(1);
+    expect(generateMock).not.toHaveBeenCalled();
+    expect(createMock).not.toHaveBeenCalled();
+  });
+
+  it("shows provider status and billing guidance for HTTP 402 transcription failures", async () => {
+    transcribeMock.mockRejectedValue("VOICE_STT_HTTP_402");
+    Object.defineProperty(navigator, "mediaDevices", { configurable: true, value: { getUserMedia: vi.fn().mockResolvedValue({ getTracks: () => [{ stop: vi.fn() }] }) } });
+    class FakeRecorder {
+      static isTypeSupported = () => true;
+      state: RecordingState = "inactive";
+      mimeType = "audio/webm";
+      ondataavailable: ((event: BlobEvent) => void) | null = null;
+      onstop: (() => void) | null = null;
+      constructor(_stream: MediaStream, _options?: MediaRecorderOptions) {}
+      start() { this.state = "recording"; }
+      stop() { this.state = "inactive"; this.ondataavailable?.({ data: new Blob(["synthetic audio"]) } as BlobEvent); this.onstop?.(); }
+    }
+    vi.stubGlobal("MediaRecorder", FakeRecorder);
+    render(<CreateTaskPage />);
+    fireEvent.click(screen.getByRole("button", { name: "Create task" }));
+    await waitFor(() => expect(getAiSettingsMock).toHaveBeenCalled());
+    await act(async () => emitAppEvent(APP_EVENT.aiSettingsChanged, selectedVoiceSettings));
+    fireEvent.click(await screen.findByRole("button", { name: "Start dictation" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Stop dictation" }));
+
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("HTTP 402");
+    expect(alert).toHaveTextContent("balance and spending limit");
+    expect(generateMock).not.toHaveBeenCalled();
+    expect(createMock).not.toHaveBeenCalled();
+  });
+
+  it("shows a specific microphone message when exact capture is unavailable", async () => {
+    const getUserMedia = vi.fn().mockRejectedValue(Object.assign(new Error("not found"), { name: "NotFoundError" }));
+    Object.defineProperty(navigator, "mediaDevices", { configurable: true, value: { getUserMedia } });
+    render(<CreateTaskPage />);
+    fireEvent.click(screen.getByRole("button", { name: "Create task" }));
+    await waitFor(() => expect(getAiSettingsMock).toHaveBeenCalled());
+    await act(async () => emitAppEvent(APP_EVENT.aiSettingsChanged, selectedVoiceSettings));
+    fireEvent.click(await screen.findByRole("button", { name: "Start dictation" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("The selected microphone is unavailable.");
+    expect(getUserMedia).toHaveBeenCalledTimes(1);
+    expect(getUserMedia).toHaveBeenCalledWith({ audio: { deviceId: { exact: "synthetic-device-1" } } });
+  });
+
+  it("stops acquired tracks when MediaRecorder setup fails", async () => {
+    const stop = vi.fn();
+    Object.defineProperty(navigator, "mediaDevices", { configurable: true, value: { getUserMedia: vi.fn().mockResolvedValue({ getTracks: () => [{ stop }] }) } });
+    class BrokenRecorder {
+      static isTypeSupported = () => { throw new Error("unsupported"); };
+    }
+    vi.stubGlobal("MediaRecorder", BrokenRecorder);
+    render(<CreateTaskPage />);
+    fireEvent.click(screen.getByRole("button", { name: "Create task" }));
+    await waitFor(() => expect(getAiSettingsMock).toHaveBeenCalled());
+    await act(async () => emitAppEvent(APP_EVENT.aiSettingsChanged, selectedVoiceSettings));
+    fireEvent.click(await screen.findByRole("button", { name: "Start dictation" }));
+    expect(await screen.findByRole("alert")).toBeInTheDocument();
+    expect(stop).toHaveBeenCalledTimes(1);
+  });
+
   it("requires confirmation and a fresh operation key before retrying an uncertain creation", async () => {
     generateMock.mockResolvedValue({ summary: "Example task", description: "Example description" });
     createMock

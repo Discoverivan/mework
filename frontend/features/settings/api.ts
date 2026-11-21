@@ -10,6 +10,7 @@ import type {
   AiCliProviderId,
   AiSettingsPageData,
   OpenAiCompatibleProviderSaveInput,
+  VoiceProvider,
   IntegrationDeleteInput,
   IntegrationHealthCheckInput,
   IntegrationRedacted,
@@ -129,6 +130,11 @@ export const saveAiActionSettings = (scope: AiActionSettingsScope, settings: AiS
 
 export const saveOpenAiCompatibleProvider = (input: OpenAiCompatibleProviderSaveInput) =>
   invoke<AiSettingsPageData>("ai_openai_compatible_save", { request: input }).then(cacheMutatedAiSettings);
+
+export const addVoiceProvider = (request: { kind: VoiceProvider["kind"]; baseUrl?: string; model?: string; apiKey?: string }) =>
+  invoke<AiSettingsPageData>("voice_provider_add", { request }).then(cacheMutatedAiSettings);
+export const deleteVoiceProvider = (id: string) =>
+  invoke<AiSettingsPageData>("voice_provider_delete", { id }).then(cacheMutatedAiSettings);
 
 export const addAiCliProvider = (provider: AiCliProviderId) =>
   invoke<AiSettingsPageData>("ai_provider_add", { provider }).then(cacheMutatedAiSettings);

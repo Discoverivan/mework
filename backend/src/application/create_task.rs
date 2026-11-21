@@ -1482,6 +1482,8 @@ mod tests {
         let settings = AiSettings {
             provider: Some(AiProviderId::ClaudeCodeCli),
             provider_instance_id: None,
+            voice_provider_instance_id: None,
+            microphone_device_id: None,
             model: "sonnet".to_owned(),
             reasoning: AiReasoning::Medium,
             fast_mode: false,
@@ -1568,6 +1570,8 @@ echo {"type":"turn.completed","usage":{"input_tokens":40,"cached_input_tokens":1
         let settings = AiSettings {
             provider: Some(AiProviderId::CodexCli),
             provider_instance_id: None,
+            voice_provider_instance_id: None,
+            microphone_device_id: None,
             model: "gpt-5.5".to_owned(),
             reasoning: AiReasoning::Medium,
             fast_mode: false,

@@ -355,6 +355,11 @@
   border-color: var(--app-action-color);
 }
 
+/* Borderless Filled text inputs use a distinct control surface to avoid blending into the page. */
+:root[data-button-style="filled_borderless"] input.app-control-border {
+  background: var(--control-background, var(--secondary)) !important;
+}
+
 /* Borderless appearance also applies to panel headings. */
 :root[data-panel-style="borderless"] :is(header, [data-card-header-variant]) {
   border-color: transparent !important;

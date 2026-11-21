@@ -4,7 +4,7 @@ import { resolve } from "node:path";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { addAiCliProvider, deleteAiProvider, deleteIntegration, getAiSettings, getCachedAiSettings, inspectAiCliProvider, listIntegrations, refreshAiProvider, refreshIntegrationHealth, saveAiActionSettings, saveIntegration, saveOpenAiCompatibleProvider } from "./api";
+import { addAiCliProvider, addVoiceProvider, deleteAiProvider, deleteIntegration, getAiSettings, getCachedAiSettings, inspectAiCliProvider, listIntegrations, refreshAiProvider, refreshIntegrationHealth, saveAiActionSettings, saveIntegration, saveOpenAiCompatibleProvider } from "./api";
 import { getPromptSettings } from "./prompts/api";
 import { copyAiSection } from "./action-settings-drafts";
 import type { AiSettings, PromptSettings } from "@/shared/contracts/settings";
@@ -15,6 +15,8 @@ vi.mock("./api", () => ({
   deleteIntegration: vi.fn(),
   deleteAiProvider: vi.fn(),
   addAiCliProvider: vi.fn(),
+  addVoiceProvider: vi.fn(),
+  deleteVoiceProvider: vi.fn(),
   inspectAiCliProvider: vi.fn(),
   getAiSettings: vi.fn(),
   getCachedAiSettings: vi.fn().mockReturnValue(null),
@@ -42,6 +44,7 @@ vi.mock("./planning-projects/api", () => ({
 const getAiSettingsMock = vi.mocked(getAiSettings);
 const refreshAiProviderMock = vi.mocked(refreshAiProvider);
 const addAiCliProviderMock = vi.mocked(addAiCliProvider);
+const addVoiceProviderMock = vi.mocked(addVoiceProvider);
 const inspectAiCliProviderMock = vi.mocked(inspectAiCliProvider);
 const deleteAiProviderMock = vi.mocked(deleteAiProvider);
 const deleteIntegrationMock = vi.mocked(deleteIntegration);
@@ -123,6 +126,122 @@ describe("SettingsPage integrations smoke tests", () => {
     saveIntegrationMock.mockResolvedValue({ status: "saved", integration: jiraIntegration });
   });
 
+  it("loads microphone inventory when AI settings open without refreshing on selector open", async () => {
+    Element.prototype.scrollIntoView = vi.fn();
+    const pendingEnumerations: Array<(devices: MediaDeviceInfo[]) => void> = [];
+    const enumerateDevices = vi.fn(() => new Promise<MediaDeviceInfo[]>((resolve) => pendingEnumerations.push(resolve)));
+    Object.defineProperty(navigator, "mediaDevices", { configurable: true, value: { enumerateDevices } });
+    render(<SettingsPage section="ai" />);
+    const microphone = await screen.findByRole("combobox", { name: "Microphone" });
+    await waitFor(() => expect(enumerateDevices).toHaveBeenCalledTimes(1));
+    expect(microphone).toHaveAttribute("aria-busy", "true");
+    expect(microphone.querySelector("svg.animate-spin")).toBeInTheDocument();
+    const microphoneField = microphone.closest('[data-slot="control-field"]') as HTMLElement;
+    const loadingStatus = within(microphoneField).getByRole("status");
+    expect(loadingStatus).toHaveTextContent("Refreshing microphones");
+    expect(loadingStatus).toHaveClass("sr-only");
+    expect(microphoneField.querySelector("p[role=\"status\"]")).toBeNull();
+    await act(async () => { pendingEnumerations[0]([{ kind: "audioinput", deviceId: "fresh-device", label: "Fresh microphone" } as MediaDeviceInfo]); });
+    expect(microphone).toHaveAttribute("aria-busy", "false");
+    fireEvent.click(microphone);
+    expect(await screen.findByRole("option", { name: "System Default" })).toBeInTheDocument();
+    expect(await screen.findByRole("option", { name: "Fresh microphone" })).toBeInTheDocument();
+    expect(enumerateDevices).toHaveBeenCalledTimes(1);
+  });
+
+  it("requests microphone permission when AI settings open and the initial enumeration has no devices", async () => {
+    Element.prototype.scrollIntoView = vi.fn();
+    const stop = vi.fn();
+    const enumerateDevices = vi.fn()
+      .mockResolvedValueOnce([])
+      .mockResolvedValue([{ kind: "audioinput", deviceId: "permission-device", label: "Authorized microphone" } as MediaDeviceInfo]);
+    const getUserMedia = vi.fn().mockResolvedValue({ getTracks: () => [{ stop }] });
+    Object.defineProperty(navigator, "mediaDevices", { configurable: true, value: { enumerateDevices, getUserMedia } });
+    render(<SettingsPage section="ai" />);
+    const microphone = await screen.findByRole("combobox", { name: "Microphone" });
+    await waitFor(() => expect(getUserMedia).toHaveBeenCalledWith({ audio: true }));
+    expect(enumerateDevices).toHaveBeenCalledTimes(2);
+    expect(stop).toHaveBeenCalled();
+    fireEvent.click(microphone);
+    expect(await screen.findByRole("option", { name: "Authorized microphone" })).toBeInTheDocument();
+    expect(enumerateDevices).toHaveBeenCalledTimes(2);
+  });
+
+  it("persists System Default when a successful inventory no longer contains the saved microphone", async () => {
+    const initialData = { ...codexAiSettings, settings: { ...codexAiSettings.settings, microphoneDeviceId: "removed-device" } };
+    getAiSettingsMock.mockResolvedValue(initialData);
+    saveAiActionSettingsMock.mockImplementation(async (_scope, settings) => ({ ai: { ...initialData, settings }, prompt: null }));
+    Object.defineProperty(navigator, "mediaDevices", { configurable: true, value: {
+      enumerateDevices: vi.fn().mockResolvedValue([{ kind: "audioinput", deviceId: "current-device", label: "Current microphone" } as MediaDeviceInfo]),
+    } });
+
+    render(<SettingsPage section="ai" />);
+
+    await waitFor(() => expect(saveAiActionSettingsMock).toHaveBeenCalledWith(
+      "default",
+      expect.objectContaining({ microphoneDeviceId: null }),
+      null,
+    ));
+  });
+
+  it("keeps the saved microphone when permission denial prevents a reliable inventory", async () => {
+    const initialData = { ...codexAiSettings, settings: { ...codexAiSettings.settings, microphoneDeviceId: "saved-device" } };
+    getAiSettingsMock.mockResolvedValue(initialData);
+    Object.defineProperty(navigator, "mediaDevices", { configurable: true, value: {
+      enumerateDevices: vi.fn().mockResolvedValue([]),
+      getUserMedia: vi.fn().mockRejectedValue(Object.assign(new Error("Permission denied"), { name: "NotAllowedError" })),
+    } });
+
+    render(<SettingsPage section="ai" />);
+    await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("Microphone permission was denied"));
+
+    expect(saveAiActionSettingsMock).not.toHaveBeenCalled();
+  });
+
+  it("adds a voice provider and saves the independent default voice selection", async () => {
+    const voiceData = { ...codexAiSettings, settings: { ...codexAiSettings.settings, microphoneDeviceId: null }, voiceProviders: [{ id: "voice-example", kind: "openai-compatible" as const, name: "OpenAI Compatible", baseUrl: "http://127.0.0.1:8081/v1", model: "example-model", hasApiKey: false }] };
+    addVoiceProviderMock.mockResolvedValue(voiceData);
+    saveAiActionSettingsMock.mockImplementation(async (_scope, settings) => ({ ai: { ...voiceData, settings }, prompt: null }));
+    Element.prototype.scrollIntoView = vi.fn();
+    const stop = vi.fn();
+    Object.defineProperty(navigator, "mediaDevices", { configurable: true, value: { getUserMedia: vi.fn().mockResolvedValue({ getTracks: () => [{ stop }] }), enumerateDevices: vi.fn().mockResolvedValueOnce([{ kind: "audioinput", deviceId: "synthetic-device", label: "" }]).mockResolvedValue([{ kind: "audioinput", deviceId: "synthetic-device", label: "Synthetic microphone" }]) } });
+    render(<SettingsPage section="ai" />);
+    await waitFor(() => expect(getAiSettingsMock).toHaveBeenCalled());
+    const retries = screen.getByLabelText("Retries");
+    const voiceProvider = screen.getByRole("combobox", { name: "Voice provider" });
+    const microphone = screen.getByRole("combobox", { name: "Microphone" });
+    expect(retries.compareDocumentPosition(voiceProvider) & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(0);
+    expect(voiceProvider.compareDocumentPosition(microphone) & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(0);
+    const voiceAndMicrophoneRow = voiceProvider.closest('[data-slot="control-field"]')?.parentElement;
+    expect(voiceAndMicrophoneRow).toBe(microphone.closest('[data-slot="control-field"]')?.parentElement);
+    expect(voiceAndMicrophoneRow).toHaveClass("basis-full");
+    fireEvent.click(screen.getByRole("combobox", { name: "Provider types" }));
+    fireEvent.click(screen.getByRole("option", { name: "Voice" }));
+    const addVoice = screen.getByRole("button", { name: "Add voice provider" });
+    fireEvent.pointerDown(addVoice, { button: 0, ctrlKey: false });
+    fireEvent.click(addVoice);
+    fireEvent.click(await screen.findByRole("menuitem", { name: "GPT Transcribe" }));
+    expect(screen.getByLabelText("API key")).toBeRequired();
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    fireEvent.pointerDown(addVoice, { button: 0, ctrlKey: false });
+    fireEvent.click(addVoice);
+    fireEvent.click(await screen.findByRole("menuitem", { name: "OpenAI Compatible" }));
+    fireEvent.change(screen.getByLabelText("Base URL"), { target: { value: "http://127.0.0.1:8081/v1" } });
+    fireEvent.change(document.getElementById("voice-model")!, { target: { value: "example-model" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(addVoiceProviderMock).toHaveBeenCalledWith(expect.objectContaining({ kind: "openai-compatible", apiKey: "" })));
+    fireEvent.click(screen.getByRole("combobox", { name: "Voice provider" }));
+    fireEvent.click(screen.getByRole("option", { name: "OpenAI Compatible" }));
+    fireEvent.click(defaultAiSettings().getByRole("combobox", { name: "Microphone" }));
+    expect(await screen.findByRole("option", { name: "System Default" })).toBeInTheDocument();
+    expect(await screen.findByRole("option", { name: "Synthetic microphone" })).toBeInTheDocument();
+    expect(screen.queryByRole("option", { name: "Saved microphone is unavailable" })).not.toBeInTheDocument();
+    expect(await waitFor(() => expect(stop).toHaveBeenCalled()));
+    fireEvent.click(screen.getByRole("option", { name: "Synthetic microphone" }));
+    await saveSection("Defaults");
+    expect(saveAiActionSettingsMock).toHaveBeenCalledWith("default", expect.objectContaining({ voiceProviderInstanceId: "voice-example", microphoneDeviceId: "synthetic-device" }), null);
+  });
+
   it("stages, cancels and saves a review section without saving neighboring drafts", async () => {
     const providers = [
       { id: "codex-cli" as const, name: "Codex CLI", status: "connected" as const, available: true, models: ["example-review-model"] },
@@ -149,7 +268,7 @@ describe("SettingsPage integrations smoke tests", () => {
       fireEvent.click(screen.getByRole("option", { name: label }));
     }
     const review = within(screen.getByRole("region", { name: "Pull request review" }));
-    function expectCompactGaps(section: HTMLElement, modelLabel = "Model") {
+    function expectCompactGaps(section: HTMLElement, modelLabel = "Model", includeVoiceProvider = false) {
       const css = readFileSync(resolve(import.meta.dirname, "../../index.css"), "utf8");
       const style = document.createElement("style");
       style.textContent = css.slice(css.indexOf(".app-icon-button,"));
@@ -157,7 +276,8 @@ describe("SettingsPage integrations smoke tests", () => {
       const previousStyle = document.documentElement.dataset.buttonStyle;
       try {
         document.documentElement.dataset.buttonStyle = "filled";
-        for (const field of ["AI provider", modelLabel, "Output tokens", "Request timeout", "Retries"]) {
+        const fields = ["AI provider", modelLabel, "Output tokens", "Request timeout", ...(includeVoiceProvider ? ["Voice provider"] : []), "Retries"];
+        for (const field of fields) {
           const control = within(section).getByRole(field === "Request timeout" || field === "Retries" ? "textbox" : "combobox", { name: field });
           let group = control.closest('[data-slot="control-field"]')!.parentElement!;
           // display:contents wrappers do not own the actual flex layout gap.
@@ -170,7 +290,12 @@ describe("SettingsPage integrations smoke tests", () => {
         else document.documentElement.dataset.buttonStyle = previousStyle;
       }
     }
-    expectCompactGaps(screen.getByRole("region", { name: "Defaults" }));
+    const defaultsRegion = screen.getByRole("region", { name: "Defaults" });
+    expectCompactGaps(defaultsRegion, "Model", true);
+    const outputTokens = within(defaultsRegion).getByRole("combobox", { name: "Output tokens" });
+    const voiceProvider = within(defaultsRegion).getByRole("combobox", { name: "Voice provider" });
+    expect(outputTokens.compareDocumentPosition(voiceProvider) & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(0);
+    expect(voiceProvider.closest('[data-slot="control-field"]')).toHaveClass("basis-[calc(50%-0.5rem)]");
     const reviewHeader = screen.getByRole("heading", { name: "Pull request review" }).closest("header");
     expect(within(reviewHeader!).getAllByRole("button").map((button) => button.getAttribute("aria-label") ?? button.textContent))
       .toEqual(["Advanced settings", "Cancel", "Save"]);

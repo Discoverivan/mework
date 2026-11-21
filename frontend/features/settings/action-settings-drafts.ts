@@ -5,6 +5,8 @@ export const ACTION_SETTINGS_SCOPES: AiActionSettingsScope[] = ["default", "pull
 export function copyAiSection(target: AiSettings, source: AiSettings, scope: AiActionSettingsScope): AiSettings {
   if (scope === "default") return {
     ...target, provider: source.provider, providerInstanceId: source.providerInstanceId ?? null,
+    voiceProviderInstanceId: source.voiceProviderInstanceId ?? null,
+    microphoneDeviceId: source.microphoneDeviceId ?? null,
     model: source.model, reasoning: source.reasoning, fastMode: source.fastMode,
     execution: source.execution ?? DEFAULT_AI_EXECUTION,
     retries: { ...target.retries, default: source.retries.default },

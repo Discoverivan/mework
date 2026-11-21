@@ -104,6 +104,10 @@ pub struct AiSettings {
     pub provider: Option<AiProviderId>,
     #[serde(default)]
     pub provider_instance_id: Option<String>,
+    #[serde(default)]
+    pub voice_provider_instance_id: Option<String>,
+    #[serde(default)]
+    pub microphone_device_id: Option<String>,
     pub model: String,
     pub reasoning: AiReasoning,
     pub fast_mode: bool,
@@ -329,6 +333,8 @@ impl Default for AiSettings {
         Self {
             provider: None,
             provider_instance_id: None,
+            voice_provider_instance_id: None,
+            microphone_device_id: None,
             model: String::new(),
             reasoning: AiReasoning::Medium,
             fast_mode: false,
@@ -377,6 +383,7 @@ pub struct AiProviderDto {
 pub struct AiSettingsPageDto {
     pub settings: AiSettings,
     pub providers: Vec<AiProviderDto>,
+    pub voice_providers: Vec<super::voice::VoiceProviderDto>,
 }
 
 pub async fn initialize_mock_cli_providers(pool: &SqlitePool) -> Result<(), String> {
@@ -560,6 +567,8 @@ fn apply_action_settings(
         AiSettingsScope::Default => {
             saved.provider = draft.provider;
             saved.provider_instance_id = draft.provider_instance_id;
+            saved.voice_provider_instance_id = draft.voice_provider_instance_id;
+            saved.microphone_device_id = draft.microphone_device_id;
             saved.model = draft.model;
             saved.reasoning = draft.reasoning;
             saved.fast_mode = draft.fast_mode;
@@ -665,6 +674,7 @@ pub async fn save_action_settings(
     apply_action_settings(&mut settings, request.settings, request.scope)?;
     validate_setting_values(&settings)?;
     validate_changed_selections(&settings, &previous, &page.providers)?;
+    validate_voice_selection(&settings, &page.voice_providers)?;
     let raw =
         serde_json::to_string(&settings).map_err(|_| "Failed to prepare AI settings".to_owned())?;
     repositories::upsert_setting(
@@ -876,6 +886,7 @@ pub async fn dto(pool: &SqlitePool) -> Result<AiSettingsPageDto, String> {
     Ok(AiSettingsPageDto {
         settings,
         providers,
+        voice_providers: super::voice::list(pool).await?,
     })
 }
 
@@ -1305,7 +1316,8 @@ async fn validate_settings(
 ) -> Result<(), AiSettingsSaveError> {
     validate_setting_values(settings)?;
     let page = dto(pool).await?;
-    validate_changed_selections(settings, &page.settings, &page.providers)
+    validate_changed_selections(settings, &page.settings, &page.providers)?;
+    validate_voice_selection(settings, &page.voice_providers)
 }
 
 fn validate_setting_values(settings: &AiSettings) -> Result<(), AiSettingsSaveError> {
@@ -1439,6 +1451,20 @@ fn validate_changed_selections(
                 .map_err(|field| AiSettingsSaveError::field(scope, field))?;
             }
         }
+    }
+    Ok(())
+}
+
+fn validate_voice_selection(
+    settings: &AiSettings,
+    providers: &[super::voice::VoiceProviderDto],
+) -> Result<(), AiSettingsSaveError> {
+    if settings
+        .voice_provider_instance_id
+        .as_ref()
+        .is_some_and(|id| !providers.iter().any(|provider| &provider.id == id))
+    {
+        return Err("Selected voice provider is unavailable".to_owned().into());
     }
     Ok(())
 }
@@ -2561,6 +2587,8 @@ mod tests {
         let settings = AiSettings {
             provider: Some(AiProviderId::CodexCli),
             provider_instance_id: None,
+            voice_provider_instance_id: None,
+            microphone_device_id: None,
             model: "example-model".to_owned(),
             reasoning: AiReasoning::Medium,
             fast_mode: false,
@@ -2671,6 +2699,33 @@ mod tests {
     }
 
     #[test]
+    fn microphone_selection_is_default_scoped_and_nullable() {
+        let mut saved = AiSettings::default();
+        let mut draft = saved.clone();
+        draft.microphone_device_id = Some("synthetic-device".to_owned());
+        super::apply_action_settings(&mut saved, draft.clone(), super::AiSettingsScope::Default)
+            .unwrap();
+        assert_eq!(
+            saved.microphone_device_id.as_deref(),
+            Some("synthetic-device")
+        );
+        draft.microphone_device_id = Some("other-device".to_owned());
+        super::apply_action_settings(
+            &mut saved,
+            draft.clone(),
+            super::AiSettingsScope::TaskCreation,
+        )
+        .unwrap();
+        assert_eq!(
+            saved.microphone_device_id.as_deref(),
+            Some("synthetic-device")
+        );
+        draft.microphone_device_id = None;
+        super::apply_action_settings(&mut saved, draft, super::AiSettingsScope::Default).unwrap();
+        assert_eq!(saved.microphone_device_id, None);
+    }
+
+    #[test]
     fn selects_activity_override_and_keeps_legacy_settings_compatible() {
         let legacy: AiSettings = serde_json::from_str(
             r#"{"provider":"codex-cli","model":"example-model","reasoning":"medium","fastMode":false}"#,
@@ -2679,10 +2734,17 @@ mod tests {
         assert!(legacy.task_creation.is_none());
         assert!(legacy.pull_request_review.is_none());
         assert!(legacy.sprint_summary.is_none());
+        assert_eq!(legacy.microphone_device_id, None);
+        assert_eq!(
+            serde_json::to_value(&legacy).unwrap()["microphoneDeviceId"],
+            serde_json::Value::Null
+        );
 
         let settings = AiSettings {
             provider: Some(AiProviderId::CodexCli),
             provider_instance_id: None,
+            voice_provider_instance_id: None,
+            microphone_device_id: None,
             model: "example-model".to_owned(),
             reasoning: AiReasoning::Medium,
             fast_mode: false,
@@ -2769,6 +2831,8 @@ mod tests {
         let settings = AiSettings {
             provider: Some(AiProviderId::CodexCli),
             provider_instance_id: None,
+            voice_provider_instance_id: None,
+            microphone_device_id: None,
             model: "gpt-5.5".to_owned(),
             reasoning: AiReasoning::High,
             fast_mode: true,
