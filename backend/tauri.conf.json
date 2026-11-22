@@ -31,7 +31,9 @@
     "targets": "all",
     "createUpdaterArtifacts": true,
     "resources": {
-      "src/os/app_badge_font_license.txt": "licenses/app-badge-font-OFL.txt"
+      "src/os/app_badge_font_license.txt": "licenses/app-badge-font-OFL.txt",
+      "macos/en.lproj/InfoPlist.strings": "en.lproj/InfoPlist.strings",
+      "macos/ru.lproj/InfoPlist.strings": "ru.lproj/InfoPlist.strings"
     },
     "icon": [
       "icons/32x32.png",

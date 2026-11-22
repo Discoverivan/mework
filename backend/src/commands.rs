@@ -11,6 +11,7 @@ pub mod developer;
 pub mod general;
 pub mod inbox;
 pub mod integrations;
+pub mod microphone;
 pub mod planning;
 pub mod presenter;
 pub mod settings;
