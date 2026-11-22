@@ -3,6 +3,7 @@ pub mod app_icon;
 pub mod autostart;
 #[cfg(all(desktop, any(debug_assertions, target_os = "macos")))]
 pub mod menu;
+pub mod microphone;
 pub mod notifications;
 pub mod single_instance;
 #[cfg(test)]

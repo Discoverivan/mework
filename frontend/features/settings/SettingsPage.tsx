@@ -79,6 +79,15 @@ import { ManagedProjectsSettings } from "./planning-projects/ManagedProjectsSett
 import { GeneralSettingsPage } from "./general/GeneralSettingsPage";
 import { useI18n } from "@/i18n/context";
 import type { TranslationKey } from "@/i18n/locales/en";
+import { ensureMicrophonePermission, openMicrophoneSettings as openNativeMicrophoneSettings } from "@/shared/contracts/microphone-permissions";
+import type { MicrophonePermissionOutcome } from "@/shared/contracts/microphone-permissions";
+
+type MicrophoneInventoryResult = {
+  devices: MediaDeviceInfo[];
+  permissionDenied: boolean;
+  errorKey?: TranslationKey;
+  showSettingsAction?: boolean;
+};
 
 type IntegrationForm = {
   baseUrl: string;
@@ -320,12 +329,14 @@ export function SettingsPage({ section = "integrations", focusActivity, mockMode
   const [voiceError, setVoiceError] = useState<string | null>(null);
   const [microphones, setMicrophones] = useState<MediaDeviceInfo[]>([]);
   const [microphoneLoading, setMicrophoneLoading] = useState(false);
-  const [microphoneError, setMicrophoneError] = useState<string | null>(null);
+  const [microphoneError, setMicrophoneError] = useState<TranslationKey | null>(null);
+  const [microphoneShowSettingsAction, setMicrophoneShowSettingsAction] = useState(false);
   const [microphoneInventoryReady, setMicrophoneInventoryReady] = useState(false);
   const [microphonePermissionDenied, setMicrophonePermissionDenied] = useState(false);
   const [microphoneInventoryRevision, setMicrophoneInventoryRevision] = useState(0);
   const microphoneRequest = useRef(0);
-  const microphoneInventoryRequest = useRef<Promise<{ devices: MediaDeviceInfo[]; permissionDenied: boolean }> | null>(null);
+  const microphoneInventoryRequest = useRef<Promise<MicrophoneInventoryResult> | null>(null);
+  const microphoneNativePermission = useRef<MicrophonePermissionOutcome>("unsupported");
   const microphoneResetAttempted = useRef<string | null>(null);
   const microphoneInventoryIsFresh = useRef(false);
   const microphoneMounted = useRef(true);
@@ -686,15 +697,29 @@ export function SettingsPage({ section = "integrations", focusActivity, mockMode
     setMicrophoneInventoryReady(false);
     setMicrophonePermissionDenied(false);
     setMicrophoneError(null);
-    let inventoryRequest: Promise<{ devices: MediaDeviceInfo[]; permissionDenied: boolean }> | null = null;
+    setMicrophoneShowSettingsAction(false);
+    let inventoryRequest: Promise<MicrophoneInventoryResult> | null = null;
     try {
       inventoryRequest = microphoneInventoryRequest.current;
       if (!inventoryRequest) {
+        microphoneNativePermission.current = "unsupported";
         inventoryRequest = (async () => {
+          const permission = await ensureMicrophonePermission();
+          microphoneNativePermission.current = permission;
+          if (permission !== "unsupported" && permission !== "authorized") {
+            const errorKey: TranslationKey = permission === "denied"
+              ? "settings.microphone.permissionDenied"
+              : permission === "restricted"
+                ? "settings.microphone.permissionRestricted"
+                : "settings.microphone.permissionUnavailable";
+            return { devices: [], permissionDenied: true, errorKey, showSettingsAction: true };
+          }
           if (!navigator.mediaDevices?.enumerateDevices) throw new Error("unavailable");
           let devices = await navigator.mediaDevices.enumerateDevices();
           const enumeratedAudioInputs = devices.filter((device) => device.kind === "audioinput");
           let permissionDenied = false;
+          let errorKey: TranslationKey | undefined;
+          let showSettingsAction = false;
           if (enumeratedAudioInputs.length === 0 || enumeratedAudioInputs.some((device) => !device.label.trim())) {
             if (!navigator.mediaDevices.getUserMedia) throw new Error("unavailable");
             let stream: MediaStream | undefined;
@@ -703,17 +728,22 @@ export function SettingsPage({ section = "integrations", focusActivity, mockMode
             } catch (error) {
               const errorName = error instanceof Error ? error.name : "";
               permissionDenied = errorName === "NotAllowedError" || errorName === "PermissionDeniedError";
-              if (!permissionDenied && errorName !== "NotFoundError") throw error;
+              if (permissionDenied && permission === "authorized") {
+                errorKey = "settings.microphone.webCaptureDenied";
+                showSettingsAction = true;
+              } else if (permissionDenied) {
+                errorKey = "settings.microphone.permissionDeniedGeneric";
+              } else if (errorName !== "NotFoundError") throw error;
             } finally {
               stream?.getTracks().forEach((track) => track.stop());
             }
             if (!permissionDenied) devices = await navigator.mediaDevices.enumerateDevices();
           }
-          return { devices, permissionDenied };
+          return { devices, permissionDenied, errorKey, showSettingsAction };
         })();
         microphoneInventoryRequest.current = inventoryRequest;
       }
-      const { devices, permissionDenied } = await inventoryRequest;
+      const { devices, permissionDenied, errorKey, showSettingsAction } = await inventoryRequest;
       if (!microphoneMounted.current || request !== microphoneRequest.current) return;
       const audioInputs = devices.filter((device) => device.kind === "audioinput" && device.deviceId.trim() && device.deviceId !== "default" && device.deviceId !== "__default__");
       setMicrophones(audioInputs);
@@ -721,19 +751,26 @@ export function SettingsPage({ section = "integrations", focusActivity, mockMode
       microphoneInventoryIsFresh.current = !permissionDenied;
       setMicrophoneInventoryReady(!permissionDenied);
       setMicrophoneInventoryRevision((current) => current + 1);
-      if (permissionDenied) setMicrophoneError(t("settings.microphone.permissionDenied"));
-      else if (audioInputs.length === 0) setMicrophoneError(t("settings.microphone.none"));
-    } catch {
+      setMicrophoneShowSettingsAction(showSettingsAction ?? false);
+      if (errorKey) setMicrophoneError(errorKey);
+      else if (audioInputs.length === 0) setMicrophoneError("settings.microphone.none");
+    } catch (error) {
       if (microphoneMounted.current && request === microphoneRequest.current) {
+        const errorName = error instanceof Error ? error.name : "";
+        const permissionDenied = errorName === "NotAllowedError" || errorName === "PermissionDeniedError";
         microphoneInventoryIsFresh.current = false;
-        setMicrophoneError(t("settings.microphone.error"));
+        setMicrophonePermissionDenied(permissionDenied);
+        setMicrophoneShowSettingsAction(permissionDenied && microphoneNativePermission.current === "authorized");
+        setMicrophoneError(permissionDenied
+          ? microphoneNativePermission.current === "authorized" ? "settings.microphone.webCaptureDenied" : "settings.microphone.permissionDeniedGeneric"
+          : "settings.microphone.error");
         setMicrophoneInventoryReady(false);
       }
     } finally {
       if (microphoneInventoryRequest.current === inventoryRequest) microphoneInventoryRequest.current = null;
       if (microphoneMounted.current && request === microphoneRequest.current) setMicrophoneLoading(false);
     }
-  }, [t]);
+  }, []);
 
   useEffect(() => {
     if (section !== "ai") return;
@@ -742,6 +779,13 @@ export function SettingsPage({ section = "integrations", focusActivity, mockMode
       microphoneRequest.current += 1;
       microphoneInventoryIsFresh.current = false;
     };
+  }, [refreshMicrophones, section]);
+
+  useEffect(() => {
+    if (section !== "ai") return;
+    const refreshOnFocus = () => void refreshMicrophones();
+    window.addEventListener("focus", refreshOnFocus);
+    return () => window.removeEventListener("focus", refreshOnFocus);
   }, [refreshMicrophones, section]);
 
   useEffect(() => {
@@ -780,7 +824,7 @@ export function SettingsPage({ section = "integrations", focusActivity, mockMode
         setAiFieldError(null);
       })
       .catch(() => {
-        setMicrophoneError(t("settings.microphone.saveError"));
+        setMicrophoneError("settings.microphone.saveError");
       })
       .finally(() => {
         setAiSavingScopes((current) => current.filter((scope) => scope !== "default"));
@@ -841,7 +885,16 @@ export function SettingsPage({ section = "integrations", focusActivity, mockMode
             </SelectContent>
           </Select>
           {microphoneLoading ? <span role="status" aria-live="polite" className="sr-only">{t("settings.microphone.loading")}</span> : null}
-          {microphoneError ? <p role="alert" className="text-xs text-destructive">{microphoneError}</p> : null}
+          {microphoneError ? <Alert variant="destructive" className="mt-2 p-3">
+            <AlertDescription className="flex flex-col gap-2 text-xs">
+              <span>{t(microphoneError)}</span>
+              {microphoneShowSettingsAction ? <Button type="button" variant="outline" size="sm" data-action-size="inline" onClick={() => {
+                void openNativeMicrophoneSettings().then((opened) => {
+                  if (!opened) setMicrophoneError("settings.microphone.openSettingsFailed");
+                });
+              }}>{t("settings.microphone.openSettings")}</Button> : null}
+            </AlertDescription>
+          </Alert> : null}
         </div>
       </div> : null}
       {controls?.inlineFields}

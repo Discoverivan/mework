@@ -8,6 +8,12 @@ import { getAiSettings } from "../settings/api";
 import type { AiSettings, AiSettingsPageData } from "@/shared/contracts/settings";
 import { APP_EVENT, emitAppEvent } from "@/app/app-events";
 import { clearTeamMembersStateForTests } from "../planning/team-members-state";
+import { ensureMicrophonePermission, openMicrophoneSettings } from "@/shared/contracts/microphone-permissions";
+
+vi.mock("@/shared/contracts/microphone-permissions", () => ({
+  ensureMicrophonePermission: vi.fn().mockResolvedValue("unsupported"),
+  openMicrophoneSettings: vi.fn().mockResolvedValue(true),
+}));
 
 vi.mock("./create-task-api", () => ({
   createJiraTask: vi.fn(),
@@ -54,6 +60,8 @@ const secondTeam = {
 beforeEach(() => {
   clearTeamMembersStateForTests();
   vi.clearAllMocks();
+  vi.mocked(ensureMicrophonePermission).mockResolvedValue("unsupported");
+  vi.mocked(openMicrophoneSettings).mockResolvedValue(true);
   getAiSettingsMock.mockResolvedValue(noVoiceSettings);
   window.localStorage.clear();
   window.location.hash = "";
@@ -100,11 +108,13 @@ describe("CreateTaskPage", () => {
     await waitFor(() => expect(getAiSettingsMock).toHaveBeenCalled());
     expect(screen.queryByRole("button", { name: "Start dictation" })).not.toBeInTheDocument();
     await act(async () => emitAppEvent(APP_EVENT.aiSettingsChanged, selectedVoiceSettings));
+    vi.mocked(ensureMicrophonePermission).mockResolvedValue("authorized");
     fireEvent.change(textarea, { target: { value: "Existing prompt " } });
     const startButton = await screen.findByRole("button", { name: "Start dictation" });
     expect(startButton).toHaveAttribute("data-voice-state", "idle");
     fireEvent.click(startButton);
     await waitFor(() => expect(navigator.mediaDevices.getUserMedia).toHaveBeenCalledWith({ audio: { deviceId: { exact: "synthetic-device-1" } } }));
+    expect(ensureMicrophonePermission).toHaveBeenCalledTimes(1);
     const stopButton = await screen.findByRole("button", { name: "Stop dictation" });
     expect(stopButton).toHaveAttribute("data-voice-state", "recording");
     expect(stopButton).toHaveClass("duration-300");
@@ -145,6 +155,41 @@ describe("CreateTaskPage", () => {
     expect(alert).toHaveTextContent("balance and spending limit");
     expect(generateMock).not.toHaveBeenCalled();
     expect(createMock).not.toHaveBeenCalled();
+  });
+
+  it("shows the macOS Settings path when native microphone permission is denied", async () => {
+    const getUserMedia = vi.fn();
+    vi.mocked(ensureMicrophonePermission).mockResolvedValue("denied");
+    Object.defineProperty(navigator, "mediaDevices", { configurable: true, value: { getUserMedia } });
+    render(<CreateTaskPage />);
+    fireEvent.click(screen.getByRole("button", { name: "Create task" }));
+    await waitFor(() => expect(getAiSettingsMock).toHaveBeenCalled());
+    await act(async () => emitAppEvent(APP_EVENT.aiSettingsChanged, selectedVoiceSettings));
+    fireEvent.click(await screen.findByRole("button", { name: "Start dictation" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("System Settings → Privacy & Security → Microphone");
+    fireEvent.click(screen.getByRole("button", { name: "Open Microphone Settings" }));
+    expect(openMicrophoneSettings).toHaveBeenCalledTimes(1);
+    expect(getUserMedia).not.toHaveBeenCalled();
+    expect(transcribeMock).not.toHaveBeenCalled();
+  });
+
+  it("cancelling while microphone permission is pending prevents capture from starting later", async () => {
+    let resolvePermission: ((status: "authorized") => void) | undefined;
+    vi.mocked(ensureMicrophonePermission).mockImplementation(() => new Promise((resolve) => { resolvePermission = resolve; }));
+    const getUserMedia = vi.fn();
+    Object.defineProperty(navigator, "mediaDevices", { configurable: true, value: { getUserMedia } });
+    render(<CreateTaskPage />);
+    fireEvent.click(screen.getByRole("button", { name: "Create task" }));
+    await waitFor(() => expect(getAiSettingsMock).toHaveBeenCalled());
+    await act(async () => emitAppEvent(APP_EVENT.aiSettingsChanged, selectedVoiceSettings));
+    fireEvent.click(await screen.findByRole("button", { name: "Start dictation" }));
+    await waitFor(() => expect(ensureMicrophonePermission).toHaveBeenCalledTimes(1));
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    await act(async () => { resolvePermission?.("authorized"); });
+
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(getUserMedia).not.toHaveBeenCalled();
   });
 
   it("shows a specific microphone message when exact capture is unavailable", async () => {

@@ -10,6 +10,12 @@ import { copyAiSection } from "./action-settings-drafts";
 import type { AiSettings, PromptSettings } from "@/shared/contracts/settings";
 import { SettingsPage } from "./SettingsPage";
 import { APP_EVENT, emitAppEvent } from "@/app/app-events";
+import { ensureMicrophonePermission, openMicrophoneSettings } from "@/shared/contracts/microphone-permissions";
+
+vi.mock("@/shared/contracts/microphone-permissions", () => ({
+  ensureMicrophonePermission: vi.fn().mockResolvedValue("unsupported"),
+  openMicrophoneSettings: vi.fn().mockResolvedValue(true),
+}));
 
 vi.mock("./api", () => ({
   deleteIntegration: vi.fn(),
@@ -124,6 +130,8 @@ describe("SettingsPage integrations smoke tests", () => {
     listIntegrationsMock.mockResolvedValue([]);
     deleteIntegrationMock.mockResolvedValue(undefined);
     saveIntegrationMock.mockResolvedValue({ status: "saved", integration: jiraIntegration });
+    vi.mocked(ensureMicrophonePermission).mockResolvedValue("unsupported");
+    vi.mocked(openMicrophoneSettings).mockResolvedValue(true);
   });
 
   it("loads microphone inventory when AI settings open without refreshing on selector open", async () => {
@@ -147,6 +155,42 @@ describe("SettingsPage integrations smoke tests", () => {
     expect(await screen.findByRole("option", { name: "System Default" })).toBeInTheDocument();
     expect(await screen.findByRole("option", { name: "Fresh microphone" })).toBeInTheDocument();
     expect(enumerateDevices).toHaveBeenCalledTimes(1);
+  });
+
+  it("checks native microphone permission before enumerating labeled devices", async () => {
+    Element.prototype.scrollIntoView = vi.fn();
+    const order: string[] = [];
+    vi.mocked(ensureMicrophonePermission).mockImplementation(async () => {
+      order.push("permission");
+      return "authorized";
+    });
+    const enumerateDevices = vi.fn(async () => {
+      order.push("inventory");
+      return [{ kind: "audioinput", deviceId: "authorized-device", label: "Authorized microphone" } as MediaDeviceInfo];
+    });
+    Object.defineProperty(navigator, "mediaDevices", { configurable: true, value: { enumerateDevices } });
+
+    render(<SettingsPage section="ai" />);
+    const microphone = await screen.findByRole("combobox", { name: "Microphone" });
+    await waitFor(() => expect(order).toEqual(["permission", "inventory"]));
+    fireEvent.click(microphone);
+    expect(await screen.findByRole("option", { name: "Authorized microphone" })).toBeInTheDocument();
+  });
+
+  it("shows macOS recovery guidance without clearing the saved microphone when access is denied", async () => {
+    const initialData = { ...codexAiSettings, settings: { ...codexAiSettings.settings, microphoneDeviceId: "saved-device" } };
+    getAiSettingsMock.mockResolvedValue(initialData);
+    vi.mocked(ensureMicrophonePermission).mockResolvedValue("denied");
+    const enumerateDevices = vi.fn();
+    Object.defineProperty(navigator, "mediaDevices", { configurable: true, value: { enumerateDevices } });
+
+    render(<SettingsPage section="ai" />);
+    expect(await screen.findByRole("alert")).toHaveTextContent("System Settings → Privacy & Security → Microphone");
+    fireEvent.click(screen.getByRole("button", { name: "Open Microphone Settings" }));
+
+    expect(openMicrophoneSettings).toHaveBeenCalledTimes(1);
+    expect(enumerateDevices).not.toHaveBeenCalled();
+    expect(saveAiActionSettingsMock).not.toHaveBeenCalled();
   });
 
   it("requests microphone permission when AI settings open and the initial enumeration has no devices", async () => {
@@ -193,7 +237,7 @@ describe("SettingsPage integrations smoke tests", () => {
     } });
 
     render(<SettingsPage section="ai" />);
-    await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("Microphone permission was denied"));
+    await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("Microphone access was denied"));
 
     expect(saveAiActionSettingsMock).not.toHaveBeenCalled();
   });

@@ -11,6 +11,8 @@ import { EmptyState } from "@/components/shared/EmptyState";
 import { useI18n } from "@/i18n/context";
 import type { TranslationKey } from "@/i18n/locales/en";
 import type { TranslationParams } from "@/i18n/types";
+import { ensureMicrophonePermission, openMicrophoneSettings } from "@/shared/contracts/microphone-permissions";
+import type { MicrophonePermissionOutcome } from "@/shared/contracts/microphone-permissions";
 import { CreateButton } from "@/components/shared/CreateButton";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -44,7 +46,7 @@ import "./create-task.css";
 
 const UNASSIGNED_VALUE = "__unassigned__";
 
-type VoiceErrorNotice = { key: TranslationKey; params?: TranslationParams };
+type VoiceErrorNotice = { key: TranslationKey; params?: TranslationParams; showMicrophoneSettings?: boolean };
 
 function voiceErrorMessage(error: unknown): string {
   if (typeof error === "string") return error;
@@ -78,9 +80,20 @@ function voiceErrorNotice(error: unknown): VoiceErrorNotice {
   return { key: "task.voice.transcriptionFailed" };
 }
 
-function microphoneErrorNotice(error: unknown): VoiceErrorNotice {
+function microphonePermissionNotice(permission: MicrophonePermissionOutcome): VoiceErrorNotice | null {
+  if (permission === "authorized" || permission === "unsupported") return null;
+  if (permission === "denied") return { key: "task.voice.macPermissionDenied", showMicrophoneSettings: true };
+  if (permission === "restricted") return { key: "task.voice.macPermissionRestricted", showMicrophoneSettings: true };
+  return { key: "task.voice.macPermissionUnavailable", showMicrophoneSettings: true };
+}
+
+function microphoneErrorNotice(error: unknown, permission: MicrophonePermissionOutcome): VoiceErrorNotice {
   const name = error instanceof Error ? error.name : "";
-  if (name === "NotAllowedError" || name === "PermissionDeniedError") return { key: "task.voice.permissionDenied" };
+  if (name === "NotAllowedError" || name === "PermissionDeniedError") {
+    return permission === "authorized"
+      ? { key: "task.voice.macWebCaptureDenied", showMicrophoneSettings: true }
+      : { key: "task.voice.permissionDenied" };
+  }
   if (name === "NotFoundError" || name === "OverconstrainedError") return { key: "task.voice.deviceUnavailable" };
   return { key: "task.voice.captureFailed" };
 }
@@ -393,12 +406,14 @@ export function CreateTaskPage() {
   const [prompt, setPrompt] = useState("");
   const [voiceRecording, setVoiceRecording] = useState(false);
   const [voiceTranscribing, setVoiceTranscribing] = useState(false);
+  const [voiceCapturePending, setVoiceCapturePending] = useState(false);
   const [voiceProviderConfigured, setVoiceProviderConfigured] = useState(() => hasConfiguredVoiceProvider(getCachedAiSettings()));
   const [microphoneDeviceId, setMicrophoneDeviceId] = useState<string | null>(() => getCachedAiSettings()?.settings.microphoneDeviceId ?? null);
   const [voiceError, setVoiceError] = useState<VoiceErrorNotice | null>(null);
   const recorderRef = useRef<MediaRecorder | null>(null);
   const voiceStreamRef = useRef<MediaStream | null>(null);
   const voiceRunRef = useRef(0);
+  const voiceCapturePendingRef = useRef(false);
   const voiceSettingsRevision = useRef(0);
   const [cards, setCards] = useState<TaskCard[]>(() => readPersistedCreateTaskState().cards);
   const [retryConfirmationCardId, setRetryConfirmationCardId] = useState<string>();
@@ -630,6 +645,7 @@ export function CreateTaskPage() {
       active = false;
       unsubscribe();
       voiceRunRef.current += 1;
+      voiceCapturePendingRef.current = false;
       recorderRef.current?.stop();
       voiceStreamRef.current?.getTracks().forEach((track) => track.stop());
     };
@@ -642,14 +658,20 @@ export function CreateTaskPage() {
       recorderRef.current = null;
       voiceStreamRef.current?.getTracks().forEach((track) => track.stop());
       voiceStreamRef.current = null;
+      voiceCapturePendingRef.current = false;
       setVoiceRecording(false);
       setVoiceTranscribing(false);
+      setVoiceCapturePending(false);
     }
   }, [voiceProviderConfigured]);
 
   function stopVoiceCapture(cancel = false) {
-    if (cancel) { voiceRunRef.current += 1; setVoiceTranscribing(false); }
-    else setVoiceTranscribing(true);
+    if (cancel) {
+      voiceRunRef.current += 1;
+      voiceCapturePendingRef.current = false;
+      setVoiceCapturePending(false);
+      setVoiceTranscribing(false);
+    } else setVoiceTranscribing(true);
     const recorder = recorderRef.current;
     recorderRef.current = null;
     if (recorder && recorder.state !== "inactive") recorder.stop();
@@ -661,10 +683,21 @@ export function CreateTaskPage() {
   async function toggleVoiceCapture() {
     setVoiceError(null);
     if (recorderRef.current?.state === "recording") { stopVoiceCapture(); return; }
+    if (voiceCapturePendingRef.current) return;
     const run = ++voiceRunRef.current;
+    voiceCapturePendingRef.current = true;
+    setVoiceCapturePending(true);
+    let permission: MicrophonePermissionOutcome = "unsupported";
     let stream: MediaStream | null = null;
     let recorder: MediaRecorder | null = null;
     try {
+      permission = await ensureMicrophonePermission();
+      if (run !== voiceRunRef.current) return;
+      const permissionNotice = microphonePermissionNotice(permission);
+      if (permissionNotice) {
+        setVoiceError(permissionNotice);
+        return;
+      }
       if (!navigator.mediaDevices?.getUserMedia) throw new Error("unavailable");
       stream = await navigator.mediaDevices.getUserMedia(microphoneDeviceId ? { audio: { deviceId: { exact: microphoneDeviceId } } } : { audio: true });
       if (run !== voiceRunRef.current) { stream.getTracks().forEach((track) => track.stop()); stream = null; return; }
@@ -699,8 +732,13 @@ export function CreateTaskPage() {
       if (voiceStreamRef.current === stream) voiceStreamRef.current = null;
       if (recorderRef.current === recorder) recorderRef.current = null;
       if (run === voiceRunRef.current) {
-        setVoiceError(microphoneErrorNotice(error));
+        setVoiceError(microphoneErrorNotice(error, permission));
         stopVoiceCapture(true);
+      }
+    } finally {
+      if (run === voiceRunRef.current) {
+        voiceCapturePendingRef.current = false;
+        setVoiceCapturePending(false);
       }
     }
   }
@@ -1068,19 +1106,29 @@ export function CreateTaskPage() {
                 <textarea autoComplete="off" id="task-description" className="create-task-textarea create-task-textarea--dialog pr-12" value={prompt} placeholder={t("task.describe")} autoFocus required onChange={(event) => setPrompt(event.target.value)} />
                 {voiceProviderConfigured ? <Button type="button" variant="outline" size="icon"
                   className={cn("absolute right-2 top-2 z-10 overflow-hidden transition-[width,border-radius] duration-300 ease-in-out motion-reduce:transition-none", voiceRecording ? "h-9 w-32 justify-between rounded-full px-2.5" : "h-9 w-9 justify-center rounded-md")}
-                  data-voice-state={voiceTranscribing ? "transcribing" : voiceRecording ? "recording" : "idle"}
-                  aria-label={voiceTranscribing ? t("task.voice.transcribing") : voiceRecording ? t("task.voice.stop") : t("task.voice.start")}
-                  title={voiceTranscribing ? t("task.voice.transcribing") : voiceRecording ? t("task.voice.stop") : t("task.voice.start")}
-                  onClick={() => void toggleVoiceCapture()} disabled={voiceTranscribing}>
-                  {voiceTranscribing ? <LoaderCircle className="animate-spin" aria-hidden="true" /> : voiceRecording ? <><AudioLines className="motion-safe:animate-pulse" data-icon="inline-start" aria-hidden="true" /><span>{t("task.voice.stop")}</span><Square data-icon="inline-end" aria-hidden="true" /></> : <Mic aria-hidden="true" />}
+                  data-voice-state={voiceCapturePending ? "checking-permission" : voiceTranscribing ? "transcribing" : voiceRecording ? "recording" : "idle"}
+                  aria-label={voiceCapturePending ? t("task.voice.permissionChecking") : voiceTranscribing ? t("task.voice.transcribing") : voiceRecording ? t("task.voice.stop") : t("task.voice.start")}
+                  title={voiceCapturePending ? t("task.voice.permissionChecking") : voiceTranscribing ? t("task.voice.transcribing") : voiceRecording ? t("task.voice.stop") : t("task.voice.start")}
+                  onClick={() => void toggleVoiceCapture()} disabled={voiceTranscribing || voiceCapturePending}>
+                  {voiceCapturePending || voiceTranscribing ? <LoaderCircle className="animate-spin" aria-hidden="true" /> : voiceRecording ? <><AudioLines className="motion-safe:animate-pulse" data-icon="inline-start" aria-hidden="true" /><span>{t("task.voice.stop")}</span><Square data-icon="inline-end" aria-hidden="true" /></> : <Mic aria-hidden="true" />}
                 </Button> : null}
-                {voiceError ? <p role="alert" className="mt-2 text-sm text-destructive">{t(voiceError.key, voiceError.params)}</p> : null}
+                {voiceError ? <Alert variant="destructive" className="mt-2 p-3">
+                  <AlertDescription className="flex flex-col gap-2">
+                    <span>{t(voiceError.key, voiceError.params)}</span>
+                    {voiceError.showMicrophoneSettings ? <Button type="button" variant="outline" size="sm" data-action-size="inline" onClick={() => {
+                      void openMicrophoneSettings().then((opened) => {
+                        if (!opened) setVoiceError({ key: "task.voice.openMicrophoneSettingsFailed", showMicrophoneSettings: true });
+                      });
+                    }}>{t("task.voice.openMicrophoneSettings")}</Button> : null}
+                  </AlertDescription>
+                </Alert> : null}
+                {voiceCapturePending ? <p role="status" className="mt-2 text-sm text-muted-foreground">{t("task.voice.permissionChecking")}</p> : null}
                 {voiceTranscribing ? <p role="status" className="mt-2 text-sm text-muted-foreground">{t("task.voice.transcribing")}</p> : null}
               </div>
             </form>
           </DialogBody>
           <DialogFooter>
-            <Button data-dialog-cancel type="button" variant="outline" onClick={() => setDialogOpen(false)}>{t("settings.common.cancel")}</Button>
+            <Button data-dialog-cancel type="button" variant="outline" onClick={() => { stopVoiceCapture(true); setDialogOpen(false); }}>{t("settings.common.cancel")}</Button>
             <Button type="submit" form="create-task-form" actionTone="add" disabled={!prompt.trim()}>
               <Sparkles aria-hidden="true" />
               {t("task.create")}
