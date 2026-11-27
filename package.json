@@ -36,16 +36,16 @@
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "date-fns": "^4.4.0",
-    "lucide-react": "^1.67.0",
+    "lucide-react": "^1.79.0",
     "mdast-util-from-markdown": "^2.1.0",
     "react": "^19.3.1",
     "react-day-picker": "^10.0.2",
     "react-dom": "^19.3.1",
     "react-markdown": "^10.1.0",
-    "recharts": "^3.10.1",
+    "recharts": "^3.11.1",
     "remark-breaks": "^4.0.0",
     "remark-gfm": "^4.0.1",
-    "tailwind-merge": "^3.7.0"
+    "tailwind-merge": "^3.7.1"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.3.4",
